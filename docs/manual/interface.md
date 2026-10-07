@@ -29,6 +29,12 @@ new-window control creates another window, normally in the current window's work
 makes it the current one. Background work that opens a window — an action run, a subagent — leaves
 the terminal you are looking at selected.
 
+A remote workspace that cannot be reached stays selectable in the workspace menu; the menu and
+the selected workspace's label suffix it **(Unavailable)**, while its retained changes, windows
+and subagent entries stay in the navigation column without a suffix of their own. Its last known
+data is what you see until it recovers (see
+[configuration](configuration.md#remote-workspaces-that-are-unavailable)).
+
 ## Settings
 
 The settings page edits the config file directly; [configuration](configuration.md) documents the
@@ -69,6 +75,15 @@ conversation beside it — send it a message, restart an interrupted turn, reope
 The selected subagent's own live terminal is shown there without moving the change's active
 terminal; a subagent with no live window shows a placeholder rather than another shell, and
 selecting one explicitly makes its window the active terminal. Returning to a view can show cached data while it refreshes.
+
+When the workspace a page shows is unavailable, one banner row sits above the content naming it
+and its reason, with **Retry now** and **Local settings**. Below it the retained data stays
+readable and read-only, under that banner: the overview cards and the change header carry the
+stale marker, and everything else — documents, cards, windows and subagent lists — keeps its last
+known state without a marker of its own. Nothing is emptied. A draft typed before the connection
+was lost is held (the plan and notes editors become read-only), and recovery does not itself save
+it: resuming the edit, or an explicit save, follows the normal save policy. The change's phase
+selector and the action menus are held back until it recovers.
 
 The terminal page's row offers an **Actions** menu: the actions that fit the window you are on —
 a prompt for the agent window you are looking at, a command for a plain shell — and then the

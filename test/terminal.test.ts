@@ -814,6 +814,13 @@ test.skipIf(!usable)("a terminal open in two windows is taken over, not frozen",
   await first.page.waitForSelector(".terminal-detached", { timeout: budget(30_000) });
   expect(await first.page.locator(".terminal-screen[data-attached]").count()).toBe(0);
 
+  // Detached is not ended: the pane says the terminal is open elsewhere and offers Take over,
+  // and it does not claim the shell is gone.
+  const note = ((await first.page.locator(".terminal-detached").textContent()) ?? "").replace(/\s+/g, " ").trim();
+  expect(note).toContain("open in another window");
+  expect(note).toContain("Take over");
+  expect(await first.page.locator(".terminal-gone").count()).toBe(0);
+
   // Take over on the first: it re-attaches, and the second is the one detached now.
   await first.page.getByRole("button", { name: "Take over" }).click();
   await first.page.waitForSelector(".terminal-screen[data-attached]", { timeout: budget(30_000) });

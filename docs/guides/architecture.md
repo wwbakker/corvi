@@ -176,6 +176,17 @@ when they have something — a WebSocket handshake has a deadline, and a mutatio
 total-duration bound at all (`src/gateway/server/timeouts.ts`). The bounds come from the
 entrypoint: an invalid or non-positive environment value falls back to the named default.
 
+The page side of the same ownership is one **availability owner per sources provider**
+(`apps/web/src/app-root/sourceOwner.ts`): it holds the map, re-reads the snapshot after its
+stream reconnects, and builds every remote client and wire on a gate that refuses a send unless
+that source is `available` (the local source is never gated). A capability is bound to the target
+**generation it was acquired for** and cached by `(source, generation)`, so an unmount flush or a
+queued window action that captured an old target is refused as `stale-target` without reaching
+the new one; the hooks re-acquire on a generation change, and the workspace wire's identity also
+changes on recovery so a page re-reads in place without a remount. The window store captures the
+generation for each read and queued action and passes it to the transport, so no isolation rule
+depends on the timing of a React effect.
+
 Because two servers can mint the same change id, the browser identifies a change by
 `(source, changeId)`: change lists are merged and tagged with their source, and change-scoped
 reads, writes and terminal sockets route to the owning source. The network type is unchanged — a

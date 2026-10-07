@@ -20,6 +20,21 @@ and tells the first window it has been taken over: the first keeps its last scre
 terminal is open in another window, and offers **Take over** — which re-attaches it and, in turn,
 detaches the second. This also covers two tabs on one machine; neither screen freezes silently.
 
+Detached is not ended, and ended is not detached: a taken-over pane says the terminal is open in
+another window and offers **Take over**, while a pane whose shell exited says only that this
+pane's shell ended. A socket that closes on its own is neither — it is a connection state that
+reconnects. The browser socket is not the shell: within one change, a hidden pane that stays
+mounted may keep its attachment (switching between the change's views generally does not
+reconnect it), but leaving the change or unmounting the pane can close the socket while the
+shells and the server-side screen survive in the host and are resumed on the next attach. An
+unavailable workspace or a retargeted target disconnects the pane; completing or cancelling a
+change explicitly ends the sessions it owns (see
+[completing a change](changes.md#completing-a-change)).
+
+A remote workspace's terminals are unavailable with it: the pane says the workspace cannot be
+reached, closes its browser connection, and typing goes nowhere until it recovers; the retained
+windows and their last screens stay listed. Recovery re-attaches in place, without a reload.
+
 A terminal that is starting or reconnecting says so; the pane does not claim the shells are lost.
 A shell that exits ends only its own pane and says that there — the other terminals in the change
 are unaffected. A slow startup or a temporarily unreachable server is a connection state, not a
