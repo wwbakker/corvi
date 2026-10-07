@@ -71,19 +71,24 @@ export interface SubagentsApi {
     body: SubagentSendRequestDto,
     idempotencyKey?: string,
   ) => Promise<SubagentMessageDto>
+  /** The latest reply, or with `turn` the reply that answers that explicit inbound turn (null
+   * when none has landed). Read-only: neither form consumes the reply. */
   readonly result: (
     changeId: ChangeId,
     id: string,
+    query?: { readonly turn?: number },
     options?: RequestOptions,
   ) => Promise<SubagentMessageDto | null>
-  /** Block until one of the subagents (all of them when `ids` is empty) can be processed — idle
-   * or waiting for input with nothing of the orchestrator's pending, or a reply already parked —
-   * or until the horizon answers `timeout`. */
+  /** Block until one of the subagents (all of them when `ids` is empty) can be processed, or until
+   * the horizon answers `timeout`. Each target answers with its own outcome, carrying the turn it
+   * concerns and, when a reply settled it, that reply's number. `turn` waits for one explicit
+   * inbound turn instead of each target's latest, and only a single named target accepts it. */
   readonly await: (
     changeId: ChangeId,
     query: {
       readonly ids?: readonly string[]
       readonly all?: boolean
+      readonly turn?: number
     },
     options?: RequestOptions,
   ) => Promise<SubagentAwaitResponseDto>
@@ -108,6 +113,8 @@ export const makeSubagentsApi = (send: Send): SubagentsApi => {
   // An idempotency key turns a retried write into the same request rather than a second one.
   const keyed = (idempotencyKey?: string): { headers?: Record<string, string> } =>
     idempotencyKey === undefined ? {} : { headers: { "idempotency-key": idempotencyKey } }
+  // The explicit turn target, as the `?turn=` the routes read.
+  const turnSuffix = (turn?: number): string => (turn === undefined ? "" : `?turn=${turn}`)
 
   return {
     files: async () =>
@@ -174,15 +181,16 @@ export const makeSubagentsApi = (send: Send): SubagentsApi => {
           ...keyed(idempotencyKey),
         }),
       ),
-    result: async (changeId, id, options) =>
+    result: async (changeId, id, query, options) =>
       decode(
         Schema.NullOr(SubagentMessageSchema),
-        await send("GET", `${instance(changeId, id)}/result`, options),
+        await send("GET", `${instance(changeId, id)}/result${turnSuffix(query?.turn)}`, options),
       ),
     await: async (changeId, query, options) => {
       const params = new URLSearchParams()
       for (const id of query.ids ?? []) params.append("id", id)
       if (query.all === true) params.set("all", "1")
+      if (query.turn !== undefined) params.set("turn", String(query.turn))
       const suffix = params.size > 0 ? `?${params.toString()}` : ""
       return decode(
         SubagentAwaitResponseSchema,

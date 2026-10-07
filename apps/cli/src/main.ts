@@ -17,6 +17,7 @@ import { pathToFileURL } from "node:url";
 import { ClientError, makeCorviClient, type CorviClient } from "@corvi/client";
 import type { CheckoutSpecDto, CreateChangeBodyDto, RepoStateDto } from "@corvi/contracts/api";
 import { ChangeId, type BranchPlan, type ChangePhase } from "@corvi/contracts/changes";
+import type { SubagentAwaitOutcomeDto } from "@corvi/contracts/subagents";
 
 import { boolFlag, isKnownFlag, parseArgs, stringFlag, type ParsedArgs } from "./args.ts";
 import { resolveChangeId } from "./change-context.ts";
@@ -67,9 +68,12 @@ usage: corvi [--json] [--change <id>] [--server <url>] <group> <command> [args]
   subagent send <id> "…"               append a message and deliver it as a turn
   subagent await [<id>…] [--any|--all]
                                        block until one (or all) can be processed
-  subagent result <id>                 the latest subagent message
+  subagent await <id> --turn <n>       block until that one named turn is settled
+  subagent result <id> [--turn <n>]    the latest subagent message, or turn n's reply
   subagent next --subagent <id>        extension-facing: await the next inbound message
-  subagent turn --subagent <id> "…"    extension-facing: relay a settled reply
+  subagent turn --subagent <id> [--in-reply-to <n>] "…"
+                                       extension-facing: relay a settled reply, naming the
+                                       inbound message it answers
 
 Each group prints its own usage: corvi change, corvi action, corvi subagent.
 
@@ -142,23 +146,27 @@ usage: corvi subagent <command> [args]
   open <id> | close <id>        presence only; never starts work
   send <id> "…"                 append a message and deliver it as a turn
   await [<id>…] [--any|--all]   block until one (or all) can be processed — idle or
-                                waiting for input, or a reply already waiting; after
-                                five minutes it answers timeout (exit 6), so you can
-                                check in on them and await again
-  result <id>                   the latest subagent message
+                                waiting for input, or a reply for the current turn;
+                                after five minutes it answers timeout (exit 6), so you
+                                can check in on them and await again
+  await <id> --turn <n>         block until that one named turn is settled
+  result <id> [--turn <n>]      the latest subagent message, or turn n's reply
 
 To delegate work:
 
   corvi subagent profile list
-  corvi subagent create global:reviewer --prompt "Review the plan and the diff"
-  corvi subagent await <id>     # until it can be processed (or its window is lost)
-  corvi subagent result <id>    # its answer
+  corvi subagent create global:reviewer --prompt "Review the plan and the diff"  # prints (message n)
+  corvi subagent send <id> "…"          # prints (message n): the turn to await
+  corvi subagent await <id> --turn <n>  # until turn n is settled (or its window is lost)
+  corvi subagent result <id> --turn <n> # the reply that answers turn n
+
+  Await the turn you sent; do not poll show/result with sleeps.
 
 A profile is one Markdown file (frontmatter: label, harness; body: the initial prompt).
 A repository profile is a file in the change's checkout — <checkout>/.corvi/subagents/<id>.md —
 written with --scope repository --repository <name> (or directly with your own tools).
 
-Extension-facing: next --subagent <id>, turn --subagent <id> "…".
+Extension-facing: next --subagent <id>, turn --subagent <id> [--in-reply-to <n>] "…".
 `,
 };
 
@@ -413,6 +421,17 @@ const actionCommand = async (
   }
 };
 
+/** One human line for an await outcome: ready names the turn and the reply that settled it, and
+ * lost and interrupted name the turn too when it is known. */
+const awaitOutcomeLine = (outcome: SubagentAwaitOutcomeDto): string => {
+  if (outcome.status !== "ready") {
+    return `${outcome.status} ${outcome.id}${outcome.turn === undefined ? "" : ` (turn ${outcome.turn})`}`;
+  }
+  if (outcome.reason !== "replied") return `ready ${outcome.id} (idle)`;
+  const turn = outcome.turn === undefined ? "" : `turn ${outcome.turn}, `;
+  return `ready ${outcome.id} (replied ${turn}reply ${outcome.reply ?? "?"})`;
+};
+
 const subagentCommand = async (
   client: CorviClient,
   changeId: string | undefined,
@@ -462,7 +481,7 @@ const subagentCommand = async (
         { profile, ...(prompt === undefined ? {} : { prompt }) },
         stringFlag(args, "idempotency-key"),
       );
-      emit(io, json, { value: instance, human: (value) => `created ${value.id}` });
+      emit(io, json, { value: instance, human: (value) => `created ${value.id} (message ${value.messages[0]?.number ?? "?"})` });
       return EXIT.ok;
     }
     case "open":
@@ -479,24 +498,38 @@ const subagentCommand = async (
       const text = named === undefined ? rest[1] : rest[0];
       if (text === undefined || text === "") throw new CliFailure("subagent send needs text", EXIT.usage);
       const message = await client.subagents.send(id, sub, { text }, stringFlag(args, "idempotency-key"));
-      emit(io, json, { value: message, human: () => `sent to ${sub}` });
+      emit(io, json, { value: message, human: () => `sent to ${sub} (message ${message.number})` });
       return EXIT.ok;
     }
     case "result": {
-      const message = await client.subagents.result(id, subId());
-      emit(io, json, { value: message, human: (value) => value?.body ?? "(no reply yet)" });
+      const turn = messageNumberFlag(args, "turn");
+      const message = await client.subagents.result(id, subId(), turn === undefined ? undefined : { turn });
+      emit(io, json, {
+        value: message,
+        human: (value) =>
+          value === null
+            ? turn === undefined
+              ? "(no reply yet)"
+              : `(no reply for turn ${turn} yet)`
+            : `${
+                value.inReplyTo === undefined
+                  ? `reply ${value.number}`
+                  : `reply ${value.number} (answers turn ${value.inReplyTo})`
+              }\n${value.body}`,
+      });
       return EXIT.ok;
     }
     case "await": {
-      const named = stringFlag(args, "subagent");
-      const positionalIds = rest.filter((one) => one !== "");
-      const ids = positionalIds.length > 0 ? positionalIds : named === undefined ? [] : [named];
-      const mode = boolFlag(args, "all") ? "all" : "any";
-      const result = await client.subagents.await(id, { ids, ...(mode === "all" ? { all: true } : {}) });
+      const target = awaitTarget(args);
+      const result = await client.subagents.await(id, {
+        ids: target.ids,
+        ...(target.mode === "all" ? { all: true } : {}),
+        ...(target.turn === undefined ? {} : { turn: target.turn }),
+      });
       emit(io, json, {
         value: result,
         human: (value) =>
-          `${value.status}${value.id === undefined ? "" : ` ${value.id}`}${value.awaitingReply ? " (reply waiting)" : ""}`,
+          value.outcomes.length === 0 ? value.status : value.outcomes.map(awaitOutcomeLine).join("\n"),
       });
       return result.status === "lost" || result.status === "interrupted"
         ? EXIT.lost
@@ -518,7 +551,18 @@ const subagentCommand = async (
       if (sub === undefined || text === undefined) {
         throw new CliFailure('subagent turn needs --subagent <id> and the reply text', EXIT.usage);
       }
-      const message = await client.subagents.turn(id, sub, { text }, stringFlag(args, "idempotency-key"));
+      // `--in-reply-to` must name a positive message number; checked before discovery too, so a
+      // bad value is usage (2) and not "no server".
+      const inReplyTo = turnInReplyTo(args);
+      const message = await client.subagents.turn(
+        id,
+        sub,
+        {
+          text,
+          ...(inReplyTo === undefined ? {} : { inReplyTo }),
+        },
+        stringFlag(args, "idempotency-key"),
+      );
       emit(io, json, { value: message, human: () => `relayed turn ${message.number}` });
       return EXIT.ok;
     }
@@ -577,6 +621,42 @@ type ProfileFileApi = {
 };
 
 type ProfileTarget = { readonly sub: "write" | "delete" } & (ProfileFileAt | RepositoryTarget);
+
+/** A positive message number from `--<name>`; `undefined` when the flag is absent. Checked before
+ * discovery (`run` calls this beside `validateCommand`) and again in the case that trusts it. The
+ * arg parser leaves a value that starts with `-` (e.g. `--turn -3`) as boolean `true` and shifts
+ * it into the positionals, so a present flag that is not a string is a usage error rather than a
+ * silent change of a positional. */
+const messageNumberFlag = (args: ParsedArgs, name: string): number | undefined => {
+  if (!args.flags.has(name)) return undefined;
+  const raw = stringFlag(args, name);
+  if (raw === undefined || !/^\d+$/.test(raw) || Number(raw) < 1) {
+    throw new CliFailure(`--${name} needs a positive message number`, EXIT.usage);
+  }
+  return Number(raw);
+};
+
+/** The inbound message number a `subagent turn` answers, from `--in-reply-to`. */
+const turnInReplyTo = (args: ParsedArgs): number | undefined => messageNumberFlag(args, "in-reply-to");
+
+/** The `subagent await` target set: the named/positional ids, `--any`/`--all`, and the explicit
+ * `--turn`. Checked before discovery (`run` calls this beside `validateCommand`): a bad `--turn`,
+ * or a `--turn` with several targets, is a usage error (2) rather than a probe. */
+const awaitTarget = (args: ParsedArgs): {
+  readonly ids: readonly string[];
+  readonly mode: "any" | "all";
+  readonly turn?: number;
+} => {
+  const named = stringFlag(args, "subagent");
+  const positionalIds = args.positionals.slice(2).filter((one) => one !== "");
+  const ids = positionalIds.length > 0 ? positionalIds : named === undefined ? [] : [named];
+  const mode = boolFlag(args, "all") ? "all" : "any";
+  const turn = messageNumberFlag(args, "turn");
+  if (turn !== undefined && (ids.length !== 1 || mode === "all")) {
+    throw new CliFailure("subagent await --turn waits for one named subagent", EXIT.usage);
+  }
+  return { ids, mode, ...(turn === undefined ? {} : { turn }) };
+};
 
 /** The file operation's whole argv — `write`/`delete`, its id, its scope — checked before
  * discovery (`run` calls this beside `validateCommand`): a typo is a usage error (2) and must
@@ -1007,6 +1087,20 @@ export const run = async (
       (checkedSub === "write" || checkedSub === "delete")
     ) {
       profileTarget(args);
+    }
+    // `subagent turn`'s own flag, checked here for the same reason: a bad `--in-reply-to` is
+    // usage (2) before any probe, never "no server".
+    if (checkedGroup === "subagent" && checkedCommand === "turn") {
+      turnInReplyTo(args);
+    }
+    // `subagent await`'s target set, checked here for the same reason: a bad `--turn`, or a
+    // `--turn` with several targets, is usage (2) before any probe.
+    if (checkedGroup === "subagent" && checkedCommand === "await") {
+      awaitTarget(args);
+    }
+    // `subagent result`'s optional turn, for the same reason.
+    if (checkedGroup === "subagent" && checkedCommand === "result") {
+      messageNumberFlag(args, "turn");
     }
     // `change create`'s body, checked here for the same reason: a missing id or title is usage
     // (2) before any probe, never "no server".
