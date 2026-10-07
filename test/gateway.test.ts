@@ -1,14 +1,16 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { createServer, type IncomingHttpHeaders } from "node:http";
-import { connect, type AddressInfo } from "node:net";
+import { connect, createServer as createRawServer, type AddressInfo } from "node:net";
 import { WebSocket, WebSocketServer } from "ws";
 
 import { gatewayRoutes } from "../apps/server/src/gateway/routes.ts";
-import { gatewaySockets, isGatewaySocket } from "../apps/server/src/gateway/server/index.ts";
+import { gatewaySockets, isGatewaySocket, proxyRequest } from "../apps/server/src/gateway/server/index.ts";
+import { resetRuntime, setRuntime } from "../apps/server/src/capabilities/runtime.ts";
 import { serve, type ServerWebSocket, type Serving } from "../apps/server/src/capabilities/serve.ts";
 import { guard } from "../apps/server/src/capabilities/web.ts";
 import { configPath, reloadConfigSync } from "../apps/server/src/workspace/server/index.ts";
+import { until } from "./helpers.ts";
 
 /**
  * The gateway's transport, against a fake upstream rather than a real Corvi: the prefix is
@@ -28,6 +30,14 @@ let local: Serving;
 let seen: Seen[];
 let socketHeaders: IncomingHttpHeaders[];
 let upstreamSockets: number;
+/** A TCP server that accepts and never completes an HTTP/WebSocket handshake, for the bound. */
+let hangServer: ReturnType<typeof createRawServer>;
+let hangPort: number;
+/** What the gateway observed about a source's transport, in order. */
+let observations: [string, string][];
+
+/** The gateway reads its bounds from the runtime; a test shrinks them so a hang is a moment. */
+const shortTimeouts = { readHeadersMs: 80, upgradeHandshakeMs: 80 };
 
 const writeConfig = (value: unknown): void => {
   writeFileSync(configPath(), JSON.stringify(value));
@@ -53,6 +63,12 @@ beforeAll(async () => {
   socketHeaders = [];
   upstreamSockets = 0;
   redirectHits = 0;
+  observations = [];
+
+  // Accepts the TCP connection and never answers: what a dead-but-accepting remote looks like.
+  hangServer = createRawServer(() => undefined);
+  await new Promise<void>((resolve) => hangServer.listen(0, "127.0.0.1", () => resolve()));
+  hangPort = (hangServer.address() as AddressInfo).port;
 
   // A server that records being fetched: a redirect the gateway refused must never reach it.
   redirectTarget = createServer((_req, res) => {
@@ -81,6 +97,30 @@ beforeAll(async () => {
       if (req.url === "/api/boom") {
         res.writeHead(418, { "content-type": "application/json" });
         res.end(JSON.stringify({ error: "teapot" }));
+        return;
+      }
+      if (req.url === "/api/unauthorized") {
+        res.writeHead(401, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "no" }));
+        return;
+      }
+      if (req.url === "/api/slow-headers") {
+        setTimeout(() => {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end("{}");
+        }, 300);
+        return;
+      }
+      if (
+        (req.url ?? "").includes("/subagents/await") ||
+        /\/subagents\/[^/?]+\/next(?:\?|$)/.test(req.url ?? "")
+      ) {
+        // A parked long poll: headers come only when it answers, well past the read bound. The
+        // upstream URL is echoed so the test can assert the encoded id and the query survived.
+        setTimeout(() => {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ status: "timeout", url: req.url }));
+        }, 300);
         return;
       }
       if (req.url === "/api/set-cookie") {
@@ -144,6 +184,11 @@ beforeAll(async () => {
         name: "Guarded",
         remote: { url: `http://127.0.0.1:${guarded.port}`, workspace: "w", token: "guarded-token" },
       },
+      {
+        id: "hang",
+        name: "Hang",
+        remote: { url: `http://127.0.0.1:${hangPort}`, workspace: "w", token: "hang-token" },
+      },
       { id: "local", name: "Local" },
       { id: "bad", name: "Bad", remote: { url: "ftp://host", workspace: "w", token: "t" } },
     ],
@@ -156,11 +201,17 @@ beforeAll(async () => {
   });
 });
 
+afterEach(() => {
+  resetRuntime();
+  observations = [];
+});
+
 afterAll(() => {
   local?.stop();
   guarded?.stop();
   upstream?.close();
   redirectTarget?.close();
+  hangServer?.close();
 });
 
 test("a GET is proxied with the prefix stripped, the query kept, and the token injected", async () => {
@@ -216,6 +267,134 @@ test("an event stream streams in order, not buffered", async () => {
   const second = decoder.decode((await reader.read()).value);
   expect(second).toContain("data: two");
   await reader.cancel();
+});
+
+test("a transport failure asks the availability owner for a recheck, never a verdict", async () => {
+  setRuntime({
+    gatewayTimeouts: shortTimeouts,
+    remoteAvailabilityObserve: (source, observation) => observations.push([source, observation]),
+  });
+  const response = await fetch(localUrl("remote/hang/api/changes"));
+  expect(response.status).toBe(504);
+  expect(observations).toContainEqual(["hang", "unreachable"]);
+});
+
+test("an operation-level error from the remote is not workspace health", async () => {
+  setRuntime({
+    gatewayTimeouts: shortTimeouts,
+    remoteAvailabilityObserve: (source, observation) => observations.push([source, observation]),
+  });
+  const teapot = await fetch(localUrl("remote/remote-client/api/boom"));
+  expect(teapot.status).toBe(418);
+  const unauthorized = await fetch(localUrl("remote/remote-client/api/unauthorized"));
+  expect(unauthorized.status).toBe(401);
+  // The 4xx pass-through is the remote talking; only the refused token is a transport-level fact.
+  expect(observations).toEqual([["remote-client", "authentication"]]);
+});
+
+test("an already-aborted request is not sent upstream and is never observed", async () => {
+  setRuntime({
+    gatewayTimeouts: shortTimeouts,
+    remoteAvailabilityObserve: (source, observation) => observations.push([source, observation]),
+  });
+  const controller = new AbortController();
+  controller.abort();
+  const request = new Request("http://127.0.0.1/remote/remote-client/api/slow-headers", {
+    method: "POST",
+    body: "{}",
+    signal: controller.signal,
+  });
+  const before = seen.length;
+  await expect(
+    proxyRequest(
+      request,
+      { baseUrl: `http://127.0.0.1:${upstreamPort}`, token: "remote-token" },
+      "api/slow-headers",
+      shortTimeouts,
+    ),
+  ).rejects.toThrow();
+  // Nothing left for the remote, and no transport observation for the availability owner.
+  expect(seen.length).toBe(before);
+  expect(observations).toEqual([]);
+});
+
+test("a parked subagent long poll is not cut by the read header bound", async () => {
+  setRuntime({
+    gatewayTimeouts: shortTimeouts,
+    remoteAvailabilityObserve: (source, observation) => observations.push([source, observation]),
+  });
+  // The canonical `next`: an encoded subagent id and a query, exactly as the client builds it.
+  const next = await fetch(
+    localUrl("remote/remote-client/api/changes/X/subagents/reviewer%20one/next?after=7"),
+  );
+  expect(next.status).toBe(200);
+  expect((await next.json()) as { status: string; url: string }).toEqual({
+    status: "timeout",
+    url: "/api/changes/X/subagents/reviewer%20one/next?after=7",
+  });
+
+  // The `await` fan-in path with its own query.
+  const awaited = await fetch(localUrl("remote/remote-client/api/changes/X/subagents/await?id=a&all=1"));
+  expect(awaited.status).toBe(200);
+
+  // A normal read with the same delay is still bounded.
+  const bounded = await fetch(localUrl("remote/remote-client/api/slow-headers"));
+  expect(bounded.status).toBe(504);
+});
+
+test("a read's header bound is bounded, and a mutation of the same remote is not cut", async () => {
+  setRuntime({
+    gatewayTimeouts: shortTimeouts,
+    remoteAvailabilityObserve: (source, observation) => observations.push([source, observation]),
+  });
+  const read = await fetch(localUrl("remote/remote-client/api/slow-headers"));
+  expect(read.status).toBe(504);
+
+  // The same slow answer as a write: no total-duration bound, so it completes.
+  const write = await fetch(localUrl("remote/remote-client/api/slow-headers"), { method: "POST", body: "{}" });
+  expect(write.status).toBe(200);
+});
+
+test("a websocket handshake that never answers is bounded", async () => {
+  setRuntime({
+    gatewayTimeouts: shortTimeouts,
+    remoteAvailabilityObserve: (source, observation) => observations.push([source, observation]),
+  });
+  const socket = new WebSocket(`ws://127.0.0.1:${local.port}/remote/hang/api/chat`);
+  // A refused handshake errors the client; that is the expected end, not an unhandled failure.
+  socket.on("error", () => undefined);
+  const failed = await new Promise<boolean>((resolve) => {
+    socket.once("open", () => resolve(false));
+    socket.once("error", () => resolve(true));
+    setTimeout(() => resolve(false), 3000);
+  });
+  expect(failed).toBe(true);
+  await until(async () => observations.length >= 1, true, 2000);
+  expect(observations).toContainEqual(["hang", "unreachable"]);
+  socket.terminate();
+});
+
+test("a client that gives up during the handshake cancels the upstream and answers nothing", async () => {
+  const { bridgeUpgrade } = await import("../apps/server/src/gateway/server/index.ts");
+  const controller = new AbortController();
+  controller.abort();
+  const request = new Request("http://127.0.0.1/remote/hang/api/chat", {
+    headers: { upgrade: "websocket" },
+    signal: controller.signal,
+  });
+  const srv = {
+    upgrade: () => {
+      throw new Error("the local side must not be upgraded for a client that is gone");
+    },
+  };
+  const result = await bridgeUpgrade(
+    request,
+    srv as never,
+    { baseUrl: `http://127.0.0.1:${hangPort}` },
+    "api/chat",
+    shortTimeouts,
+  );
+  expect(result).toEqual({});
 });
 
 test("a websocket upgrade bridges frames both ways with the bearer token", async () => {

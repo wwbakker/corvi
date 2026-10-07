@@ -275,7 +275,11 @@ export const serve = async <Data>(options: ServeOptions<Data>): Promise<Serving>
     // unhandled socket error, whether the route upgrades, refuses, or throws.
     raw.on("error", () => raw.destroy());
     void (async () => {
-      const request = toRequest(req, requestUrl(req));
+      // A client that gives up during the upstream handshake aborts this too; after a successful
+      // upgrade the socket's close aborts a request that is already over, which is harmless.
+      const handshake = new AbortController();
+      raw.once("close", () => handshake.abort());
+      const request = toRequest(req, requestUrl(req), handshake.signal);
       const refused = await options.authorize?.(request);
       if (refused) {
         await writeRaw(raw, refused);
