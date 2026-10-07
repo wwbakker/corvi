@@ -37,6 +37,15 @@
   --diff-add: #7ee787;
   --diff-del: #ffa198;
 
+  /* The avatar palette: a change wears the hue its id maps to, so the rail's avatars are
+     recognisable and no colour is invented at a call site. Dark enough for white initials to read. */
+  --avatar-1: #3f5bd6;
+  --avatar-2: #2f8f6b;
+  --avatar-3: #a4601d;
+  --avatar-4: #7c3aed;
+  --avatar-5: #b23a5e;
+  --avatar-6: #24708c;
+
   /* The Markdown editor's syntax: the plan, the notes and the wizard's description read as
      source. Seeded from the palette above — the info blue, the diff green, the purple, the two
      greys — so these are the theme's own colors until someone deliberately retunes them. */
@@ -126,27 +135,61 @@ a {
   padding: 16px 24px 48px;
 }
 
-/* The one navigation element: changes, the pages of the one you picked, its terminals. */
+/* The one navigation element: a thin rail that expands as an overlay. The flex item's width is
+   fixed, so the page beside it never reflows; the rail inside is what grows. */
 .sidebar {
-  /* Width is set in the markup, because you can drag it. */
+  --rail-width: 56px;
+  --rail-expanded: 200px;
   flex: none;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 16px 8px 24px;
-  /* The same surface as the window's own rows, which is why the line down its edge starts below
-     them rather than beside them (the rule after this one, and docs/guides/style.md). */
-  background: var(--surface);
-  /* Stays put while the page scrolls: it is where you are, not part of what you are reading. */
   position: sticky;
   top: 0;
   align-self: flex-start;
   height: 100vh;
-  /* Only up and down: a long branch name or a wide entry must shorten, not push the column
-     sideways and hang a scrollbar along the bottom. */
+  width: var(--rail-width);
+  /* Above the page's own sticky rows: when it opens it is the overlay it is meant to be. */
+  z-index: 6;
+}
+
+/* A hosted macOS window keeps its traffic lights in the rail's first row: the rail starts clear of
+   them, the way the old column's minimum did. A browser has no lights and keeps 56px. */
+.hosted .sidebar {
+  --rail-width: max(56px, calc(var(--traffic-inset) + 38px));
+}
+
+/* The rail proper: the surface that rests thin and grows over the page. Its own scroll, because
+   the fixed box must not hand the page a scrollbar it did not ask for. */
+.sidebar .rail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: var(--rail-width);
+  padding: 8px 6px 12px;
+  background: var(--surface);
   overflow-x: hidden;
   overflow-y: auto;
+  /* Only the empty background passes pointer events through to the page; the entries re-enable
+     them, and grow to the expanded width so their names are part of the hit area (the expansion
+     block below). */
+  pointer-events: none;
+  /* Opening and closing are the React state's; the width just animates the change. The close
+     grace is the JS timer, so the names stay while it elapses. */
+  transition: width 140ms ease;
+}
+
+.sidebar.rail-open .rail {
+  width: var(--rail-expanded);
+  box-shadow: var(--shadow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar .rail {
+    transition: none;
+  }
 }
 
 /* The column's line — and the window's own row has none: the navigation column and that row are one
@@ -161,19 +204,22 @@ a {
   bottom: 0;
   width: 1px;
   background: var(--line);
-  /* The resize handle is on the same edge: the line is not something to aim at. */
   pointer-events: none;
+  z-index: 0;
 }
 
 .sidebar .entry {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
+  /* The collapsed width; once the rail opens the entry grows to the expanded content width (the
+     expansion block below), so the revealed name is part of the entry's own hit area. */
+  width: calc(var(--rail-width) - 12px);
+  pointer-events: auto;
   background: transparent;
   border: 0;
   border-radius: 6px;
-  padding: 6px 10px;
+  padding: 6px 8px;
   color: var(--text);
   text-align: left;
 }
@@ -188,60 +234,160 @@ a {
 
 /* The changes, and the terminals: children of the entry above them. */
 .sidebar .entry.sub {
-  padding: 4px 10px 4px 18px;
+  padding: 4px 8px;
   font-size: 13px;
   color: var(--muted);
 }
 
+/* Where you can go: the glyph and its name. Collapsed, the name sits under the glyph in small
+   type; expanded, the row is the familiar icon-beside-label. */
+.sidebar .destinations {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 4px 0 6px;
+}
+
+.sidebar .dest {
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 6px 1px;
+  text-align: center;
+  pointer-events: auto;
+}
+
+.sidebar .dest-label {
+  max-width: 100%;
+  font-size: 8px;
+  line-height: 1.15;
+  color: var(--muted);
+}
+
+.sidebar.rail-open .dest {
+  flex-direction: row;
+  gap: 10px;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.sidebar.rail-open .dest .dest-label {
+  font-size: 14px;
+}
+
 /* A change and its terminals: one group, with a little air between groups. */
 .sidebar .change-entry {
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
-/* A change is one line: its name, and how the tools are doing. The bar down the left is its
-   state — a colour along the whole row reads from further away than a dot, and leaves the icons to
-   say what the tools are doing. */
+/* A change is its avatar and, once the rail is wide, its name and CI state. The avatar is the
+   only thing the collapsed rail shows. */
 .sidebar .entry.change {
-  display: block;
-  padding: 6px 10px 6px 12px;
-  border-left: 3px solid var(--faint);
-  border-radius: 0 6px 6px 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 8px;
 }
 
-.sidebar .entry.change.state-implementation {
-  border-left-color: var(--warn);
-}
-
-.sidebar .entry.change.state-blocked {
-  border-left-color: var(--purple);
-}
-
-.sidebar .entry.change.state-ideation {
-  border-left-color: var(--ideation);
-}
-
-.sidebar .entry.change.state-verification {
-  border-left-color: var(--info);
-}
-
-.sidebar .entry.change.state-cancelled {
-  border-left-color: var(--faint);
-}
-
-.state-completed {
-  border-left-color: var(--ok);
-}
-
-.sidebar .entry.change .top {
+/* The change's identity: its initials on a hue of its own. No call site picks the colour; the hue
+   class comes from the id through the palette. */
+.sidebar .avatar {
+  position: relative;
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--faint);
+  color: var(--on-accent);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* The draft is not a change yet: a dashed outline where its avatar will be. */
+.sidebar .avatar.draft {
+  background: transparent;
+  border: 1px dashed var(--muted);
+  color: var(--muted);
+}
+
+/* The id's hue, from the palette in :root. */
+.sidebar .avatar.hue-1 {
+  background: var(--avatar-1);
+}
+
+.sidebar .avatar.hue-2 {
+  background: var(--avatar-2);
+}
+
+.sidebar .avatar.hue-3 {
+  background: var(--avatar-3);
+}
+
+.sidebar .avatar.hue-4 {
+  background: var(--avatar-4);
+}
+
+.sidebar .avatar.hue-5 {
+  background: var(--avatar-5);
+}
+
+.sidebar .avatar.hue-6 {
+  background: var(--avatar-6);
+}
+
+/* The change's state, on the avatar's corner, in the state colours the left bar used. */
+.sidebar .state-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  background: var(--faint);
+}
+
+.sidebar .state-badge.state-implementation {
+  background: var(--warn);
+}
+
+.sidebar .state-badge.state-blocked {
+  background: var(--purple);
+}
+
+.sidebar .state-badge.state-ideation {
+  background: var(--ideation);
+}
+
+.sidebar .state-badge.state-verification {
+  background: var(--info);
+}
+
+.sidebar .state-badge.state-cancelled {
+  background: var(--faint);
+}
+
+.sidebar .state-badge.state-completed {
+  background: var(--ok);
+}
+
+/* The name and the CI state belong to the expanded rail; collapsed, the avatar and the button's
+   own title/aria-label stand for the change. */
+.sidebar .entry.change .subject,
+.sidebar .entry.change .icons,
+.sidebar .entry.window .label {
+  display: none;
 }
 
 /* The change's name, in the place the id used to hold: an entry says one thing now, and the branch
    that starts with the id is its tooltip. It keeps full-strength text — it is what you pick a
-   change by — and truncates rather than widening the column, which is what the `min-width` below
-   lets a flex child do. */
+   change by — and truncates rather than widening the rail. */
 .sidebar .entry.change .subject {
   min-width: 0;
   overflow: hidden;
@@ -287,26 +433,87 @@ a {
   color: var(--faint);
 }
 
-/* The edge is the handle: a few pixels wide, the full height, and it lights up when aimed at. */
-.sidebar .resize {
+/* A window: its glyph and index while the rail is thin, with its label and activity dot once it
+   opens. */
+.sidebar .entry.window {
+  position: relative;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 4px;
+}
+
+.sidebar .entry.window .glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar .entry.window .index {
+  font-size: 9px;
+  line-height: 1;
+  color: var(--muted);
+}
+
+.sidebar .entry.window .bell {
   position: absolute;
-  top: 0;
-  /* Inside the column: sticking out past the edge is two pixels of horizontal overflow, which
-     is exactly enough for a scrollbar to appear along the bottom. */
-  right: 0;
-  width: 5px;
-  height: 100%;
-  cursor: col-resize;
+  top: 4px;
+  right: 6px;
+  margin-left: 0;
 }
 
-.sidebar .resize:hover {
-  background: var(--accent);
+/* Expanded: names and rows, left-aligned like the rest of the app. The drawer's `.open` counts
+   as expanded, so a toggle-opened rail shows the names it was opened for. */
+.sidebar.rail-open .entry.change,
+.sidebar.rail-open .entry.window {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
 }
 
-/* While dragging: the pointer is the drag, not whatever it happens to be over. */
-body.resizing {
-  cursor: col-resize;
-  user-select: none;
+.sidebar.rail-open .entry.change {
+  padding: 4px 8px;
+}
+
+.sidebar.rail-open .entry.window {
+  padding: 4px 8px 4px 18px;
+}
+
+/* The names are shown once the rail opens. The entry grows to fit its name (up to the expanded
+   rail's width), so the name is part of the entry's own hit area without a flat slab covering the
+   page beyond the text; the rail's empty background passes pointer events through. */
+.sidebar.rail-open .entry {
+  width: max-content;
+  max-width: calc(var(--rail-expanded) - 12px);
+}
+
+.sidebar.rail-open .entry.change .subject,
+.sidebar.rail-open .entry.window .label {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar.rail-open .entry.change .icons {
+  display: flex;
+  flex: none;
+}
+
+.sidebar.rail-open .dest .dest-label {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar.rail-open .entry.window .bell {
+  position: static;
+  margin-left: auto;
 }
 
 .sidebar .entry.sub.current {
@@ -329,6 +536,7 @@ body.resizing {
   display: flex;
   align-items: center;
   padding: 6px;
+  pointer-events: auto;
   background: transparent;
   border: 0;
   border-radius: 6px;
@@ -365,38 +573,12 @@ body.resizing {
   white-space: nowrap;
 }
 
-/* Terminals is a heading, not a destination: there is nothing to look at called "the
-   terminals", only the windows underneath. */
-.sidebar .heading {
-  margin: 10px 0 2px;
-  padding: 0 10px;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-}
-
-/* The Ideas heading and the way to start one, side by side: the heading's green button sits with
-   the entries it adds to, sized to the column. */
-.sidebar .ideas-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  /* The heading's own air, now that the heading is a row: the label keeps the left inset it had. */
-  margin: 10px 0 2px;
-  padding-right: 10px;
-}
-
-.sidebar .ideas-row .group-label {
-  flex: 1;
-  min-width: 0;
-  margin: 0 0 0 12px;
-}
-
-.sidebar .ideas-row .create {
-  flex: none;
-  padding: 3px 8px;
-  font-size: 12px;
+/* The divider between the ideas and the work: the ideation-coloured avatars carry what the
+   headings used to say. */
+.sidebar .group-divider {
+  height: 1px;
+  margin: 6px 8px;
+  background: var(--line);
 }
 
 .sidebar .list {
@@ -406,9 +588,16 @@ body.resizing {
   margin-bottom: 8px;
 }
 
+/* The "nothing in progress" note belongs to the expanded rail; collapsed, the empty list says
+   the same thing by being empty. */
 .sidebar .list .hint {
-  margin: 2px 10px 0 18px;
+  display: none;
+  margin: 2px 8px;
   font-size: 12px;
+}
+
+.sidebar.rail-open .list .hint {
+  display: block;
 }
 
 /* Output arrived in a window you were not looking at. */
@@ -418,27 +607,6 @@ body.resizing {
   border-radius: 50%;
   background: var(--warn);
   margin-left: auto;
-}
-
-/* A change's dot carries its state, in the colours the rest of the app uses for it. */
-.sidebar .dot.state-implementation {
-  background: var(--warn);
-}
-
-.sidebar .dot.state-blocked {
-  background: var(--purple);
-}
-
-.sidebar .dot.state-ideation {
-  background: var(--ideation);
-}
-
-.sidebar .dot.state-verification {
-  background: var(--info);
-}
-
-.sidebar .dot.state-cancelled {
-  background: var(--faint);
 }
 
 .state-completed {
@@ -475,15 +643,13 @@ body.drawer-open {
     top: 0;
     left: 0;
     z-index: 30;
-    /* The remembered width, clamped so a wide column cannot take the whole window. */
-    max-width: 85vw;
+    width: var(--rail-width);
     height: 100dvh;
     /* Off-screen, and out of the tab order and the accessibility tree with it: a drawer you
        cannot see must not be a drawer a keyboard or a screen reader walks through. */
     transform: translateX(-100%);
     visibility: hidden;
     border-right: 1px solid var(--line);
-    border-bottom: 0;
   }
 
   .sidebar.open {
@@ -494,11 +660,6 @@ body.drawer-open {
   /* The border is the drawer's one edge line; the wide column's pseudo would double it below the
      title bar. */
   .sidebar::after {
-    display: none;
-  }
-
-  /* A temporary surface, not a column to drag. */
-  .sidebar .resize {
     display: none;
   }
 
@@ -624,7 +785,7 @@ body.drawer-open {
 .hosted .page > header,
 .hosted .page > .change-chrome > header,
 .hosted .wizard > header,
-.hosted .sidebar > .band {
+.hosted .sidebar .band {
   -webkit-app-region: drag;
 }
 
@@ -639,7 +800,7 @@ body.drawer-open {
 .hosted .wizard > header button,
 .hosted .wizard > header select,
 .hosted .wizard > header input,
-.hosted .sidebar > .band button {
+.hosted .sidebar .band button {
   -webkit-app-region: no-drag;
 }
 
@@ -1577,16 +1738,6 @@ button.create:hover:not(:disabled) {
   font-size: 12px;
   font-weight: 400;
   margin: 0;
-}
-
-/* A block's heading inside the navigation column: Ideas, then the active changes. Quieter than
-   the entries, because it says which kind of thing follows rather than being one. */
-.sidebar .group-label {
-  margin: 10px 0 2px 12px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
 }
 
 /* The change's own row: its views as tabs, and its state and actions at their height, right under
@@ -2668,68 +2819,75 @@ button.danger:disabled {
   color: var(--muted);
 }
 
-/* Which client's world this is, above everything that belongs to it. */
-.sidebar .menu {
-  margin-bottom: 8px;
+/* The workspace switcher: the context's monogram, and the menu it opens. The list is the same one
+   it always was; only the trigger is a glyph. */
+.sidebar .band {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 2px 0 6px;
+  /* The rail's empty background passes pointer events through, but the band is the window's drag
+     row: it takes them back, so the hosted drag region stays live. */
+  pointer-events: auto;
+}
+
+.sidebar .band .menu {
+  margin-bottom: 0;
+  pointer-events: auto;
+}
+
+/* Open, the band shrinks to the workspace control so it does not lay an invisible slab across the
+   expanded rail's top; only the switcher intercepts there. The hosted drag region still rides on
+   the band element itself. */
+.sidebar.rail-open .band {
+  align-self: flex-start;
 }
 
 .sidebar button.workspace {
-  width: 100%;
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
-  padding: 6px 10px 10px;
-  text-align: left;
-  font-weight: 600;
-}
-
-/* The switcher is a control in the column's first row rather than the heading it was: a compact pill
-   at the column's right edge, about half the width it had when it spanned the column. The row is the
-   window's own in the app (below) and the column's own elsewhere; in both, the menu opens from the
-   box this sits in and is anchored to its right edge, so the pill's right edge is what keeps the list
-   inside the window. */
-.sidebar > .band {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  justify-content: center;
-}
-
-.sidebar > .band .menu {
-  margin-bottom: 0;
-}
-
-.sidebar > .band button.workspace {
-  width: auto;
-  border-bottom: 0;
-  border-radius: 6px;
-  padding: 2px 6px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: var(--raise);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--text);
   font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  text-align: center;
 }
 
 .sidebar button.workspace:hover {
   color: var(--text);
-  background: var(--raise);
+  background: var(--hover);
 }
 
-/* The window's own row in the column, where macOS keeps its traffic lights: the switcher sits to
-   their right, and the row is what you drag the window by. It stays put while the column scrolls,
-   because the lights do. Nothing here applies in a browser, where the row is only the switcher's
-   wrapper and the column has no buttons to clear (apps/web/src/domain/chrome.ts). */
-.hosted .sidebar {
+/* The switcher's list opens to the right of the rail and stays inside the window. */
+.sidebar .band .menu-items {
+  left: 0;
+  right: auto;
+}
+
+/* The window's own row in the column, where macOS keeps its traffic lights: the switcher sits clear
+   of them, and the row is what you drag the window by. It stays put while the rail scrolls, because
+   the lights do. Nothing here applies in a browser, where the row is only the switcher's wrapper
+   and the column has no buttons to clear (apps/web/src/domain/chrome.ts). */
+.hosted .sidebar .rail {
   padding-top: 0;
 }
 
-.hosted .sidebar > .band {
+.hosted .sidebar .band {
   position: sticky;
   top: 0;
   z-index: 1;
   flex: none;
   height: var(--titlebar-height);
   /* Measured from the column's own gutter, not from the window's edge. */
-  padding-left: max(0px, calc(var(--traffic-inset) - 8px));
+  padding-left: max(0px, calc(var(--traffic-inset) - 6px));
   background: inherit;
+  justify-content: center;
 }
 
 /* Actions: the files behind the menu, one row per file and one editor at a time. */

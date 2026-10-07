@@ -572,10 +572,11 @@ test.skipIf(!usable)("the change's own row is the page's first, and it stays the
   expect(stoppedStrip!.y).toBe(0);
   expect(Math.abs(stoppedTabs!.y - TITLE_BAR_HEIGHT)).toBeLessThanOrEqual(1);
 
-  // The navigation column: one line per change, its name, and no id of its own. The branch — the id
-  // with a slug after it — is the entry's tooltip. Scoped to this change's own entry, since the
-  // column holds every change in the workspace (test/pages.test.ts's second one included).
+  // The navigation rail: each change is an initials avatar, and the branch — the id with a slug
+  // after it — is the entry's tooltip. The title appears once the rail opens, so hover it first.
+  // Scoped to this change's own entry, since the rail holds every change in the workspace.
   const entry = page.locator(".sidebar .entry.change", { hasText: "Anonymise customer names" });
+  await page.locator(".sidebar").hover();
   await entry.locator(".subject").waitFor();
   expect(await entry.locator(".id").count()).toBe(0);
   expect((await entry.locator(".subject").innerText()).trim()).toBe("Anonymise customer names");
@@ -611,7 +612,9 @@ test.skipIf(!usable)("the window strip wraps to two rows and the chrome stays on
     expect(opened.ok).toBe(true);
   }
 
-  const page = await browser.newPage({ viewport: { width: 900, height: 420 } });
+  // 736 − 56 keeps 680px of content, matching the old 900 minus the old 220px default rail: a
+  // deliberate compensation for the thinner rail, not a weakened test.
+  const page = await browser.newPage({ viewport: { width: 736, height: 420 } });
   await page.goto(`${url}/changes/${wrap}/dashboard`, { waitUntil: "domcontentloaded" });
   const strip = page.locator(".change-bar");
   const tabs = page.locator(".window-tabs .window-tab");
@@ -846,17 +849,17 @@ test.skipIf(!usable)("in the app window the row is also the window's chrome", as
   expect(await strip.locator(".subject").count()).toBe(0);
   expect(await region(".change-bar .window-tab")).toBe("no-drag");
 
-  // The switcher is a compact pill at the column's right edge: about half the width the heading took,
-  // and clear of the lights by being on the far side of the column from them.
+  // The switcher is an avatar, and the rail is a fixed thin column that starts clear of the
+  // traffic lights: the lights sit in the rail's first row, and the avatar sits to their right.
   const switcher = page.locator(".sidebar button.workspace");
   const switcherBox = await switcher.boundingBox();
   const sidebar = await page.locator(".sidebar").boundingBox();
   if (!switcherBox || !sidebar) throw new Error("the sidebar did not lay out");
-  expect(sidebar.x + sidebar.width - (switcherBox.x + switcherBox.width)).toBeLessThanOrEqual(12);
-  expect(switcherBox.width).toBeLessThan(sidebar.width / 2);
-  expect(switcherBox.x).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset);
-  expect(sidebar.width).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset + 160);
-  expect(await region(".sidebar > .band")).toBe("drag");
+  expect(switcherBox.width).toBe(32);
+  expect(switcherBox.x).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset - 8);
+  expect(sidebar.width).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset);
+  expect(sidebar.width).toBeLessThan(TRAFFIC_LIGHTS.inset + 80);
+  expect(await region(".sidebar .band")).toBe("drag");
 
   // The column's line begins below that row rather than beside it: the band and the column are one
   // surface, and a line between them would draw the seam the palette is there to avoid. It is drawn
@@ -896,6 +899,8 @@ test.skipIf(!usable)("the name is renamed from the actions menu", async () => {
   await input.fill("A name of my own");
   await input.press("Enter");
 
+  // The rail shows the new name once it opens: hover it, then read the entry.
+  await page.locator(".sidebar").hover();
   await page
     .locator(".sidebar .entry.change .subject", { hasText: "A name of my own" })
     .waitFor();
@@ -911,9 +916,9 @@ test.skipIf(!usable)("New starts an idea from the column or the overview", async
   await page.waitForSelector(".change-card");
 
   expect((await page.locator(".page > header .create").innerText()).trim()).toBe("New");
-  expect((await page.locator(".sidebar .ideas-row .create").innerText()).trim()).toBe("New");
+  expect((await page.locator(".sidebar .dest", { hasText: "New" }).innerText()).trim()).toBe("New");
 
-  await page.locator(".sidebar .ideas-row .create").click();
+  await page.locator(".sidebar .dest", { hasText: "New" }).click();
   await page.waitForSelector(".wizard");
   expect(new URL(page.url()).pathname).toBe("/new");
   await page.close();
@@ -926,11 +931,11 @@ test.skipIf(!usable)("a half-filled idea is still there after leaving the wizard
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await page.waitForSelector(".change-card");
 
-  await page.locator(".sidebar .ideas-row .create").click();
+  await page.locator(".sidebar .dest", { hasText: "New" }).click();
   await page.waitForSelector(".wizard");
   // The draft row is where "here" is while the wizard is open, not the overview entry.
   expect(await page.locator(".sidebar .entry.change.state-ideation.current").count()).toBe(1);
-  expect(await page.locator(".sidebar > button.entry.current").count()).toBe(0);
+  expect(await page.locator(".sidebar .dest.current").count()).toBe(0);
 
   await fillEditor(
     page.locator(".wizard-plan .md-editor"),
@@ -946,7 +951,7 @@ test.skipIf(!usable)("a half-filled idea is still there after leaving the wizard
   );
 
   // Leave for the overview: the draft is no longer the page, and the row is where it waits.
-  await page.locator(".sidebar > button.entry", { hasText: "Changes" }).click();
+  await page.locator(".sidebar .dest", { hasText: "Changes" }).click();
   await page.waitForSelector(".change-card");
   expect(await row.count()).toBe(1);
   expect(await page.locator(".sidebar .entry.change.state-ideation.current").count()).toBe(0);
@@ -965,9 +970,9 @@ test.skipIf(!usable)("a half-filled idea is still there after leaving the wizard
   );
 
   // The other way in — the New button — opens the same draft, not a second, empty one.
-  await page.locator(".sidebar > button.entry", { hasText: "Changes" }).click();
+  await page.locator(".sidebar .dest", { hasText: "Changes" }).click();
   await page.waitForSelector(".change-card");
-  await page.locator(".sidebar .ideas-row .create").click();
+  await page.locator(".sidebar .dest", { hasText: "New" }).click();
   await page.waitForSelector(".wizard-body");
   expect(await page.locator(".wizard-sections .form").getByLabel("Title").inputValue()).toBe(
     "A half-written idea",
@@ -988,7 +993,7 @@ test.skipIf(!usable)(
     await page.goto(url, { waitUntil: "domcontentloaded" });
     await page.waitForSelector(".change-card");
 
-    await page.locator(".sidebar .ideas-row .create").click();
+    await page.locator(".sidebar .dest", { hasText: "New" }).click();
     await page.waitForSelector(".wizard");
     // Straight to the repositories: the wizard is one screen, and the section's Edit… opens
     // the browser dialog — this is about the browser, not the idea's fields.
@@ -1141,7 +1146,7 @@ test.skipIf(!usable)("a change opens on its plan, and comes back on the view you
     await page.waitForURL(`**/changes/${other}/dashboard`);
 
     // Leave for home and come back: the view you left, not the plan again.
-    await page.locator(".sidebar > button.entry", { hasText: "Changes" }).click();
+    await page.locator(".sidebar .dest", { hasText: "Changes" }).click();
     await page.waitForSelector(".change-card");
     await page.locator(".change-card", { hasText: `${other}-x` }).click();
     await page.waitForURL(`**/changes/${other}/dashboard`);

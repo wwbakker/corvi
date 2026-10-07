@@ -17,12 +17,18 @@ export function ActionsMenu({
   label = "Actions ▾",
   className = "primary",
   onOpen,
+  ariaLabel,
+  title,
 }: {
   actions: Action[];
   label?: string;
   className?: string;
   /** Called when the menu opens — where a list is fetched fresh rather than kept in the page. */
   onOpen?: () => void;
+  /** The trigger's accessible name, when the visible label is a glyph or a monogram. */
+  ariaLabel?: string;
+  /** The trigger's tooltip, which a monogram needs and a word does not. */
+  title?: string;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -55,6 +61,8 @@ export function ActionsMenu({
       <button
         className={className}
         aria-expanded={open}
+        aria-label={ariaLabel}
+        title={title}
         // Keeps the focus where it was: on the terminal tab this button sits above a terminal.
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => {

@@ -236,6 +236,9 @@ test.skipIf(!usable)("the editor's affordances are there: a section folds and Ct
     // A heading folds its section at the gutter's mark — the fold ranges are the Markdown
     // grammar's own — and unfolds again. The mark is the gutter's span on foldable lines; the
     // gutter's hidden width-measuring spacer carries copies of every mark, so visible ones.
+    // The rail is an overlay and the gutter sits at the content's left edge: park the pointer on
+    // the page first so the rail is not expanded over the mark.
+    await page.mouse.move(600, 300);
     await page.locator('.cm-foldGutter span[title="Fold line"]:visible').first().click();
     await page.locator(".cm-foldPlaceholder").first().waitFor();
     await page.locator('.cm-foldGutter span[title="Unfold line"]:visible').first().click();
