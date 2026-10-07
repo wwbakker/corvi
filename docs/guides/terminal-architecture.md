@@ -115,6 +115,19 @@ resumes the same harness session), metadata carries `subagentId`, and the env ca
 `CORVI_SUBAGENT_ID`. The relay is `corvi subagent next`/`turn`; the orchestrator drives it with
 `corvi subagent create|send|wait|result|open|close`.
 
+## Power down when agents are done
+
+`apps/server/src/power/` arms a machine to shut down once no agent on it is working. Every machine
+owns its own arm state: the local server arms itself, fans the command out to the selected remote
+servers with each workspace's device token, and serves `GET /api/power` plus the arm/disarm
+routes. A server-owned fiber ticks once a second (a disarmed tick reads nothing) and runs a
+60-second countdown, which `CORVI_POWER_COUNTDOWN_MS` overrides (`0` fires on the next quiet
+tick). The control and the monitor read one server-computed list (`agentStates`), so
+the dialog shows exactly what the power-off waits on; the agent and change reads are strict — a
+failed read skips the tick and is never "no agents". The state lives in server memory, and a
+change to it is announced as the `power` event (a remote's arrives under the `source` envelope),
+so an open page refetches `GET /api/power`.
+
 ## Actions
 
 `packages/actions/src/deliver.ts` gets a host-backed `ActionSessions`: a new run opens a window
