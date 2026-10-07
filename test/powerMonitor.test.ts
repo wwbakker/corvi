@@ -247,3 +247,31 @@ test("a strict subagent read failure skips the tick and never fires", async () =
   const state = await Effect.runPromise(monitor.state());
   expect(state.phase).toBe("armed");
 });
+
+test("arm, disarm and a transition each fire the change hook", async () => {
+  const changes: number[] = [];
+  let now = 0;
+  const monitor = makeMonitor({
+    agents: () => Effect.succeed([] as readonly PowerAgent[]),
+    power: counting(),
+    now: () => now,
+    countdownMs: COUNTDOWN,
+    onChange: () => {
+      changes.push(1);
+    },
+  });
+
+  await Effect.runPromise(monitor.arm());
+  expect(changes.length).toBe(1);
+
+  await Effect.runPromise(monitor.tick()); // armed -> counting-down
+  expect(changes.length).toBe(2);
+
+  // A tick that changes nothing (still counting, before the deadline) says nothing.
+  now = COUNTDOWN - 1;
+  await Effect.runPromise(monitor.tick());
+  expect(changes.length).toBe(2);
+
+  await Effect.runPromise(monitor.disarm());
+  expect(changes.length).toBe(3);
+});

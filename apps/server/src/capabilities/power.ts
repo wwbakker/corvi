@@ -30,6 +30,10 @@ export interface PowerShape {
 
 export class Power extends Context.Service<Power, PowerShape>()("corvi/Power") {}
 
-export const PowerLive = Layer.succeed(Power, {
+/** The live implementation, exported on its own so the monitor can take the shape directly
+ * (while the layer stays the seam a test replaces). */
+export const powerShape: PowerShape = {
   powerOff: () => Effect.asVoid(shOrThrow(powerCommand(platformName))),
-});
+};
+
+export const PowerLive = Layer.succeed(Power, powerShape);

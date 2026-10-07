@@ -46,6 +46,9 @@ export type MonitorOptions = {
   /** The clock, injected so the tests never wait. */
   now: () => number;
   countdownMs: number;
+  /** Fired after every persisted state change — arm, disarm, a countdown start or cancel, a
+   * claim, a recorded failure — so the caller can announce it. */
+  onChange?: () => void;
 };
 
 export type Monitor = {
@@ -59,14 +62,29 @@ export type Monitor = {
   tick: () => Effect.Effect<void>;
 };
 
-export const makeMonitor = ({ agents, power, now, countdownMs }: MonitorOptions): Monitor => {
+export const makeMonitor = ({
+  agents,
+  power,
+  now,
+  countdownMs,
+  onChange,
+}: MonitorOptions): Monitor => {
   const store = Effect.runSync(Ref.make<Store>(DISARMED));
 
-  /** Apply a state only while no arm/disarm has happened since the tick read it. */
-  const setIfCurrent = (generation: number, state: PowerState): Effect.Effect<void> =>
-    Ref.update(store, (current) =>
-      current.generation === generation ? { state, generation: current.generation } : current,
-    );
+  const notify = (): Effect.Effect<void> => Effect.sync(() => onChange?.());
+
+  const sameState = (a: PowerState, b: PowerState): boolean =>
+    a.phase === b.phase && a.deadline === b.deadline && a.error === b.error;
+
+  /** Apply a state only while no arm/disarm has happened since the tick read it, and only when
+   * it is actually different. Returns whether it wrote, so the caller announces only real changes. */
+  const setIfCurrent = (generation: number, state: PowerState): Effect.Effect<boolean> =>
+    Ref.modify(store, (current): readonly [boolean, Store] => {
+      if (current.generation !== generation || sameState(current.state, state)) {
+        return [false, current];
+      }
+      return [true, { state, generation: current.generation }];
+    });
 
   /** Claim the fire: exactly one tick per countdown. Disarming makes a later tick a no-op, and
    * bumping the generation drops any write from a tick that read before this claim. Returns the
@@ -85,12 +103,12 @@ export const makeMonitor = ({ agents, power, now, countdownMs }: MonitorOptions)
       Ref.update(store, (current): Store => ({
         state: { phase: "armed" },
         generation: current.generation + 1,
-      })),
+      })).pipe(Effect.andThen(notify())),
     disarm: () =>
       Ref.update(store, (current): Store => ({
         state: { phase: "disarmed" },
         generation: current.generation + 1,
-      })),
+      })).pipe(Effect.andThen(notify())),
     state: () =>
       Effect.gen(function* () {
         const current = yield* Ref.get(store);
@@ -109,21 +127,23 @@ export const makeMonitor = ({ agents, power, now, countdownMs }: MonitorOptions)
         if (Exit.isFailure(read)) return;
         const decision = advance(before.state, isQuiet(read.value), now(), countdownMs);
         if (!decision.fire) {
-          yield* setIfCurrent(before.generation, decision.state);
+          if (yield* setIfCurrent(before.generation, decision.state)) yield* notify();
           return;
         }
         // The countdown elapsed: claim before running the command so no second tick can fire.
         const claimed = yield* claim(before.generation);
         if (claimed === undefined) return;
+        yield* notify();
         const outcome = yield* Effect.exit(power.powerOff());
         // A failure (typed or a defect) disarms with the sentence; a success is already disarmed
         // by the claim. Either way, do not clobber an arm/disarm issued during the command, and
         // write only under the claimed generation.
         if (Exit.isFailure(outcome)) {
-          yield* setIfCurrent(claimed, {
+          const wrote = yield* setIfCurrent(claimed, {
             phase: "disarmed",
             error: failureMessage(outcome.cause),
           });
+          if (wrote) yield* notify();
         }
       }),
   };

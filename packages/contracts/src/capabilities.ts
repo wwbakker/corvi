@@ -61,7 +61,7 @@ export class Settings extends Context.Service<Settings, ResolvedDto>()("corvi/Se
 
 /** Say something changed, so open pages refetch through the event stream. */
 export class Bus extends Context.Service<Bus, {
-  announce(event: "changes" | "windows"): Effect.Effect<void>;
+  announce(event: "changes" | "windows" | "power"): Effect.Effect<void>;
 }>()("corvi/Bus") {}
 
 /** The shape of the single-writer store an integration gets for its own data about a change.
