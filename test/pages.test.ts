@@ -105,6 +105,21 @@ async function open(path: string, ready: string): Promise<string[]> {
   return complaints;
 }
 
+/** Wait for the rail's width transition (140ms) to settle: the expanded rail is the fixed
+ * `--rail-expanded` (200px) and the resting one is 56px. Asserting a width before it settles
+ * reads an intermediate frame of the animation, which is a race no matter the fixed delay. */
+const waitForRailWidth = async (page: Page, want: "open" | "closed"): Promise<void> => {
+  await page.waitForFunction(
+    (settled) => {
+      const el = document.querySelector(".sidebar .rail");
+      if (el === null) return false;
+      const width = el.getBoundingClientRect().width;
+      return settled === "open" ? width > 199 : width < 57;
+    },
+    want,
+  );
+};
+
 /** Write one change's notes through the extension's own route, the way the card does. */
 const writeNotes = (change: string, text: string): Promise<Response> =>
   fetch(`${url}/api/ext/notes/changes/${change}/notes`, {
@@ -585,6 +600,69 @@ test.skipIf(!usable)("the change's own row is the page's first, and it stays the
   await page.close();
 }, 30_000);
 
+test.skipIf(!usable)("the rail identities are avatars collapsed and names on hover", async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(url, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".change-card");
+  // Park the pointer off the rail: Playwright's mouse starts at (0,0), which would already
+  // have opened the rail and shown the names.
+  await page.mouse.move(900, 600);
+  await page.waitForTimeout(300);
+
+  // Collapsed: a change is its initials avatar with its state badge, and no name of its own.
+  const entry = page.locator(".sidebar .entry.change", { hasText: `${other}-x` });
+  const avatar = entry.locator(".avatar");
+  await avatar.waitFor();
+  // `other` has no title, so its avatar is the id's initials.
+  expect((await avatar.innerText()).trim()).toBe("PR");
+  expect(await entry.locator(".state-badge").count()).toBe(1);
+  expect(await entry.locator(".subject").isVisible()).toBe(false);
+
+  // Opened: the title is revealed, with the CI glyph beside it.
+  await page.locator(".sidebar").hover();
+  await entry.locator(".subject", { hasText: `${other}-x` }).waitFor();
+  await entry.locator(".icons").waitFor();
+  expect(await entry.locator(".icons svg").count()).toBe(1);
+
+  // Clicking the revealed name opens that change.
+  await entry.locator(".subject").click();
+  await page.waitForURL(`**/changes/${other}`);
+  expect(new URL(page.url()).pathname).toBe(`/changes/${other}`);
+  await page.close();
+}, 30_000);
+
+test.skipIf(!usable)("keyboard focus opens the rail, and Tab out closes it", async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(url, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".change-card");
+  // Park the pointer off the rail, so only the keyboard can open it.
+  await page.mouse.move(900, 600);
+  await page.waitForTimeout(300);
+  const rail = page.locator(".sidebar .rail");
+  const railOpen = (): Promise<boolean> =>
+    page.evaluate(() => document.querySelector(".sidebar")?.classList.contains("rail-open") ?? false);
+  expect(await railOpen()).toBe(false);
+
+  // The first Tab reaches the rail's workspace control: the rail opens and a change's name appears.
+  await page.keyboard.press("Tab");
+  await page.waitForFunction(() =>
+    document.querySelector(".sidebar")?.classList.contains("rail-open"),
+  );
+  await waitForRailWidth(page, "open");
+  const name = page.locator(".sidebar .entry.change .subject").first();
+  await name.waitFor();
+  expect(await name.isVisible()).toBe(true);
+
+  // Tab out of the rail: focus leaves, and the rail closes again.
+  await page.keyboard.press("Shift+Tab");
+  await page.waitForFunction(() =>
+    !document.querySelector(".sidebar")?.classList.contains("rail-open"),
+  );
+  await waitForRailWidth(page, "closed");
+  expect((await rail.boundingBox())!.width).toBeLessThan(57);
+  await page.close();
+}, 30_000);
+
 test.skipIf(!usable)("the window strip wraps to two rows and the chrome stays one sticky block", async () => {
   // A change whose strip cannot fit one row at this width: four windows' tabs (the change id, a
   // long name) plus Overview and "new". The windows are made through the registry's own route,
@@ -751,6 +829,10 @@ test.skipIf(!usable)("a narrow window hides the navigation behind a drawer", asy
   expect(await page.locator(".sidebar").evaluate((el) => getComputedStyle(el).visibility)).toBe(
     "visible",
   );
+  // The drawer opens to be read: the rail is expanded over the thin rail and a change's name is
+  // visible, so it does not fight the rail with a 56px icon strip. Wait for the width to settle.
+  await waitForRailWidth(page, "open");
+  await page.locator(".sidebar .entry.change .subject").first().waitFor();
   // An open drawer owns the scroll.
   expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).toBe("hidden");
 

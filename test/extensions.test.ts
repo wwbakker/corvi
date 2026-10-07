@@ -264,6 +264,12 @@ test("an extension's page is offered only in a context that has it", () => {
   expect(withoutLeftovers.map((p) => p.extension)).not.toContain("leftovers");
 });
 
+test("a page declares the glyph the rail draws for it", () => {
+  // The name is the page's own; the rail maps it (leftovers -> box, unknown -> generic page).
+  const [leftovers] = pagesFor(ws({ settings: { extensions: ["leftovers"] } }));
+  expect(leftovers).toMatchObject({ id: "leftovers", title: "Leftovers", icon: "leftovers" });
+});
+
 test("a change tab is offered only in a context that has the integration", () => {
   expect(changeTabsFor(ws({ settings: { extensions: ["review"] } }))).toEqual([
     { id: "review", title: "Review changes", extension: "review" },

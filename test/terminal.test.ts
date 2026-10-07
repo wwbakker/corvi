@@ -467,14 +467,19 @@ test.skipIf(!usable)("the window strip is the server's registry: a new tab is it
   // The navigation column lists the registry's windows too.
   const entries = page.locator(".sidebar .entry.window");
   expect(await until(() => entries.count(), 2)).toBe(2);
+  // Each row draws its window glyph and its small index badge — the `ctrl-b N` the tab names.
+  expect(await entries.first().locator(".glyph svg").count()).toBe(1);
+  expect((await entries.nth(0).locator(".index").innerText()).trim()).toBe("0");
+  expect((await entries.nth(1).locator(".index").innerText()).trim()).toBe("1");
 
   // The new window is active and is its own pty: a fresh shell without the first one's marker.
   await runCommand(page, `echo "\${TAB_MARK:-none}" > ${join(dir, "new-tab.txt")}`, join(dir, "new-tab.txt"), "none\n");
 
-  // Selecting the first tab attaches back to its own shell, marker intact. Both tabs share a label
-  // (two shells in the change directory), so the index is what says the switch landed; the pane's
-  // own attach follows it, and `runCommand` waits for that before typing.
-  await tabs.first().click();
+  // Selecting the first window from the rail attaches back to its own shell, marker intact: a rail
+  // row opens the same terminal a tab does. Both windows share a label (two shells in the change
+  // directory), so the index is what says the switch landed; the pane's own attach follows it, and
+  // `runCommand` waits for that before typing.
+  await entries.nth(0).click();
   expect(await until(() => page.locator(".window-tab.current").getAttribute("data-window-index"), "0", budget(20_000))).toBe("0");
   await runCommand(page, `echo "\${TAB_MARK:-none}" > ${join(dir, "first-tab.txt")}`, join(dir, "first-tab.txt"), "one\n");
   await page.close();

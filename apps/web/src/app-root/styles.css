@@ -38,13 +38,15 @@
   --diff-del: #ffa198;
 
   /* The avatar palette: a change wears the hue its id maps to, so the rail's avatars are
-     recognisable and no colour is invented at a call site. Dark enough for white initials to read. */
-  --avatar-1: #3f5bd6;
-  --avatar-2: #2f8f6b;
-  --avatar-3: #a4601d;
-  --avatar-4: #7c3aed;
-  --avatar-5: #b23a5e;
-  --avatar-6: #24708c;
+     recognisable and no colour is invented at a call site. Muted on purpose: identity is the
+     surface, the state is the small vivid badge on top, and the two must not read as the same
+     thing (the state colours above are the saturated ones). */
+  --avatar-1: #3a4a73;
+  --avatar-2: #33584a;
+  --avatar-3: #5f4a2c;
+  --avatar-4: #4a3f6b;
+  --avatar-5: #5e3345;
+  --avatar-6: #2f4f5a;
 
   /* The Markdown editor's syntax: the plan, the notes and the wizard's description read as
      source. Seeded from the palette above — the info blue, the diff green, the purple, the two
@@ -252,15 +254,17 @@ a {
   flex-direction: column;
   align-items: center;
   gap: 1px;
-  padding: 6px 1px;
+  /* No horizontal padding: the label gets the full 44px of the collapsed rail, so a nine-letter
+     name like "Subagents" is not clipped at nine pixels. */
+  padding: 6px 0;
   text-align: center;
   pointer-events: auto;
 }
 
 .sidebar .dest-label {
   max-width: 100%;
-  font-size: 8px;
-  line-height: 1.15;
+  font-size: 9px;
+  line-height: 1.1;
   color: var(--muted);
 }
 
@@ -450,7 +454,7 @@ a {
 }
 
 .sidebar .entry.window .index {
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1;
   color: var(--muted);
 }

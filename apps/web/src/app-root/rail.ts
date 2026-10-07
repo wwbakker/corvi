@@ -39,3 +39,10 @@ export type PageGlyph = "leftovers" | "page";
 
 export const pageGlyph = (icon: string | undefined): PageGlyph =>
   icon === "leftovers" ? "leftovers" : "page";
+
+/** The glyph a window draws, from the name the server presented it under. The core knows the
+ * three; an unknown or absent name falls back to the terminal, as the window contract says. */
+export type WindowGlyph = "terminal" | "agent" | "subagent";
+
+export const windowGlyph = (icon: string | undefined): WindowGlyph =>
+  icon === "subagent" ? "subagent" : icon === "agent" ? "agent" : "terminal";

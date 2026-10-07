@@ -1,4 +1,6 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { checkoutsOf } from "./helpers.ts";
 import type { Change } from "@corvi/changes/record";
 import { aborted } from "../apps/web/src/app-root/api.ts";
@@ -6,6 +8,14 @@ import { stateClass } from "../apps/web/src/app-root/stateClass.ts";
 import { changeNav, resolveChangePage } from "../apps/web/src/change-page/client/changeTabs.ts";
 import { moment } from "../apps/web/src/app-root/moment.ts";
 import { getPref, setPref } from "../apps/web/src/app-root/prefs.ts";
+import {
+  initials,
+  pageGlyph,
+  paletteIndex,
+  PALETTE_SIZE,
+  windowGlyph,
+} from "../apps/web/src/app-root/rail.ts";
+import { WindowIcon } from "../apps/web/src/app-root/icons.tsx";
 import {
   ALL,
   DEFAULT_WORKSPACE,
@@ -219,4 +229,67 @@ test("only an abort is an abort", () => {
   expect(aborted({ name: "AbortError" })).toBe(false);
   expect(aborted("AbortError")).toBe(false);
   expect(aborted(undefined)).toBe(false);
+});
+
+test("an avatar takes one or two initials, falling back to the id", () => {
+  // Two words: a letter from each.
+  expect(initials("Anonymise customer names", "PROJ-1")).toBe("AC");
+  // One word: its first two letters.
+  expect(initials("Release", "PROJ-2")).toBe("RE");
+  // Punctuation is stripped before a letter is taken, so it never becomes an initial.
+  expect(initials("Fix #12 bug", "PROJ-3")).toBe("F1");
+  // Nothing to name it by: the id, letters and digits only.
+  expect(initials("", "PROJ-123")).toBe("PR");
+  expect(initials(undefined, "PROJ-123")).toBe("PR");
+  // An id with nothing usable still gives a mark rather than an empty avatar.
+  expect(initials(undefined, "---")).toBe("?");
+});
+
+test("a change id maps to one stable palette hue in range", () => {
+  const index = paletteIndex("PROJ-1");
+  expect(index).toBeGreaterThanOrEqual(0);
+  expect(index).toBeLessThan(PALETTE_SIZE);
+  // The same id always wears the same hue, whatever the palette size.
+  expect(paletteIndex("PROJ-1")).toBe(index);
+  expect(paletteIndex("PROJ-1", 3)).toBeLessThan(3);
+  expect(paletteIndex("PROJ-1", 1)).toBe(0);
+  // Different ids are not all one bucket: the hue is identity, not a constant.
+  const used = new Set(Array.from({ length: 40 }, (_, i) => paletteIndex(`PROJ-${i}`)).values());
+  expect(used.size).toBeGreaterThan(1);
+});
+
+test("a page icon name maps to the glyph the core knows, or the generic page", () => {
+  expect(pageGlyph("leftovers")).toBe("leftovers");
+  expect(pageGlyph(undefined)).toBe("page");
+  expect(pageGlyph("")).toBe("page");
+  expect(pageGlyph("azure-devops")).toBe("page");
+});
+
+test("a window icon name maps to its glyph, terminal for anything unknown", () => {
+  // A silent subagent is still a subagent: the name comes from the host session, not a reporter.
+  expect(windowGlyph("subagent")).toBe("subagent");
+  expect(windowGlyph("agent")).toBe("agent");
+  expect(windowGlyph("terminal")).toBe("terminal");
+  // An absent or unknown name is the plain terminal, not a second kind of agent.
+  expect(windowGlyph(undefined)).toBe("terminal");
+  expect(windowGlyph("something-else")).toBe("terminal");
+});
+
+test("a window's icon name renders the shape that names it", () => {
+  const render = (icon: string | undefined): string =>
+    renderToStaticMarkup(createElement(WindowIcon, { icon, title: "window" }));
+
+  const terminal = render("terminal");
+  const agent = render("agent");
+  const subagent = render("subagent");
+
+  // The three names are three different drawings...
+  expect(new Set([terminal, agent, subagent]).size).toBe(3);
+  // ...the terminal's prompt, the agent's head-with-antenna, and the subagent's two heads.
+  expect(terminal).toContain("M2.5 4l3.5 4-3.5 4");
+  expect(agent).toContain('x="3" y="5.5" width="10"');
+  expect(subagent).toContain('x="1.5" y="1.8" width="9"');
+  // An unknown name falls back to the terminal, the runtime rule `windowGlyph` owns.
+  expect(render("something-else")).toBe(terminal);
+  expect(render(undefined)).toBe(terminal);
 });

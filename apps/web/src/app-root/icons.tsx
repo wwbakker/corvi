@@ -1,4 +1,5 @@
 import type { JSX } from "react";
+import { windowGlyph } from "./rail.ts";
 
 /**
  * The navigation and status glyphs: terminals, builds, agents, the destinations and the page.
@@ -188,12 +189,12 @@ export function LeftoversIcon({ title }: { title: string }): JSX.Element {
  * both draw this one component, so the same window cannot look like two different things. An
  * unknown name falls back to the terminal, as the contract says. */
 export function WindowIcon({ icon, title }: { icon?: string; title: string }): JSX.Element {
-  switch (icon) {
+  switch (windowGlyph(icon)) {
     case "subagent":
       return <SubagentIcon title={title} />;
     case "agent":
       return <AgentIcon title={title} />;
-    default:
+    case "terminal":
       return <TerminalIcon title={title} />;
   }
 }
