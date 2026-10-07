@@ -147,6 +147,46 @@ re-emits what it hears on the local bus under the `source` event, preserving the
 single-`EventSource` design. The page only ever talks to a remote through the gateway; the token
 never reaches it.
 
+### Remote availability
+
+The per-workspace event subscription is also the **availability owner** (`src/remote-events`). An
+open stream that keeps sending bytes — event frames or the server's heartbeat comments — means
+the workspace is reachable; silence past a bound means it is not. The bounded checks
+(`src/remote-events/model.ts`, constructed by the entrypoint and injectable in tests) are a time
+to the response headers, a time to the stream's first byte, and a maximum silence between bytes —
+never a total-duration timeout on a healthy stream. The owner publishes one snapshot per change
+(`@corvi/contracts/availability`): `checking`, `available`, or `unavailable` with a fixed reason
+(`unreachable`, `authentication`, `configuration`, `stalled`). A random per-target `generation`
+changes whenever `url`, `workspace` or `token` changes (never derived from the credential), and a
+per-target `revision` plus a random per-process `instance` order snapshots. A consumer establishes
+the instance from an authoritative read (a fresh page, or the snapshot it fetches after
+reconnecting) and applies events only for that instance and a newer revision; an event naming an
+unestablished instance is an old server's frame and triggers a snapshot re-read rather than being
+accepted as a new epoch.
+
+`GET /api/remotes/availability` serves the whole map; `POST /api/remotes/:source/availability/retry`
+asks for one coordinated check (a healthy stream is left untouched, and repeated asks share one
+attempt); the `availability` event carries the same map on the page's existing stream. The gateway
+reports only transport- and auth-level observations to the owner, and those at most request a
+recheck — a single failed operation never classifies a workspace, and an operation error from the
+remote is not whole-source offline. Retries are health reconnects: a failed write is never queued
+or replayed. The gateway's own waits are the same kind: a read (GET/HEAD) has a response-header
+bound — except the subagent `await`/`next` long polls, which are parked by design and answer only
+when they have something — a WebSocket handshake has a deadline, and a mutation or command has no
+total-duration bound at all (`src/gateway/server/timeouts.ts`). The bounds come from the
+entrypoint: an invalid or non-positive environment value falls back to the named default.
+
+The page side of the same ownership is one **availability owner per sources provider**
+(`apps/web/src/app-root/sourceOwner.ts`): it holds the map, re-reads the snapshot after its
+stream reconnects, and builds every remote client and wire on a gate that refuses a send unless
+that source is `available` (the local source is never gated). A capability is bound to the target
+**generation it was acquired for** and cached by `(source, generation)`, so an unmount flush or a
+queued window action that captured an old target is refused as `stale-target` without reaching
+the new one; the hooks re-acquire on a generation change, and the workspace wire's identity also
+changes on recovery so a page re-reads in place without a remount. The window store captures the
+generation for each read and queued action and passes it to the transport, so no isolation rule
+depends on the timing of a React effect.
+
 Because two servers can mint the same change id, the browser identifies a change by
 `(source, changeId)`: change lists are merged and tagged with their source, and change-scoped
 reads, writes and terminal sockets route to the owning source. The network type is unchanged — a

@@ -46,6 +46,12 @@ export type WindowPresentation = {
   state?: "ok" | "idle";
   /** Whether this counts as work happening (the overview's terminals fact). */
   busy?: boolean;
+  /** Whether the agent in this window is working right now — the agent-only signal, unlike
+   * `busy`, which also counts plain commands. Absent for a window no agent speaks for. */
+  working?: boolean;
+  /** Whether an agent speaks for this window at all: the explicit "only agents" fact, so a
+   * consumer need not guess from `icon` or `running`. */
+  agent?: boolean;
   /** Whether this window wants the user now — what notifications are made of. The core only
    * sees the edge into it; the presenter owns what it means and when it clears. */
   attention?: boolean;

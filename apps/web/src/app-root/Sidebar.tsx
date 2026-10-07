@@ -10,17 +10,21 @@ import {
   LeftoversIcon,
   PageIcon,
   PlusIcon,
+  PowerIcon,
   SubagentIcon,
   UpdateIcon,
   WindowIcon,
 } from "./icons.tsx";
 import { byWorkOrder, IDEATION, isFinished, isIdeation, type ChangeSummary } from "../domain/change.ts";
 import type { TerminalWindow } from "../domain/terminal.ts";
-import { changeKey, clientFor } from "./sources.ts";
+import { changeKey, useAvailability, useSourceOwner } from "./sources.ts";
+import { availabilitySuffix, statusOf } from "./sourceOwner.ts";
 import { draftLabel, type Draft } from "../wizard/draft.ts";
 import { ALL, type Workspace } from "../workspace/client/workspaces.ts";
 import { ActionsMenu } from "./ActionsMenu.tsx";
 import type { AppUpdateStatus } from "../app-update/model.ts";
+import { PowerDialog } from "../power/PowerDialog.tsx";
+import { usePower } from "../power/state.ts";
 import { initials, pageGlyph, paletteIndex } from "./rail.ts";
 
 /** Which page of a change is open. The dashboard is what selecting a change opens; terminals is
@@ -71,6 +75,7 @@ export function Sidebar({
   windows,
   onHome,
   onNew,
+  newBlocked,
   draft,
   wizard,
   pages,
@@ -100,6 +105,8 @@ export function Sidebar({
   onHome: () => void;
   /** Start an idea: the plus in the destinations opens the draft already there. */
   onNew: () => void;
+  /** The selected workspace is an unreachable remote: starting an idea there is disabled. */
+  newBlocked?: boolean;
   /** The idea being written, if there is one: the dashed avatar above the ideas. */
   draft?: Draft;
   /** Whether the wizard is the page open: the draft avatar is current then, and the overview is
@@ -129,7 +136,7 @@ export function Sidebar({
   onOpenChange: (change: Change) => void;
   onSelectWindow: (change: Change, index: number) => void;
   /** Whether the narrow window's drawer is open: on a wide window the rail is always there and
-   * this changes nothing. */
+   * this only marks the rail as deliberately opened (so it shows its names). */
   open: boolean;
 }): JSX.Element {
   // What you can get on with first, then what is with somebody else, then what is stuck — and
@@ -174,16 +181,46 @@ export function Sidebar({
   const revealed = keyboardGroup ?? pointerGroup;
 
   const [summaries, setSummaries] = useState<Record<string, ChangeSummary>>({});
+  // The power control is self-contained here: the column already has the workspaces, and it only
+  // needs the page's own event connection to keep the machines fresh.
+  const power = usePower(workspaces);
+  const owner = useSourceOwner();
+  const availability = useAvailability();
+  // A local workspace's source is the local server (""); a remote one is its own id. The suffix
+  // is reachability only: an unavailable workspace stays in the list and selectable.
+  const statusOfWorkspace = (workspace: Workspace): ReturnType<typeof statusOf> =>
+    statusOf(availability, workspace.remote !== undefined ? workspace.id : "");
+  const chosenWorkspace = workspaces.find((w) => w.id === chosen);
 
   // The same numbers the overview cards show, for the CI icon. One request per change, from the
   // cache on the server, and slowly: this is a glance, not a monitor.
-  const ids = active.map((c) => changeKey(c.source ?? "", c.id)).join("|");
+  // The generation is part of the key: a same-id retarget must not show the old target's
+  // summary, and a late old answer lands under a key nothing reads.
+  const generationOf = (source: string): string => availability.entries[source]?.generation ?? "";
+  const ids = active
+    .map((c) => `${changeKey(c.source ?? "", c.id)}@${generationOf(c.source ?? "")}`)
+    .join("|");
+  // The interval reads the world as it is now, not the render that installed it: a source that
+  // goes down (or comes back) between ticks must stop being asked — and start being asked again —
+  // without waiting the interval out.
+  const latest = useRef({ availability, active, generationOf });
+  latest.current = { availability, active, generationOf };
+  // Reachability is part of the effect's identity: a loss and a recovery of the same generation
+  // both re-run it immediately — skip while blocked, refresh on recovery.
+  const statusKey = active
+    .map((c) => `${c.source ?? ""}:${statusOf(availability, c.source ?? "")._tag}`)
+    .join("|");
   useEffect(() => {
     let alive = true;
     const load = (): void =>
-      active.forEach((c) => {
-        const key = changeKey(c.source ?? "", c.id);
-        clientFor(c.source ?? "")
+      latest.current.active.forEach((c) => {
+        const source = c.source ?? "";
+        // A checking/unavailable remote is not asked; the banner says why, and the next run after
+        // recovery (or a retarget) fetches.
+        if (statusOf(latest.current.availability, source)._tag !== "available") return;
+        const key = `${changeKey(source, c.id)}@${latest.current.generationOf(source)}`;
+        owner
+          .clientFor(source)
           .changes.summary(ChangeId.make(c.id))
           .then((s) => alive && setSummaries((all) => ({ ...all, [key]: s })))
           .catch(() => {});
@@ -194,7 +231,9 @@ export function Sidebar({
       alive = false;
       clearInterval(timer);
     };
-  }, [ids]);
+    // `ids` encodes source + change + generation; `statusKey` the reachability, so both a retarget
+    // and a same-generation outage/recovery re-run the effect.
+  }, [ids, statusKey, owner]);
 
   const workspaceName = workspaces.find((w) => w.id === chosen)?.name ?? "All work";
   // "Changes" is home: current only when no change or other page is on.
@@ -208,12 +247,14 @@ export function Sidebar({
     icon: JSX.Element,
     onClick: () => void,
     current: boolean,
+    disabled = false,
   ): JSX.Element => (
     <button
       key={key}
       className={`entry dest${current ? " current" : ""}`}
-      title={label}
+      title={disabled ? "this workspace is unavailable" : label}
       aria-label={label}
+      disabled={disabled}
       onClick={onClick}
     >
       <span className="dest-icon" aria-hidden="true">
@@ -233,7 +274,7 @@ export function Sidebar({
     // One thing is highlighted at a time. On a terminal that thing is the window, not the
     // change it belongs to: two highlights would be two answers to "where am I".
     const here = selected && page !== "terminals";
-    const summary = summaries[key];
+    const summary = summaries[`${key}@${generationOf(c.source ?? "")}`];
     const ci = summary?.state ?? "none";
     const name = c.title ?? c.branch;
     return (
@@ -278,6 +319,7 @@ export function Sidebar({
         {mine.map((w) => (
           <button
             key={w.index}
+            data-window-id={w.id}
             className={
               selected && page === "terminals" && w.active
                 ? "entry sub window current"
@@ -326,12 +368,12 @@ export function Sidebar({
         <div className="band">
           <ActionsMenu
             className="workspace"
-            label={workspaceName}
+            label={`${workspaceName}${chosenWorkspace === undefined ? "" : availabilitySuffix(statusOfWorkspace(chosenWorkspace))}`}
             ariaLabel={`Workspace: ${workspaceName}`}
             title={workspaceName}
             actions={[
               ...workspaces.map((w) => ({
-                label: w.name,
+                label: `${w.name}${availabilitySuffix(statusOfWorkspace(w))}`,
                 disabled: w.id === chosen,
                 onSelect: () => onChooseWorkspace(w.id),
               })),
@@ -344,7 +386,7 @@ export function Sidebar({
             always visible — the destinations do not reveal. */}
         <div className="destinations">
           {destination("changes", "Changes", <ChangesIcon title="Changes" />, onHome, home)}
-          {destination("new", "New", <PlusIcon title="New" />, onNew, false)}
+          {destination("new", "New", <PlusIcon title="New" />, onNew, false, newBlocked === true)}
           {destination("actions", "Actions", <ActionsIcon title="Actions" />, onActions, actions)}
           {destination("subagents", "Subagents", <SubagentIcon title="Subagents" />, onSubagents, subagents)}
           {pages.map((p) =>
@@ -405,7 +447,7 @@ export function Sidebar({
 
         {/* At the bottom of the rail, not below the list: it is where you go once in a while, and
             it should be in the same place whether you have two changes or nine. Settings is the
-            gear; the update icon sits to its right. */}
+            gear; the power control sits beside it, and the update icon to its right. */}
         <div className="bottom-row">
           <button
             className={`icon-entry${settings ? " current" : ""}`}
@@ -414,6 +456,14 @@ export function Sidebar({
             onClick={onSettings}
           >
             <GearIcon title="Settings" />
+          </button>
+          <button
+            className={`icon-entry${power.open ? " current" : ""}`}
+            title="Power down when done"
+            aria-label="Power"
+            onClick={power.openDialog}
+          >
+            <PowerIcon title="Power" />
           </button>
           {update?.eligible && (
             <button
@@ -427,6 +477,8 @@ export function Sidebar({
           )}
         </div>
       </div>
+
+      {power.open && <PowerDialog view={power} onClose={power.closeDialog} />}
     </nav>
   );
 }

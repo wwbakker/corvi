@@ -14,6 +14,7 @@ import {
   nextNumber,
   parseMessage,
   parseRecord,
+  pendingInbound,
   renderMessage,
   renderRecord,
   type SubagentMessage,
@@ -140,6 +141,70 @@ export const listInstances = (
     return instances;
   });
 
+/** Whether a filesystem failure is "the path is not there" — the one read error a strict read
+ * treats as "nothing to read" rather than a failure. */
+const isMissing = (cause: unknown): boolean =>
+  typeof cause === "object" && cause !== null && (cause as { code?: unknown }).code === "ENOENT";
+
+/** A `readText` that propagates a real read failure instead of folding it into `undefined`: a
+ * missing file is still "no file", every other failure is a `SubagentStoreError`. */
+const readTextStrict = (path: string): Effect.Effect<string | undefined, SubagentStoreError> =>
+  Effect.tryPromise({
+    try: () => readFile(path, "utf8"),
+    catch: (cause) => new SubagentStoreError({ operation: "read", message: path, cause }),
+  }).pipe(
+    Effect.catch((error) =>
+      isMissing(error.cause) ? Effect.succeed(undefined) : Effect.fail(error),
+    ),
+  );
+
+/** One instance read strictly: an unreadable or damaged `session.json` fails rather than
+ * reading as absent, so an agent it hides cannot be mistaken for no agent. A missing record is
+ * still null. */
+export const readInstanceStrict = (
+  changeDir: string,
+  id: string,
+): Effect.Effect<SubagentWithMessages | null, SubagentStoreError> =>
+  Effect.gen(function* () {
+    const path = join(instanceDir(changeDir, id), "session.json");
+    const text = yield* readTextStrict(path);
+    if (text === undefined) return null;
+    const parsed = parseRecord(text);
+    if (parsed._tag === "Failure") {
+      return yield* Effect.fail(
+        new SubagentStoreError({
+          operation: "read",
+          message: `${path}: ${parsed.failure.join("; ")}`,
+        }),
+      );
+    }
+    const messages = yield* readMessages(changeDir, id);
+    return { ...parsed.success, messages };
+  });
+
+/** Every instance of a change, read strictly for the power monitor: a missing store is empty,
+ * but any other read failure propagates instead of reading as "no subagents". */
+export const listInstancesStrict = (
+  changeDir: string,
+): Effect.Effect<readonly SubagentWithMessages[], SubagentStoreError> =>
+  Effect.gen(function* () {
+    const dir = subagentsDir(changeDir);
+    const names = yield* Effect.tryPromise({
+      try: () => readdir(dir),
+      catch: (cause) => new SubagentStoreError({ operation: "read", message: dir, cause }),
+    }).pipe(
+      Effect.catch((error) =>
+        isMissing(error.cause) ? Effect.succeed([] as string[]) : Effect.fail(error),
+      ),
+    );
+    const instances: SubagentWithMessages[] = [];
+    for (const name of names.sort()) {
+      const found = yield* readInstanceStrict(changeDir, name);
+      if (found) instances.push(found);
+    }
+    return instances;
+  });
+
 /** Create a record and its directory. Refuses to overwrite an existing instance. */
 export const createInstance = (
   changeDir: string,
@@ -191,6 +256,7 @@ export const appendMessage = (
     readonly body: string;
     readonly at: string;
     readonly pane?: string;
+    readonly inReplyTo?: number;
   },
 ): Effect.Effect<SubagentMessage, SubagentStoreError> =>
   withLock(
@@ -204,6 +270,7 @@ export const appendMessage = (
         at: input.at,
         body: input.body,
         ...(input.pane === undefined ? {} : { pane: input.pane }),
+        ...(input.inReplyTo === undefined ? {} : { inReplyTo: input.inReplyTo }),
       };
       const dir = instanceDir(changeDir, id);
       yield* Effect.tryPromise({
@@ -277,6 +344,7 @@ export const appendMessageAndPatch = (
     readonly at: string;
     readonly pane?: string;
     readonly key?: string;
+    readonly inReplyTo?: number;
   },
   patch: (record: SubagentWithMessages, message: SubagentMessage) => SubagentRecord,
 ): Effect.Effect<{ readonly message: SubagentMessage; readonly replayed: boolean }, SubagentStoreError> =>
@@ -299,6 +367,7 @@ export const appendMessageAndPatch = (
         body: input.body,
         ...(input.pane === undefined ? {} : { pane: input.pane }),
         ...(input.key === undefined ? {} : { key: input.key }),
+        ...(input.inReplyTo === undefined ? {} : { inReplyTo: input.inReplyTo }),
       };
       const dir = instanceDir(changeDir, id);
       yield* writeAtomic(join(dir, messageFileName(message.number, message.role)), renderMessage(message));
@@ -319,14 +388,6 @@ export type Claim =
  * this answers `interrupted` (or redelivers that message when `redeliverAfter` says the caller
  * has not seen it); otherwise it advances the delivery cursor and the in-flight marker together
  * under the lock, so two concurrent `next` calls cannot both claim the same message. */
-/** The next message the relay has not picked up yet: everything the delivery cursor still
- * holds back. The one predicate `claimInbound` delivers by and the server's `await` holds
- * ready back by — stated once, so the two cannot drift. */
-export const pendingInbound = (record: SubagentWithMessages): SubagentMessage | undefined =>
-  record.messages.find(
-    (message) => message.role !== "subagent" && message.number > (record.deliveredThrough ?? 0),
-  );
-
 export const claimInbound = (
   changeDir: string,
   id: string,
@@ -410,3 +471,7 @@ export const recordPath = (changeDir: string, id: string): string =>
 
 /** Re-exported so the server does not reach into the pure module for the common types. */
 export type { SubagentRecord, SubagentMessage, SubagentWithMessages };
+
+/** Re-exported with the store so `@corvi/agents/node` keeps the predicate `claimInbound` delivers
+ * by; its definition lives in the pure module (`../instance`). */
+export { pendingInbound };

@@ -245,6 +245,27 @@ export function MenuIcon({ title }: { title: string }): JSX.Element {
   );
 }
 
+/** Power: the ring with its gap and stem — the once-in-a-while control that powers machines
+ * down when their agents are done. */
+export function PowerIcon({ title }: { title: string }): JSX.Element {
+  return (
+    <svg
+      {...size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role="img"
+      aria-label={title}
+    >
+      <title>{title}</title>
+      <path d="M8 1.5v6" />
+      <path d="M4.7 3.6a5 5 0 1 0 6.6 0" />
+    </svg>
+  );
+}
+
 /** Updates: an arrow turning back on itself — the app fetching its own new version. */
 export function UpdateIcon({ title }: { title: string }): JSX.Element {
   return (

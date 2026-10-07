@@ -26,18 +26,25 @@ import { useSavedText } from "../../editor/client/useSavedText.ts";
 export function PlanPage({
   changeId,
   source,
+  generation,
   readOnly = false,
 }: {
   changeId: string;
   /** Which server owns the change: the plan file lives there. */
   source: string;
-  /** A finished change's plan is a record: readable, not editable. */
+  /** The owning source's target generation: cached plan text is keyed by it, so a same-id retarget
+   * cannot show the old target's document. */
+  generation?: string;
+  /** A finished (or unavailable) change's plan is a record: readable, not editable. */
   readOnly?: boolean;
 }): JSX.Element {
   const client = useChangeClient();
   const key = changeKey(source, changeId);
   const { text, change, saved, flush, stale, reload, keepMine } = useSavedText({
-    key: `${key}:plan`,
+    key: `${key}@${generation ?? ""}:plan`,
+    // A read-only plan (finished, or its workspace unavailable) is held, not written: the server
+    // refuses a finished plan's write anyway, and a blocked one has no reachable target.
+    canSave: !readOnly,
     load: () =>
       client.changes.plan(ChangeId.make(changeId)).then(({ text, revision }) => ({ text, revision })),
     save: (value, baseRevision) =>
@@ -79,7 +86,7 @@ export function PlanPage({
         fill
         value={text}
         readOnly={readOnly}
-        remember={documentKey("plan", key)}
+        remember={documentKey("plan", `${key}@${generation ?? ""}`)}
         placeholder="What this change is, and how it might work. The agent reads and edits this file (PLAN.md)."
         onChange={change}
         onBlur={flush}

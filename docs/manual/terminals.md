@@ -20,6 +20,26 @@ and tells the first window it has been taken over: the first keeps its last scre
 terminal is open in another window, and offers **Take over** — which re-attaches it and, in turn,
 detaches the second. This also covers two tabs on one machine; neither screen freezes silently.
 
+Detached is not ended, and ended is not detached: a taken-over pane says the terminal is open in
+another window and offers **Take over**, while a pane whose shell exited says only that this
+pane's shell ended. A socket that closes on its own is neither — it is a connection state that
+reconnects. The browser socket is not the shell: within one change, a hidden pane that stays
+mounted may keep its attachment (switching between the change's views generally does not
+reconnect it), but leaving the change or unmounting the pane can close the socket while the
+shells and the server-side screen survive in the host and are resumed on the next attach. An
+unavailable workspace or a retargeted target disconnects the pane; completing or cancelling a
+change explicitly ends the sessions it owns (see
+[completing a change](changes.md#completing-a-change)).
+
+A remote workspace's terminals are unavailable with it: the pane says the workspace cannot be
+reached, closes its browser connection, and typing goes nowhere until it recovers; the retained
+windows and their last screens stay listed. Recovery re-attaches in place, without a reload.
+
+A terminal that is starting or reconnecting says so; the pane does not claim the shells are lost.
+A shell that exits ends only its own pane and says that there — the other terminals in the change
+are unaffected. A slow startup or a temporarily unreachable server is a connection state, not a
+lost session, so it recovers when the answer arrives without a reload.
+
 This persistence is not a promise to restore processes after a machine reboot or to resume an
 agent conversation. Those are separate planned capabilities.
 
@@ -38,9 +58,12 @@ strip wraps to a second row instead of showing a horizontal scrollbar. The strip
 rows and scrolls once there are more; the **Actions** menu sits vertically centred in the strip.
 
 The new-window control, **Cmd-T** on macOS or **Ctrl-Alt-T** on Linux, creates another host session
-in the current window's directory. In a normal Chrome tab, Cmd-T remains a browser shortcut; the
-desktop app can deliver it to Corvi. Keyboard focus stays with the terminal while switching
-windows.
+in the current window's directory. It becomes the current window. Work that opens a window in the
+background — an action run, a subagent — does not: it leaves the terminal you are looking at
+selected, so an idle shell is never taken over by something you did not open. Explicitly opening a
+terminal — a strip tab, a notification, or a subagent entry — selects it. In a normal Chrome tab,
+Cmd-T remains a browser shortcut; the desktop app can deliver it to Corvi. Keyboard focus stays
+with the terminal while switching windows.
 
 The terminal owns the screen: drag to select, the wheel or the scrollbar scrolls back, and the
 right-click menu holds Copy, Paste, Select all, Clear, Find and Open link. A dot indicates output
@@ -138,13 +161,50 @@ A change in a remote workspace notifies too. Its notice carries the source it ca
 toast names that server (`source · change`) and the banner and the click both keep it apart from a
 local change that happens to share an id; clicking opens that remote change's window.
 
+## Power down when done
+
+Arm a machine to power itself off once no agent on it is working — start a long agent run, tick
+**Power down when done**, and walk away. The control is the power icon in the navigation column's
+bottom row, beside Settings and the update icon. It lists this machine and any remote workspaces;
+this machine is ticked already and remotes are opt-in. Each machine shows the agents it reports
+right now, each marked **working** or **waiting / done**, so you can confirm the reporters are
+there before arming.
+
+Only a **working** agent — or a subagent that is working — blocks the power-off. A waiting or
+finished agent does not, and neither does a plain command — a build or a test run in another
+window is ignored. An agent without the reporter extension looks like a plain process and is
+invisible to this, exactly as it is to [attention
+notifications](#attention-notifications), so arm a machine only when the agents it lists are the
+ones you started.
+
+Arming starts a 60-second countdown as soon as the machine is quiet. The dialog shows the
+countdown, but the armed machine's own server owns it, so it runs whether or not a page is open.
+If an agent starts working during the countdown, the countdown is cancelled and a new one begins
+when the machine is quiet again. **Disarm** cancels it — from this control, or from a remote's own
+server.
+
+If the power command itself fails — a denied `systemctl`, or a macOS permission prompt you
+dismissed — the dialog shows the reason and the machine is left disarmed. It does not retry, so a
+refused shutdown is visible rather than silent, and you can arm it again.
+
+Each remote workspace runs its own Corvi server on its own machine. Arming a remote sends it the
+same command, and it powers *that* machine off using *its* own agents; this page only reads their
+state through the gateway. A machine whose state cannot be read is shown as un-armable and cannot
+be ticked, so a failure to see its agents never arms a blind power-off.
+
+Shutdown only: the machine powers off, it does not sleep. On macOS the first power-off may raise a
+one-time permission prompt for System Events; approve it, or the command does not run. The
+countdown lives with the server: closing the app's window stops the local server and disarms it.
+
 ## Troubleshooting and safety
 
 The terminal host owns every pty. Its socket is `<state dir>/corvi/host.sock` (the state dir is
 `$XDG_STATE_HOME/corvi` unless overridden), and the window registry is `terminal-windows.json`
 beside it. A blank browser terminal with a live host session points to the connection or rendering
-path rather than lost shells; check the correct server's logs and the browser console. Stopping
-Corvi and starting it again leaves the host and its shells running by design.
+path rather than lost shells; the pane's own starting/connecting/reconnecting state says which,
+and a message that a shell ended appears only when the session really exited. Check the correct
+server's logs and the browser console. Stopping Corvi and starting it again leaves the host and its
+shells running by design.
 
 Tests isolate themselves with their own state directory (`XDG_STATE_HOME`), so they never touch
 your host. Follow the contributor [resource-safety

@@ -9,6 +9,8 @@ import { type RawData, WebSocket } from "ws";
 
 import { runtimeConfig } from "../../capabilities/runtime.ts";
 import { frameOf, type Server, type ServerWebSocket } from "../../capabilities/serve.ts";
+import type { RemoteObservation } from "../../remote-events/model.ts";
+import type { GatewayTimeouts } from "./timeouts.ts";
 
 /** A remote workspace's target: where it lives and the token this client presents there. */
 export type RemoteTarget = { readonly baseUrl: string; readonly token?: string };
@@ -117,22 +119,60 @@ export const forwardedResponseHeaders = (upstream: Headers): Headers => {
   return headers;
 };
 
+/** What one proxied request produced, so the route can tell the availability owner about a
+ * transport-level failure without trusting ordinary operation errors as workspace health. */
+export type ProxyResult = {
+  readonly response: Response;
+  /** The gateway itself could not reach the remote (or the remote tried to redirect it). */
+  readonly transportFailure: boolean;
+  /** The remote answered 401/403: the device token was refused. */
+  readonly authentication: boolean;
+};
+
 /** Forward one HTTP request and stream the answer back. Cancellation travels both ways: the
- * request's signal (the client hanging up) aborts the upstream fetch. */
+ * request's signal (the client hanging up) aborts the upstream fetch, including its body.
+ *
+ * A read (GET/HEAD) gets a bounded time to the remote's response headers; once they arrive the
+ * body streams unbounded. A mutation/command has no bound at all: its duration is not ours to cut. */
+/** Reads that are deliberately parked: a subagent long poll sends its headers only when it
+ * answers (up to five minutes), so the read header bound must not apply. The canonical paths are
+ * `GET /api/changes/:id/subagents/await` (the fan-in) and
+ * `GET /api/changes/:id/subagents/:subagent/next` (one relayed turn, the id URL-encoded by the
+ * client). A mutation or command has no bound at all either; this is the one named exception
+ * among reads. */
+const isParkedRead = (rest: string): boolean =>
+  /^api\/changes\/[^/]+\/subagents\/(?:await|[^/]+\/next)$/.test(rest);
+
 export const proxyRequest = async (
   req: Request,
   target: RemoteTarget,
   rest: string,
-): Promise<Response> => {
+  timeouts: GatewayTimeouts,
+): Promise<ProxyResult> => {
+  // A client that is already gone is not a gateway failure and must not be sent upstream at all
+  // (nor observed as a transport failure). `bridgeUpgrade` has the same guard.
+  req.signal.throwIfAborted();
   const url = upstreamUrl(target, rest, new URL(req.url).search);
   const method = req.method.toUpperCase();
   const body = method === "GET" || method === "HEAD" ? undefined : req.body;
+  // The controller carries the client's own cancellation (for the body's whole life) and, for a
+  // bounded read, the header deadline (cleared as soon as the headers arrive).
+  const controller = new AbortController();
+  req.signal.addEventListener("abort", () => controller.abort(), { once: true });
+  const bounded = (method === "GET" || method === "HEAD") && !isParkedRead(rest);
+  let timedOut = false;
+  const timer = bounded
+    ? setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeouts.readHeadersMs)
+    : undefined;
   let upstream: Response;
   try {
     upstream = await fetch(url, {
       method,
       headers: forwardedRequestHeaders(req, target.token),
-      signal: req.signal,
+      signal: controller.signal,
       // Never let a configured remote redirect the gateway to another origin with the token
       // attached: that is an SSRF pivot.
       redirect: "manual",
@@ -141,19 +181,36 @@ export const proxyRequest = async (
   } catch (error) {
     // A client that hung up is not a gateway failure: let the abort travel out.
     if (req.signal.aborted) throw error;
-    return new Response("the remote server could not be reached", { status: 502 });
+    return {
+      response: new Response(
+        timedOut ? "the remote read did not answer in time" : "the remote server could not be reached",
+        { status: timedOut ? 504 : 502 },
+      ),
+      transportFailure: true,
+      authentication: false,
+    };
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
   if (REDIRECT_STATUSES.has(upstream.status)) {
     void upstream.body?.cancel().catch(() => undefined);
-    return new Response("the remote redirected the gateway; redirects are not followed", {
-      status: 502,
-    });
+    return {
+      response: new Response("the remote redirected the gateway; redirects are not followed", {
+        status: 502,
+      }),
+      transportFailure: true,
+      authentication: false,
+    };
   }
-  return new Response(upstream.body, {
-    status: upstream.status,
-    statusText: upstream.statusText,
-    headers: forwardedResponseHeaders(upstream.headers),
-  });
+  return {
+    response: new Response(upstream.body, {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers: forwardedResponseHeaders(upstream.headers),
+    }),
+    transportFailure: false,
+    authentication: upstream.status === 401 || upstream.status === 403,
+  };
 };
 
 /** A bridge is closed rather than buffering past this much to its slower side. */
@@ -234,30 +291,70 @@ export const gatewaySockets = {
   },
 };
 
+/** What one bridged upgrade produced. `response` is the refusal to answer with (absent when the
+ * local side upgraded, or when the client had already gone away). */
+export type UpgradeResult = {
+  readonly response?: Response;
+  readonly observation?: RemoteObservation;
+};
+
 /** Bridge a WebSocket upgrade to the remote's socket. The upstream is opened before the local
- * side upgrades, so a refusal (a non-101) still comes back as an HTTP answer where it can. */
+ * side upgrades, so a refusal (a non-101) still comes back as an HTTP answer where it can.
+ *
+ * The handshake is bounded and follows the client: a remote that accepts the TCP connection and
+ * never completes the handshake, or a client that gives up first, must not hold either side. The
+ * bridged stream after a successful handshake has no bound. */
 export const bridgeUpgrade = async (
   req: Request,
   srv: Server,
   target: RemoteTarget,
   rest: string,
-): Promise<Response | undefined> => {
+  timeouts: GatewayTimeouts,
+): Promise<UpgradeResult> => {
   const url = upstreamUrl(target, rest, new URL(req.url).search);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  if (req.signal.aborted) return {};
   const upstream = new WebSocket(url, {
     headers: target.token === undefined ? {} : { authorization: `Bearer ${target.token}` },
   });
-  const opened = await new Promise<"open" | number>((resolve) => {
-    upstream.once("open", () => resolve("open"));
+  // A failed or terminated handshake must never be an unhandled EventEmitter error: the promise
+  // below observes it, and a later one after a successful open is the bridge's to see.
+  upstream.on("error", () => undefined);
+  const opened = await new Promise<"open" | number | "timeout" | "cancelled">((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settle = (value: "open" | number | "timeout" | "cancelled"): void => {
+      if (settled) return;
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      req.signal.removeEventListener("abort", onAbort);
+      resolve(value);
+    };
+    const onAbort = (): void => {
+      upstream.terminate();
+      settle("cancelled");
+    };
+    timer = setTimeout(() => {
+      upstream.terminate();
+      settle("timeout");
+    }, timeouts.upgradeHandshakeMs);
+    req.signal.addEventListener("abort", onAbort, { once: true });
+    upstream.once("open", () => settle("open"));
     upstream.once("unexpected-response", (_request, response) => {
       response.resume();
-      resolve(response.statusCode ?? 502);
+      settle(response.statusCode ?? 502);
     });
-    upstream.once("error", () => resolve(502));
+    upstream.once("error", () => settle(502));
   });
   if (opened !== "open") {
     upstream.terminate();
-    return new Response(`the remote refused the socket (${opened})`, { status: 502 });
+    // The client left: there is nobody to answer or observe for.
+    if (opened === "cancelled") return {};
+    const status = typeof opened === "number" ? opened : 502;
+    return {
+      response: new Response(`the remote refused the socket (${status})`, { status: 502 }),
+      observation: status === 401 || status === 403 ? "authentication" : "unreachable",
+    };
   }
 
   const bridge: GatewayBridge = { upstream, pending: [], pendingBytes: 0, closed: false };
@@ -282,8 +379,8 @@ export const bridgeUpgrade = async (
       onAbort: () => upstream.close(),
     })
   ) {
-    return undefined;
+    return {};
   }
   upstream.close();
-  return new Response("the websocket upgrade failed", { status: 400 });
+  return { response: new Response("the websocket upgrade failed", { status: 400 }) };
 };

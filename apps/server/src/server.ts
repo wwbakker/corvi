@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { createCache } from "./capabilities/cache.ts";
 import { runtimeRemoteAccessStatus, setRuntime, setTailscalePublishedPort } from "./capabilities/runtime.ts";
@@ -14,12 +15,16 @@ import { repositoriesRoutes } from "./change/repositories-route.ts";
 import { dashboardRoutes } from "./dashboard/routes.ts";
 import { devicesRoutes } from "./devices/routes.ts";
 import { gatewayRoutes } from "./gateway/routes.ts";
-import { gatewaySockets, isGatewaySocket, type GatewaySocket } from "./gateway/server/index.ts";
+import { DEFAULT_GATEWAY_TIMEOUTS, gatewaySockets, isGatewaySocket, type GatewaySocket, type GatewayTimeouts } from "./gateway/server/index.ts";
 import { makeRemoteAccess, type RemoteAccess } from "./remote-access/server.ts";
+import { DEFAULT_AVAILABILITY_DEADLINES, type RemoteAvailabilityDeadlines } from "./remote-events/model.ts";
+import { availabilityRoutes } from "./remote-events/routes.ts";
 import { makeRemoteEvents, type RemoteEvents } from "./remote-events/server.ts";
 import { tailscaleRoutes } from "./tailscale/routes.ts";
 import { readPublishedPort } from "./tailscale/server/index.ts";
 import { settingsRoutes } from "./settings/routes.ts";
+import { powerRoutes } from "./power/routes.ts";
+import { startPowerMonitor } from "./power/server/index.ts";
 import { subagentsRoutes } from "./subagents/routes.ts";
 import { terminalsRoutes } from "./terminals/routes.ts";
 import { workspaceRoutes } from "./workspace/routes.ts";
@@ -47,6 +52,16 @@ putCliOnPath(resolve(import.meta.dirname, "../../.."), commandAvailable("corvi")
 const cache = createCache();
 const restored = await Effect.runPromise(cache.load());
 setRuntime({ cache });
+
+/** A bounded wait from the environment, in milliseconds. Read once, here and only here: the
+ * availability owner and the gateway take these as construction values and never read the
+ * environment themselves. A bound must be positive — an invalid or non-positive value falls back
+ * to the named default. There is deliberately no "unbounded" spelling: an unbounded health check
+ * could never classify, and an unbounded read bound is what hangs the page. */
+const envMs = (name: string, fallback: number): number => {
+  const value = Number(process.env[env(name)]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
 
 // The port a previous run published through `tailscale serve`, read before the external listener
 // reconciles: a restart that follows a configured-port change while published still recognizes
@@ -108,7 +123,9 @@ const routes: Record<string, unknown> = {
   ...devicesRoutes,
   ...gatewayRoutes,
   ...eventsRoutes,
+  ...availabilityRoutes,
   ...integrationRoutes,
+  ...powerRoutes,
   ...settingsRoutes,
   ...subagentsRoutes,
   ...tailscaleRoutes,
@@ -157,12 +174,34 @@ remoteAccess = makeRemoteAccess({ routes, websocket });
 setRuntime({ reconcileRemoteAccess: remoteAccess.reconcile });
 await Effect.runPromise(remoteAccess.reconcile());
 
-// The remote-event fan-in: one SSE subscription per configured remote workspace, re-emitted on
-// the local bus. The settings write reconciles it too, so adding a workspace needs no restart.
-remoteEvents = makeRemoteEvents();
-setRuntime({ reconcileRemoteEvents: remoteEvents.reconcile });
+// The remote-event fan-in and availability owner: one SSE subscription per configured remote
+// workspace, re-emitted on the local bus and published as availability. The settings write
+// reconciles it too, so adding or retargeting a workspace needs no restart.
+remoteEvents = makeRemoteEvents({
+  instance: randomUUID(),
+  deadlines: {
+    connectMs: envMs("REMOTE_CONNECT_MS", DEFAULT_AVAILABILITY_DEADLINES.connectMs),
+    firstSignalMs: envMs("REMOTE_FIRST_SIGNAL_MS", DEFAULT_AVAILABILITY_DEADLINES.firstSignalMs),
+    stallMs: envMs("REMOTE_STALL_MS", DEFAULT_AVAILABILITY_DEADLINES.stallMs),
+  } satisfies RemoteAvailabilityDeadlines,
+});
+setRuntime({
+  reconcileRemoteEvents: remoteEvents.reconcile,
+  remoteAvailabilitySnapshot: remoteEvents.snapshot,
+  remoteAvailabilityRetry: remoteEvents.retry,
+  remoteAvailabilityObserve: remoteEvents.observe,
+  gatewayTimeouts: {
+    readHeadersMs: envMs("GATEWAY_READ_HEADERS_MS", DEFAULT_GATEWAY_TIMEOUTS.readHeadersMs),
+    upgradeHandshakeMs: envMs("GATEWAY_UPGRADE_HANDSHAKE_MS", DEFAULT_GATEWAY_TIMEOUTS.upgradeHandshakeMs),
+  } satisfies GatewayTimeouts,
+});
 await Effect.runPromise(remoteEvents.reconcile());
 const remoteStatus = runtimeRemoteAccessStatus();
+
+// The power monitor: arm state and countdown live with this server, independent of any page. The
+// ticker is always on — while disarmed a tick reads nothing — so arming is the only thing that
+// makes it do work.
+startPowerMonitor();
 
 instancePort = server.port;
 // Sweep records a hard kill or a reboot left behind, then write this one: a client that reads the

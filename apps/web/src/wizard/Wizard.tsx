@@ -1,7 +1,8 @@
 import { type JSX, type RefObject, useEffect, useRef, useState } from "react";
 import type { CorviClient } from "@corvi/client";
 import type { Change, Created, Selection } from "../app-root/api.ts";
-import { clientFor, SourceContext } from "../app-root/sources.ts";
+import { SourceContext, useSourceAvailability, useSourceClient } from "../app-root/sources.ts";
+import { gateFailureOf } from "../app-root/sourceOwner.ts";
 import { RepoBrowser } from "../workspace/client/RepoBrowser.tsx";
 import { StepHost, type StepContext, type StepInfo, type StepPick } from "../integrations/client.tsx";
 import type { Workspace } from "../workspace/client/workspaces.ts";
@@ -65,7 +66,12 @@ export function Wizard({
   const remote = workspaces.find((w) => w.id === chosen)?.remote;
   const source = remote ? (chosen ?? "") : "";
   const wireWorkspace = remote?.workspace ?? chosen;
-  const client = clientFor(source);
+  const client = useSourceClient(source);
+  // Creating in an unavailable remote cannot succeed: say so at the control rather than at the
+  // end. A local context (source "") is never blocked.
+  const availability = useSourceAvailability(source);
+  const createBlocked = availability.status._tag !== "available";
+  const createGeneration = availability.generation;
 
   // Which steps this context has, and the plan template in effect there. Asked of the server,
   // because that is where the extensions, their enablement and the settings are known; asked
@@ -74,6 +80,9 @@ export function Wizard({
   const [steps, setSteps] = useState<StepInfo[]>();
   const [template, setTemplate] = useState<string>();
   useEffect(() => {
+    // A checking/unavailable workspace is not asked; the recovery/generation deps re-run this,
+    // and the banner (not a red error) says why nothing is here yet.
+    if (createBlocked) return;
     let alive = true;
     setSteps(undefined);
     client
@@ -83,11 +92,15 @@ export function Wizard({
         setSteps(found.steps);
         setTemplate(found.planTemplate);
       })
-      .catch((e: Error) => alive && setError(e.message));
+      .catch((e: unknown) => {
+        // A gate transition (checking/stale/uncertain) is the availability banner's story, not
+        // an error the wizard must shout about.
+        if (alive && gateFailureOf(e) === undefined) setError(e instanceof Error ? e.message : String(e));
+      });
     return () => {
       alive = false;
     };
-  }, [wireWorkspace, client]);
+  }, [wireWorkspace, client, createBlocked, createGeneration]);
 
   // The template fills a fresh draft's plan once — while it is still empty — and never rewrites
   // the text you have. Its heading is the one a picked issue may replace (draft.ts).
@@ -143,7 +156,12 @@ export function Wizard({
         {/* Creating is possible once the required field is set — only the change id is
             required: repositories can be added now or after the work starts, and the plan can
             be empty. */}
-        <button className="primary" disabled={!id.trim() || busy} onClick={create}>
+        <button
+          className="primary"
+          disabled={!id.trim() || busy || createBlocked}
+          title={createBlocked ? "this workspace is unavailable" : undefined}
+          onClick={create}
+        >
           {busy ? "Creating…" : "Create idea"}
         </button>
         <button onClick={onDiscard}>Discard</button>

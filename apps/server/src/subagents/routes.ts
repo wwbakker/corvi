@@ -35,12 +35,16 @@ import {
 } from "./server/instances.ts";
 
 /** The long-poll query: which subagents (`id`, repeated — empty means every subagent of the
- * change), and whether to await any or all of them. Pure: there is nothing left to refuse. */
+ * change), whether to await any or all of them, and an explicit `turn` target. Pure: the turn is a
+ * plain positive message number or missing, so `0x10`/`1e3` become a bad request in `awaitReady`
+ * rather than a silently converted turn. */
 const awaitInputOf = (url: string): AwaitInput => {
   const params = new URL(url).searchParams;
   const ids = params.getAll("id").filter((one) => one !== "");
   const mode = params.get("all") === "1" ? "all" : "any";
-  return { ids, mode };
+  const turnRaw = params.get("turn");
+  const turn = turnRaw === null ? undefined : /^\d+$/.test(turnRaw) ? Number(turnRaw) : Number.NaN;
+  return { ids, mode, ...(turn === undefined ? {} : { turn }) };
 };
 
 export const subagentsRoutes = guard({
@@ -150,7 +154,18 @@ export const subagentsRoutes = guard({
   "/api/changes/:id/subagents/:subagent/result": {
     GET: (req) =>
       withChange(req.params.id, (change) =>
-        Effect.map(resultOfSubagent(change, req.params.subagent), json),
+        Effect.gen(function* () {
+          const turnRaw = new URL(req.url).searchParams.get("turn");
+          // A plain positive message number or nothing; `0x10` is not a turn.
+          if (turnRaw !== null && !/^\d+$/.test(turnRaw)) {
+            return yield* new BadRequestError({ message: "turn needs a positive message number" });
+          }
+          const turn = turnRaw === null ? undefined : Number(turnRaw);
+          if (turn !== undefined && turn < 1) {
+            return yield* new BadRequestError({ message: "turn needs a positive message number" });
+          }
+          return json(yield* resultOfSubagent(change, req.params.subagent, turn));
+        }),
       ),
   },
 
@@ -171,7 +186,15 @@ export const subagentsRoutes = guard({
         Effect.gen(function* () {
           const body = yield* bodyAs(req, SubagentTurnRequestSchema);
           const key = req.headers.get("idempotency-key") ?? undefined;
-          return json(yield* recordTurn(change, req.params.subagent, body.text, key, body.pane), 201);
+          return json(
+            yield* recordTurn(change, req.params.subagent, {
+              text: body.text,
+              ...(key === undefined ? {} : { key }),
+              ...(body.pane === undefined ? {} : { pane: body.pane }),
+              ...(body.inReplyTo === undefined ? {} : { inReplyTo: body.inReplyTo }),
+            }),
+            201,
+          );
         }),
       ),
   },

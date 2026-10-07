@@ -424,7 +424,7 @@ test("an agent's own account of itself is read from the @agent_status pane optio
   // The agents extension answers for the window; what it leaves alone falls through to the
   // core's plain-terminal defaults.
   const { presentWindow } = await import("../apps/server/src/terminals/server/index.ts");
-  const presented = (options: Record<string, string>): PresentedWindow =>
+  const presented = (options: Record<string, string>, subagent = false): PresentedWindow =>
     presentWindow({
       index: 0,
       id: "@1",
@@ -437,10 +437,17 @@ test("an agent's own account of itself is read from the @agent_status pane optio
       options,
       panes: ["@1"],
       activePane: "@1",
+      ...(subagent ? { subagent: true } : {}),
     });
   // What an agent's reporter publishes as the `@agent_status` fact.
   expect(presented({ "@agent_status": "working" })).toMatchObject({ label: "example-api - (agent working)", icon: "agent", state: "ok" });
   expect(presented({ "@agent_status": "waiting" })).toMatchObject({ label: "example-api - (agent waiting)", icon: "agent", state: "idle" });
+  // The explicit agent pair the quiet rule reads, separate from `busy`: a working agent is
+  // agent+working, a waiting one is agent but not working, and a subagent's host window leaves
+  // both to the subagent's own view.
+  expect(presented({ "@agent_status": "working" })).toMatchObject({ agent: true, working: true });
+  expect(presented({ "@agent_status": "waiting" })).toMatchObject({ agent: true, working: false });
+  expect(presented({ "@agent_status": "working" }, true)).toMatchObject({ agent: false, working: false });
   // The reporter also says who it is, and the name goes in the label.
   expect(presented({ "@agent_status": "working", "@agent_name": "pi" })).toMatchObject({
     label: "example-api - (pi working)",

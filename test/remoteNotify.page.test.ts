@@ -69,6 +69,9 @@ beforeAll(async () => {
             new ReadableStream({
               start(controller) {
                 const encoder = new TextEncoder();
+                // A health byte at once: the availability owner treats a stream that says nothing
+                // as unreachable, and the page would then gate the remote it is about to notify for.
+                controller.enqueue(encoder.encode(": open\n\n"));
                 pushRemote = (frame) => controller.enqueue(encoder.encode(frame));
               },
             }),

@@ -20,6 +20,9 @@ import { Effect, Semaphore } from "effect";
 
 import { launchOf } from "@corvi/agents/harness";
 import {
+  awaitDecisionOf,
+  latestInboundNumber,
+  replyForTurn,
   viewOf,
   type SubagentMessage,
   type SubagentRecord,
@@ -31,27 +34,31 @@ import {
   createInstance,
   findCreatedByKey,
   instanceDir,
-  pendingInbound,
   readInstance,
   listInstances,
+  listInstancesStrict,
   mutateRecord,
   removeInstance,
+  SubagentStoreError,
   writeRecord,
   withCreateLock,
 } from "@corvi/agents/node";
 import type {
+  SubagentAwaitOutcomeDto,
   SubagentCreateRequestDto,
   SubagentInstanceDto,
   SubagentNextResponseDto,
   SubagentAwaitResponseDto,
 } from "@corvi/contracts/subagents";
 import { BadRequestError, ConflictError, NotFoundError } from "@corvi/contracts/errors";
+import type { CommandFailure } from "@corvi/terminals/model";
 import { announce } from "../../capabilities/bus.ts";
 import { changeDir, factsFor } from "../../change/server/index.ts";
 import {
   killHostWindow,
   liveSubagents,
   newSubagentWindow,
+  selectWindowById,
   type LiveSubagent,
 } from "../../terminals/server/index.ts";
 import type { Change } from "@corvi/changes/record";
@@ -107,7 +114,15 @@ const toDto = (record: SubagentWithMessages, live: Live | undefined): SubagentIn
     createdBy: record.createdBy,
     createdAt: record.createdAt,
     ...view,
-    ...(live === undefined ? {} : { windowIndex: live.index }),
+    // Stable identities for the pane to render and the window to focus; `windowIndex` is a
+    // positional fallback only, and is omitted when the rebuild did not contain the window.
+    ...(live === undefined
+      ? {}
+      : {
+          paneId: live.window,
+          windowId: live.windowId,
+          ...(live.index === undefined ? {} : { windowIndex: live.index }),
+        }),
     log: record.log,
     messages: [...record.messages],
   };
@@ -135,6 +150,18 @@ export const listSubagents = (change: Change): Effect.Effect<readonly SubagentIn
   Effect.gen(function* () {
     const records = yield* listInstances(changeDir(change));
     const live = yield* liveBySubagent(change.id);
+    return records.map((record) => toDto(record, live.get(record.id)));
+  });
+
+/** The subagent views, read strictly for the power monitor: an unreadable store or host is a
+ * failure, not an empty list, because "no subagents" would let the machine power off. The page's
+ * own `listSubagents` stays best-effort. */
+export const listSubagentsStrict = (
+  change: Change,
+): Effect.Effect<readonly SubagentInstanceDto[], SubagentStoreError | CommandFailure> =>
+  Effect.gen(function* () {
+    const records = yield* listInstancesStrict(changeDir(change));
+    const live = yield* liveSubagents(change.id);
     return records.map((record) => toDto(record, live.get(record.id)));
   });
 
@@ -295,11 +322,24 @@ export const openSubagent = (
   openLock(`${change.id}\u0000${id}`).withPermits(1)(
     Effect.gen(function* () {
       const record = yield* requireInstance(change, id);
-      const live = (yield* liveBySubagent(change.id)).get(id);
-      if (live !== undefined) return toDto(record, live);
+      const existing = (yield* liveBySubagent(change.id)).get(id);
+      if (existing !== undefined) {
+        // An explicit open is the user asking for this terminal: bring it to the front by its
+        // stable window id, not a position another read computed. Creation (`createSubagent`)
+        // runs in the background and leaves the current terminal selected. A selection failure is
+        // reported: the caller asked for something that did not happen.
+        yield* selectWindowById(change.id, existing.windowId).pipe(
+          Effect.mapError((failure) => new BadRequestError({ message: failure.message })),
+        );
+        return toDto(record, existing);
+      }
       const window = yield* launcher(change, record);
       yield* opened(change, id, window);
       yield* Effect.sync(() => announce("windows"));
+      // The launcher returned the window's registration id; select exactly it.
+      yield* selectWindowById(change.id, window).pipe(
+        Effect.mapError((failure) => new BadRequestError({ message: failure.message })),
+      );
       return yield* refreshSubagent(change, id);
     }),
   );
@@ -357,14 +397,20 @@ export const sendToSubagent = (
     return message;
   });
 
-/** A settled subagent turn, relayed by the harness extension. Clears `inFlight`, appends the
- * reply, and wakes `await` and the UI. */
+/** A settled subagent turn, relayed by the harness extension. Appends the reply — with `inReplyTo`
+ * naming the inbound message it answers, when the relay echoed one — and wakes `await` and the UI.
+ * It clears `inFlight` only when the reply settles the claimed turn (an unattributed old relay, or
+ * a matching `inReplyTo`); a reply for a superseded delivered turn leaves the newer claim alone, so
+ * a late turn-1 answer cannot make turn 2 look settled. */
 export const recordTurn = (
   change: Change,
   id: string,
-  text: string,
-  key?: string,
-  pane?: string,
+  input: {
+    readonly text: string;
+    readonly key?: string;
+    readonly pane?: string;
+    readonly inReplyTo?: number;
+  },
 ): Effect.Effect<SubagentMessage, NotFoundError | BadRequestError> =>
   Effect.gen(function* () {
     yield* requireInstance(change, id);
@@ -373,33 +419,60 @@ export const recordTurn = (
       id,
       {
         role: "subagent",
-        body: text,
+        body: input.text,
         at: now(),
-        ...(key === undefined ? {} : { key }),
-        ...(pane === undefined ? {} : { pane }),
+        ...(input.key === undefined ? {} : { key: input.key }),
+        ...(input.pane === undefined ? {} : { pane: input.pane }),
+        ...(input.inReplyTo === undefined ? {} : { inReplyTo: input.inReplyTo }),
       },
-      (record) =>
-        record.inFlight === undefined
-          ? { ...record }
-          : {
-              ...record,
-              inFlight: undefined,
-              log: [...record.log, { kind: "turn_settled", at: now() }],
+      (record) => {
+        if (record.inFlight === undefined) return { ...record };
+        if (input.inReplyTo === undefined || input.inReplyTo === record.inFlight) {
+          return {
+            ...record,
+            inFlight: undefined,
+            log: [...record.log, { kind: "turn_settled", at: now() }],
+          };
+        }
+        return {
+          ...record,
+          log: [
+            ...record.log,
+            {
+              kind: "turn_settled",
+              at: now(),
+              note: `reply to message ${input.inReplyTo} does not settle the turn in flight (${record.inFlight})`,
             },
+          ],
+        };
+      },
     ).pipe(Effect.mapError((error) => new BadRequestError({ message: error.message })));
     yield* notify(change.id, id, { kind: "reply", id, message });
     yield* Effect.sync(() => announce("changes"));
     return message;
   });
 
-/** The latest subagent message: the current deliverable. */
+/** The latest subagent message: the current deliverable. With `turn`, the reply that answers that
+ * inbound turn instead — null when it has not landed. A turn that names no inbound message is a
+ * bad request, exactly as `await --turn` treats it; both are read-only. */
 export const resultOfSubagent = (
   change: Change,
   id: string,
-): Effect.Effect<SubagentMessage | null, NotFoundError> =>
-  Effect.map(requireInstance(change, id), (record) => {
-    const reply = [...record.messages].reverse().find((message) => message.role === "subagent");
-    return reply ?? null;
+  turn?: number,
+): Effect.Effect<SubagentMessage | null, NotFoundError | BadRequestError> =>
+  Effect.gen(function* () {
+    const record = yield* requireInstance(change, id);
+    if (turn === undefined) {
+      const reply = [...record.messages].reverse().find((message) => message.role === "subagent");
+      return reply ?? null;
+    }
+    const known = record.messages.some(
+      (message) => message.role !== "subagent" && message.number === turn,
+    );
+    if (!known) {
+      return yield* new BadRequestError({ message: `subagent ${id} has no inbound message ${turn}` });
+    }
+    return replyForTurn(record.messages, turn, record.deliveredThrough ?? 0) ?? null;
   });
 
 /** The extension's half: the next message to submit, an interrupted turn to leave alone, or
@@ -451,6 +524,9 @@ export type AwaitInput = {
   readonly ids: readonly string[];
   /** `any` returns the first target that settles; `all` waits for every one of them. */
   readonly mode: "any" | "all";
+  /** An explicit inbound turn to wait for instead of each target's latest. Only meaningful with a
+   * single named target, and it may already have its reply while newer work runs. */
+  readonly turn?: number;
 };
 
 /** How often a parked `await` re-checks state without an event: the reporter can flip
@@ -459,25 +535,49 @@ export type AwaitInput = {
 const recheckMs = 2_000;
 
 /** Block until a target can be processed — idle or waiting for input with nothing of the
- * orchestrator's still to deliver, or a reply already parked — with the outcomes `ready`, `lost`,
- * `interrupted`, and `timeout` at the horizon (the orchestrator's cue to check in on its
- * subagents and await again). `any` answers for the first target that settles; `all` waits for
- * every target to settle and reports a lost or interrupted one in preference to `ready`. */
+ * orchestrator's still to deliver, or a reply already parked — with `lost`, `interrupted`, and
+ * `timeout` at the horizon (the orchestrator's cue to check in on its subagents and await again).
+ * Each target answers with its own outcome, carrying the turn it concerns and, when a reply
+ * settles it, that reply's number. `any` answers for the first target that settles; `all` waits
+ * for every target and orders the aggregate `lost` > `interrupted` > `ready`. With `input.turn`,
+ * a single target waits for that turn's settlement instead of its latest. */
 export const awaitReady = (
   change: Change,
   input: AwaitInput,
-): Effect.Effect<SubagentAwaitResponseDto, NotFoundError> =>
+): Effect.Effect<SubagentAwaitResponseDto, NotFoundError | BadRequestError> =>
   Effect.gen(function* () {
+    if (
+      input.turn !== undefined &&
+      (!Number.isInteger(input.turn) || input.turn < 1)
+    ) {
+      return yield* new BadRequestError({ message: "turn needs a positive message number" });
+    }
+    if (input.turn !== undefined && (input.ids.length !== 1 || input.mode === "all")) {
+      return yield* new BadRequestError({ message: "turn awaits one named subagent" });
+    }
     const records = yield* listInstances(changeDir(change));
     const targets = input.ids.length === 0 ? records.map((record) => record.id) : [...input.ids];
     for (const id of targets) {
       if (!records.some((record) => record.id === id)) return yield* notFound(id);
     }
-    if (targets.length === 0) return { status: "timeout" };
+    if (input.turn !== undefined) {
+      // An explicit target must name an inbound turn that exists: waiting on a typo would park to
+      // the horizon for nothing.
+      const target = records.find((record) => record.id === targets[0]);
+      const known = target?.messages.some(
+        (message) => message.role !== "subagent" && message.number === input.turn,
+      );
+      if (known !== true) {
+        return yield* new BadRequestError({
+          message: `subagent ${targets[0]} has no inbound message ${input.turn}`,
+        });
+      }
+    }
+    if (targets.length === 0) return { status: "timeout", outcomes: [] };
 
     /** One subagent's own wait: settled by the read whenever it is ready, woken by the next
      * event, and re-checked on the tick for state the reporter changes without one. */
-    const settleOne = (id: string): Effect.Effect<SubagentAwaitResponseDto> =>
+    const settleOne = (id: string): Effect.Effect<SubagentAwaitOutcomeDto> =>
       Effect.gen(function* () {
         for (;;) {
           // Subscribe before reading anything, and keep the subscription until the step settles:
@@ -487,40 +587,36 @@ export const awaitReady = (
           const step = yield* Effect.gen(function* () {
             const live = yield* liveBySubagent(change.id);
             const entry = live.get(id);
-            const attached = entry !== undefined;
             const record = yield* requireInstance(change, id).pipe(
               Effect.catch(() => Effect.succeed(null)),
             );
             if (record === null) {
-              return { done: true as const, result: { status: "lost" as const, id } };
-            }
-            // In flight with no live window: the machine was interrupted mid-turn.
-            if (record.inFlight !== undefined && !attached) {
-              return { done: true as const, result: { status: "interrupted" as const, id } };
-            }
-            const pending = pendingInbound(record) !== undefined;
-            // A window `close` cleared cannot deliver what is still pending: the lost answer,
-            // read from the state so a close before the subscription cannot be waited out to
-            // the horizon. A record whose window was never set is the same story.
-            if (record.window === undefined && pending) {
-              return { done: true as const, result: { status: "lost" as const, id } };
-            }
-            const view = viewOf(record, viewInputOf(entry), record.messages);
-            // Ready is what lets the orchestrator process: a reply is parked, or the subagent is
-            // idle with nothing of the orchestrator's still to be delivered. The pending-message
-            // hold-back is what keeps `send` (or a create's first prompt) followed by `await`
-            // from answering before the relay has picked the message up.
-            if (view.awaitingReply || (view.activity === "idle" && !pending)) {
               return {
                 done: true as const,
-                result: { status: "ready" as const, id, awaitingReply: view.awaitingReply },
+                result: {
+                  id,
+                  status: "lost" as const,
+                  ...(input.turn === undefined ? {} : { turn: input.turn }),
+                },
               };
+            }
+            const decision = awaitDecisionOf(record, viewInputOf(entry), input.turn);
+            if (decision !== undefined) {
+              return { done: true as const, result: { id, ...decision } };
             }
             // A lost window resolves the wait as itself (exit 5) — today's answer — while the
             // other events just wake a re-read of the state.
+            const targetTurn = input.turn ?? latestInboundNumber(record.messages);
             const event = yield* subscription.await.pipe(Effect.timeoutOption(recheckMs));
             if (event._tag === "Some" && event.value.kind === "lost") {
-              return { done: true as const, result: { status: "lost" as const, id } };
+              return {
+                done: true as const,
+                result: {
+                  id,
+                  status: "lost" as const,
+                  ...(targetTurn > 0 ? { turn: targetTurn } : {}),
+                },
+              };
             }
             return { done: false as const };
           }).pipe(Effect.ensuring(subscription.close));
@@ -530,16 +626,25 @@ export const awaitReady = (
 
     const waits = targets.map(settleOne);
     if (input.mode === "all") {
-      const settled = yield* Effect.all(waits).pipe(Effect.timeoutOption(longPollMs()));
-      if (settled._tag === "None") return { status: "timeout" };
-      const lost = settled.value.find((result) => result.status === "lost");
-      if (lost) return lost;
-      const interrupted = settled.value.find((result) => result.status === "interrupted");
-      if (interrupted) return interrupted;
-      return { status: "ready" };
+      // Every target must park concurrently and get the full horizon. Run them in sequence and a
+      // slow first target would starve the rest: their reads happen only after it settles, so a
+      // target that was already ready could still be timed out as if it never was.
+      const settled = yield* Effect.all(waits, { concurrency: "unbounded" }).pipe(
+        Effect.timeoutOption(longPollMs()),
+      );
+      if (settled._tag === "None") return { status: "timeout", outcomes: [] };
+      const outcomes = settled.value;
+      const status = outcomes.some((outcome) => outcome.status === "lost")
+        ? ("lost" as const)
+        : outcomes.some((outcome) => outcome.status === "interrupted")
+          ? ("interrupted" as const)
+          : ("ready" as const);
+      return { status, outcomes };
     }
     const raced =
-      waits.length > 1 ? Effect.raceAll(waits) : (waits[0] as Effect.Effect<SubagentAwaitResponseDto>);
+      waits.length > 1 ? Effect.raceAll(waits) : (waits[0] as Effect.Effect<SubagentAwaitOutcomeDto>);
     const result = yield* raced.pipe(Effect.timeoutOption(longPollMs()));
-    return result._tag === "None" ? { status: "timeout" } : result.value;
+    return result._tag === "None"
+      ? { status: "timeout", outcomes: [] }
+      : { status: result.value.status, outcomes: [result.value] };
   });

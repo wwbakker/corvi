@@ -71,6 +71,51 @@ test("request bodies stream through", async () => {
   expect(await response.text()).toBe("hello body");
 });
 
+test("a refused upgrade survives the client resetting before the answer is written", async () => {
+  // A route that answers an upgrade request with a plain refusal (the terminal route's shape when
+  // a named pane is gone). The client resets while the answer is still coming; writing the
+  // refusal to the dead socket must not become an unhandled error that kills the server.
+  let routed = false;
+  const server = await serve({
+    port: 0,
+    routes: {
+      "/refused": async () => {
+        routed = true;
+        await Bun.sleep(60);
+        return new Response("no", { status: 500 });
+      },
+      "/ping": () => new Response("pong"),
+    },
+  });
+  try {
+    const socket = connect(server.port, "127.0.0.1", () => {
+      socket.write(
+        [
+          "GET /refused HTTP/1.1",
+          "Host: 127.0.0.1",
+          "Connection: Upgrade",
+          "Upgrade: websocket",
+          "Sec-WebSocket-Version: 13",
+          "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+          "",
+          "",
+        ].join("\r\n"),
+      );
+    });
+    socket.on("error", () => undefined);
+    for (let i = 0; i < 50 && !routed; i++) await Bun.sleep(10);
+    expect(routed).toBe(true);
+    // Reset the connection before the refusal can be written to it (RST, not a clean FIN).
+    socket.resetAndDestroy();
+    await Bun.sleep(150);
+    // The server is still serving.
+    const response = await fetch(new URL("/ping", server.url));
+    expect(await response.text()).toBe("pong");
+  } finally {
+    server.stop();
+  }
+});
+
 test("an upgrade whose handshake never completes calls onAbort", async () => {
   // A client that sends `Upgrade` without valid WebSocket headers: `handleUpgrade` never calls
   // back, so the raw socket's close is the only signal a route gets to clean up what it opened.

@@ -53,12 +53,16 @@ export const noticeFor = (label: string, result: RunActionResultDto): string => 
 export function RunMenu({
   changeId,
   windows,
+  disabled,
   onOpenCheatSheet,
   onRan,
 }: {
   changeId: string;
   /** This change's windows, so the filter can see what is on screen. */
   windows: TerminalWindow[];
+  /** The change's workspace is unavailable: the cheat sheet is local and still offered, but no
+   * action that would reach the remote is. */
+  disabled?: boolean;
   onOpenCheatSheet: () => void;
   /** The keyboard goes back to the terminal after a run. */
   onRan: () => void;
@@ -82,7 +86,10 @@ export function RunMenu({
   };
 
   const items: Action[] = [
+    // Named and disabled, not hidden: an unavailable workspace's actions explain themselves the
+    // way the change's own menu does, and the cheat sheet (local) stays usable.
     ...applicableActions(actions, active).map((found) => ({
+      disabled: disabled === true,
       // Workspace and repository actions carry their source ("review — orders-api"), so the
       // same id from two checkouts is two entries, each saying whose it is.
       label:
@@ -90,11 +97,13 @@ export function RunMenu({
           ? found.label
           : `${found.label} — ${found.sourceLabel ?? found.source}`,
       title:
-        found.target === "active"
-          ? "In this window"
-          : found.target === "agent"
-            ? "In the window where an agent runs (or a new one)"
-            : "In a new window",
+        disabled === true
+          ? "Unavailable: this workspace cannot be reached"
+          : found.target === "active"
+            ? "In this window"
+            : found.target === "agent"
+              ? "In the window where an agent runs (or a new one)"
+              : "In a new window",
       onSelect: () => run(found),
     })),
     { label: "terminal cheat sheet", separated: true, onSelect: onOpenCheatSheet },

@@ -137,6 +137,14 @@ export const SubagentSystemEventSchema = Schema.Struct({
 })
 export type SubagentSystemEventDto = typeof SubagentSystemEventSchema.Type
 
+/** A message number: a positive safe integer. A message's own `number`, the in-flight claim and a
+ * reply's `inReplyTo` are all one, so `0`, negatives, fractions and non-numbers are never valid. */
+const MessageNumber = Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0)))
+
+/** The delivery cursor: how far the relay has handed inbound messages over. `0` is the legitimate
+ * "nothing delivered yet", so the cursor is non-negative where a message number is positive. */
+const MessageCursor = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)))
+
 /** The stored record: `session.json`. `deliveredThrough` is the durable delivery cursor `next`
  * reads; `inFlight` is the one thing not derivable after a reboot. */
 export const SubagentRecordSchema = Schema.Struct({
@@ -151,8 +159,8 @@ export const SubagentRecordSchema = Schema.Struct({
   createdBy: Schema.Literals(["orchestrator", "user"]),
   createdAt: Schema.String,
   window: Schema.optional(Schema.String),
-  deliveredThrough: Schema.optional(Schema.Number),
-  inFlight: Schema.optional(Schema.Number),
+  deliveredThrough: Schema.optional(MessageCursor),
+  inFlight: Schema.optional(MessageNumber),
   /** The idempotency key a create was made with, so a retried create returns the same instance
    * rather than minting a second one. */
   createdKey: Schema.optional(Schema.String),
@@ -162,7 +170,7 @@ export type SubagentRecordDto = typeof SubagentRecordSchema.Type
 
 /** One message, as a file and on the wire. */
 export const SubagentMessageSchema = Schema.Struct({
-  number: Schema.Number,
+  number: MessageNumber,
   role: SubagentRole,
   at: Schema.String,
   body: Schema.String,
@@ -170,6 +178,10 @@ export const SubagentMessageSchema = Schema.Struct({
   /** The idempotency key the write was made with: a retried send/turn finds the message again
    * instead of appending a second one. */
   key: Schema.optional(Schema.String),
+  /** The inbound message number this reply answers. Absent on a reply written before the field
+   * existed; such a reply settles only under the legacy rule (the latest message, nothing newer in
+   * the way). */
+  inReplyTo: Schema.optional(MessageNumber),
 })
 export type SubagentMessageDto = typeof SubagentMessageSchema.Type
 
@@ -189,8 +201,13 @@ export const SubagentInstanceSchema = Schema.Struct({
   activity: Schema.Literals(["idle", "working"]),
   interrupted: Schema.Boolean,
   awaitingReply: Schema.Boolean,
-  /** The window index of the live window, for the page to focus it. */
+  /** The window index of the live window, for the page to focus it. Positional and only a
+   * fallback: prefer `windowId`/`paneId`, which survive a reorder. */
   windowIndex: Schema.optional(Schema.Number),
+  /** The registry window id of the live window: stable across a reorder or a rebuild. */
+  windowId: Schema.optional(Schema.String),
+  /** The live pane session id to attach the embedded terminal to: stable identity, not an index. */
+  paneId: Schema.optional(Schema.String),
   log: Schema.mutable(Schema.Array(SubagentSystemEventSchema)),
   messages: Schema.mutable(Schema.Array(SubagentMessageSchema)),
 })
@@ -221,18 +238,34 @@ export const SubagentTurnRequestSchema = Schema.Struct({
   text: Schema.String,
   /** The pane the reply came from, for the forensic trail when two panes claim one identity. */
   pane: Schema.optional(Schema.String),
+  /** The inbound message `next` handed over that this settled run answers. The relay echoes the
+   * submitted number, so later work cannot be mistaken for this turn's completion. */
+  inReplyTo: Schema.optional(MessageNumber),
 })
 export type SubagentTurnRequestDto = typeof SubagentTurnRequestSchema.Type
 
-/** What an `await` ended as: a subagent that can be processed (`ready` — idle or waiting for
- * input with nothing pending, or a reply already parked), a lost window, an interrupted turn, or
- * the horizon's own deadline (`timeout` — check in on the subagents, then await again). `id`
- * names the subagent that settled an `--any` run. */
+/** One awaited target's answer. `ready` carries why it is ready, and for `reason: "replied"` the
+ * inbound turn and the reply that settled it; `lost` and `interrupted` carry the turn they were
+ * waiting on when one is known. */
+export const SubagentAwaitOutcomeSchema = Schema.Struct({
+  id: Schema.String,
+  status: Schema.Literals(["ready", "lost", "interrupted"]),
+  /** Why a ready outcome was ready. */
+  reason: Schema.optional(Schema.Literals(["replied", "idle"])),
+  /** The inbound turn the outcome concerns: the answered turn for `replied`, the latest/explicit
+   * target for `idle`, the in-flight turn for `interrupted`, the pending turn for `lost`. */
+  turn: Schema.optional(MessageNumber),
+  /** The reply that settles `turn`, when `reason` is "replied". */
+  reply: Schema.optional(MessageNumber),
+})
+export type SubagentAwaitOutcomeDto = typeof SubagentAwaitOutcomeSchema.Type
+
+/** What an `await` ended as, per target. `any` returns the one target that settled; `all` returns
+ * one outcome per target, with the aggregate `status` ordered `lost` > `interrupted` > `ready`;
+ * `timeout` returns none, so re-issuing re-derives the already-settled targets from state. */
 export const SubagentAwaitResponseSchema = Schema.Struct({
   status: Schema.Literals(["ready", "lost", "interrupted", "timeout"]),
-  id: Schema.optional(Schema.String),
-  /** A reply is parked for `result` to pick up. */
-  awaitingReply: Schema.optional(Schema.Boolean),
+  outcomes: Schema.Array(SubagentAwaitOutcomeSchema),
 })
 export type SubagentAwaitResponseDto = typeof SubagentAwaitResponseSchema.Type
 

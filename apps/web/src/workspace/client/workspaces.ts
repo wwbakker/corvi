@@ -104,33 +104,54 @@ export type PageInfo = { id: string; title: string; icon?: string; extension: st
 export function usePages(
   workspaceId?: string,
   client: CorviClient = apiClient,
-): { pages: PageInfo[]; reload: () => void } {
+  /** The owning source's target generation: a retarget clears the list rather than showing the
+   * old target's pages. */
+  generation = "",
+  /** Whether the source may be asked now. A checking/unavailable source keeps its pages (same
+   * generation) and is re-read on recovery. */
+  available = true,
+): { pages: PageInfo[]; settled: boolean; reload: () => void } {
   const [pages, setPages] = useState<PageInfo[]>([]);
+  // Whether the list has answered for the current (source, workspace, generation). A retarget
+  // clears the list while it re-reads; a caller that keeps the open page across that clear needs
+  // to tell "clearing" from "the new target offers no pages".
+  const [settled, setSettled] = useState(false);
+  // The list belongs to one (source, workspace, generation): a change to any of them must not
+  // keep showing another context's pages.
   useEffect(() => {
-    // The list belongs to one (source, workspace): switching either one must not keep showing
-    // another context's pages. Clear first, so an unreachable workspace shows none rather than
-    // the previous one's. The effect only re-runs when the key changes, so a reload for the same
-    // workspace keeps the last good list while the next fetch is in flight.
     setPages([]);
+    setSettled(false);
+  }, [workspaceId, client, generation]);
+  useEffect(() => {
+    if (!available) return; // retained: the same generation's last good list stands
     // Alive guards the context-change race: only the latest fetch may answer.
     let alive = true;
     client
       .workspaces.pages(workspaceId)
       .then((pages) => {
-        if (alive) setPages(pages);
+        if (!alive) return;
+        setPages(pages);
+        setSettled(true);
       })
-      .catch(() => {}); // no answer yet: the list is empty rather than another context's
+      .catch(() => {
+        // No answer: the list stays empty rather than another context's, and a later fetch or
+        // reload settles it. The open page is still kept until something says otherwise.
+        if (alive) setSettled(true);
+      });
     return () => {
       alive = false;
     };
-  }, [workspaceId, client]);
+  }, [workspaceId, client, generation, available]);
   const reload = useCallback(() => {
     client
       .workspaces.pages(workspaceId)
-      .then(setPages)
+      .then((pages) => {
+        setPages(pages);
+        setSettled(true);
+      })
       .catch(() => {}); // no answer yet: the last good pages stand, the next fetch recovers
   }, [workspaceId, client]);
-  return { pages, reload };
+  return { pages, settled, reload };
 }
 
 /**

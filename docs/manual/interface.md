@@ -5,9 +5,10 @@
 ## Navigation
 
 The left column contains the workspace switcher, change overview, ideas, active changes and their
-terminal windows. At the bottom sit Settings — a gear — and, to its right, the update icon: yellow
-when a new version of the app is waiting, grey when there is none, and absent when this run
-cannot update itself (see [install](install.md#updates)). The column is resizable and remembers
+terminal windows. At the bottom sit Settings — a gear — the power control (see [Power down when
+done](terminals.md#power-down-when-done)), and the update icon: yellow when a new version of the
+app is waiting, grey when there is none, and absent when this run cannot update itself (see
+[install](install.md#updates)). The column is resizable and remembers
 its width in the browser. On a narrow window it becomes an overlay drawer instead: a toggle opens
 and closes it, as do choosing something, clicking the backdrop, pressing Escape, and widening the
 window. While it is closed the content owns the window, rather than sitting below the column.
@@ -25,7 +26,15 @@ again. Leaving Settings with unsaved edits asks first however you go — clickin
 [configuration](configuration.md).
 
 Opening a dashboard does not start a terminal. A terminal starts or attaches when opened. The
-new-window control creates another window, normally in the current window's working directory.
+new-window control creates another window, normally in the current window's working directory, and
+makes it the current one. Background work that opens a window — an action run, a subagent — leaves
+the terminal you are looking at selected.
+
+A remote workspace that cannot be reached stays selectable in the workspace menu; the menu and
+the selected workspace's label suffix it **(Unavailable)**, while its retained changes, windows
+and subagent entries stay in the navigation column without a suffix of their own. Its last known
+data is what you see until it recovers (see
+[configuration](configuration.md#remote-workspaces-that-are-unavailable)).
 
 ## Settings
 
@@ -62,9 +71,20 @@ it — and when edits are in flight it asks before either version goes away. How
 you were is remembered as you move around, within the running app. The dashboard places notes
 documents in the left column and status cards in the right; narrow windows stack the
 documents first. Status cards load independently, so one slow integration does not block the
-whole page. The **Subagents** tab shows the change's subagent sessions: each one's terminal, with
-its conversation beside it — send it a message, restart an interrupted turn, reopen a closed
-window. Returning to a view can show cached data while it refreshes.
+whole page. The **Subagents** tab shows the change's subagent sessions: each one's terminal, with its
+conversation beside it — send it a message, restart an interrupted turn, reopen a closed window.
+The selected subagent's own live terminal is shown there without moving the change's active
+terminal; a subagent with no live window shows a placeholder rather than another shell, and
+selecting one explicitly makes its window the active terminal. Returning to a view can show cached data while it refreshes.
+
+When the workspace a page shows is unavailable, one banner row sits above the content naming it
+and its reason, with **Retry now** and **Local settings**. Below it the retained data stays
+readable and read-only, under that banner: the overview cards and the change header carry the
+stale marker, and everything else — documents, cards, windows and subagent lists — keeps its last
+known state without a marker of its own. Nothing is emptied. A draft typed before the connection
+was lost is held (the plan and notes editors become read-only), and recovery does not itself save
+it: resuming the edit, or an explicit save, follows the normal save policy. The change's phase
+selector and the action menus are held back until it recovers.
 
 The terminal page's row offers an **Actions** menu: the actions that fit the window you are on —
 a prompt for the agent window you are looking at, a command for a plain shell — and then the

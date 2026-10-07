@@ -140,7 +140,15 @@ const call = async <T>(harness: RelayHarness, args: readonly string[]): Promise<
     : { value };
 };
 
-const relayTurn = async (harness: RelayHarness, subagentId: string, text: string, key: string): Promise<void> => {
+/** Relay one settled reply, retrying with backoff: `inReplyTo` is the inbound message number the
+ * run answered, so the reply is attributed to its own turn. */
+const relayTurn = async (
+  harness: RelayHarness,
+  subagentId: string,
+  text: string,
+  key: string,
+  inReplyTo: number,
+): Promise<void> => {
   const gate = createLogGate(harness.log);
   for (let attempt = 0; ; attempt += 1) {
     if (harness.signal?.aborted) return;
@@ -152,6 +160,8 @@ const relayTurn = async (harness: RelayHarness, subagentId: string, text: string
       subagentId,
       "--idempotency-key",
       key,
+      "--in-reply-to",
+      String(inReplyTo),
       "--json",
       "--",
       text,
@@ -211,7 +221,7 @@ export const relayLoop = async (subagentId: string, harness: RelayHarness): Prom
     // rather than relay it into a disposed harness.
     if (isAborted(harness.signal)) return;
     const reply = settled !== undefined && settled.trim() !== "" ? settled : "(the run ended without a reply)";
-    await relayTurn(harness, subagentId, reply, `turn-${message.number}`);
+    await relayTurn(harness, subagentId, reply, `turn-${message.number}`, message.number);
   }
 };
 

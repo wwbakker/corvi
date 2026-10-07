@@ -796,35 +796,274 @@ test("subagent commands drive an instance over the HTTP API", async () => {
     await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "next", "--subagent", "seed-1", "--json"], second.io),
   ).toBe(5);
 
-  // An in-flight turn with no live window is interrupted to `await` too (exit 5).
+  // An in-flight turn with no live window is interrupted to `await` too (exit 5), with the turn
+  // it concerns in the outcome.
   const waited = capture();
   expect(
     await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-1", "--json"], waited.io),
   ).toBe(5);
-  expect((JSON.parse(waited.out.join("")) as { status: string }).status).toBe("interrupted");
+  const interrupted = JSON.parse(waited.out.join("")) as {
+    status: string;
+    outcomes: readonly { readonly id: string; readonly status: string; readonly turn?: number }[];
+  };
+  expect(interrupted.status).toBe("interrupted");
+  expect(interrupted.outcomes).toEqual([{ id: "seed-1", status: "interrupted", turn: 1 }]);
+  // The human line names the in-flight turn too.
+  const interruptedHuman = capture();
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-1"], interruptedHuman.io),
+  ).toBe(5);
+  expect(interruptedHuman.out.join("\n")).toBe("interrupted seed-1 (turn 1)");
 
-  // The flag form of send works as well as the positional form.
+  // The flag form of send works as well as the positional form, and the receipt names the message.
   const sent = capture();
   expect(
     await run(
-      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "send", "--subagent", "seed-1", "More please", "--json"],
+      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "send", "--subagent", "seed-1", "More please"],
       sent.io,
     ),
   ).toBe(0);
+  expect(sent.out.join("\n")).toBe("sent to seed-1 (message 2)");
 
   const turned = capture();
   expect(
     await run(
-      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "turn", "--subagent", "seed-1", "Looks good", "--json"],
+      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "turn", "--subagent", "seed-1", "--in-reply-to", "1", "Looks good", "--json"],
       turned.io,
     ),
   ).toBe(0);
+  expect((JSON.parse(turned.out.join("")) as { inReplyTo?: number }).inReplyTo).toBe(1);
 
   const result = capture();
   expect(
     await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "result", "seed-1", "--json"], result.io),
   ).toBe(0);
   expect((JSON.parse(result.out.join("")) as { body: string }).body).toBe("Looks good");
+  // The plain result prints the same "answers turn" header the manual documents.
+  const resultHuman = capture();
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "result", "seed-1"], resultHuman.io),
+  ).toBe(0);
+  expect(resultHuman.out[0]).toContain("reply 3 (answers turn 1)");
+
+  // `--turn` reads the reply for that turn instead of the latest. An explicit turn whose reply is
+  // on disk answers ready even though the window is gone and a newer message is pending.
+  const explicit = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "--subagent", "seed-1", "--turn=1"],
+      explicit.io,
+    ),
+  ).toBe(0);
+  expect(explicit.out.join("\n")).toBe("ready seed-1 (replied turn 1, reply 3)");
+
+  const forTurn = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "result", "--subagent", "seed-1", "--turn=1"],
+      forTurn.io,
+    ),
+  ).toBe(0);
+  expect(forTurn.out[0]).toContain("reply 3 (answers turn 1)");
+
+  // A known inbound turn whose reply has not landed is null / "no reply yet", not an error; a turn
+  // that names no inbound message is refused (4), mirroring `await --turn`.
+  const noReply = capture();
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "result", "seed-1", "--turn", "2", "--json"], noReply.io),
+  ).toBe(0);
+  expect(noReply.out.join("")).toBe("null");
+  const noReplyHuman = capture();
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "result", "seed-1", "--turn", "2"], noReplyHuman.io),
+  ).toBe(0);
+  expect(noReplyHuman.out.join("\n")).toBe("(no reply for turn 2 yet)");
+  const unknown = capture();
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "result", "seed-1", "--turn", "9", "--json"], unknown.io),
+  ).toBe(EXIT.refused);
+});
+
+test("subagent create prints the first message number it sent", async () => {
+  // A seeded instance carrying an idempotency key: the create route returns it without launching a
+  // harness, which is what lets the receipt be read here rather than on a real pi window.
+  const dir = join(tmp, "changes", CHANGE_ID, "subagents", "seed-created");
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    join(dir, "session.json"),
+    JSON.stringify({
+      id: "seed-created",
+      changeId: CHANGE_ID,
+      profile: "builtin:reviewer",
+      label: "Reviewer",
+      harness: "pi",
+      createdBy: "orchestrator",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      window: "seed-created-window",
+      createdKey: "create-receipt",
+      log: [{ kind: "created", at: "2026-01-01T00:00:00.000Z" }],
+    }),
+    "utf8",
+  );
+  await writeFile(
+    join(dir, "001-orchestrator.md"),
+    "---\nfrom: orchestrator\nat: 2026-01-01T00:00:00.000Z\n---\nReview it\n",
+    "utf8",
+  );
+
+  const created = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "create", "global:reviewer", "--idempotency-key", "create-receipt"],
+      created.io,
+    ),
+  ).toBe(0);
+  expect(created.out.join("\n")).toBe("created seed-created (message 1)");
+});
+
+test("subagent await prints one line per outcome, with the turn and reply", async () => {
+  const replied = join(tmp, "changes", CHANGE_ID, "subagents", "seed-3");
+  await mkdir(replied, { recursive: true });
+  await writeFile(
+    join(replied, "session.json"),
+    JSON.stringify({
+      id: "seed-3",
+      changeId: CHANGE_ID,
+      profile: "builtin:reviewer",
+      label: "Reviewer",
+      harness: "pi",
+      createdBy: "orchestrator",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      window: "seed-3-window",
+      deliveredThrough: 1,
+      log: [{ kind: "created", at: "2026-01-01T00:00:00.000Z" }],
+    }),
+    "utf8",
+  );
+  await writeFile(
+    join(replied, "001-orchestrator.md"),
+    "---\nfrom: orchestrator\nat: 2026-01-01T00:00:00.000Z\n---\nReview it\n",
+    "utf8",
+  );
+  await writeFile(
+    join(replied, "002-subagent.md"),
+    "---\nfrom: subagent\nat: 2026-01-01T00:00:01.000Z\nin_reply_to: 1\n---\nLooks good\n",
+    "utf8",
+  );
+  // A message-less instance with nothing pending: idle with no turn to name.
+  const idle = join(tmp, "changes", CHANGE_ID, "subagents", "seed-4");
+  await mkdir(idle, { recursive: true });
+  await writeFile(
+    join(idle, "session.json"),
+    JSON.stringify({
+      id: "seed-4",
+      changeId: CHANGE_ID,
+      profile: "builtin:reviewer",
+      label: "Reviewer",
+      harness: "pi",
+      createdBy: "orchestrator",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      window: "seed-4-window",
+      log: [{ kind: "created", at: "2026-01-01T00:00:00.000Z" }],
+    }),
+    "utf8",
+  );
+
+  const single = capture();
+  expect(await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-3"], single.io)).toBe(0);
+  expect(single.out.join("\n")).toBe("ready seed-3 (replied turn 1, reply 2)");
+
+  const all = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-3", "seed-4", "--all"],
+      all.io,
+    ),
+  ).toBe(0);
+  expect(all.out.join("\n")).toBe("ready seed-3 (replied turn 1, reply 2)\nready seed-4 (idle)");
+
+  // A window gone with its prompt still undelivered: the lost answer names the pending turn.
+  const gone = join(tmp, "changes", CHANGE_ID, "subagents", "seed-5");
+  await mkdir(gone, { recursive: true });
+  await writeFile(
+    join(gone, "session.json"),
+    JSON.stringify({
+      id: "seed-5",
+      changeId: CHANGE_ID,
+      profile: "builtin:reviewer",
+      label: "Reviewer",
+      harness: "pi",
+      createdBy: "orchestrator",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      log: [{ kind: "created", at: "2026-01-01T00:00:00.000Z" }],
+    }),
+    "utf8",
+  );
+  await writeFile(
+    join(gone, "001-orchestrator.md"),
+    "---\nfrom: orchestrator\nat: 2026-01-01T00:00:00.000Z\n---\nReview it\n",
+    "utf8",
+  );
+  const lost = capture();
+  expect(await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-5"], lost.io)).toBe(5);
+  expect(lost.out.join("\n")).toBe("lost seed-5 (turn 1)");
+});
+
+test("subagent await --turn refuses a bad number or several targets (usage 2)", async () => {
+  for (const value of ["abc", "-3", "0", "1.5"]) {
+    const bad = capture();
+    expect(
+      await run(
+        ["--server", "http://127.0.0.1:1", "--change", CHANGE_ID, "subagent", "await", "seed-1", "--turn", value],
+        bad.io,
+      ),
+    ).toBe(EXIT.usage);
+    expect(bad.err.join("\n")).toContain("--turn needs a positive message number");
+  }
+  // The explicit turn names one subagent: several ids or `--all` is usage before any probe.
+  const several = capture();
+  expect(
+    await run(
+      ["--server", "http://127.0.0.1:1", "--change", CHANGE_ID, "subagent", "await", "a", "b", "--turn", "1"],
+      several.io,
+    ),
+  ).toBe(EXIT.usage);
+  expect(several.err.join("\n")).toContain("--turn waits for one named subagent");
+  const every = capture();
+  expect(
+    await run(
+      ["--server", "http://127.0.0.1:1", "--change", CHANGE_ID, "subagent", "await", "a", "--all", "--turn", "1"],
+      every.io,
+    ),
+  ).toBe(EXIT.usage);
+  expect(every.err.join("\n")).toContain("--turn waits for one named subagent");
+});
+
+test("subagent turn refuses a bad --in-reply-to before any probe (usage 2)", async () => {
+  // A value that is not a positive message number is usage, checked before discovery: the reply
+  // body must never be silently replaced by a shifted flag value.
+  for (const value of ["abc", "-3", "0", "1.5"]) {
+    const bad = capture();
+    expect(
+      await run(
+        [
+          "--server",
+          "http://127.0.0.1:1",
+          "--change",
+          CHANGE_ID,
+          "subagent",
+          "turn",
+          "--subagent",
+          "seed-1",
+          "--in-reply-to",
+          value,
+          "Looks good",
+        ],
+        bad.io,
+      ),
+    ).toBe(EXIT.usage);
+    expect(bad.err.join("\n")).toContain("--in-reply-to needs a positive message number");
+  }
 });
 
 test("the exit codes are the documented contract, not an implementation detail", () => {
@@ -866,7 +1105,14 @@ test("an await that finds nothing ready answers timeout with its own exit code (
   expect(
     await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-2", "--json"], waited.io),
   ).toBe(6);
-  expect((JSON.parse(waited.out.join("")) as { status: string }).status).toBe("timeout");
+  const timedOut = JSON.parse(waited.out.join("")) as { status: string; outcomes: readonly unknown[] };
+  expect(timedOut.status).toBe("timeout");
+  // The horizon carries no outcome, so re-issuing re-derives settled targets from state.
+  expect(timedOut.outcomes).toEqual([]);
+  // The human line is just `timeout`.
+  const human = capture();
+  expect(await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-2"], human.io)).toBe(6);
+  expect(human.out.join("\n")).toBe("timeout");
 });
 
 test("a repository profile is written and deleted through the checkout, and an unknown repository is refused", async () => {
