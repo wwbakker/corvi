@@ -17,6 +17,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { csiuFor, isNewWindowKey, type Platform } from "@corvi/terminals/model";
+import type { RemoteAvailabilityReasonDto } from "@corvi/contracts/availability";
 import { shouldKeepSocket } from "./socketTarget.ts";
 
 /** How much scrollback the page keeps: as much as the server serializes, so a resume is whole. */
@@ -158,6 +159,7 @@ export function TerminalPane({
   url,
   sessionId,
   error,
+  unavailable,
   visible,
   focusRequest,
   platform,
@@ -169,6 +171,9 @@ export function TerminalPane({
    * when it changes. Absent means the change's active window's active pane. */
   sessionId?: string | null;
   error: string | null;
+  /** The owning workspace is unavailable: no socket is opened, and the pane says why instead of
+   * reconnecting. Undefined for the local server, which is always reachable. */
+  unavailable?: RemoteAvailabilityReasonDto | null;
   /** Whether this is the page in front: what to focus, when to connect, and when the
    * new-window chord belongs to us. */
   visible: boolean;
@@ -410,6 +415,23 @@ export function TerminalPane({
       detachedRef.current = false;
       setDetached(false);
     }
+    // No target, or the workspace is unavailable: close whatever socket is open *before* the
+    // rename-keep logic below. The first-connect rename case always has a non-null URL, so this
+    // cannot steal it; and a pane that says "not connected" must not still be streaming input.
+    // Hiding the pane is deliberately *not* here: a hidden terminal keeps its attachment (and its
+    // scrollback); only a missing/blocked/retargeted target closes.
+    if (!url || unavailable) {
+      const open = socket.current;
+      if (open) {
+        socket.current = null;
+        socketSession.current = null;
+        openedFor.current = null;
+        setAttached(null);
+        setSocketState("closed");
+        open.close();
+      }
+      return;
+    }
     if (socket.current && openedFor.current !== target) {
       // Only the unnamed first connect may be renamed: the server resolved the active pane for it,
       // and the window list then names that same pane, so a reconnect would drop keystrokes in the
@@ -428,7 +450,9 @@ export function TerminalPane({
         socket.current = null;
       }
     }
-    if (!url || !visible) return;
+    // Hidden: keep the existing attachment (and its screen); do not open a new one. The next shown
+    // render opens it.
+    if (!visible) return;
     // The other window holds the one live client: stay off the socket until the page takes it back.
     if (detachedRef.current) return;
     const term = terminal.current;
@@ -519,7 +543,7 @@ export function TerminalPane({
     openedUnnamed.current = sessionId === undefined || sessionId === null;
     // Deliberately no cleanup: hiding the pane (the dashboard, another change's page) must keep
     // the host client attached, which is what leaves the shells running.
-  }, [url, sessionId, visible, generation, reconnect]);
+  }, [url, sessionId, visible, unavailable, generation, reconnect]);
 
   // A shown or resized pane re-fits, and tells the pty. Before paint, so the grid and the shell
   // agree by the time the frame is visible.
@@ -711,7 +735,13 @@ export function TerminalPane({
         </div>
       )}
       {error && <div className="error-banner">{error}</div>}
-      {!url && !error && <p className="hint">starting terminal…</p>}
+      {unavailable && (
+        <div className="terminal-gone" role="status">
+          This workspace is unavailable: {unavailable.message} The terminal is not connected; cached
+          windows stay listed until it recovers.
+        </div>
+      )}
+      {!url && !error && !unavailable && <p className="hint">starting terminal…</p>}
       {url && !error && !ended && !detached && attached === null && socketState !== "closed" && (
         <p className="hint">connecting…</p>
       )}

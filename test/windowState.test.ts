@@ -42,7 +42,7 @@ const flush = (): Promise<void> => Bun.sleep(0);
 
 const transport = (over: Partial<WindowsTransport> = {}): WindowsTransport => ({
   list: async () => ({}),
-  act: async (_sourceId, _changeId, action) =>
+  act: async (_sourceId, _generation, _changeId, action) =>
     [terminalWindow(`w${action.index ?? 0}`, true)],
   ...over,
 });
@@ -61,6 +61,7 @@ test("a local answer is published while a remote read is still pending", async (
     }),
   );
   store.setSources(["", "remote"]);
+  store.reconfigure("remote", "g1", true);
   await flush();
   // The local source did not wait for the remote one.
   expect(store.snapshot().bySource[""]?.byChange["LOCAL-1"]?.[0]?.id).toBe("w-local");
@@ -98,7 +99,7 @@ test("conflicting selections are serialized and the last one wins", async () => 
   const store = makeWindowsStore(
     transport({
       list: async () => ({ C: [terminalWindow("w0", true), terminalWindow("w1", false)] }),
-      act: async (_sourceId, _changeId, action) => {
+      act: async (_sourceId, _generation, _changeId, action) => {
         calls.push(action.index ?? -1);
         return [terminalWindow("w0", action.index === 0), terminalWindow("w1", action.index === 1)];
       },
@@ -121,7 +122,7 @@ test("a slow earlier selection cannot overwrite the later one", async () => {
   const store = makeWindowsStore(
     transport({
       list: async () => ({ C: [terminalWindow("w0", true), terminalWindow("w1", false)] }),
-      act: (_sourceId, _changeId, action) => {
+      act: (_sourceId, _generation, _changeId, action) => {
         sent.push(action.index ?? -1);
         if (action.index === 0) return held.promise;
         return Promise.resolve([terminalWindow("w0", false), terminalWindow("w1", true)]);
@@ -147,7 +148,7 @@ test("a mutation on one change does not suppress another change's mutation", asy
   const store = makeWindowsStore(
     transport({
       list: async () => ({}),
-      act: (_sourceId, changeId) => (changeId === "A" ? heldA.promise : Promise.resolve([terminalWindow("b1", true)])),
+      act: (_sourceId, _generation, changeId) => (changeId === "A" ? heldA.promise : Promise.resolve([terminalWindow("b1", true)])),
     }),
   );
   store.setSources([""]);
@@ -176,7 +177,7 @@ test("a read that raced a mutation is dropped and reconciled after the write set
         reads += 1;
         return { C: [terminalWindow(serverActive, true)] };
       },
-      act: (_sourceId, _changeId, action) => {
+      act: (_sourceId, _generation, _changeId, action) => {
         if (action.index !== 1) return Promise.resolve([terminalWindow(serverActive, true)]);
         return held.promise.then(() => {
           serverActive = "w1";
@@ -228,9 +229,11 @@ test("a read in flight when its source is removed and re-added cannot republish"
     }),
   );
   store.setSources(["remote"]);
+  store.reconfigure("remote", "g1", true);
   await flush(); // read 1 is in flight
   store.setSources([]); // removed: its facts are dropped
   store.setSources(["remote"]); // re-added: a fresh facts object and a fresh read
+  store.reconfigure("remote", "g1", true);
   await flush();
   expect(store.snapshot().bySource["remote"]?.byChange["S"]?.[0]?.id).toBe("fresh");
 
@@ -247,7 +250,7 @@ test("a queued mutation for a removed source is not sent and never publishes", a
   const store = makeWindowsStore(
     transport({
       list: async () => ({ C: [terminalWindow("w0", true)] }),
-      act: async (_sourceId, _changeId, action) => {
+      act: async (_sourceId, _generation, _changeId, action) => {
         sent.push(action.index ?? -1);
         return action.index === 0 ? held.promise : Promise.resolve([terminalWindow("w1", true)]);
       },
@@ -276,6 +279,7 @@ test("the same change id on two sources stays separate", async () => {
     }),
   );
   store.setSources(["", "remote"]);
+  store.reconfigure("remote", "g1", true);
   await flush();
   expect(store.snapshot().bySource[""]?.byChange["SAME"]?.[0]?.id).toBe("local-w");
   expect(store.snapshot().bySource["remote"]?.byChange["SAME"]?.[0]?.id).toBe("remote-w");
@@ -378,4 +382,147 @@ test("a failed mutation is observable and a later success clears it", async () =
   refuse = false;
   await store.select("", "C", 0);
   expect(store.snapshot().errors[""]).toBeUndefined();
+});
+
+test("a generation change drops queued sends without replaying them, and reports the uncertain one", async () => {
+  const sent: number[] = [];
+  const held = deferred<readonly TerminalWindow[]>();
+  const store = makeWindowsStore(
+    transport({
+      list: async () => ({ C: [terminalWindow("w0", true)] }),
+      act: async (_sourceId, _generation, _changeId, action) => {
+        sent.push(action.index ?? -1);
+        return action.index === 0 ? held.promise : Promise.resolve([terminalWindow("w1", true)]);
+      },
+    }),
+  );
+  store.setSources(["r"]);
+  store.reconfigure("r", "g1", true);
+  await flush();
+
+  const first = store.select("r", "C", 0);
+  await flush(); // the first send is in flight
+  const second = store.select("r", "C", 1); // waiting for its turn
+  store.reconfigure("r", "g2", true); // retarget while the first is in flight
+
+  held.resolve([terminalWindow("w0", true)]);
+  await Promise.all([first, second]);
+  // The queued second never left, and the in-flight first was not replayed. Both report
+  // honestly: the in-flight write's outcome is unknown, the queued one was never sent.
+  expect(sent).toEqual([0]);
+  expect(store.snapshot().errors.r?.["C"]).toMatch(/outcome is unknown|nothing was sent/);
+});
+
+test("an in-flight write is reported uncertain immediately when the target is retired", async () => {
+  const held = deferred<readonly TerminalWindow[]>();
+  const store = makeWindowsStore(
+    transport({
+      list: async () => ({ C: [terminalWindow("w0", true)] }),
+      act: () => held.promise,
+    }),
+  );
+  store.setSources(["r"]);
+  store.reconfigure("r", "g1", true);
+  await flush();
+  const write = store.select("r", "C", 0);
+  await flush(); // the write is in flight and may have reached the remote
+  // The outage reports it at once, even though the promise never settles.
+  store.reconfigure("r", "g1", false);
+  expect(store.snapshot().errors.r?.["C"]).toBe("the workspace changed while saving; the outcome is unknown");
+  held.resolve([terminalWindow("w0", true)]);
+  await write;
+});
+
+test("a loss of reachability keeps the last known list stale and issues no read; recovery re-reads", async () => {
+  let lists = 0;
+  const store = makeWindowsStore(
+    transport({
+      list: async () => {
+        lists += 1;
+        return { C: [terminalWindow("w0", true)] };
+      },
+    }),
+  );
+  store.setSources(["r"]);
+  // Not sendable yet: no request.
+  await flush();
+  expect(lists).toBe(0);
+
+  store.reconfigure("r", "g1", true);
+  await flush();
+  expect(lists).toBe(1);
+
+  store.reconfigure("r", "g1", false);
+  await flush();
+  expect(lists).toBe(1);
+  expect(store.snapshot().bySource.r?.fresh).toBe(false);
+  expect(store.snapshot().bySource.r?.byChange["C"]?.[0]?.id).toBe("w0");
+
+  store.reconfigure("r", "g1", true);
+  await flush();
+  expect(lists).toBe(2);
+});
+
+test("a queued write retired by a retarget does not stamp its error on the replacement target", async () => {
+  const first = deferred<readonly TerminalWindow[]>();
+  const store = makeWindowsStore(
+    transport({
+      act: async (_sourceId, _generation, _changeId, action) => {
+        // The store's `select` carries an index; the queued `focus` carries a window id.
+        if ("index" in action) return first.promise;
+        return [terminalWindow("w-focus", true)];
+      },
+    }),
+  );
+  store.setSources(["r"]);
+  store.reconfigure("r", "g1", true);
+
+  // The first write reaches the transport and hangs; the second queues behind it.
+  void store.select("r", "C1", 0);
+  await flush();
+  const queued = store.focus("r", "C1", "w-focus");
+  await flush();
+
+  // The same source id is now a different target: the old target's data, queues and in-flight
+  // writes are retired, and the replacement starts empty.
+  store.reconfigure("r", "g2", true);
+  first.resolve([terminalWindow("w-select", true)]);
+  await queued;
+  await flush();
+
+  // The queued write never sent, but its "nothing was sent" belongs to the retired target: it
+  // must not appear under the replacement's error map.
+  expect(store.snapshot().errors.r?.["C1"] ?? "").not.toContain("nothing was sent");
+  // Only the retired target's in-flight write is reported, by retireSource itself.
+  expect(store.snapshot().errors.r?.["C1"]).toBe("the workspace changed while saving; the outcome is unknown");
+  // The replacement target's windows are its own: the retired target's selection did not leak in.
+  expect(store.snapshot().bySource.r?.byChange["C1"]).toBeUndefined();
+});
+
+test("a queued write of the same target still reports that nothing was sent after an outage", async () => {
+  const first = deferred<readonly TerminalWindow[]>();
+  const store = makeWindowsStore(
+    transport({
+      act: async (_sourceId, _generation, _changeId, action) =>
+        "index" in action ? first.promise : [terminalWindow("w-focus", true)],
+    }),
+  );
+  store.setSources(["r"]);
+  store.reconfigure("r", "g1", true);
+
+  void store.select("r", "C1", 0);
+  await flush();
+  const queued = store.focus("r", "C1", "w-focus");
+  await flush();
+
+  // Same target, reachability lost: the queued write is retired without ever sending.
+  store.reconfigure("r", "g1", false);
+  first.reject(new Error("the remote server could not be reached"));
+  await queued;
+  await flush();
+
+  // The same generation still owns the message: the user learns the queued write was not sent.
+  expect(store.snapshot().errors.r?.["C1"]).toBe(
+    "the workspace became unavailable before saving; nothing was sent",
+  );
 });

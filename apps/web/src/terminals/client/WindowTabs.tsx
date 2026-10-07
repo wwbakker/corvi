@@ -12,6 +12,7 @@ export function WindowTabs({
   page,
   windows,
   platform,
+  disabled,
   onSelectWindow,
   onNewWindow,
   onMoveWindow,
@@ -26,6 +27,9 @@ export function WindowTabs({
   windows: TerminalWindow[];
   /** The server's platform: what the new-terminal tab's shortcut assumes. */
   platform: Platform;
+  /** The change's workspace is unavailable: the cached tabs stay readable and named, but selecting
+   * or creating one would reach the remote, so they are disabled (the gate would refuse anyway). */
+  disabled?: boolean;
   /** Switching the session to one of its windows. */
   onSelectWindow: (index: number) => void;
   /** Another window beside the current one. The terminal's own chord does this from inside it;
@@ -107,6 +111,7 @@ export function WindowTabs({
             key={w.index}
             data-window-index={w.index}
             data-window-id={w.id}
+            disabled={disabled}
             className={classes.join(" ")}
             title={`ctrl-b ${w.index} — ${w.detail}`}
             // Focus is what a mousedown moves, and a terminal you cannot type in after clicking
@@ -129,6 +134,7 @@ export function WindowTabs({
           terminal starts it, with the first window. */}
       <button
         className="window-tab new"
+        disabled={disabled}
         title={
           platform === "mac"
             ? "new terminal here (cmd-t, or ctrl-b c)"

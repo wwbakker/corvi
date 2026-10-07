@@ -12,7 +12,9 @@ import {
 import type { TerminalWindow } from "../../domain/terminal.ts";
 import { useCached } from "../../app-root/cache.ts";
 import { FORMAT_VERSION, isFinished } from "../../domain/change.ts";
-import { changeKey, clientFor } from "../../app-root/sources.ts";
+import type { RemoteAvailabilityReasonDto } from "@corvi/contracts/availability";
+import { changeKey, useChangeClient, useSourceAvailability } from "../../app-root/sources.ts";
+import { StaleMarker } from "../../app-root/RemoteAvailability.tsx";
 import { LifecycleFailures } from "../../app-root/LifecycleFailures.tsx";
 import { TerminalPane } from "../../terminals/client/TerminalPane.tsx";
 import { CheatSheet } from "../../terminals/client/CheatSheet.tsx";
@@ -74,6 +76,8 @@ export function ChangeView({
   terminal: {
     url: string | null;
     error: string | null;
+    /** The change's workspace is unavailable; the pane says why instead of connecting. */
+    unavailable?: RemoteAvailabilityReasonDto | null;
     create: () => void;
   };
   /** This change's terminal windows: what the terminal page's tabs are. */
@@ -98,17 +102,24 @@ export function ChangeView({
   /** The server's platform: what the terminal's key hints and shortcut assume. */
   platform: Platform;
 }): JSX.Element {
-  const client = clientFor(source);
+  const client = useChangeClient();
+  // The change's own source, not the chosen workspace: a direct link or "All work" banners too.
+  const availability = useSourceAvailability(source);
+  const blocked = availability.status._tag !== "available";
+  const sourceGeneration = availability.generation;
   const key = changeKey(source, id);
-  const [change, setChange] = useCached<Change>(`${key}:change`);
+  // Cached reads are keyed by target generation: a same-id retarget must not show the old
+  // target's change, tabs, widgets, completion or plan, while a same-target outage keeps them.
+  const cacheKey = `${key}@${sourceGeneration}`;
+  const [change, setChange] = useCached<Change>(`${cacheKey}:change`);
   // Per change, not global: which components there are depends on the workspace it is in.
-  const [infos, setInfos] = useCached<CardInfo[]>(`${key}:integrations`);
+  const [infos, setInfos] = useCached<CardInfo[]>(`${cacheKey}:integrations`);
   // The tabs the change's page shows, per change for the same reason: they depend on the
   // workspace, and the server resolves that.
-  const [tabs, setTabs] = useCached<ChangeTabInfo[]>(`${key}:tabs`);
+  const [tabs, setTabs] = useCached<ChangeTabInfo[]>(`${cacheKey}:tabs`);
   // The client-drawn widgets the dashboard shows, per change for the same reason.
-  const [widgets, setWidgets] = useCached<WidgetInfo[]>(`${key}:widgets`);
-  const [completion, setCompletion] = useCached<Completion>(`${key}:completion`);
+  const [widgets, setWidgets] = useCached<WidgetInfo[]>(`${cacheKey}:widgets`);
+  const [completion, setCompletion] = useCached<Completion>(`${cacheKey}:completion`);
   const [completing, setCompleting] = useState(false);
   const [starting, setStarting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -139,8 +150,11 @@ export function ChangeView({
     if (page === "terminals" || page === "subagents") setTerminalOpened(true);
   }, [page]);
 
-  // The change itself and the list of components are cheap: no CLI calls behind either.
+  // The change itself and the list of components are cheap: no CLI calls behind either. A
+  // blocked source is not asked; `blocked`/`sourceGeneration` in the deps re-read it on recovery
+  // and re-read a retargeted target.
   useEffect(() => {
+    if (blocked) return;
     client
       .changes.read(ChangeId.make(id))
       .then(setChange)
@@ -157,11 +171,11 @@ export function ChangeView({
       .dashboard.widgets(ChangeId.make(id))
       .then(setWidgets)
       .catch((e: Error) => setError(e.message));
-  }, [id, source, client]);
+  }, [id, source, client, blocked, sourceGeneration]);
 
   // Whether completing is allowed, refreshed alongside the widgets.
   useEffect(() => {
-    if (change?.completedAt) return;
+    if (change?.completedAt || blocked) return;
     const ac = new AbortController();
     const load = (): Promise<void> =>
       client
@@ -174,7 +188,7 @@ export function ChangeView({
       ac.abort();
       clearInterval(timer);
     };
-  }, [id, source, client, change?.completedAt, generation]);
+  }, [id, source, client, change?.completedAt, generation, blocked, sourceGeneration]);
 
   // Which page of the change to show, and the view to come back to: opening a change's
   // overview lands where you left it — its Plan until there is a memory. Remembered for the
@@ -300,6 +314,9 @@ export function ChangeView({
   /** The name field's blur: a name the ticket suggested is not a fact — renaming it stops it
    * being refreshed from Jira, and clearing it hands the name back. */
   const commitRename = (next: string): void => {
+    // An unavailable workspace has nowhere to write the name: hold it back and keep the draft
+    // open (and editable again on recovery) rather than losing what was typed.
+    if (blocked) return;
     setDraft(null);
     if (next === (change?.title ?? "")) return;
     client
@@ -313,6 +330,9 @@ export function ChangeView({
 
   /** The state select: your own view of where the change stands. */
   const moveTo = (state: ChangeState): void => {
+    // The select is disabled while blocked; this is the same rule at the handler, so a programmatic
+    // or stale event cannot make the write.
+    if (blocked) return;
     client
       .changes.rename(ChangeId.make(id), { state })
       .then((updated) => {
@@ -328,6 +348,7 @@ export function ChangeView({
     completing,
     cancelling,
     completion,
+    blocked,
     onRename: () => setDraft(change?.title ?? ""),
     onStart: startWork,
     onCopyDescription: copyDescription,
@@ -360,12 +381,14 @@ export function ChangeView({
         page={active.kind}
         windows={windows}
         platform={platform}
+        disabled={blocked}
         onSelectWindow={onSelectWindow}
         onNewWindow={onNewWindow}
         onMoveWindow={onMoveWindow}
         onOpenOverview={() => onOpenPage(lastViewOf(key))}
       />
       <span className="spacer" />
+      {blocked && <StaleMarker>unavailable</StaleMarker>}
       {/* The key reference is the terminal's: on the other views the row below carries the
           change's own tabs, state and actions instead. The menu holds the key reference beside
           the actions this window may run (apps/web/src/actions/RunMenu.tsx). */}
@@ -373,6 +396,7 @@ export function ChangeView({
         <RunMenu
           changeId={id}
           windows={windows}
+          disabled={blocked}
           onOpenCheatSheet={() => setCheatSheet(true)}
           onRan={() => setFocusRequest((n) => n + 1)}
         />
@@ -397,6 +421,7 @@ export function ChangeView({
             activeId={activeId}
             change={change}
             idea={idea}
+            blocked={blocked}
             actions={actions}
             draft={draft}
             onDraft={setDraft}
@@ -457,6 +482,7 @@ export function ChangeView({
           infos={infos}
           widgets={widgets}
           generation={generation}
+          blocked={blocked}
           completing={completing}
           onSaved={saved}
           onFinished={setChange}
@@ -467,7 +493,12 @@ export function ChangeView({
           a card beside its status — between the dashboard and the tabs extensions contribute. */}
       {active.kind === "plan" &&
         (change ? (
-          <PlanPage changeId={id} source={source} readOnly={isFinished(change)} />
+          <PlanPage
+            changeId={id}
+            source={source}
+            generation={sourceGeneration}
+            readOnly={isFinished(change) || blocked}
+          />
         ) : (
           <p className="hint">loading…</p>
         ))}
@@ -502,6 +533,7 @@ export function ChangeView({
             url={terminal.url}
             sessionId={activePaneId}
             error={terminal.error}
+            unavailable={terminal.unavailable}
             visible={active.kind === "terminals"}
             focusRequest={focusRequest}
             platform={platform}

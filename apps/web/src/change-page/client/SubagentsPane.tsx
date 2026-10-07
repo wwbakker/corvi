@@ -8,12 +8,14 @@
  * TUI is still possible and is honestly just the terminal: it lives in the harness's own history,
  * not this log.
  */
-import { type JSX, useCallback, useEffect, useState } from "react";
+import { type JSX, useCallback, useEffect, useRef, useState } from "react";
 
 import { ChangeId } from "@corvi/contracts/changes";
 import type { SubagentInstanceDto, SubagentMessageDto, SubagentSystemEventDto } from "@corvi/contracts/subagents";
 import type { Platform } from "@corvi/terminals/model";
-import { useChangeClient } from "../../app-root/sources.ts";
+import type { RemoteAvailabilityReasonDto } from "@corvi/contracts/availability";
+import { useChangeClient, useSourceAvailability, useSource } from "../../app-root/sources.ts";
+import { gateFailureOf } from "../../app-root/sourceOwner.ts";
 import { useServerEvent } from "../../app-root/events.ts";
 import { TerminalPane } from "../../terminals/client/TerminalPane.tsx";
 
@@ -60,13 +62,25 @@ export function SubagentsPane({
 }: {
   changeId: string;
   platform: Platform;
-  terminal: { url: string | null; error: string | null; create: () => void };
+  terminal: {
+    url: string | null;
+    error: string | null;
+    unavailable?: RemoteAvailabilityReasonDto | null;
+    create: () => void;
+  };
   /** Bring the selected subagent's window to the front by stable identity (an explicit selection
    * only). */
   onFocusPane: (windowId: string) => void;
 }): JSX.Element {
   const client = useChangeClient();
+  // The change's workspace: its availability drives the controls' disabled state and the reloads
+  // (the transport gate is still the authority).
+  const source = useSource();
+  const availability = useSourceAvailability(source);
+  const blocked = availability.status._tag !== "available";
+  const generation = availability.generation;
   const [instances, setInstances] = useState<SubagentInstanceDto[]>([]);
+  const loadSeq = useRef(0);
   const [selected, setSelected] = useState<string | null>(null);
   // The subagent whose terminal the page shows when the user has not chosen one. It is pinned the
   // first time there is anything to show, so a background creation or a reorder cannot move the
@@ -77,13 +91,29 @@ export function SubagentsPane({
   const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback((): void => {
+    // A checking/unavailable source keeps the same-generation list; recovery re-runs this through
+    // the deps. The sequence guard stops a late old-generation answer from republishing.
+    if (blocked) return;
+    const seq = ++loadSeq.current;
     client
       .subagents.list(ChangeId.make(changeId))
-      .then(setInstances)
-      .catch((e: Error) => setNotice(e.message));
-  }, [changeId]);
+      .then((next) => {
+        if (seq === loadSeq.current) setInstances(next);
+      })
+      .catch((e: unknown) => {
+        if (seq !== loadSeq.current) return;
+        if (gateFailureOf(e) !== undefined) return; // the banner explains, not this notice
+        setNotice(e instanceof Error ? e.message : String(e));
+      });
+  }, [changeId, client, blocked, generation]);
 
   useEffect(load, [load]);
+  // A retargeted target's instances were never the new target's: drop them and invalidate any
+  // in-flight load. A same-generation outage is not this.
+  useEffect(() => {
+    loadSeq.current += 1;
+    setInstances([]);
+  }, [generation]);
   useServerEvent("changes", load);
   useServerEvent("windows", load);
 
@@ -193,6 +223,7 @@ export function SubagentsPane({
             url={terminal.url}
             sessionId={shownPaneId}
             error={terminal.error}
+            unavailable={terminal.unavailable}
             visible
             platform={platform}
             onNewWindow={terminal.create}
@@ -216,7 +247,8 @@ export function SubagentsPane({
               {instance.interrupted ? (
                 <span className="badge warn">interrupted</span>
               ) : (
-                <span className="summary">{instance.presence}</span>
+                // A space before the badge: the label and its state must not run together.
+                <span className="summary"> {instance.presence}</span>
               )}
               {instance.awaitingReply && <span className="badge ok">reply</span>}
             </button>
@@ -239,11 +271,11 @@ export function SubagentsPane({
                 </button>
               )}
               {current.presence === "attached" ? (
-                <button onClick={() => void act(() => client.subagents.close(ChangeId.make(changeId), current.id), `closed ${current.id}`)}>
+                <button disabled={blocked} onClick={() => void act(() => client.subagents.close(ChangeId.make(changeId), current.id), `closed ${current.id}`)}>
                   Close
                 </button>
               ) : (
-                <button onClick={() => void act(() => client.subagents.open(ChangeId.make(changeId), current.id), `opened ${current.id}`)}>
+                <button disabled={blocked} onClick={() => void act(() => client.subagents.open(ChangeId.make(changeId), current.id), `opened ${current.id}`)}>
                   Open
                 </button>
               )}
@@ -266,7 +298,7 @@ export function SubagentsPane({
                   }
                 }}
               />
-              <button className="create" disabled={draft.trim() === "" || sending} onClick={() => void send(draft)}>
+              <button className="create" disabled={draft.trim() === "" || sending || blocked} onClick={() => void send(draft)}>
                 Send
               </button>
             </div>

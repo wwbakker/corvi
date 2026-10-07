@@ -47,9 +47,15 @@ export type WindowsSnapshot = {
 /** The calls the store makes. The page passes the real client; a test passes scripted promises so
  * it can complete them in a chosen order. */
 export type WindowsTransport = {
-  readonly list: (sourceId: string) => Promise<Readonly<Record<string, readonly TerminalWindow[]>>>;
+  /** `generation` is the target the read belongs to, captured before it left: the transport binds
+   * its capability to it, so a read answered after a retarget cannot reach the new target. */
+  readonly list: (
+    sourceId: string,
+    generation: string,
+  ) => Promise<Readonly<Record<string, readonly TerminalWindow[]>>>;
   readonly act: (
     sourceId: string,
+    generation: string,
     changeId: string,
     action: WindowActionBodyDto,
   ) => Promise<readonly TerminalWindow[]>;
@@ -63,6 +69,10 @@ export type WindowsStore = {
   readonly setSources: (sourceIds: readonly string[]) => void;
   /** Read every configured source; one failed source keeps its last known list. */
   readonly refresh: () => void;
+  /** Tell the store a source's target identity and reachability. A changed `generation` retires
+   * the old target's data, in-flight reads and queued writes; `maySend` false keeps the last
+   * known list marked stale; a recovery re-reads. */
+  readonly reconfigure: (sourceId: string, generation: string, maySend: boolean) => void;
   readonly select: (sourceId: string, changeId: string, index: number) => Promise<void>;
   readonly create: (sourceId: string, changeId: string) => Promise<void>;
   readonly move: (sourceId: string, changeId: string, from: number, to: number) => Promise<void>;
@@ -97,6 +107,12 @@ export const makeWindowsStore = (transport: WindowsTransport): WindowsStore => {
   const configured = new Set<string>();
   const sourceFacts = new Map<string, SourceFacts>();
   const changeFacts = new Map<string, ChangeFacts>();
+  /** Each source's target identity, and whether the availability owner lets it send. */
+  const generations = new Map<string, string>();
+  const sendable = new Map<string, boolean>();
+  /** Writes that may have reached the remote, by `source\0change`: a target change reports each
+   * as an unknown outcome immediately, even if its promise never settles. */
+  const inflightWrites = new Map<string, { readonly sourceId: string; readonly changeId: string }>();
 
   const publish = (next: WindowsSnapshot): void => {
     snapshot = next;
@@ -128,6 +144,9 @@ export const makeWindowsStore = (transport: WindowsTransport): WindowsStore => {
 
   const readSource = async (sourceId: string): Promise<void> => {
     if (!configured.has(sourceId)) return;
+    // Only `available` remotes (and always the local server) may send; a checking or unavailable
+    // source keeps what it has rather than asking through a gate that would only refuse it.
+    if (sourceId !== "" && sendable.get(sourceId) !== true) return;
     const facts = factsOf(sourceId);
     // One read per source at a time; an event that arrives mid-read coalesces into one more.
     if (facts.reading) {
@@ -136,8 +155,11 @@ export const makeWindowsStore = (transport: WindowsTransport): WindowsStore => {
     }
     facts.reading = true;
     const epoch = facts.epoch;
+    // The target this read belongs to. The transport binds its capability to it; a retarget while
+    // the read is in flight leaves the answer for a target that is no longer here.
+    const generation = generations.get(sourceId) ?? "";
     try {
-      const byChange = await transport.list(sourceId);
+      const byChange = await transport.list(sourceId, generation);
       if (!isCurrent(sourceId, facts)) return;
       if (facts.epoch !== epoch || facts.pending > 0) {
         facts.reconcile = true;
@@ -179,6 +201,52 @@ export const makeWindowsStore = (transport: WindowsTransport): WindowsStore => {
     }
   };
 
+  /** Record one change's failure without touching the rest of the source. The generation the
+   * write was made against travels with the message: a queued write of a retired target must not
+   * stamp its failure onto the replacement that now shares the source id. */
+  const markError = (sourceId: string, changeId: string, generation: string, message: string): void => {
+    if (!configured.has(sourceId)) return;
+    if ((generations.get(sourceId) ?? "") !== generation) return;
+    publish({
+      bySource: snapshot.bySource,
+      errors: {
+        ...snapshot.errors,
+        [sourceId]: { ...(snapshot.errors[sourceId] ?? {}), [changeId]: message },
+      },
+    });
+  };
+
+  /** Retire a source's in-flight reads, queued sends and (on a retarget) its data. `clearData`
+   * distinguishes a same-target outage (keep the last known list, marked stale) from a retarget
+   * (the old target's data was never this one's). In-flight writes are reported uncertain now. */
+  const retireSource = (sourceId: string, clearData: boolean): void => {
+    sourceFacts.delete(sourceId);
+    for (const key of [...changeFacts.keys()]) {
+      if (key.startsWith(`${sourceId}\u0000`)) changeFacts.delete(key);
+    }
+    const errors = { ...snapshot.errors };
+    if (clearData) delete errors[sourceId];
+    let errorsChanged = false;
+    for (const [key, write] of inflightWrites) {
+      if (write.sourceId !== sourceId) continue;
+      inflightWrites.delete(key);
+      errors[sourceId] = {
+        ...(errors[sourceId] ?? {}),
+        [write.changeId]: "the workspace changed while saving; the outcome is unknown",
+      };
+      errorsChanged = true;
+    }
+    const bySource = { ...snapshot.bySource };
+    if (clearData) delete bySource[sourceId];
+    else {
+      const current = bySource[sourceId];
+      if (current !== undefined) bySource[sourceId] = { ...current, fresh: false };
+    }
+    if (clearData || errorsChanged || snapshot.bySource[sourceId]?.fresh === true) {
+      publish({ bySource, errors });
+    }
+  };
+
   const reconcileIfSettled = (sourceId: string, facts: SourceFacts): void => {
     if (!isCurrent(sourceId, facts)) return;
     if (facts.pending === 0 && facts.reconcile) {
@@ -191,18 +259,31 @@ export const makeWindowsStore = (transport: WindowsTransport): WindowsStore => {
     // A removed source has nowhere to send: refuse at entry rather than queue work that can
     // never be published.
     if (!configured.has(sourceId)) return Promise.resolve();
+    // The target this write belongs to, captured before it can be retired: its late failure must
+    // not be published for a replacement target that reuses the source id.
+    const generation = generations.get(sourceId) ?? "";
     const facts = factsOf(sourceId);
     const change = changeOf(`${sourceId}\u0000${changeId}`);
     // Claim the source read before the request even leaves: a read that started from now on may
     // have been answered before this write landed, so it must not be published.
     facts.pending += 1;
     facts.epoch += 1;
+    const writeKey = `${sourceId}\u0000${changeId}`;
     const run = change.tail.then(async () => {
-      // The source may have been removed or the queue replaced while this waited for its turn.
-      // Re-check before the write leaves: an old queued send must not reach the transport.
-      if (!isCurrent(sourceId, facts)) return;
+      // The source may have been removed or its target retired while this waited for its turn.
+      // Re-check before the write leaves: a queued send must not reach the transport, and its
+      // outcome is known — nothing was sent.
+      if (!isCurrent(sourceId, facts)) {
+        markError(sourceId, changeId, generation, "the workspace became unavailable before saving; nothing was sent");
+        return;
+      }
+      // From here the write may reach the remote; if the target is retired before it settles, its
+      // outcome is genuinely unknown and is reported as such rather than replayed.
+      let sent = false;
       try {
-        const windows = await transport.act(sourceId, changeId, action);
+        sent = true;
+        inflightWrites.set(writeKey, { sourceId, changeId });
+        const windows = await transport.act(sourceId, generation, changeId, action);
         if (!isCurrent(sourceId, facts)) return;
         const current = snapshot.bySource[sourceId];
         const errors = clearError(snapshot.errors, sourceId, changeId);
@@ -232,6 +313,11 @@ export const makeWindowsStore = (transport: WindowsTransport): WindowsStore => {
       } finally {
         facts.pending -= 1;
         facts.epoch += 1;
+        // If retireSource already reported this write, the entry is gone and it is not repeated.
+        const tracked = inflightWrites.delete(writeKey);
+        if (sent && tracked && !isCurrent(sourceId, facts)) {
+          markError(sourceId, changeId, generation, "the workspace changed while saving; the outcome is unknown");
+        }
         reconcileIfSettled(sourceId, facts);
       }
     });
@@ -262,6 +348,8 @@ export const makeWindowsStore = (transport: WindowsTransport): WindowsStore => {
         // Dropping the facts object is the generation bump: in-flight work holds the old object and
         // will neither publish nor schedule reads. A re-add creates a fresh one.
         sourceFacts.delete(id);
+        generations.delete(id);
+        sendable.delete(id);
         for (const key of [...changeFacts.keys()]) {
           if (key.startsWith(`${id}\u0000`)) changeFacts.delete(key);
         }
@@ -277,6 +365,23 @@ export const makeWindowsStore = (transport: WindowsTransport): WindowsStore => {
     },
     refresh: (): void => {
       for (const id of configured) void readSource(id);
+    },
+    reconfigure: (sourceId: string, generation: string, maySend: boolean): void => {
+      const previousGeneration = generations.get(sourceId);
+      const changed = previousGeneration !== undefined && previousGeneration !== generation;
+      const wasSendable = sendable.get(sourceId) ?? false;
+      if (changed) {
+        // A retarget with the same source id: the old target's data was never this target's.
+        retireSource(sourceId, true);
+      } else if (!maySend && wasSendable) {
+        // A same-target outage: keep the last known list marked stale, retire its in-flight and
+        // queued work so a recovery re-reads rather than replaying anything.
+        retireSource(sourceId, false);
+      }
+      generations.set(sourceId, generation);
+      sendable.set(sourceId, maySend);
+      if (!maySend) return;
+      if (!wasSendable || changed) void readSource(sourceId);
     },
     select: (sourceId: string, changeId: string, index: number): Promise<void> =>
       enqueue(sourceId, changeId, { action: "select", index }),

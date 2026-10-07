@@ -6,7 +6,8 @@ import { CiIcon, TerminalIcon, AgentIcon, GearIcon, UpdateIcon } from "./icons.t
 import { byWorkOrder, IDEATION, isFinished, isIdeation, type ChangeSummary } from "../domain/change.ts";
 import { TRAFFIC_LIGHTS } from "../domain/chrome.ts";
 import type { TerminalWindow } from "../domain/terminal.ts";
-import { changeKey, clientFor } from "./sources.ts";
+import { changeKey, useAvailability, useSourceOwner } from "./sources.ts";
+import { availabilitySuffix, statusOf } from "./sourceOwner.ts";
 import { draftLabel, type Draft } from "../wizard/draft.ts";
 import { getPref, setPref } from "./prefs.ts";
 import { ALL, type Workspace } from "../workspace/client/workspaces.ts";
@@ -76,6 +77,7 @@ export function Sidebar({
   windows,
   onHome,
   onNew,
+  newBlocked,
   draft,
   wizard,
   pages,
@@ -106,6 +108,8 @@ export function Sidebar({
   /** Start an idea: it belongs beside the Ideas heading, where the entries it adds to begin —
    * and it is the same control the overview's header has. It opens the draft already there. */
   onNew: () => void;
+  /** The selected workspace is an unreachable remote: starting an idea there is disabled. */
+  newBlocked?: boolean;
   /** The idea being written, if there is one: the row under Ideas that leads back to it. */
   draft?: Draft;
   /** Whether the wizard is the page open: the draft row is current then, and the overview is
@@ -147,16 +151,43 @@ export function Sidebar({
   const [width, setWidth] = useState(storedWidth);
   const dragging = useRef(false);
   const [summaries, setSummaries] = useState<Record<string, ChangeSummary>>({});
+  const owner = useSourceOwner();
+  const availability = useAvailability();
+  // A local workspace's source is the local server (""); a remote one is its own id. The suffix
+  // is reachability only: an unavailable workspace stays in the list and selectable.
+  const statusOfWorkspace = (workspace: Workspace): ReturnType<typeof statusOf> =>
+    statusOf(availability, workspace.remote !== undefined ? workspace.id : "");
+  const chosenWorkspace = workspaces.find((w) => w.id === chosen);
 
   // The same numbers the overview cards show, for the icons. One request per change, from the
   // cache on the server, and slowly: this is a glance, not a monitor.
-  const ids = active.map((c) => changeKey(c.source ?? "", c.id)).join("|");
+  // The generation is part of the key: a same-id retarget must not show the old target's
+  // summary, and a late old answer lands under a key nothing reads.
+  const generationOf = (source: string): string => availability.entries[source]?.generation ?? "";
+  const ids = active
+    .map((c) => `${changeKey(c.source ?? "", c.id)}@${generationOf(c.source ?? "")}`)
+    .join("|");
+  // The interval reads the world as it is now, not the render that installed it: a source that
+  // goes down (or comes back) between ticks must stop being asked — and start being asked again —
+  // without waiting the interval out.
+  const latest = useRef({ availability, active, generationOf });
+  latest.current = { availability, active, generationOf };
+  // Reachability is part of the effect's identity: a loss and a recovery of the same generation
+  // both re-run it immediately — skip while blocked, refresh on recovery.
+  const statusKey = active
+    .map((c) => `${c.source ?? ""}:${statusOf(availability, c.source ?? "")._tag}`)
+    .join("|");
   useEffect(() => {
     let alive = true;
     const load = (): void =>
-      active.forEach((c) => {
-        const key = changeKey(c.source ?? "", c.id);
-        clientFor(c.source ?? "")
+      latest.current.active.forEach((c) => {
+        const source = c.source ?? "";
+        // A checking/unavailable remote is not asked; the banner says why, and the next run after
+        // recovery (or a retarget) fetches.
+        if (statusOf(latest.current.availability, source)._tag !== "available") return;
+        const key = `${changeKey(source, c.id)}@${latest.current.generationOf(source)}`;
+        owner
+          .clientFor(source)
           .changes.summary(ChangeId.make(c.id))
           .then((s) => alive && setSummaries((all) => ({ ...all, [key]: s })))
           .catch(() => {});
@@ -167,7 +198,9 @@ export function Sidebar({
       alive = false;
       clearInterval(timer);
     };
-  }, [ids]);
+    // `ids` encodes source + change + generation; `statusKey` the reachability, so both a retarget
+    // and a same-generation outage/recovery re-run the effect.
+  }, [ids, statusKey, owner]);
 
   // Dragging the edge: listened for on the window, so the pointer may leave the handle — which
   // it always does, since the thing being dragged moves out from under it.
@@ -214,7 +247,11 @@ export function Sidebar({
               room for one of the two. */}
           <span className="top">
             <span className="subject">{c.title ?? c.branch}</span>
-            <Icons summary={summaries[changeKey(c.source ?? "", c.id)]} />
+            <Icons
+              summary={
+                summaries[`${changeKey(c.source ?? "", c.id)}@${generationOf(c.source ?? "")}`]
+              }
+            />
           </span>
         </button>
 
@@ -261,10 +298,10 @@ export function Sidebar({
             workspace: which context you are in should be visible, not implied. */}
         <ActionsMenu
           className="workspace"
-          label={`${workspaces.find((w) => w.id === chosen)?.name ?? "All work"} ▾`}
+          label={`${chosenWorkspace?.name ?? "All work"}${chosenWorkspace === undefined ? "" : availabilitySuffix(statusOfWorkspace(chosenWorkspace))} ▾`}
           actions={[
             ...workspaces.map((w) => ({
-              label: w.name,
+              label: `${w.name}${availabilitySuffix(statusOfWorkspace(w))}`,
               disabled: w.id === chosen,
               onSelect: () => onChooseWorkspace(w.id),
             })),
@@ -288,7 +325,12 @@ export function Sidebar({
             ideas and no draft. */}
         <div className="ideas-row">
           <p className="group-label">Ideas</p>
-          <button className="create" title="start a new idea" onClick={onNew}>
+          <button
+            className="create"
+            title={newBlocked === true ? "this workspace is unavailable" : "start a new idea"}
+            disabled={newBlocked}
+            onClick={onNew}
+          >
             New
           </button>
         </div>

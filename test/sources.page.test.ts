@@ -73,6 +73,12 @@ beforeAll(async () => {
   remote = await serve<unknown>({
     port: 0,
     routes: guard({
+      // The availability owner's health stream: a remote that does not answer this is unavailable,
+      // and the page would gate every one of its reads.
+      "/api/events": () =>
+        new Response(new ReadableStream<Uint8Array>({ start: (c) => c.enqueue(new TextEncoder().encode(": open\n\n")) }), {
+          headers: { "content-type": "text/event-stream" },
+        }),
       "/api/changes": {
         GET: (req) => {
           record(req);
@@ -426,8 +432,9 @@ test.skipIf(!usable)(
     await page.getByRole("button", { name: "Azure DevOps" }).waitFor();
 
     // A workspace whose remote cannot be read: the previous workspace's links must not linger.
+    // The entry is annotated once the health check fails, and it stays selectable.
     await page.locator("button.workspace").click();
-    await page.getByText("Remote down", { exact: true }).click();
+    await page.getByRole("button", { name: /^Remote down( \(Unavailable\))?$/ }).click();
     await page.getByRole("button", { name: "Azure DevOps" }).waitFor({ state: "detached" });
     expect(await page.getByRole("button", { name: "Leftovers" }).count()).toBe(0);
     await page.close();
