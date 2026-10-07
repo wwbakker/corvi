@@ -105,21 +105,6 @@ async function open(path: string, ready: string): Promise<string[]> {
   return complaints;
 }
 
-/** Wait for the rail's width transition (140ms) to settle: the expanded rail is the fixed
- * `--rail-expanded` (200px) and the resting one is 56px. Asserting a width before it settles
- * reads an intermediate frame of the animation, which is a race no matter the fixed delay. */
-const waitForRailWidth = async (page: Page, want: "open" | "closed"): Promise<void> => {
-  await page.waitForFunction(
-    (settled) => {
-      const el = document.querySelector(".sidebar .rail");
-      if (el === null) return false;
-      const width = el.getBoundingClientRect().width;
-      return settled === "open" ? width > 199 : width < 57;
-    },
-    want,
-  );
-};
-
 /** Write one change's notes through the extension's own route, the way the card does. */
 const writeNotes = (change: string, text: string): Promise<Response> =>
   fetch(`${url}/api/ext/notes/changes/${change}/notes`, {
@@ -588,10 +573,10 @@ test.skipIf(!usable)("the change's own row is the page's first, and it stays the
   expect(Math.abs(stoppedTabs!.y - TITLE_BAR_HEIGHT)).toBeLessThanOrEqual(1);
 
   // The navigation rail: each change is an initials avatar, and the branch — the id with a slug
-  // after it — is the entry's tooltip. The title appears once the rail opens, so hover it first.
-  // Scoped to this change's own entry, since the rail holds every change in the workspace.
+  // after it — is the entry's tooltip. The title appears once the group is revealed, so hover it
+  // first. Scoped to this change's own entry, since the rail holds every change in the workspace.
   const entry = page.locator(".sidebar .entry.change", { hasText: "Anonymise customer names" });
-  await page.locator(".sidebar").hover();
+  await entry.hover();
   await entry.locator(".subject").waitFor();
   expect(await entry.locator(".id").count()).toBe(0);
   expect((await entry.locator(".subject").innerText()).trim()).toBe("Anonymise customer names");
@@ -610,7 +595,8 @@ test.skipIf(!usable)("the rail identities are avatars collapsed and names on hov
   await page.waitForTimeout(300);
 
   // Collapsed: a change is its initials avatar with its state badge, and no name of its own.
-  const entry = page.locator(".sidebar .entry.change", { hasText: `${other}-x` });
+  const group = page.locator(".sidebar .change-entry", { hasText: `${other}-x` });
+  const entry = group.locator(".entry.change");
   const avatar = entry.locator(".avatar");
   await avatar.waitFor();
   // `other` has no title, so its avatar is the id's initials.
@@ -618,11 +604,24 @@ test.skipIf(!usable)("the rail identities are avatars collapsed and names on hov
   expect(await entry.locator(".state-badge").count()).toBe(1);
   expect(await entry.locator(".subject").isVisible()).toBe(false);
 
-  // Opened: the title is revealed, with the CI glyph beside it.
-  await page.locator(".sidebar").hover();
+  // The reveal is presentation only: every row's top and height is identical at rest and revealed.
+  const rows = (): Promise<{ top: number; height: number }[]> =>
+    group.locator(".entry").evaluateAll((els) =>
+      els.map((el) => {
+        const r = el.getBoundingClientRect();
+        return { top: Math.round(r.top), height: Math.round(r.height) };
+      }),
+    );
+  const atRest = await rows();
+  const groupTopAtRest = Math.round((await group.boundingBox())!.y);
+
+  // Revealed: the title appears beside the avatar, with the CI glyph.
+  await entry.hover();
   await entry.locator(".subject", { hasText: `${other}-x` }).waitFor();
   await entry.locator(".icons").waitFor();
   expect(await entry.locator(".icons svg").count()).toBe(1);
+  expect(await rows()).toEqual(atRest);
+  expect(Math.round((await group.boundingBox())!.y)).toBe(groupTopAtRest);
 
   // Clicking the revealed name opens that change.
   await entry.locator(".subject").click();
@@ -631,35 +630,32 @@ test.skipIf(!usable)("the rail identities are avatars collapsed and names on hov
   await page.close();
 }, 30_000);
 
-test.skipIf(!usable)("keyboard focus opens the rail, and Tab out closes it", async () => {
+test.skipIf(!usable)("keyboard focus reveals a change group's names", async () => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await page.waitForSelector(".change-card");
-  // Park the pointer off the rail, so only the keyboard can open it.
+  // Park the pointer off the rail, so only the keyboard can reveal a group.
   await page.mouse.move(900, 600);
   await page.waitForTimeout(300);
-  const rail = page.locator(".sidebar .rail");
-  const railOpen = (): Promise<boolean> =>
-    page.evaluate(() => document.querySelector(".sidebar")?.classList.contains("rail-open") ?? false);
-  expect(await railOpen()).toBe(false);
+  const names = page.locator(".sidebar .entry.change .subject");
+  expect(await names.first().isVisible()).toBe(false);
 
-  // The first Tab reaches the rail's workspace control: the rail opens and a change's name appears.
-  await page.keyboard.press("Tab");
-  await page.waitForFunction(() =>
-    document.querySelector(".sidebar")?.classList.contains("rail-open"),
-  );
-  await waitForRailWidth(page, "open");
-  const name = page.locator(".sidebar .entry.change .subject").first();
-  await name.waitFor();
-  expect(await name.isVisible()).toBe(true);
+  // Tab until focus lands inside a change group: that group's name appears, and only it.
+  let inGroup = false;
+  for (let i = 0; i < 25 && !inGroup; i++) {
+    await page.keyboard.press("Tab");
+    inGroup = await page.evaluate(
+      () => document.activeElement?.closest(".change-entry") !== null,
+    );
+  }
+  expect(inGroup).toBe(true);
+  await names.first().waitFor();
+  expect(await names.first().isVisible()).toBe(true);
+  expect(await names.nth(1).isVisible()).toBe(false);
 
-  // Tab out of the rail: focus leaves, and the rail closes again.
+  // Tab out of the group: its name hides again.
   await page.keyboard.press("Shift+Tab");
-  await page.waitForFunction(() =>
-    !document.querySelector(".sidebar")?.classList.contains("rail-open"),
-  );
-  await waitForRailWidth(page, "closed");
-  expect((await rail.boundingBox())!.width).toBeLessThan(57);
+  await names.first().waitFor({ state: "hidden" });
   await page.close();
 }, 30_000);
 
@@ -829,10 +825,9 @@ test.skipIf(!usable)("a narrow window hides the navigation behind a drawer", asy
   expect(await page.locator(".sidebar").evaluate((el) => getComputedStyle(el).visibility)).toBe(
     "visible",
   );
-  // The drawer opens to be read: the rail is expanded over the thin rail and a change's name is
-  // visible, so it does not fight the rail with a 56px icon strip. Wait for the width to settle.
-  await waitForRailWidth(page, "open");
-  await page.locator(".sidebar .entry.change .subject").first().waitFor();
+  // The drawer is the thin rail itself, now visible over the page; it does not widen, so its
+  // names are not shown until a group is hovered or focused. Pin the resting width.
+  expect((await page.locator(".sidebar .rail").boundingBox())!.width).toBeLessThan(60);
   // An open drawer owns the scroll.
   expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).toBe("hidden");
 
@@ -931,13 +926,13 @@ test.skipIf(!usable)("in the app window the row is also the window's chrome", as
   expect(await strip.locator(".subject").count()).toBe(0);
   expect(await region(".change-bar .window-tab")).toBe("no-drag");
 
-  // The switcher is an avatar, and the rail is a fixed thin column that starts clear of the
-  // traffic lights: the lights sit in the rail's first row, and the avatar sits to their right.
+  // The switcher is the workspace's name in the rail's first row, starting clear of the traffic
+  // lights: the lights sit in the rail's first row, and the name sits to their right.
   const switcher = page.locator(".sidebar button.workspace");
   const switcherBox = await switcher.boundingBox();
   const sidebar = await page.locator(".sidebar").boundingBox();
   if (!switcherBox || !sidebar) throw new Error("the sidebar did not lay out");
-  expect(switcherBox.width).toBe(32);
+  expect(switcherBox.width).toBeGreaterThan(32);
   expect(switcherBox.x).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset - 8);
   expect(sidebar.width).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset);
   expect(sidebar.width).toBeLessThan(TRAFFIC_LIGHTS.inset + 80);
@@ -981,8 +976,9 @@ test.skipIf(!usable)("the name is renamed from the actions menu", async () => {
   await input.fill("A name of my own");
   await input.press("Enter");
 
-  // The rail shows the new name once it opens: hover it, then read the entry.
-  await page.locator(".sidebar").hover();
+  // The rail shows the new name once its group is revealed: hover the entry, then read it.
+  const renamed = page.locator(".sidebar .entry.change", { hasText: "A name of my own" });
+  await renamed.hover();
   await page
     .locator(".sidebar .entry.change .subject", { hasText: "A name of my own" })
     .waitFor();

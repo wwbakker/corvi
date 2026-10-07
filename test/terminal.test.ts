@@ -467,10 +467,8 @@ test.skipIf(!usable)("the window strip is the server's registry: a new tab is it
   // The navigation column lists the registry's windows too.
   const entries = page.locator(".sidebar .entry.window");
   expect(await until(() => entries.count(), 2)).toBe(2);
-  // Each row draws its window glyph and its small index badge — the `ctrl-b N` the tab names.
+  // Each row draws its window glyph; its title is revealed with the group, not an index badge.
   expect(await entries.first().locator(".glyph svg").count()).toBe(1);
-  expect((await entries.nth(0).locator(".index").innerText()).trim()).toBe("0");
-  expect((await entries.nth(1).locator(".index").innerText()).trim()).toBe("1");
 
   // The new window is active and is its own pty: a fresh shell without the first one's marker.
   await runCommand(page, `echo "\${TAB_MARK:-none}" > ${join(dir, "new-tab.txt")}`, join(dir, "new-tab.txt"), "none\n");

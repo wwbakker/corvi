@@ -36,12 +36,12 @@ const CI_WORDS: Record<string, string> = {
   none: "no builds",
 };
 
-/** The grace before the expanded rail closes: long enough to cross a gap between its rows, short
- * enough not to feel sticky. */
-const CLOSE_GRACE_MS = 160;
+/** The grace before a revealed change group closes: long enough to cross between its rows (which
+ * differ in width once revealed), short enough not to feel sticky. */
+const REVEAL_GRACE_MS = 160;
 
 /** What the change's builds are doing. The change's own state is the badge on its avatar, so this
- * only says how its tools are doing — and only once the rail is wide enough to read it. */
+ * only says how its tools are doing — and only once its group is revealed. */
 function Icons({ summary }: { summary?: ChangeSummary }): JSX.Element {
   const ci = summary?.state ?? "none";
   return (
@@ -56,9 +56,9 @@ function Icons({ summary }: { summary?: ChangeSummary }): JSX.Element {
 /**
  * The one navigation element: a thin rail of destinations, changes and terminals.
  *
- * It rests at `--rail-width` (the initials avatar of a change, the glyph of a window) and expands
- * as an overlay over the page on hover or keyboard focus, revealing the names. The rail's layout
- * width never changes, so the page beside it does not move when it opens.
+ * The rail always rests at `--rail-width`. Hovering or focusing a change group — its avatar or
+ * one of its terminals — reveals that group's names beside their glyphs, over the page, without
+ * moving any other row. Only one group is revealed at a time.
  */
 export function Sidebar({
   open,
@@ -129,7 +129,7 @@ export function Sidebar({
   onOpenChange: (change: Change) => void;
   onSelectWindow: (change: Change, index: number) => void;
   /** Whether the narrow window's drawer is open: on a wide window the rail is always there and
-   * this only marks the rail as deliberately opened (so it shows its names). */
+   * this changes nothing. */
   open: boolean;
 }): JSX.Element {
   // What you can get on with first, then what is with somebody else, then what is stuck — and
@@ -140,30 +140,29 @@ export function Sidebar({
   const ideas = live.filter(isIdeation);
   const active = live.filter((c) => !isIdeation(c));
 
-  // The rail's open state. One state drives the width, the names and the entry hit-boxes, so they
-  // move together. Opening is immediate; closing waits the grace. Mouse-click focus does not hold
-  // it open — only a keyboard focus-visible focus does — so clicking a change and moving away
-  // collapses the rail, while Tab keeps it open until the focus leaves.
-  const [expanded, setExpanded] = useState(false);
+  // Which change group reveals its names. Hovering or keyboard focus within a group opens it;
+  // leaving it closes after a short grace, so crossing between its rows (which differ in width
+  // once revealed) does not flicker. Keyboard focus wins over the pointer, so Tab still shows the
+  // same names; a mouse click's focus does not pin it, because only a :focus-visible focus opens.
+  const [pointerGroup, setPointerGroup] = useState<string | null>(null);
+  const [keyboardGroup, setKeyboardGroup] = useState<string | null>(null);
   const closeTimer = useRef<number | null>(null);
-  const pointerInside = useRef(false);
-  const keyboardFocus = useRef(false);
   const clearClose = (): void => {
     if (closeTimer.current !== null) {
       clearTimeout(closeTimer.current);
       closeTimer.current = null;
     }
   };
-  const openRail = (): void => {
+  const openGroup = (key: string): void => {
     clearClose();
-    setExpanded(true);
+    setPointerGroup(key);
   };
-  const scheduleClose = (): void => {
+  const closeGroup = (key: string): void => {
     clearClose();
     closeTimer.current = window.setTimeout(() => {
       closeTimer.current = null;
-      if (!pointerInside.current && !keyboardFocus.current) setExpanded(false);
-    }, CLOSE_GRACE_MS);
+      setPointerGroup((current) => (current === key ? null : current));
+    }, REVEAL_GRACE_MS);
   };
   useEffect(
     () => () => {
@@ -171,6 +170,8 @@ export function Sidebar({
     },
     [],
   );
+  // One group at a time: the keyboard's group, or failing that the pointer's.
+  const revealed = keyboardGroup ?? pointerGroup;
 
   const [summaries, setSummaries] = useState<Record<string, ChangeSummary>>({});
 
@@ -199,8 +200,8 @@ export function Sidebar({
   // "Changes" is home: current only when no change or other page is on.
   const home = !(current || extPage || actions || settings || subagents || wizard);
 
-  /** A destination: the glyph and, always, its label — small under the glyph while the rail is
-   * thin, at full size beside it once the rail opens. */
+  /** A destination: the glyph and, always, its small label. Destinations never reveal — they are
+   * the one part of the rail whose name is visible at rest. */
   const destination = (
     key: string,
     label: string,
@@ -223,7 +224,8 @@ export function Sidebar({
   );
 
   /** One change in the rail, with its terminals under it. The avatar carries the change's
-   * identity; the name and the CI state wait for the expanded rail. */
+   * identity; the name and the CI state appear when the group is revealed. Hovering or focusing
+   * any row of the group reveals the whole group, and only it. */
   const entry = (c: Change): JSX.Element => {
     const key = changeKey(c.source ?? "", c.id);
     const mine = windows[key] ?? [];
@@ -235,7 +237,24 @@ export function Sidebar({
     const ci = summary?.state ?? "none";
     const name = c.title ?? c.branch;
     return (
-      <div key={key} className="change-entry">
+      <div
+        key={key}
+        className={`change-entry${revealed === key ? " revealed" : ""}`}
+        onPointerEnter={() => openGroup(key)}
+        onPointerLeave={() => closeGroup(key)}
+        onFocus={(e) => {
+          // Only a keyboard focus reveals; a click's focus does not hold it open.
+          if (e.target instanceof Element && e.target.matches(":focus-visible")) {
+            clearClose();
+            setKeyboardGroup(key);
+          }
+        }}
+        onBlur={(e) => {
+          const next = e.relatedTarget;
+          if (next instanceof Node && e.currentTarget.contains(next)) return;
+          setKeyboardGroup((current) => (current === key ? null : current));
+        }}
+      >
         <button
           className={`entry sub change ${stateClass(c.state)}${here ? " current" : ""}`}
           title={c.branch}
@@ -246,8 +265,12 @@ export function Sidebar({
             {initials(c.title, c.id)}
             <span className={`state-badge ${stateClass(c.state)}`} />
           </span>
-          <span className="subject">{name}</span>
-          <Icons summary={summary} />
+          {/* The name and CI state live in one reveal wrapper: fixed while shown, so the rail's
+              own scroll does not clip them (the reveal block in styles.css). */}
+          <span className="reveal">
+            <span className="subject">{name}</span>
+            <Icons summary={summary} />
+          </span>
         </button>
 
         {/* The change's terminals, under the change they belong to. The server says what
@@ -270,8 +293,9 @@ export function Sidebar({
             <span className={`glyph ${w.state === "ok" ? "state-ok" : "state-idle"}`}>
               <WindowIcon icon={w.icon} title={w.label} />
             </span>
-            <span className="index">{w.index}</span>
-            <span className="label">{w.label}</span>
+            <span className="reveal">
+              <span className="label">{w.label}</span>
+            </span>
             {/* Not for the window you are looking at: you see its output already. */}
             {w.activity && !(selected && page === "terminals" && w.active) && (
               <span className="bell" title="new output" />
@@ -283,36 +307,26 @@ export function Sidebar({
   };
 
   return (
-    <nav
-      className={`sidebar${open ? " open" : ""}${expanded || open ? " rail-open" : ""}`}
-      onPointerEnter={() => {
-        pointerInside.current = true;
-        openRail();
-      }}
-      onPointerLeave={() => {
-        pointerInside.current = false;
-        if (!keyboardFocus.current) scheduleClose();
-      }}
-      onFocus={(e) => {
-        // Only a keyboard focus holds the rail open; a click's focus clears the latch.
-        keyboardFocus.current = e.target instanceof Element && e.target.matches(":focus-visible");
-        if (keyboardFocus.current) openRail();
-      }}
-      onBlur={(e) => {
-        const next = e.relatedTarget;
-        if (next instanceof Node && e.currentTarget.contains(next)) return;
-        keyboardFocus.current = false;
-        if (!pointerInside.current) scheduleClose();
-      }}
-    >
-      <div className="rail">
+    <nav className={open ? "sidebar open" : "sidebar"}>
+      <div
+        className="rail"
+        onScroll={() => {
+          // The revealed names are fixed to the viewport; a rail scroll would leave them behind,
+          // so scrolling closes the reveal rather than showing it detached.
+          if (revealed !== null) {
+            setPointerGroup(null);
+            setKeyboardGroup(null);
+          }
+        }}
+      >
         {/* The window's own top row: on macOS the traffic lights sit here, and in the app window
-            it is what you drag the window by (apps/web/src/domain/chrome.ts). The switcher is the
-            workspace's own monogram, and the menu it opens is the same list it always was. */}
+            it is what you drag the window by (apps/web/src/domain/chrome.ts). The switcher shows
+            the workspace's name in small type, and the menu it opens is the same list it always
+            was. */}
         <div className="band">
           <ActionsMenu
             className="workspace"
-            label={initials(workspaceName, chosen)}
+            label={workspaceName}
             ariaLabel={`Workspace: ${workspaceName}`}
             title={workspaceName}
             actions={[
@@ -327,7 +341,7 @@ export function Sidebar({
         </div>
 
         {/* Where you can go: the overview, the new idea, the pages. Each is an icon and its name,
-            and the name is never only in the expanded rail. */}
+            always visible — the destinations do not reveal. */}
         <div className="destinations">
           {destination("changes", "Changes", <ChangesIcon title="Changes" />, onHome, home)}
           {destination("new", "New", <PlusIcon title="New" />, onNew, false)}
@@ -352,7 +366,22 @@ export function Sidebar({
             distinction the headings used to. */}
         <div className="list">
           {draft && (
-            <div className="change-entry">
+            <div
+              className={`change-entry${revealed === "draft" ? " revealed" : ""}`}
+              onPointerEnter={() => openGroup("draft")}
+              onPointerLeave={() => closeGroup("draft")}
+              onFocus={(e) => {
+                if (e.target instanceof Element && e.target.matches(":focus-visible")) {
+                  clearClose();
+                  setKeyboardGroup("draft");
+                }
+              }}
+              onBlur={(e) => {
+                const next = e.relatedTarget;
+                if (next instanceof Node && e.currentTarget.contains(next)) return;
+                setKeyboardGroup((current) => (current === "draft" ? null : current));
+              }}
+            >
               <button
                 className={`entry sub change ${stateClass(IDEATION)}${wizard ? " current" : ""}`}
                 title="not created yet — open it to finish or discard it"

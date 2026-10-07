@@ -155,11 +155,12 @@ a {
 /* A hosted macOS window keeps its traffic lights in the rail's first row: the rail starts clear of
    them, the way the old column's minimum did. A browser has no lights and keeps 56px. */
 .hosted .sidebar {
-  --rail-width: max(56px, calc(var(--traffic-inset) + 38px));
+  --rail-width: max(56px, calc(var(--traffic-inset) + 52px));
 }
 
-/* The rail proper: the surface that rests thin and grows over the page. Its own scroll, because
-   the fixed box must not hand the page a scrollbar it did not ask for. */
+/* The rail proper: the surface that rests thin and scrolls its own column. A revealed change
+   group's names are fixed overlays beside their rows, so this scroll container cannot clip
+   them. */
 .sidebar .rail {
   position: absolute;
   top: 0;
@@ -175,23 +176,8 @@ a {
   overflow-x: hidden;
   overflow-y: auto;
   /* Only the empty background passes pointer events through to the page; the entries re-enable
-     them, and grow to the expanded width so their names are part of the hit area (the expansion
-     block below). */
+     them, so the revealed names are part of the entry's own hit area. */
   pointer-events: none;
-  /* Opening and closing are the React state's; the width just animates the change. The close
-     grace is the JS timer, so the names stay while it elapses. */
-  transition: width 140ms ease;
-}
-
-.sidebar.rail-open .rail {
-  width: var(--rail-expanded);
-  box-shadow: var(--shadow);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sidebar .rail {
-    transition: none;
-  }
 }
 
 /* The column's line — and the window's own row has none: the navigation column and that row are one
@@ -214,8 +200,7 @@ a {
   display: flex;
   align-items: center;
   gap: 8px;
-  /* The collapsed width; once the rail opens the entry grows to the expanded content width (the
-     expansion block below), so the revealed name is part of the entry's own hit area. */
+  /* The resting width; a revealed group's entries grow to their content (the reveal block below). */
   width: calc(var(--rail-width) - 12px);
   pointer-events: auto;
   background: transparent;
@@ -241,8 +226,7 @@ a {
   color: var(--muted);
 }
 
-/* Where you can go: the glyph and its name. Collapsed, the name sits under the glyph in small
-   type; expanded, the row is the familiar icon-beside-label. */
+/* Where you can go: the glyph and its small label, always visible. */
 .sidebar .destinations {
   display: flex;
   flex-direction: column;
@@ -266,17 +250,6 @@ a {
   font-size: 9px;
   line-height: 1.1;
   color: var(--muted);
-}
-
-.sidebar.rail-open .dest {
-  flex-direction: row;
-  gap: 10px;
-  padding: 6px 8px;
-  text-align: left;
-}
-
-.sidebar.rail-open .dest .dest-label {
-  font-size: 14px;
 }
 
 /* A change and its terminals: one group, with a little air between groups. */
@@ -381,11 +354,9 @@ a {
   background: var(--ok);
 }
 
-/* The name and the CI state belong to the expanded rail; collapsed, the avatar and the button's
-   own title/aria-label stand for the change. */
-.sidebar .entry.change .subject,
-.sidebar .entry.change .icons,
-.sidebar .entry.window .label {
+/* The name and the CI state live in a `.reveal` wrapper, hidden until the group opens; collapsed,
+   the avatar and the button's own title/aria-label stand for the change. */
+.sidebar .entry .reveal {
   display: none;
 }
 
@@ -437,8 +408,8 @@ a {
   color: var(--faint);
 }
 
-/* A window: its glyph and index while the rail is thin, with its label and activity dot once it
-   opens. */
+/* A window: its glyph while the rail is thin, with its label and activity dot revealed with the
+   group. */
 .sidebar .entry.window {
   position: relative;
   flex-direction: column;
@@ -453,12 +424,6 @@ a {
   justify-content: center;
 }
 
-.sidebar .entry.window .index {
-  font-size: 10px;
-  line-height: 1;
-  color: var(--muted);
-}
-
 .sidebar .entry.window .bell {
   position: absolute;
   top: 4px;
@@ -466,58 +431,63 @@ a {
   margin-left: 0;
 }
 
-/* Expanded: names and rows, left-aligned like the rest of the app. The drawer's `.open` counts
-   as expanded, so a toggle-opened rail shows the names it was opened for. */
-.sidebar.rail-open .entry.change,
-.sidebar.rail-open .entry.window {
+/* A reveal is per change group: the change's title and CI state beside its avatar, each terminal's
+   title beside its glyph. The names are fixed to the viewport, out of the rail's scroll flow, so
+   the scroll container can clip its own column without clipping them. The glyph stays centred, so
+   the row keeps its resting height and its identity mark does not move; only the names appear. */
+.change-entry.revealed .entry.change,
+.change-entry.revealed .entry.window {
   flex-direction: row;
+  justify-content: center;
   align-items: center;
   gap: 8px;
+  /* Same padding as at rest: the glyph does not shift when the group reveals. */
+  padding: 4px;
 }
 
-.sidebar.rail-open .entry.change {
-  padding: 4px 8px;
-}
-
-.sidebar.rail-open .entry.window {
-  padding: 4px 8px 4px 18px;
-}
-
-/* The names are shown once the rail opens. The entry grows to fit its name (up to the expanded
-   rail's width), so the name is part of the entry's own hit area without a flat slab covering the
-   page beyond the text; the rail's empty background passes pointer events through. */
-.sidebar.rail-open .entry {
-  width: max-content;
+/* The name sits beside the centred glyph: the rail's half-width is the glyph's centre, so the
+   wrapper starts just past the glyph's right edge. `top: auto` keeps it on the row's own line. */
+.change-entry.revealed .entry .reveal {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  position: fixed;
+  top: auto;
+  left: calc(var(--rail-width) / 2 + 20px);
   max-width: calc(var(--rail-expanded) - 12px);
+  /* Only horizontal padding: the terminal rows are 21px tall, and a taller chip would overlap
+     its neighbour. The surface, radius and shadow are what make the name readable over the page. */
+  padding: 0 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  white-space: nowrap;
+  /* One line: the chip is never taller than the 21px window row, so adjacent chips cannot
+     overlap. */
+  line-height: 1;
 }
 
-.sidebar.rail-open .entry.change .subject,
-.sidebar.rail-open .entry.window .label {
-  display: block;
-  flex: 1;
+.change-entry.revealed .entry.window .reveal {
+  left: calc(var(--rail-width) / 2 + 10.5px);
+}
+
+.change-entry.revealed .entry .reveal .subject,
+.change-entry.revealed .entry .reveal .label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.sidebar.rail-open .entry.change .icons {
-  display: flex;
+.change-entry.revealed .entry .reveal .icons {
   flex: none;
 }
 
-.sidebar.rail-open .dest .dest-label {
-  flex: 1;
-  min-width: 0;
-  max-width: none;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar.rail-open .entry.window .bell {
-  position: static;
-  margin-left: auto;
+.change-entry.revealed .entry.window .bell {
+  /* The label chip starts at the window's own left edge; the activity dot would sit on its
+     border. The reveal is the thing you are looking at, so the dot stands down while it shows. */
+  display: none;
 }
 
 .sidebar .entry.sub.current {
@@ -592,16 +562,12 @@ a {
   margin-bottom: 8px;
 }
 
-/* The "nothing in progress" note belongs to the expanded rail; collapsed, the empty list says
-   the same thing by being empty. */
+/* The "nothing in progress" note does not fit the resting rail; the overview says the same
+   thing, and the empty list says it by being empty. */
 .sidebar .list .hint {
   display: none;
   margin: 2px 8px;
   font-size: 12px;
-}
-
-.sidebar.rail-open .list .hint {
-  display: block;
 }
 
 /* Output arrived in a window you were not looking at. */
@@ -2840,32 +2806,33 @@ button.danger:disabled {
 .sidebar .band .menu {
   margin-bottom: 0;
   pointer-events: auto;
-}
-
-/* Open, the band shrinks to the workspace control so it does not lay an invisible slab across the
-   expanded rail's top; only the switcher intercepts there. The hosted drag region still rides on
-   the band element itself. */
-.sidebar.rail-open .band {
-  align-self: flex-start;
+  /* Full width, so the switcher's name is bounded by the rail and ellipsizes instead of
+     shrink-wrapping and hard-clipping. `min-width: 0` lets the flex item shrink below its
+     text's min-content width. */
+  width: 100%;
+  min-width: 0;
 }
 
 .sidebar button.workspace {
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  background: var(--raise);
-  border: 1px solid var(--line);
-  border-radius: 9px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px 4px;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
   color: var(--text);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
   text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar button.workspace:hover {
   color: var(--text);
-  background: var(--hover);
+  background: var(--raise);
 }
 
 /* The switcher's list opens to the right of the rail and stays inside the window. */
