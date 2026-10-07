@@ -839,6 +839,12 @@ test("subagent commands drive an instance over the HTTP API", async () => {
     await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "result", "seed-1", "--json"], result.io),
   ).toBe(0);
   expect((JSON.parse(result.out.join("")) as { body: string }).body).toBe("Looks good");
+  // The plain result prints the same "answers turn" header the manual documents.
+  const resultHuman = capture();
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "result", "seed-1"], resultHuman.io),
+  ).toBe(0);
+  expect(resultHuman.out[0]).toContain("reply 3 (answers turn 1)");
 
   // `--turn` reads the reply for that turn instead of the latest. An explicit turn whose reply is
   // on disk answers ready even though the window is gone and a newer message is pending.
@@ -975,6 +981,32 @@ test("subagent await prints one line per outcome, with the turn and reply", asyn
     ),
   ).toBe(0);
   expect(all.out.join("\n")).toBe("ready seed-3 (replied turn 1, reply 2)\nready seed-4 (idle)");
+
+  // A window gone with its prompt still undelivered: the lost answer names the pending turn.
+  const gone = join(tmp, "changes", CHANGE_ID, "subagents", "seed-5");
+  await mkdir(gone, { recursive: true });
+  await writeFile(
+    join(gone, "session.json"),
+    JSON.stringify({
+      id: "seed-5",
+      changeId: CHANGE_ID,
+      profile: "builtin:reviewer",
+      label: "Reviewer",
+      harness: "pi",
+      createdBy: "orchestrator",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      log: [{ kind: "created", at: "2026-01-01T00:00:00.000Z" }],
+    }),
+    "utf8",
+  );
+  await writeFile(
+    join(gone, "001-orchestrator.md"),
+    "---\nfrom: orchestrator\nat: 2026-01-01T00:00:00.000Z\n---\nReview it\n",
+    "utf8",
+  );
+  const lost = capture();
+  expect(await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-5"], lost.io)).toBe(5);
+  expect(lost.out.join("\n")).toBe("lost seed-5 (turn 1)");
 });
 
 test("subagent await --turn refuses a bad number or several targets (usage 2)", async () => {
@@ -1077,6 +1109,10 @@ test("an await that finds nothing ready answers timeout with its own exit code (
   expect(timedOut.status).toBe("timeout");
   // The horizon carries no outcome, so re-issuing re-derives settled targets from state.
   expect(timedOut.outcomes).toEqual([]);
+  // The human line is just `timeout`.
+  const human = capture();
+  expect(await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-2"], human.io)).toBe(6);
+  expect(human.out.join("\n")).toBe("timeout");
 });
 
 test("a repository profile is written and deleted through the checkout, and an unknown repository is refused", async () => {

@@ -66,9 +66,9 @@ usage: corvi [--json] [--change <id>] [--server <url>] <group> <command> [args]
                                        create, open and send the first message
   subagent open <id> | close <id>      presence only; never starts work
   subagent send <id> "…"               append a message and deliver it as a turn
-  subagent await [<id>…] [--any|--all] [--turn <n>]
-                                       block until one (or all) can be processed, or
-                                       until turn n is settled
+  subagent await [<id>…] [--any|--all]
+                                       block until one (or all) can be processed
+  subagent await <id> --turn <n>       block until that one named turn is settled
   subagent result <id> [--turn <n>]    the latest subagent message, or turn n's reply
   subagent next --subagent <id>        extension-facing: await the next inbound message
   subagent turn --subagent <id> [--in-reply-to <n>] "…"
@@ -145,20 +145,22 @@ usage: corvi subagent <command> [args]
   list | show <id>              the change's subagents, and one of them
   open <id> | close <id>        presence only; never starts work
   send <id> "…"                 append a message and deliver it as a turn
-  await [<id>…] [--any|--all] [--turn <n>]
-                                block until one (or all) can be processed — idle or
+  await [<id>…] [--any|--all]   block until one (or all) can be processed — idle or
                                 waiting for input, or a reply for the current turn;
                                 after five minutes it answers timeout (exit 6), so you
                                 can check in on them and await again
+  await <id> --turn <n>         block until that one named turn is settled
   result <id> [--turn <n>]      the latest subagent message, or turn n's reply
 
 To delegate work:
 
   corvi subagent profile list
-  corvi subagent create global:reviewer --prompt "Review the plan and the diff"
-  corvi subagent send <id> "…"          # the appended turn is message n
+  corvi subagent create global:reviewer --prompt "Review the plan and the diff"  # prints (message n)
+  corvi subagent send <id> "…"          # prints (message n): the turn to await
   corvi subagent await <id> --turn <n>  # until turn n is settled (or its window is lost)
   corvi subagent result <id> --turn <n> # the reply that answers turn n
+
+  Await the turn you sent; do not poll show/result with sleeps.
 
 A profile is one Markdown file (frontmatter: label, harness; body: the initial prompt).
 A repository profile is a file in the change's checkout — <checkout>/.corvi/subagents/<id>.md —
@@ -419,8 +421,8 @@ const actionCommand = async (
   }
 };
 
-/** One human line for an await outcome: ready names the turn and the reply that settled it, lost
- * and interrupted name only the subagent. */
+/** One human line for an await outcome: ready names the turn and the reply that settled it, and
+ * lost and interrupted name the turn too when it is known. */
 const awaitOutcomeLine = (outcome: SubagentAwaitOutcomeDto): string => {
   if (outcome.status !== "ready") {
     return `${outcome.status} ${outcome.id}${outcome.turn === undefined ? "" : ` (turn ${outcome.turn})`}`;

@@ -26,11 +26,14 @@ explicit; a repository profile is the file `<checkout>/.corvi/subagents/<id>.md`
 ```sh
 corvi subagent create global:reviewer --prompt "Review the plan and the diff"
 corvi subagent list
-corvi subagent await <id> --turn 1  # block until turn 1 is settled (or its window is lost)
-corvi subagent result <id> --turn 1 # the reply that answers turn 1
+corvi subagent await <id>                    # until the latest turn is settled
+corvi subagent result <id>                   # its reply; an attributed reply names the turn it answers
 corvi subagent send <id> "Now look at the tests"
-corvi subagent open <id>         # recreate the window; never starts work
-corvi subagent close <id>        # presence only; the conversation stays
+# prints: sent to <id> (message n)           <- await that n
+corvi subagent await <id> --turn <n>         # until turn n is settled
+corvi subagent result <id> --turn <n>        # the reply that answers turn n
+corvi subagent open <id>                     # recreate the window; never starts work
+corvi subagent close <id>                    # presence only; the conversation stays
 ```
 
 `create` binds three things on purpose: it writes the record, opens the window, and sends the
@@ -43,18 +46,40 @@ triggers a turn.
 
 The subagent behaves as if it were talking to an ordinary user. There is no `ask`/`done` protocol:
 a turn is just the subagent's reply, and deciding whether it is a question or a result is the
-orchestrator's job. `await` answers when there is something to process — a subagent that is idle
-or waiting for input with nothing of yours still to deliver, or a reply for the latest inbound
-turn — and immediately when one of the named subagents is already there. It takes several ids (any
-of them by default, `--all` for every one), and after five quiet minutes it answers `timeout`
-(exit 6), so the orchestrator can check in on its subagents and run `await` again. With no
-subagents at all it answers `timeout` at once. `await <id> --turn <n>` waits for that explicit
-inbound turn instead of the latest, and names it in the answer (`ready <id> (replied turn 3, reply
-4)`) — an earlier reply that is already there while newer work continues. `result <id>` is the
-latest reply; `result <id> --turn <n>` the reply that answers turn n. A parked reply answers
-`await` only when it answers your latest inbound turn; an earlier reply is held back while newer
-work of yours is still pending or in flight, and the queued work is delivered when the subagent is
-free again.
+orchestrator's job. `create` and `send` print the number of the message they appended —
+`created <id> (message 1)`, `sent to <id> (message n)` — and you await the number the send
+printed. (The reply itself is a later, higher-numbered message, so the send's `n` is the inbound
+turn to use; never a reply's number.)
+
+`await <id>` answers only when the latest inbound turn is settled: its reply is parked, or the
+subagent is idle with nothing of yours to deliver. An earlier reply no longer answers it while
+newer work of yours is pending or in flight; the queued work is delivered when the subagent is
+free, and a reply that answers an earlier turn stays parked for `result <id> --turn <n>`. That
+tighter default is the behavior change turn identity was added for.
+
+`await <id> --turn <n>` waits for one named subagent's turn n instead, and returns an earlier
+already-parked reply even while newer work continues. It cannot be combined with several ids or
+`--all`. Every await answers per target: `ready <id> (replied turn <t>, reply <r>)`, or
+`ready <id> (replied reply <r>)` for an unattributed legacy reply; `ready <id> (idle)`;
+`lost <id>` with `(turn <t>)` when one is known; `interrupted <id> (turn <t>)`; or `timeout` at
+the horizon. It takes several ids — `--any` (the default) answers for the first target that
+settles, `--all` waits for every one and orders the aggregate `lost` > `interrupted` > `ready` —
+and after five minutes it answers `timeout` (exit 6), so the orchestrator can check in on its
+subagents and run `await` again. With no subagents at all it answers `timeout` at once. `--all`
+pays for that completeness: on `timeout` its already-settled siblings are discarded, so re-issue
+the await (a settled target answers again at once) or await each id separately for partial
+progress.
+
+`result <id>` is the latest reply; `result <id> --turn <n>` the reply that answers turn n. An
+attributed reply prints its identity — `reply 4 (answers turn 3)` — so an orchestrator can check a
+reply is the one it is waiting for; a reply written before `in_reply_to` existed prints bare
+`reply 4`, with no turn to name. `await` and `result` are read-only: they never acknowledge or
+consume a reply, and repeated calls return the same answer.
+
+When you delegate, await the turn you sent instead of polling `show`/`result` with sleeps; keep one
+outstanding request per subagent where practical; and check the `(answers turn n)` identity on a
+result before treating it as the answer to the request you meant. A reply with no
+`(answers turn n)` is unattributed, so prefer `--turn` retrieval for such histories.
 
 ## Files
 

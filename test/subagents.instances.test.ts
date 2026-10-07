@@ -638,6 +638,30 @@ test("await --all returns one outcome per target with lost over interrupted over
   expect(withoutLost.outcomes.map((outcome) => outcome.status)).toEqual(["interrupted", "ready"]);
 });
 
+test("await --all discards a settled sibling when the horizon expires", async () => {
+  const savedPollMs = process.env.CORVI_SUBAGENT_POLL_MS;
+  try {
+    const own = await isolatedChange();
+    const settled = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "a" }, fakeLauncher));
+    const waiting = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "b" }, fakeLauncher));
+    await deliveredThrough(own, settled.id, 1);
+    await run(recordTurn(own, settled.id, { text: "a", inReplyTo: 1 })); // ready
+    process.env.CORVI_SUBAGENT_POLL_MS = "60";
+    // One target is ready, the other still holds: `--all` times out and discards the settled one.
+    const awaited = await run(awaitReady(own, { ids: [settled.id, waiting.id], mode: "all" }));
+    expect(awaited.status).toBe("timeout");
+    expect(awaited.outcomes).toEqual([]);
+    // Re-issuing for the settled target re-derives its answer at once.
+    const reissued = await run(awaitReady(own, { ids: [settled.id], mode: "any" }));
+    expect(reissued.outcomes).toEqual([
+      { id: settled.id, status: "ready", reason: "replied", turn: 1, reply: 2 },
+    ]);
+  } finally {
+    if (savedPollMs === undefined) delete process.env.CORVI_SUBAGENT_POLL_MS;
+    else process.env.CORVI_SUBAGENT_POLL_MS = savedPollMs;
+  }
+});
+
 test("result names the reply for an explicit turn, or null when none has landed", async () => {
   const id = await fresh(); // #1 orchestrator
   await run(sendToSubagent(change, id, "More work", "orchestrator")); // inbound #2
