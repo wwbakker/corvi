@@ -24,7 +24,7 @@ import { closeHostClient, hostClient } from "../apps/server/src/terminals/server
 import { liveSubagents, newSubagentWindow } from "../apps/server/src/terminals/server/index.ts";
 import { setStatus } from "../apps/server/src/terminals/server/status.ts";
 import { listWindowsAsync } from "../apps/server/src/terminals/server/windows.ts";
-import { createInstance, readInstance, instanceDir, writeRecord } from "@corvi/agents/node";
+import { createInstance, readInstance, instanceDir, appendMessageAndPatch, writeRecord } from "@corvi/agents/node";
 import { pendingInbound, type SubagentRecord } from "@corvi/agents/instance";
 import { BadRequestError } from "@corvi/contracts/errors";
 import { waiterCount } from "../apps/server/src/subagents/server/waiters.ts";
@@ -197,8 +197,9 @@ test("await wakes on a relayed reply and reports it parked", async () => {
       ),
     );
     expect(awaited.status).toBe("ready");
-    expect(awaited.id).toBe(created.id);
-    expect(awaited.awaitingReply).toBe(true);
+    expect(awaited.outcomes).toEqual([
+      { id: created.id, status: "ready", reason: "replied", turn: 1, reply: 2 },
+    ]);
   } finally {
     await closeAndWait(own, created.id);
   }
@@ -209,6 +210,7 @@ test("await reports an in-flight turn with no live window as interrupted", async
   await run(nextForSubagent(change, id)); // claims #1, leaves inFlight with no live window
   const awaited = await run(awaitReady(change, { ids: [id], mode: "any" }));
   expect(awaited.status).toBe("interrupted");
+  expect(awaited.outcomes).toEqual([{ id, status: "interrupted", turn: 1 }]);
 });
 
 test("await on a closed subagent resolves lost rather than blocking", async () => {
@@ -220,6 +222,7 @@ test("await on a closed subagent resolves lost rather than blocking", async () =
     ),
   );
   expect(awaited.status).toBe("lost");
+  expect(awaited.outcomes).toEqual([{ id, status: "lost", turn: 1 }]);
 });
 
 test("await answers lost from the state when the window closed before the call", async () => {
@@ -232,6 +235,7 @@ test("await answers lost from the state when the window closed before the call",
     await run(closeSubagent(change, id));
     const awaited = await run(awaitReady(change, { ids: [id], mode: "any" }));
     expect(awaited.status).toBe("lost");
+    expect(awaited.outcomes).toEqual([{ id, status: "lost", turn: 1 }]);
   } finally {
     if (savedPollMs === undefined) delete process.env.CORVI_SUBAGENT_POLL_MS;
     else process.env.CORVI_SUBAGENT_POLL_MS = savedPollMs;
@@ -254,7 +258,13 @@ test("await --all reports a lost subagent even though another becomes ready", as
     ),
   );
   expect(awaited.status).toBe("lost");
-  expect(awaited.id).toBe(a.id);
+  expect(awaited.outcomes.map((outcome) => outcome.id)).toEqual([a.id, b.id]);
+  expect(awaited.outcomes.find((outcome) => outcome.id === a.id)?.status).toBe("lost");
+  expect(awaited.outcomes.find((outcome) => outcome.id === b.id)).toMatchObject({
+    status: "ready",
+    reason: "idle",
+    turn: 1,
+  });
 });
 
 test("a parked reply is held back while a newer message of yours is queued", async () => {
@@ -271,6 +281,7 @@ test("a parked reply is held back while a newer message of yours is queued", asy
     process.env.CORVI_SUBAGENT_POLL_MS = "60";
     const awaited = await run(awaitReady(change, { ids: [id], mode: "any" }));
     expect(awaited.status).toBe("timeout");
+    expect(awaited.outcomes).toEqual([]);
   } finally {
     if (savedPollMs === undefined) delete process.env.CORVI_SUBAGENT_POLL_MS;
     else process.env.CORVI_SUBAGENT_POLL_MS = savedPollMs;
@@ -300,7 +311,8 @@ test("a reply for a superseded turn does not clear a newer claim", async () => {
   expect(record.log.at(-1)?.note).toContain("does not settle the turn in flight (2)");
   // With no live window the open claim reads as interrupted, never ready.
   const awaited = await run(awaitReady(change, { ids: [id], mode: "any" }));
-  expect(awaited.status).not.toBe("ready");
+  expect(awaited.status).toBe("interrupted");
+  expect(awaited.outcomes).toEqual([{ id, status: "interrupted", turn: 2 }]);
 });
 
 test("await holds back while a message is still undelivered, and answers timeout", async () => {
@@ -312,6 +324,7 @@ test("await holds back while a message is still undelivered, and answers timeout
     // pending", so the answer is the horizon — never a false ready on the pre-claim gap.
     const awaited = await run(awaitReady(change, { ids: [id], mode: "any" }));
     expect(awaited.status).toBe("timeout");
+    expect(awaited.outcomes).toEqual([]);
   } finally {
     if (savedPollMs === undefined) delete process.env.CORVI_SUBAGENT_POLL_MS;
     else process.env.CORVI_SUBAGENT_POLL_MS = savedPollMs;
@@ -372,8 +385,7 @@ test("await returns immediately when a reply is already parked", async () => {
   await run(recordTurn(change, id, { text: "answer", inReplyTo: 1 }));
   const awaited = await run(awaitReady(change, { ids: [id], mode: "any" }));
   expect(awaited.status).toBe("ready");
-  expect(awaited.id).toBe(id);
-  expect(awaited.awaitingReply).toBe(true);
+  expect(awaited.outcomes).toEqual([{ id, status: "ready", reason: "replied", turn: 1, reply: 2 }]);
 });
 
 test("await returns immediately when a subagent is already idle", async () => {
@@ -395,7 +407,7 @@ test("await returns immediately when a subagent is already idle", async () => {
   await run(createInstance(changeDir(own), record));
   const awaited = await run(awaitReady(own, { ids: [id], mode: "any" }));
   expect(awaited.status).toBe("ready");
-  expect(awaited.awaitingReply).toBe(false);
+  expect(awaited.outcomes).toEqual([{ id, status: "ready", reason: "idle" }]);
 });
 
 test("await --any resolves on whichever subagent becomes ready first", async () => {
@@ -415,7 +427,8 @@ test("await --any resolves on whichever subagent becomes ready first", async () 
       ),
     );
     expect(awaited.status).toBe("ready");
-    expect(awaited.id).toBe(b.id);
+    expect(awaited.outcomes).toHaveLength(1);
+    expect(awaited.outcomes[0]).toMatchObject({ id: b.id, status: "ready", reason: "replied", turn: 1, reply: 2 });
     expect(a.id).not.toBe(b.id);
   } finally {
     await closeAndWait(own, a.id);
@@ -441,11 +454,218 @@ test("await --all waits for every subagent to be ready", async () => {
       ),
     );
     expect(awaited.status).toBe("ready");
+    expect(awaited.outcomes.map((outcome) => outcome.id)).toEqual([a.id, b.id]);
+    expect(awaited.outcomes.every((outcome) => outcome.status === "ready")).toBe(true);
   } finally {
     await closeAndWait(own, a.id);
     await closeAndWait(own, b.id);
   }
 }, 30_000);
+
+test("await --turn returns an earlier reply while a newer turn is in flight", async () => {
+  const own = await isolatedChange();
+  const created = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher));
+  try {
+    await run(nextForSubagent(own, created.id)); // claim #1
+    await run(recordTurn(own, created.id, { text: "first answer", inReplyTo: 1 })); // reply #2
+    await run(sendToSubagent(own, created.id, "More detail", "orchestrator")); // inbound #3
+    await run(nextForSubagent(own, created.id)); // claim #3, live window attached
+    const awaited = await run(awaitReady(own, { ids: [created.id], mode: "any", turn: 1 }));
+    expect(awaited.status).toBe("ready");
+    expect(awaited.outcomes).toEqual([
+      { id: created.id, status: "ready", reason: "replied", turn: 1, reply: 2 },
+    ]);
+  } finally {
+    await closeAndWait(own, created.id);
+  }
+}, 30_000);
+
+test("await --turn waits for an unsettled turn and wakes on its reply", async () => {
+  const own = await isolatedChange();
+  const created = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher));
+  const savedPollMs = process.env.CORVI_SUBAGENT_POLL_MS;
+  try {
+    await run(nextForSubagent(own, created.id)); // claim #1
+    await run(recordTurn(own, created.id, { text: "first answer", inReplyTo: 1 })); // reply #2
+    await run(sendToSubagent(own, created.id, "More detail", "orchestrator")); // inbound #3
+    await run(nextForSubagent(own, created.id)); // claim #3, live window attached
+    process.env.CORVI_SUBAGENT_POLL_MS = "60";
+    // Turn 3 has not settled: the explicit target waits to the horizon, then wakes on its reply.
+    const held = await run(awaitReady(own, { ids: [created.id], mode: "any", turn: 3 }));
+    expect(held.status).toBe("timeout");
+    expect(held.outcomes).toEqual([]);
+    const [awaited] = await Effect.runPromise(
+      Effect.all(
+        [
+          awaitReady(own, { ids: [created.id], mode: "any", turn: 3 }),
+          Effect.andThen(Effect.sleep("30 millis"), recordTurn(own, created.id, { text: "second answer", inReplyTo: 3 })),
+        ],
+        { concurrency: "unbounded" },
+      ),
+    );
+    expect(awaited.status).toBe("ready");
+    expect(awaited.outcomes).toEqual([
+      { id: created.id, status: "ready", reason: "replied", turn: 3, reply: 4 },
+    ]);
+  } finally {
+    if (savedPollMs === undefined) delete process.env.CORVI_SUBAGENT_POLL_MS;
+    else process.env.CORVI_SUBAGENT_POLL_MS = savedPollMs;
+    await closeAndWait(own, created.id);
+  }
+}, 30_000);
+
+test("await --turn refuses several targets or an unknown inbound", async () => {
+  const own = await isolatedChange();
+  const id = await fresh();
+  // The explicit turn names one subagent: none (or `--all`) and several ids are bad requests.
+  await expect(run(awaitReady(own, { ids: [], mode: "all", turn: 1 }))).rejects.toThrow(
+    /turn awaits one named subagent/,
+  );
+  await expect(run(awaitReady(own, { ids: ["a", "b"], mode: "any", turn: 1 }))).rejects.toThrow(
+    /turn awaits one named subagent/,
+  );
+  // One id but `all` is still `--all`, not a single named target.
+  await expect(run(awaitReady(own, { ids: ["a"], mode: "all", turn: 1 }))).rejects.toThrow(
+    /turn awaits one named subagent/,
+  );
+  // An inbound turn that does not exist would otherwise park to the horizon for nothing.
+  await expect(run(awaitReady(change, { ids: [id], mode: "any", turn: 99 }))).rejects.toThrow(
+    /no inbound message 99/,
+  );
+});
+
+test("await --turn keeps waiting for an earlier turn while the default answers the latest", async () => {
+  const savedPollMs = process.env.CORVI_SUBAGENT_POLL_MS;
+  try {
+    const id = await fresh(); // #1 orchestrator
+    await run(sendToSubagent(change, id, "More work", "orchestrator")); // #2 orchestrator
+    await deliveredThrough(change, id, 2); // the relay handed over both turns
+    await run(recordTurn(change, id, { text: "the answer", inReplyTo: 2 })); // #3 reply
+    process.env.CORVI_SUBAGENT_POLL_MS = "60";
+    // Turn 1 was never answered, so the explicit target keeps waiting.
+    const held = await run(awaitReady(change, { ids: [id], mode: "any", turn: 1 }));
+    expect(held.status).toBe("timeout");
+    expect(held.outcomes).toEqual([]);
+    // The default target is the latest inbound turn, 2, whose reply is parked.
+    const latest = await run(awaitReady(change, { ids: [id], mode: "any" }));
+    expect(latest.outcomes).toEqual([
+      { id, status: "ready", reason: "replied", turn: 2, reply: 3 },
+    ]);
+  } finally {
+    if (savedPollMs === undefined) delete process.env.CORVI_SUBAGENT_POLL_MS;
+    else process.env.CORVI_SUBAGENT_POLL_MS = savedPollMs;
+  }
+});
+
+test("await --turn returns a parked earlier reply even while a newer claim is detached", async () => {
+  const id = await fresh(); // #1 orchestrator
+  await run(nextForSubagent(change, id)); // claim #1
+  await run(recordTurn(change, id, { text: "first answer", inReplyTo: 1 })); // reply #2
+  await run(sendToSubagent(change, id, "More work", "orchestrator")); // inbound #3
+  await run(nextForSubagent(change, id)); // claim #3, no live window
+  const record = (await run(readInstance(changeDir(change), id)))!;
+  expect(record.inFlight).toBe(3);
+  // A reply on disk is a fact: it wins over the detached claim on the newer turn.
+  const awaited = await run(awaitReady(change, { ids: [id], mode: "any", turn: 1 }));
+  expect(awaited.status).toBe("ready");
+  expect(awaited.outcomes).toEqual([
+    { id, status: "ready", reason: "replied", turn: 1, reply: 2 },
+  ]);
+});
+
+test("an interrupted wait names the in-flight turn, never a newer pending message", async () => {
+  const id = await fresh(); // #1 orchestrator
+  await run(nextForSubagent(change, id)); // claim #1
+  await run(recordTurn(change, id, { text: "first answer", inReplyTo: 1 })); // reply #2
+  await run(sendToSubagent(change, id, "More work", "orchestrator")); // inbound #3
+  await run(nextForSubagent(change, id)); // claim #3
+  // A newer inbound (#4) is queued while the claim on #3 stands. `send` itself clears the claim
+  // (D8 is deferred), so append it through the store patch that keeps the in-flight marker: the
+  // queue-behind state whose label must report turn 3, not 4.
+  await run(
+    appendMessageAndPatch(
+      changeDir(change),
+      id,
+      { role: "orchestrator", body: "Even more", at: new Date().toISOString() },
+      (record) => ({ ...record }),
+    ),
+  );
+  const record = (await run(readInstance(changeDir(change), id)))!;
+  expect(record.inFlight).toBe(3);
+  expect(record.messages.at(-1)?.number).toBe(4);
+  const awaited = await run(awaitReady(change, { ids: [id], mode: "any" }));
+  expect(awaited.status).toBe("interrupted");
+  expect(awaited.outcomes).toEqual([{ id, status: "interrupted", turn: 3 }]);
+});
+
+test("a reply cannot credit a turn the relay never delivered", async () => {
+  const savedPollMs = process.env.CORVI_SUBAGENT_POLL_MS;
+  try {
+    const id = await fresh(); // #1 orchestrator
+    await run(sendToSubagent(change, id, "More work", "orchestrator")); // inbound #2
+    await deliveredThrough(change, id, 1); // but the relay delivered only turn 1
+    await run(recordTurn(change, id, { text: "stray", inReplyTo: 2 })); // reply #3 names turn 2
+    // The gated reply is invisible to both reads.
+    expect(await run(resultOfSubagent(change, id, 2))).toBeNull();
+    process.env.CORVI_SUBAGENT_POLL_MS = "60";
+    const awaited = await run(awaitReady(change, { ids: [id], mode: "any", turn: 2 }));
+    expect(awaited.status).toBe("timeout");
+    expect(awaited.outcomes).toEqual([]);
+  } finally {
+    if (savedPollMs === undefined) delete process.env.CORVI_SUBAGENT_POLL_MS;
+    else process.env.CORVI_SUBAGENT_POLL_MS = savedPollMs;
+  }
+});
+
+test("await --all returns one outcome per target with lost over interrupted over ready", async () => {
+  const own = await isolatedChange();
+  const a = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "a" }, fakeLauncher));
+  const b = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "b" }, fakeLauncher));
+  const c = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "c" }, fakeLauncher));
+  await run(closeSubagent(own, a.id));
+  await run(nextForSubagent(own, b.id)); // claimed with no live window: interrupted
+  await deliveredThrough(own, c.id, 1);
+  await run(recordTurn(own, c.id, { text: "c", inReplyTo: 1 })); // settled: ready
+
+  const awaited = await run(awaitReady(own, { ids: [a.id, b.id, c.id], mode: "all" }));
+  expect(awaited.status).toBe("lost");
+  expect(awaited.outcomes.map((outcome) => outcome.id)).toEqual([a.id, b.id, c.id]);
+  expect(awaited.outcomes.map((outcome) => outcome.status)).toEqual(["lost", "interrupted", "ready"]);
+
+  // Without the lost target, interrupted outranks ready.
+  const withoutLost = await run(awaitReady(own, { ids: [b.id, c.id], mode: "all" }));
+  expect(withoutLost.status).toBe("interrupted");
+  expect(withoutLost.outcomes.map((outcome) => outcome.status)).toEqual(["interrupted", "ready"]);
+});
+
+test("result names the reply for an explicit turn, or null when none has landed", async () => {
+  const id = await fresh(); // #1 orchestrator
+  await run(sendToSubagent(change, id, "More work", "orchestrator")); // inbound #2
+  await deliveredThrough(change, id, 2); // turn 2 was handed over
+  const reply = await run(recordTurn(change, id, { text: "the answer", inReplyTo: 2 })); // reply #3
+  expect((await run(resultOfSubagent(change, id, 2)))?.number).toBe(reply.number);
+  // A known inbound turn with no reply yet is null; a turn that is no inbound message is refused.
+  expect(await run(resultOfSubagent(change, id, 1))).toBeNull();
+  await expect(run(resultOfSubagent(change, id, 9))).rejects.toThrow(/no inbound message 9/);
+});
+
+test("await and result are read-only: repeated calls leave the record unchanged", async () => {
+  const id = await fresh();
+  await run(nextForSubagent(change, id)); // claim #1
+  await run(recordTurn(change, id, { text: "the answer", inReplyTo: 1 }));
+  const before = (await run(readInstance(changeDir(change), id)))!;
+
+  const firstAwait = await run(awaitReady(change, { ids: [id], mode: "any" }));
+  const secondAwait = await run(awaitReady(change, { ids: [id], mode: "any" }));
+  expect(secondAwait).toEqual(firstAwait);
+  expect((await run(resultOfSubagent(change, id, 1)))?.number).toBe(
+    (await run(resultOfSubagent(change, id)))?.number,
+  );
+
+  // Reading never acknowledges or consumes: the whole record is exactly as it was.
+  const after = (await run(readInstance(changeDir(change), id)))!;
+  expect(after).toEqual(before);
+});
 
 test("closing and reopening a subagent resumes the same pinned harness session", async () => {
   const own = await isolatedChange();
@@ -526,7 +746,9 @@ test("a subagent on a host session is discovered, presented, relays, and closes"
   await run(recordTurn(own, created.id, { text: "Done" }));
   const awaited = await run(awaitReady(own, { ids: [created.id], mode: "any" }));
   expect(awaited.status).toBe("ready");
-  expect(awaited.awaitingReply).toBe(true);
+  expect(awaited.outcomes).toEqual([
+    { id: created.id, status: "ready", reason: "replied", turn: 2, reply: 3 },
+  ]);
 
   // Close kills the host session and drops it from discovery.
   await run(closeSubagent(own, created.id));
@@ -548,7 +770,9 @@ test("an attributed reply for turn 1 does not settle the claimed turn 3", async 
     await run(nextForSubagent(own, created.id)); // claim #3, live window attached
     process.env.CORVI_SUBAGENT_POLL_MS = "60";
     // Turn 1's reply is older than the claimed turn 3: the await holds to the horizon.
-    expect((await run(awaitReady(own, { ids: [created.id], mode: "any" }))).status).toBe("timeout");
+    const held = await run(awaitReady(own, { ids: [created.id], mode: "any" }));
+    expect(held.status).toBe("timeout");
+    expect(held.outcomes).toEqual([]);
     // Turn 3's own reply is what settles it, and the waiter wakes on that reply.
     const [awaited] = await Effect.runPromise(
       Effect.all(
@@ -560,7 +784,9 @@ test("an attributed reply for turn 1 does not settle the claimed turn 3", async 
       ),
     );
     expect(awaited.status).toBe("ready");
-    expect(awaited.awaitingReply).toBe(true);
+    expect(awaited.outcomes).toEqual([
+      { id: created.id, status: "ready", reason: "replied", turn: 3, reply: 4 },
+    ]);
   } finally {
     if (savedPollMs === undefined) delete process.env.CORVI_SUBAGENT_POLL_MS;
     else process.env.CORVI_SUBAGENT_POLL_MS = savedPollMs;
@@ -596,6 +822,7 @@ test("await times out, never ready, while a claimed turn's reporter is still wai
     // while the turn is still running.
     const awaited = await run(awaitReady(own, { ids: [created.id], mode: "any" }));
     expect(awaited.status).toBe("timeout");
+    expect(awaited.outcomes).toEqual([]);
     // The parked request was cleaned up when it timed out.
     expect(waiterCount()).toBe(0);
   } finally {

@@ -235,15 +235,28 @@ export const SubagentTurnRequestSchema = Schema.Struct({
 })
 export type SubagentTurnRequestDto = typeof SubagentTurnRequestSchema.Type
 
-/** What an `await` ended as: a subagent that can be processed (`ready` — idle or waiting for
- * input with nothing pending, or a reply already parked), a lost window, an interrupted turn, or
- * the horizon's own deadline (`timeout` — check in on the subagents, then await again). `id`
- * names the subagent that settled an `--any` run. */
+/** One awaited target's answer. `ready` carries why it is ready, and for `reason: "replied"` the
+ * inbound turn and the reply that settled it; `lost` and `interrupted` carry the turn they were
+ * waiting on when one is known. */
+export const SubagentAwaitOutcomeSchema = Schema.Struct({
+  id: Schema.String,
+  status: Schema.Literals(["ready", "lost", "interrupted"]),
+  /** Why a ready outcome was ready. */
+  reason: Schema.optional(Schema.Literals(["replied", "idle"])),
+  /** The inbound turn the outcome concerns: the answered turn for `replied`, the latest/explicit
+   * target for `idle`, the in-flight turn for `interrupted`, the pending turn for `lost`. */
+  turn: Schema.optional(MessageNumber),
+  /** The reply that settles `turn`, when `reason` is "replied". */
+  reply: Schema.optional(MessageNumber),
+})
+export type SubagentAwaitOutcomeDto = typeof SubagentAwaitOutcomeSchema.Type
+
+/** What an `await` ended as, per target. `any` returns the one target that settled; `all` returns
+ * one outcome per target, with the aggregate `status` ordered `lost` > `interrupted` > `ready`;
+ * `timeout` returns none, so re-issuing re-derives the already-settled targets from state. */
 export const SubagentAwaitResponseSchema = Schema.Struct({
   status: Schema.Literals(["ready", "lost", "interrupted", "timeout"]),
-  id: Schema.optional(Schema.String),
-  /** A reply is parked for `result` to pick up. */
-  awaitingReply: Schema.optional(Schema.Boolean),
+  outcomes: Schema.Array(SubagentAwaitOutcomeSchema),
 })
 export type SubagentAwaitResponseDto = typeof SubagentAwaitResponseSchema.Type
 

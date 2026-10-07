@@ -26,8 +26,8 @@ explicit; a repository profile is the file `<checkout>/.corvi/subagents/<id>.md`
 ```sh
 corvi subagent create global:reviewer --prompt "Review the plan and the diff"
 corvi subagent list
-corvi subagent await <id>        # block until it can be processed (or its window is lost)
-corvi subagent result <id>       # the latest reply
+corvi subagent await <id> --turn 1  # block until turn 1 is settled (or its window is lost)
+corvi subagent result <id> --turn 1 # the reply that answers turn 1
 corvi subagent send <id> "Now look at the tests"
 corvi subagent open <id>         # recreate the window; never starts work
 corvi subagent close <id>        # presence only; the conversation stays
@@ -46,13 +46,15 @@ a turn is just the subagent's reply, and deciding whether it is a question or a 
 orchestrator's job. `await` answers when there is something to process — a subagent that is idle
 or waiting for input with nothing of yours still to deliver, or a reply for the latest inbound
 turn — and immediately when one of the named subagents is already there. It takes several ids (any
-of them
-by default, `--all` for every one), and after five quiet minutes it answers `timeout` (exit 6),
-so the orchestrator can check in on its subagents and run `await` again. With no subagents at
-all it answers `timeout` at once. `result` is simply the
-latest reply. A parked reply answers `await` only when it answers your latest inbound turn; an
-earlier reply is held back while newer work of yours is still pending or in flight, and the
-queued work is delivered when the subagent is free again.
+of them by default, `--all` for every one), and after five quiet minutes it answers `timeout`
+(exit 6), so the orchestrator can check in on its subagents and run `await` again. With no
+subagents at all it answers `timeout` at once. `await <id> --turn <n>` waits for that explicit
+inbound turn instead of the latest, and names it in the answer (`ready <id> (replied turn 3, reply
+4)`) — an earlier reply that is already there while newer work continues. `result <id>` is the
+latest reply; `result <id> --turn <n>` the reply that answers turn n. A parked reply answers
+`await` only when it answers your latest inbound turn; an earlier reply is held back while newer
+work of yours is still pending or in flight, and the queued work is delivered when the subagent is
+free again.
 
 ## Files
 

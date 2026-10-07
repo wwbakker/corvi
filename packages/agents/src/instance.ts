@@ -83,6 +83,27 @@ export const answeredThrough = (
     0,
   );
 
+/** The highest-numbered subagent reply whose `inReplyTo` names `turn`, or undefined when none has
+ * landed. A reply cannot credit a turn the relay never handed over (`turn > deliveredThrough`),
+ * mirroring `answeredThrough`: a stray relay must not settle a turn that was never delivered.
+ * Takes the max, so it does not depend on the messages being number-sorted. */
+export const replyForTurn = (
+  messages: readonly SubagentMessage[],
+  turn: number,
+  deliveredThrough: number,
+): SubagentMessage | undefined =>
+  turn > deliveredThrough
+    ? undefined
+    : messages.reduce<SubagentMessage | undefined>(
+        (latest, message) =>
+          message.role === "subagent" && message.inReplyTo === turn
+            ? latest === undefined || message.number > latest.number
+              ? message
+              : latest
+            : latest,
+        undefined,
+      );
+
 /** Derive the view from a record, whether a live window carries it, and the reporter's status
  * for that window (absent when the reporter has not spoken). An in-flight turn is work even when
  * the reporter's status is a stale `waiting`: the stored claim wins over the reporter. */

@@ -20,6 +20,7 @@ export const VALUE_FLAGS: ReadonlySet<string> = new Set([
   "subagent",
   "after",
   "in-reply-to",
+  "turn",
   "idempotency-key",
   "scope",
   "workspace",

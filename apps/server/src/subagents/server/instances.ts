@@ -20,7 +20,10 @@ import { Effect, Semaphore } from "effect";
 
 import { launchOf } from "@corvi/agents/harness";
 import {
+  latestInboundNumber,
+  latestMessage,
   pendingInbound,
+  replyForTurn,
   viewOf,
   type SubagentMessage,
   type SubagentRecord,
@@ -40,6 +43,7 @@ import {
   withCreateLock,
 } from "@corvi/agents/node";
 import type {
+  SubagentAwaitOutcomeDto,
   SubagentCreateRequestDto,
   SubagentInstanceDto,
   SubagentNextResponseDto,
@@ -412,14 +416,27 @@ export const recordTurn = (
     return message;
   });
 
-/** The latest subagent message: the current deliverable. */
+/** The latest subagent message: the current deliverable. With `turn`, the reply that answers that
+ * inbound turn instead — null when it has not landed. A turn that names no inbound message is a
+ * bad request, exactly as `await --turn` treats it; both are read-only. */
 export const resultOfSubagent = (
   change: Change,
   id: string,
-): Effect.Effect<SubagentMessage | null, NotFoundError> =>
-  Effect.map(requireInstance(change, id), (record) => {
-    const reply = [...record.messages].reverse().find((message) => message.role === "subagent");
-    return reply ?? null;
+  turn?: number,
+): Effect.Effect<SubagentMessage | null, NotFoundError | BadRequestError> =>
+  Effect.gen(function* () {
+    const record = yield* requireInstance(change, id);
+    if (turn === undefined) {
+      const reply = [...record.messages].reverse().find((message) => message.role === "subagent");
+      return reply ?? null;
+    }
+    const known = record.messages.some(
+      (message) => message.role !== "subagent" && message.number === turn,
+    );
+    if (!known) {
+      return yield* new BadRequestError({ message: `subagent ${id} has no inbound message ${turn}` });
+    }
+    return replyForTurn(record.messages, turn, record.deliveredThrough ?? 0) ?? null;
   });
 
 /** The extension's half: the next message to submit, an interrupted turn to leave alone, or
@@ -471,6 +488,9 @@ export type AwaitInput = {
   readonly ids: readonly string[];
   /** `any` returns the first target that settles; `all` waits for every one of them. */
   readonly mode: "any" | "all";
+  /** An explicit inbound turn to wait for instead of each target's latest. Only meaningful with a
+   * single named target, and it may already have its reply while newer work runs. */
+  readonly turn?: number;
 };
 
 /** How often a parked `await` re-checks state without an event: the reporter can flip
@@ -479,25 +499,49 @@ export type AwaitInput = {
 const recheckMs = 2_000;
 
 /** Block until a target can be processed — idle or waiting for input with nothing of the
- * orchestrator's still to deliver, or a reply already parked — with the outcomes `ready`, `lost`,
- * `interrupted`, and `timeout` at the horizon (the orchestrator's cue to check in on its
- * subagents and await again). `any` answers for the first target that settles; `all` waits for
- * every target to settle and reports a lost or interrupted one in preference to `ready`. */
+ * orchestrator's still to deliver, or a reply already parked — with `lost`, `interrupted`, and
+ * `timeout` at the horizon (the orchestrator's cue to check in on its subagents and await again).
+ * Each target answers with its own outcome, carrying the turn it concerns and, when a reply
+ * settles it, that reply's number. `any` answers for the first target that settles; `all` waits
+ * for every target and orders the aggregate `lost` > `interrupted` > `ready`. With `input.turn`,
+ * a single target waits for that turn's settlement instead of its latest. */
 export const awaitReady = (
   change: Change,
   input: AwaitInput,
-): Effect.Effect<SubagentAwaitResponseDto, NotFoundError> =>
+): Effect.Effect<SubagentAwaitResponseDto, NotFoundError | BadRequestError> =>
   Effect.gen(function* () {
+    if (
+      input.turn !== undefined &&
+      (!Number.isInteger(input.turn) || input.turn < 1)
+    ) {
+      return yield* new BadRequestError({ message: "turn needs a positive message number" });
+    }
+    if (input.turn !== undefined && (input.ids.length !== 1 || input.mode === "all")) {
+      return yield* new BadRequestError({ message: "turn awaits one named subagent" });
+    }
     const records = yield* listInstances(changeDir(change));
     const targets = input.ids.length === 0 ? records.map((record) => record.id) : [...input.ids];
     for (const id of targets) {
       if (!records.some((record) => record.id === id)) return yield* notFound(id);
     }
-    if (targets.length === 0) return { status: "timeout" };
+    if (input.turn !== undefined) {
+      // An explicit target must name an inbound turn that exists: waiting on a typo would park to
+      // the horizon for nothing.
+      const target = records.find((record) => record.id === targets[0]);
+      const known = target?.messages.some(
+        (message) => message.role !== "subagent" && message.number === input.turn,
+      );
+      if (known !== true) {
+        return yield* new BadRequestError({
+          message: `subagent ${targets[0]} has no inbound message ${input.turn}`,
+        });
+      }
+    }
+    if (targets.length === 0) return { status: "timeout", outcomes: [] };
 
     /** One subagent's own wait: settled by the read whenever it is ready, woken by the next
      * event, and re-checked on the tick for state the reporter changes without one. */
-    const settleOne = (id: string): Effect.Effect<SubagentAwaitResponseDto> =>
+    const settleOne = (id: string): Effect.Effect<SubagentAwaitOutcomeDto> =>
       Effect.gen(function* () {
         for (;;) {
           // Subscribe before reading anything, and keep the subscription until the step settles:
@@ -512,35 +556,91 @@ export const awaitReady = (
               Effect.catch(() => Effect.succeed(null)),
             );
             if (record === null) {
-              return { done: true as const, result: { status: "lost" as const, id } };
-            }
-            // In flight with no live window: the machine was interrupted mid-turn.
-            if (record.inFlight !== undefined && !attached) {
-              return { done: true as const, result: { status: "interrupted" as const, id } };
-            }
-            const pending = pendingInbound(record) !== undefined;
-            // A window `close` cleared cannot deliver what is still pending: the lost answer,
-            // read from the state so a close before the subscription cannot be waited out to
-            // the horizon. A record whose window was never set is the same story.
-            if (record.window === undefined && pending) {
-              return { done: true as const, result: { status: "lost" as const, id } };
-            }
-            const view = viewOf(record, viewInputOf(entry), record.messages);
-            // Ready is what lets the orchestrator process: a reply is parked, or the subagent is
-            // idle with nothing of the orchestrator's still to be delivered. The pending-message
-            // hold-back is what keeps `send` (or a create's first prompt) followed by `await`
-            // from answering before the relay has picked the message up.
-            if (view.awaitingReply || (view.activity === "idle" && !pending)) {
               return {
                 done: true as const,
-                result: { status: "ready" as const, id, awaitingReply: view.awaitingReply },
+                result: {
+                  id,
+                  status: "lost" as const,
+                  ...(input.turn === undefined ? {} : { turn: input.turn }),
+                },
               };
+            }
+            const deliveredThrough = record.deliveredThrough ?? 0;
+            const targetTurn = input.turn ?? latestInboundNumber(record.messages);
+            const withTarget = targetTurn > 0 ? { turn: targetTurn } : {};
+            // A reply on disk is a fact, not a wait: an explicit target settles before the arms
+            // that answer interrupted or lost for newer work, so `await --turn n` retrieves an
+            // earlier reply even while a later turn is unfinished.
+            if (input.turn !== undefined) {
+              const reply = replyForTurn(record.messages, input.turn, deliveredThrough);
+              if (reply !== undefined) {
+                return {
+                  done: true as const,
+                  result: {
+                    id,
+                    status: "ready" as const,
+                    reason: "replied" as const,
+                    turn: input.turn,
+                    reply: reply.number,
+                  },
+                };
+              }
+            }
+            // In flight with no live window: the machine was interrupted mid-turn. The turn named
+            // is the one actually claimed, never a newer pending message.
+            if (record.inFlight !== undefined && !attached) {
+              return {
+                done: true as const,
+                result: { id, status: "interrupted" as const, turn: record.inFlight },
+              };
+            }
+            const pendingMessage = pendingInbound(record);
+            // A window `close` cleared cannot deliver what is still pending: the lost answer,
+            // read from the state so a close before the subscription cannot be waited out to
+            // the horizon. A record whose window was never set is the same story. The turn named
+            // is the pending inbound the wait is stuck on.
+            if (record.window === undefined && pendingMessage !== undefined) {
+              return {
+                done: true as const,
+                result: { id, status: "lost" as const, turn: pendingMessage.number },
+              };
+            }
+            if (input.turn === undefined) {
+              const view = viewOf(record, viewInputOf(entry), record.messages);
+              // Ready is what lets the orchestrator process: a reply is parked, or the subagent
+              // is idle with nothing of the orchestrator's still to be delivered. The
+              // pending-message hold-back is what keeps `send` (or a create's first prompt)
+              // followed by `await` from answering before the relay has picked the message up.
+              if (view.awaitingReply) {
+                // The reply for the target turn, or the latest unattributed reply under the
+                // legacy rule (the one `view.awaitingReply` credits).
+                const latest = latestMessage(record.messages);
+                const reply =
+                  replyForTurn(record.messages, targetTurn, deliveredThrough) ??
+                  (latest?.role === "subagent" ? latest : undefined);
+                return {
+                  done: true as const,
+                  result: {
+                    id,
+                    status: "ready" as const,
+                    reason: "replied" as const,
+                    ...withTarget,
+                    ...(reply === undefined ? {} : { reply: reply.number }),
+                  },
+                };
+              }
+              if (view.activity === "idle" && pendingMessage === undefined) {
+                return {
+                  done: true as const,
+                  result: { id, status: "ready" as const, reason: "idle" as const, ...withTarget },
+                };
+              }
             }
             // A lost window resolves the wait as itself (exit 5) — today's answer — while the
             // other events just wake a re-read of the state.
             const event = yield* subscription.await.pipe(Effect.timeoutOption(recheckMs));
             if (event._tag === "Some" && event.value.kind === "lost") {
-              return { done: true as const, result: { status: "lost" as const, id } };
+              return { done: true as const, result: { id, status: "lost" as const, ...withTarget } };
             }
             return { done: false as const };
           }).pipe(Effect.ensuring(subscription.close));
@@ -551,15 +651,19 @@ export const awaitReady = (
     const waits = targets.map(settleOne);
     if (input.mode === "all") {
       const settled = yield* Effect.all(waits).pipe(Effect.timeoutOption(longPollMs()));
-      if (settled._tag === "None") return { status: "timeout" };
-      const lost = settled.value.find((result) => result.status === "lost");
-      if (lost) return lost;
-      const interrupted = settled.value.find((result) => result.status === "interrupted");
-      if (interrupted) return interrupted;
-      return { status: "ready" };
+      if (settled._tag === "None") return { status: "timeout", outcomes: [] };
+      const outcomes = settled.value;
+      const status = outcomes.some((outcome) => outcome.status === "lost")
+        ? ("lost" as const)
+        : outcomes.some((outcome) => outcome.status === "interrupted")
+          ? ("interrupted" as const)
+          : ("ready" as const);
+      return { status, outcomes };
     }
     const raced =
-      waits.length > 1 ? Effect.raceAll(waits) : (waits[0] as Effect.Effect<SubagentAwaitResponseDto>);
+      waits.length > 1 ? Effect.raceAll(waits) : (waits[0] as Effect.Effect<SubagentAwaitOutcomeDto>);
     const result = yield* raced.pipe(Effect.timeoutOption(longPollMs()));
-    return result._tag === "None" ? { status: "timeout" } : result.value;
+    return result._tag === "None"
+      ? { status: "timeout", outcomes: [] }
+      : { status: result.value.status, outcomes: [result.value] };
   });

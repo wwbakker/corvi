@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { Schema } from "effect";
 
-import { SubagentMessageSchema, SubagentTurnRequestSchema } from "@corvi/contracts/subagents";
+import { SubagentAwaitResponseSchema, SubagentMessageSchema, SubagentTurnRequestSchema } from "@corvi/contracts/subagents";
 
 import { runSh, testTempDir } from "./helpers.ts";
 
@@ -46,5 +46,28 @@ test("inReplyTo is a positive integer on the subagent boundary schemas", () => {
   for (const invalid of [0, -3, 1.5]) {
     expect(() => message({ ...body, inReplyTo: invalid })).toThrow();
     expect(() => turn({ text: "b", inReplyTo: invalid })).toThrow();
+  }
+});
+
+test("the await response is per-target outcomes with no bare identity", () => {
+  const decode = Schema.decodeUnknownSync(SubagentAwaitResponseSchema);
+  const ready = {
+    status: "ready",
+    outcomes: [{ id: "s1", status: "ready", reason: "replied", turn: 1, reply: 2 }],
+  } as const;
+  expect(decode(ready)).toEqual(ready);
+  // The horizon carries no outcome, so re-issuing re-derives settled targets from state.
+  expect(decode({ status: "timeout", outcomes: [] })).toEqual({ status: "timeout", outcomes: [] });
+  // The old aggregate `id`/`awaitingReply` identity is not a schema key. Effect 4 strips unknown
+  // properties, so an old-shape body decodes to exactly the clean shape — and the decoded keys
+  // pin that no aggregate identity can come back.
+  const stripped = decode({ status: "timeout", outcomes: [], id: "s1", awaitingReply: false });
+  expect(stripped).toEqual({ status: "timeout", outcomes: [] });
+  expect(Object.keys(stripped)).toEqual(["status", "outcomes"]);
+  // `turn` and `reply` are positive message numbers like every other turn reference.
+  for (const invalid of [0, -3, 1.5]) {
+    expect(() =>
+      decode({ status: "ready", outcomes: [{ id: "s1", status: "ready", reason: "replied", turn: invalid }] }),
+    ).toThrow();
   }
 });
