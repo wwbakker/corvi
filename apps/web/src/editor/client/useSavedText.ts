@@ -28,6 +28,7 @@ export function useSavedText({
   key,
   load,
   save: write,
+  canSave = true,
 }: {
   /** What the text is remembered under while the page is open — and what a reload is keyed by,
    * so it must change when the document does. */
@@ -37,6 +38,11 @@ export function useSavedText({
   /** Write the document against the revision it was edited from; undefined writes
    * unconditionally. A rejection leaves the text unsaved rather than lost. */
   save: (value: string, baseRevision: string | undefined) => Promise<SaveOutcome>;
+  /** Whether the document may be written now. False while its workspace is unavailable: every
+   * automatic write (the debounce, the blur flush, the unmount flush) is held back, the draft
+   * stays in the buffer, and nothing is replayed when it turns true again — the next edit or an
+   * explicit save is what writes. */
+  canSave?: boolean;
 }): {
   /** The document as it stands: the remembered one first, then what was loaded or typed. */
   text: string;
@@ -64,6 +70,10 @@ export function useSavedText({
   });
   // The revision the buffer is on: what its next save is based on.
   const revision = useRef<string | undefined>(undefined);
+  // The current "may write" answer, read by the long-lived callbacks and the unmount effect so
+  // they never close over a stale render's value.
+  const mayWrite = useRef(canSave);
+  mayWrite.current = canSave;
   // Read by the unmount effect, which must not re-run on every keystroke.
   const pending = useRef<string | null>(null);
   // The debounced save, while one is waiting: a write or a reload supersedes it, so it must be
@@ -157,6 +167,9 @@ export function useSavedText({
   // Debounced save; the cleanup also covers unmount, so leaving the page flushes.
   useEffect(() => {
     if (pending.current === null) return;
+    // Blocked: hold the draft and schedule nothing. Nothing re-schedules when the block lifts,
+    // which is what keeps recovery from replaying a save the user never saw land.
+    if (!mayWrite.current) return;
     cancelScheduled();
     scheduled.current = setTimeout(() => {
       scheduled.current = undefined;
@@ -165,16 +178,27 @@ export function useSavedText({
     return cancelScheduled;
   }, [text]);
 
+  // Losing the workspace cancels a debounce that was already waiting, so it cannot fire against a
+  // gate that would only refuse it (and leave an error the user did not cause).
+  useEffect(() => {
+    if (!canSave) cancelScheduled();
+  }, [canSave]);
+
   useEffect(
     () => () => {
       cancelScheduled();
-      if (pending.current !== null) void writeOut(pending.current, revision.current);
+      // The unmount flush is an automatic write like the others: while the workspace is
+      // unavailable, the draft is dropped rather than sent to a gate that refuses it.
+      if (pending.current !== null && mayWrite.current) {
+        void writeOut(pending.current, revision.current);
+      }
     },
     [],
   );
 
   const flush = (): void => {
-    if (pending.current !== null) void writeOut(text, revision.current);
+    if (pending.current === null || !mayWrite.current) return;
+    void writeOut(text, revision.current);
   };
 
   // Drop the local edits and take the disk's text. The banner answers first and closes when
@@ -186,8 +210,10 @@ export function useSavedText({
     refresh();
   };
 
-  // Deliberately write the local text over the disk; the banner closes when it has landed.
+  // Deliberately write the local text over the disk; the banner closes when it has landed. While
+  // the workspace is unavailable there is nowhere for it to land, so it is held like the rest.
   const keepMine = (): void => {
+    if (!mayWrite.current) return;
     void writeOut(text, undefined);
   };
 

@@ -755,7 +755,7 @@ export const openSession = async (
   const unavailable = terminalUnavailable();
   if (unavailable !== undefined) throw new Error(unavailable);
   // `paneSessionId` names the pane the page wants to attach to; absent means the active window's
-  // active pane. A stale id falls through to the active pane.
+  // active pane. A named pane that is gone is refused: it must not fall through to another shell.
   const sessionId = await ensureActiveHostWindow(changeId, dir, size, paneSessionId);
   const client = await hostClient();
   // A window created before a page attached (a new tab, a subagent window) was opened at a

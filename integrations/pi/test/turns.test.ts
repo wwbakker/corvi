@@ -78,6 +78,9 @@ test("a relayed loop submits an inbound message and relays the settled reply", a
   expect(turns[0]).toContain("s1");
   expect(turns[0]).toContain("--idempotency-key");
   expect(turns[0]).toContain("turn-3");
+  // The submitted number is relayed as the turn the reply answers.
+  const args = turns[0] ?? [];
+  expect(args[args.indexOf("--in-reply-to") + 1]).toBe("3");
   expect(turns[0]?.at(-1)).toBe("Looks good");
 });
 

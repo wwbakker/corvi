@@ -14,6 +14,7 @@ import {
   nextNumber,
   parseMessage,
   parseRecord,
+  pendingInbound,
   renderMessage,
   renderRecord,
   type SubagentMessage,
@@ -255,6 +256,7 @@ export const appendMessage = (
     readonly body: string;
     readonly at: string;
     readonly pane?: string;
+    readonly inReplyTo?: number;
   },
 ): Effect.Effect<SubagentMessage, SubagentStoreError> =>
   withLock(
@@ -268,6 +270,7 @@ export const appendMessage = (
         at: input.at,
         body: input.body,
         ...(input.pane === undefined ? {} : { pane: input.pane }),
+        ...(input.inReplyTo === undefined ? {} : { inReplyTo: input.inReplyTo }),
       };
       const dir = instanceDir(changeDir, id);
       yield* Effect.tryPromise({
@@ -341,6 +344,7 @@ export const appendMessageAndPatch = (
     readonly at: string;
     readonly pane?: string;
     readonly key?: string;
+    readonly inReplyTo?: number;
   },
   patch: (record: SubagentWithMessages, message: SubagentMessage) => SubagentRecord,
 ): Effect.Effect<{ readonly message: SubagentMessage; readonly replayed: boolean }, SubagentStoreError> =>
@@ -363,6 +367,7 @@ export const appendMessageAndPatch = (
         body: input.body,
         ...(input.pane === undefined ? {} : { pane: input.pane }),
         ...(input.key === undefined ? {} : { key: input.key }),
+        ...(input.inReplyTo === undefined ? {} : { inReplyTo: input.inReplyTo }),
       };
       const dir = instanceDir(changeDir, id);
       yield* writeAtomic(join(dir, messageFileName(message.number, message.role)), renderMessage(message));
@@ -383,14 +388,6 @@ export type Claim =
  * this answers `interrupted` (or redelivers that message when `redeliverAfter` says the caller
  * has not seen it); otherwise it advances the delivery cursor and the in-flight marker together
  * under the lock, so two concurrent `next` calls cannot both claim the same message. */
-/** The next message the relay has not picked up yet: everything the delivery cursor still
- * holds back. The one predicate `claimInbound` delivers by and the server's `await` holds
- * ready back by — stated once, so the two cannot drift. */
-export const pendingInbound = (record: SubagentWithMessages): SubagentMessage | undefined =>
-  record.messages.find(
-    (message) => message.role !== "subagent" && message.number > (record.deliveredThrough ?? 0),
-  );
-
 export const claimInbound = (
   changeDir: string,
   id: string,
@@ -474,3 +471,7 @@ export const recordPath = (changeDir: string, id: string): string =>
 
 /** Re-exported so the server does not reach into the pure module for the common types. */
 export type { SubagentRecord, SubagentMessage, SubagentWithMessages };
+
+/** Re-exported with the store so `@corvi/agents/node` keeps the predicate `claimInbound` delivers
+ * by; its definition lives in the pure module (`../instance`). */
+export { pendingInbound };

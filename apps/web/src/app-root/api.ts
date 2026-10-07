@@ -72,7 +72,18 @@ export type Completed = { change: Change; notes: string[] };
 export type Cancelled = { change: Change; loose: string[] };
 
 /** A request cancelled because its card went away is not an error worth showing. */
-export const aborted = (e: unknown): boolean => e instanceof Error && e.name === "AbortError";
+/** Whether a failure is an aborted request — directly, or wrapped by the transport, which turns
+ * every fetch failure (an AbortError included) into a `ClientError` whose `cause` is the original. */
+export const aborted = (e: unknown): boolean => {
+  const seen = new Set<unknown>();
+  let current: unknown = e;
+  while (current instanceof Error && !seen.has(current)) {
+    if (current.name === "AbortError") return true;
+    seen.add(current);
+    current = current.cause;
+  }
+  return false;
+};
 
 /** One typed client for the page, relative to the origin that served it: the named operations,
  * by domain, that the change page and the overview use. */

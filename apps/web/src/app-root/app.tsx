@@ -14,9 +14,10 @@ import { stateClass } from "./stateClass.ts";
 import { ChangeCard } from "./ChangeCard.tsx";
 import { moment } from "./moment.ts";
 import { Sidebar } from "./Sidebar.tsx";
+import { RemoteAvailabilityBanner, StaleMarker } from "./RemoteAvailability.tsx";
 import { forgetChange, lastViewOf } from "./remember.ts";
 import { useChanges, useTerminal, useWindows } from "./state.ts";
-import { changeKey, clientFor, SourceContext, SourcesProvider, useSources, WorkspaceSourceContext } from "./sources.ts";
+import { changeKey, SourceContext, SourcesProvider, useAvailability, useSources, useSourceAvailability, useSourceOwner, WorkspaceSourceContext } from "./sources.ts";
 import { inWorkspace, usePages, useWorkspaces } from "../workspace/client/workspaces.ts";
 import { Wizard } from "../wizard/index.ts";
 import { applyPatch, EMPTY_DRAFT, type Draft, type DraftPatch } from "../wizard/draft.ts";
@@ -41,15 +42,31 @@ import { SubagentsPage } from "../subagents/SubagentsPage.tsx";
 function Home({
   changes,
   error,
+  stale,
+  staleSources,
+  newBlocked,
   onOpen,
   onNew,
 }: {
   // undefined until the list has been read: "none yet" and "not known yet" are different things.
   changes: Change[] | undefined;
   error: string | null;
+  /** Some workspaces are unavailable: the rows below are their last known answers. */
+  stale?: boolean;
+  /** The sources whose rows are the last known answer, so each card can say so too. */
+  staleSources?: readonly string[];
+  /** The selected workspace is a remote that cannot be reached: a new idea there cannot be
+   * created, so the control is disabled rather than failing at the last step. A local selection
+   * is never blocked. */
+  newBlocked?: boolean;
   onOpen: (change: Change) => void;
   onNew: () => void;
 }): JSX.Element {
+  const availability = useAvailability();
+  // A change card's cache-backed state is keyed by its source's generation too, so a retargeted
+  // remote's card does not show the old target's summary.
+  const cardKey = (source: string, id: string): string =>
+    `${changeKey(source, id)}@${availability.entries[source]?.generation ?? ""}`;
   // Three lists, because they are read for different reasons: what is still an idea, what is
   // going on, and what happened. Ideas first — they are the newest thing and the thing you have
   // not started — then the active ones in work order, newest first within each.
@@ -66,11 +83,22 @@ function Home({
       <header>
         <h2>Changes</h2>
         <span className="spacer" />
-        <button className="create" title="start a new idea" onClick={onNew}>
+        <button
+          className="create"
+          title={newBlocked === true ? "this workspace is unavailable" : "start a new idea"}
+          disabled={newBlocked}
+          onClick={onNew}
+        >
           New
         </button>
       </header>
       {error && <div className="error-banner">{error}</div>}
+      {stale === true && (
+        <p className="hint">
+          <StaleMarker>stale</StaleMarker> an unavailable workspace's last known changes are shown
+          below; they are readable, not live.
+        </p>
+      )}
 
       {/* Ideas have their own block above the work: they are a different kind of thing — a
           question, not a job — and reading them as rows among the active changes buries them. */}
@@ -81,7 +109,12 @@ function Home({
       )}
       <div className="change-cards">
         {ideas.map((c) => (
-          <ChangeCard key={changeKey(c.source ?? "", c.id)} change={c} onOpen={() => onOpen(c)} />
+          <ChangeCard
+            key={cardKey(c.source ?? "", c.id)}
+            change={c}
+            stale={(staleSources ?? []).includes(c.source ?? "")}
+            onOpen={() => onOpen(c)}
+          />
         ))}
       </div>
 
@@ -89,7 +122,12 @@ function Home({
       {changes && active.length === 0 && <p className="hint">nothing in progress</p>}
       <div className="change-cards">
         {active.map((c) => (
-          <ChangeCard key={changeKey(c.source ?? "", c.id)} change={c} onOpen={() => onOpen(c)} />
+          <ChangeCard
+            key={cardKey(c.source ?? "", c.id)}
+            change={c}
+            stale={(staleSources ?? []).includes(c.source ?? "")}
+            onOpen={() => onOpen(c)}
+          />
         ))}
       </div>
 
@@ -133,16 +171,35 @@ function App(): JSX.Element {
     viewOf(window.location.pathname + window.location.search),
   );
   const { reload: reloadSources } = useSources();
-  const { changes: everything, error, reload } = useChanges();
+  const { changes: everything, error, staleSources, reload } = useChanges();
   const { workspaces, chosen, choose, current: workspace, ready, platform, reload: reloadWorkspaces } = useWorkspaces();
   // The pages the sidebar offers in this context, from the context's own server: which extensions
   // exist and what they contribute is not the page's to know. Undefined ("All work") is the local
   // server's default context, which is what a request without a workspace gets. A remote
   // workspace asks its own server through the gateway, naming its own id there (`remote.workspace`),
   // which is also the id a page's own requests carry.
-  const pageClient = workspace?.remote ? clientFor(workspace.id) : apiClient;
+  const owner = useSourceOwner();
+  const pageClient = workspace?.remote ? owner.clientFor(workspace.id) : apiClient;
+  // The source the page is actually showing, so an unavailable change opened by direct link (or
+  // from "All work") banners by its own source, not only by the chosen workspace.
+  const viewedSource =
+    view.name === "change" ? (view.source ?? "") : workspace?.remote ? workspace.id : "";
+  const viewedName =
+    workspaces.find((candidate) => (candidate.remote !== undefined ? candidate.id : "") === viewedSource)?.name ?? "";
   const pageWorkspace = workspace?.remote ? workspace.remote.workspace : workspace?.id;
-  const { pages, reload: reloadPages } = usePages(pageWorkspace, pageClient);
+  // The workspace-scoped page list is keyed by its source's generation: a retarget clears it.
+  const pageSource = workspace?.remote ? workspace.id : "";
+  const pageAvailability = useSourceAvailability(pageSource);
+  // A new idea is created in the selected context: a remote that cannot be reached disables the
+  // create controls; a local selection (or All work's local default) stays usable.
+  const createSource = workspace?.remote ? workspace.id : "";
+  const createBlocked = useSourceAvailability(createSource).status._tag !== "available";
+  const { pages, settled: pagesSettled, reload: reloadPages } = usePages(
+    pageWorkspace,
+    pageClient,
+    pageAvailability.generation,
+    pageAvailability.status._tag === "available",
+  );
   // One context at a time: the lists, the overview and what a new change is made in. Undefined
   // until the contexts are known, which reads as "loading" rather than as "everything".
   const changes = everything && ready ? inWorkspace(everything, chosen, workspaces) : undefined;
@@ -211,6 +268,9 @@ function App(): JSX.Element {
   // The view names both halves of the identity, so a change the filter hides still opens, and a
   // remote change sharing an id with a local one is not confused for it.
   const selectedSource = view.name === "change" ? view.source : "";
+  // Keying the change page by (source, id, generation) remounts it on a retarget, clearing its
+  // mounted reads and cache-backed state; a same-generation outage does not remount.
+  const selectedGeneration = useSourceAvailability(selectedSource).generation;
   const change = (everything ?? []).find(
     (c) => c.id === selected && (c.source ?? "") === selectedSource,
   );
@@ -339,12 +399,16 @@ function App(): JSX.Element {
   const pagesRef = useRef(pages);
   pagesRef.current = pages;
   useEffect(() => {
-    setViewState((current) =>
-      current.name === "home" || current.name === "ext-page"
-        ? viewOf(window.location.pathname + window.location.search, pages)
-        : current,
-    );
-  }, [pages]);
+    setViewState((current) => {
+      // A retarget clears the page list while it re-reads. Keep the open page across that clear so
+      // it can remount for the new target (its key carries the generation); leave it only once the
+      // settled list says the target no longer offers it. Without the settle check, the clearing
+      // alone would navigate home and lose the page.
+      if (current.name === "ext-page" && !pagesSettled) return current;
+      if (current.name !== "home" && current.name !== "ext-page") return current;
+      return viewOf(window.location.pathname + window.location.search, pages);
+    });
+  }, [pages, pagesSettled]);
 
   // What the OS calls this window: the change's name, where Mission Control, the Dock menu and
   // the task switcher read it. The page draws no title of its own — its first row is the
@@ -418,6 +482,7 @@ function App(): JSX.Element {
         windows={terminals.windows}
         onHome={() => setView({ name: "home" })}
         onNew={() => setView({ name: "new" })}
+        newBlocked={createBlocked}
         draft={draft}
         wizard={view.name === "new"}
         // The server's pages, offered as they are: which extensions exist here is not the
@@ -450,11 +515,22 @@ function App(): JSX.Element {
           setView({ name: "change", source: c.source ?? "", id: c.id, page: "terminals" });
         }}
       />
+      {/* The banner and the page share the space beside the column: the banner is a row above the
+          content, not a third column of the app's row layout. */}
+      <div className="app-body">
+      <RemoteAvailabilityBanner
+        source={viewedSource}
+        name={viewedName}
+        onSettings={() => setView({ name: "settings" })}
+      />
       <main className={onTerminal || onPlan ? "content flush" : "content"}>
         {view.name === "home" && (
           <Home
             changes={changes}
             error={error}
+            stale={staleSources.length > 0}
+            staleSources={staleSources}
+            newBlocked={createBlocked}
             onOpen={(c) =>
               setView({
                 name: "change",
@@ -469,8 +545,21 @@ function App(): JSX.Element {
         {view.name === "ext-page" && (
           // A page belongs to the workspace that is selected; the source tells its own requests
           // which server to reach through the gateway, and the workspace prop names its id there.
-          <WorkspaceSourceContext.Provider value={workspace?.remote ? workspace.id : ""}>
-            <PageHost info={view} workspace={pageWorkspace} />
+          <WorkspaceSourceContext.Provider value={pageSource}>
+            {/* The page belongs to this target and to this page: a same-id retarget remounts it
+                rather than carrying the old target's React state (an expanded row, a half-filled
+                dialog) onto the new one. A same-generation outage keeps the key, so the page
+                keeps its loaded facts, and its transport's identity is what re-reads on recovery.
+                The disabled fieldset is the read-only boundary: a blocked workspace disables the
+                page's controls without unmounting it. Settings is not a PageHost, so its local
+                editor is deliberately outside this boundary. */}
+            <fieldset
+              key={`${pageSource}\u0000${pageAvailability.generation}\u0000${pageWorkspace ?? ""}\u0000${view.extension}\u0000${view.id}`}
+              className="widgets-fieldset"
+              disabled={pageAvailability.status._tag !== "available"}
+            >
+              <PageHost info={view} workspace={pageWorkspace} />
+            </fieldset>
           </WorkspaceSourceContext.Provider>
         )}
         {view.name === "actions" && <ActionsPage onGuard={onGuard} />}
@@ -517,7 +606,7 @@ function App(): JSX.Element {
             // the widgets, the open terminal — belongs to one change. Reusing the instance across
             // a switch is what let the previous change's notes stay on screen after its read
             // came back, with nothing left to read them again (apps/web/src/change-page/client/ChangeView.tsx).
-            key={changeKey(selectedSource, view.id)}
+            key={`${changeKey(selectedSource, view.id)}@${selectedGeneration}`}
             id={view.id}
             source={selectedSource}
             page={view.page}
@@ -526,6 +615,7 @@ function App(): JSX.Element {
             onOpenPage={(page) => setView({ ...view, page, provision: undefined })}
             terminal={{ ...terminal, create: () => void terminals.create(selectedSource, view.id) }}
             windows={terminals.windows[changeKey(selectedSource, view.id)] ?? []}
+            windowError={terminals.errors[changeKey(selectedSource, view.id)]}
             onSelectWindow={(index) => {
               terminals.select(selectedSource, view.id, index);
               setWantsTerminal(true);
@@ -533,10 +623,11 @@ function App(): JSX.Element {
               // be a click that does nothing visible.
               setView({ name: "change", source: view.source, id: view.id, page: "terminals" });
             }}
-            onFocusWindow={(index) => {
-              // Focus the window without leaving the page: the Subagents page has the terminal
-              // beside the conversation, so selecting there must not navigate.
-              terminals.select(selectedSource, view.id, index);
+            onFocusPane={(windowId) => {
+              // Focus the subagent's window by stable identity, without leaving the page: the
+              // Subagents page has the pane beside the conversation, so selecting there must not
+              // navigate.
+              terminals.focus(selectedSource, view.id, windowId);
               setWantsTerminal(true);
             }}
             onNewWindow={() => {
@@ -554,6 +645,7 @@ function App(): JSX.Element {
           </SourceContext.Provider>
         )}
       </main>
+      </div>
       {leaving && (
         <UnsavedChangesDialog
           subject={leaving.subject}

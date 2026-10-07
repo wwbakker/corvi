@@ -10,5 +10,8 @@ export {
   upstreamUrl,
   type GatewayBridge,
   type GatewaySocket,
+  type ProxyResult,
   type RemoteTarget,
+  type UpgradeResult,
 } from "./proxy.ts";
+export { DEFAULT_GATEWAY_TIMEOUTS, type GatewayTimeouts } from "./timeouts.ts";

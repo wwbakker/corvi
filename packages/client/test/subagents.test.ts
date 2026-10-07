@@ -134,31 +134,44 @@ test("result is a message or null, and await and next name their query", async (
     fetch: async (input) => {
       const url = String(input)
       calls.push(url)
-      if (url.endsWith("/result")) return Response.json(result)
+      if (url.includes("/result")) return Response.json(result)
       if (url.includes("/subagents/await"))
-        return Response.json({ status: "ready", id: "s1", awaitingReply: true })
+        return Response.json({
+          status: "ready",
+          outcomes: [{ id: "s1", status: "ready", reason: "replied", turn: 1, reply: 2 }],
+        })
       return Response.json({ status: "none" })
     },
   })
 
   expect((await client.subagents.result(ChangeId.make("demo"), "s1"))?.body).toBe("done")
+  expect((await client.subagents.result(ChangeId.make("demo"), "s1", { turn: 4 }))?.body).toBe("done")
   result = null
   expect(await client.subagents.result(ChangeId.make("demo"), "s1")).toBeNull()
 
-  expect((await client.subagents.await(ChangeId.make("demo"), {})).status).toBe("ready")
-  expect((await client.subagents.await(ChangeId.make("demo"), { ids: ["s1", "s2"] })).id).toBe("s1")
+  const awaited = await client.subagents.await(ChangeId.make("demo"), {})
+  expect(awaited.status).toBe("ready")
+  expect(awaited.outcomes[0]).toEqual({ id: "s1", status: "ready", reason: "replied", turn: 1, reply: 2 })
   expect(
-    (await client.subagents.await(ChangeId.make("demo"), { ids: ["s1"], all: true })).awaitingReply,
-  ).toBe(true)
+    (await client.subagents.await(ChangeId.make("demo"), { ids: ["s1", "s2"] })).outcomes[0]?.id,
+  ).toBe("s1")
+  expect(
+    (await client.subagents.await(ChangeId.make("demo"), { ids: ["s1"], all: true })).outcomes,
+  ).toHaveLength(1)
+  expect(
+    (await client.subagents.await(ChangeId.make("demo"), { ids: ["s1"], turn: 3 })).outcomes[0]?.turn,
+  ).toBe(1)
   expect((await client.subagents.next(ChangeId.make("demo"), "s1")).status).toBe("none")
   expect((await client.subagents.next(ChangeId.make("demo"), "s1", 7)).status).toBe("none")
 
   expect(calls).toEqual([
     "http://x/api/changes/demo/subagents/s1/result",
+    "http://x/api/changes/demo/subagents/s1/result?turn=4",
     "http://x/api/changes/demo/subagents/s1/result",
     "http://x/api/changes/demo/subagents/await",
     "http://x/api/changes/demo/subagents/await?id=s1&id=s2",
     "http://x/api/changes/demo/subagents/await?id=s1&all=1",
+    "http://x/api/changes/demo/subagents/await?id=s1&turn=3",
     "http://x/api/changes/demo/subagents/s1/next",
     "http://x/api/changes/demo/subagents/s1/next?after=7",
   ])

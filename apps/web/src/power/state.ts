@@ -13,7 +13,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { PowerTargetResultDto } from "@corvi/contracts/power";
 
 import { useServerEvent } from "../app-root/events.ts";
-import { clientFor } from "../app-root/sources.ts";
+import { gateFailureOf, statusOf } from "../app-root/sourceOwner.ts";
+import { useAvailability, useSourceOwner } from "../app-root/sources.ts";
 import type { Workspace } from "../workspace/client/workspaces.ts";
 import {
   armable as armableSelection,
@@ -54,7 +55,18 @@ export type PowerView = {
 };
 
 export function usePower(workspaces: readonly Workspace[]): PowerView {
+  const owner = useSourceOwner();
+  const availability = useAvailability();
   const machines = useMemo(() => powerMachines(workspaces), [workspaces]);
+  // A stable key over each machine's reachability and target generation: a remote going
+  // checking -> available (or dropping, or retargeting) re-reads, while an unrelated render does
+  // not. Local is `""` and always available.
+  const statusKey = machines
+    .map(
+      (machine) =>
+        `${machine.source}:${statusOf(availability, machine.source)._tag}:${availability.entries[machine.source]?.generation ?? ""}`,
+    )
+    .join("|");
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(
     () => new Set(machines.filter((machine) => machine.selectedByDefault).map((machine) => machine.source)),
@@ -66,17 +78,21 @@ export function usePower(workspaces: readonly Workspace[]): PowerView {
 
   const refresh = useCallback((): void => {
     for (const machine of machines) {
-      clientFor(machine.source)
+      owner
+        .clientFor(machine.source)
         .power.state()
         .then((state) =>
           setReadings((all) => ({ ...all, [machine.source]: { state, error: null } })),
         )
         .catch((cause: unknown) => {
-          // Keep the last known state (disarm needs it) and drop the machine from the selection:
-          // a machine whose read failed must never block the readable ones.
+          // A gate refusal while a remote is checking or unavailable is expected: show the gate's
+          // own reason rather than a bare failure. It stays unarmable until a read lands. Keep
+          // the last known state (disarm needs it) and drop the machine from the selection, so a
+          // machine that cannot be verified never blocks the readable ones.
+          const error = gateFailureOf(cause)?.message ?? messageOf(cause);
           setReadings((all) => ({
             ...all,
-            [machine.source]: { state: all[machine.source]?.state ?? null, error: messageOf(cause) },
+            [machine.source]: { state: all[machine.source]?.state ?? null, error },
           }));
           setSelected((current) => {
             if (!current.has(machine.source)) return current;
@@ -86,17 +102,19 @@ export function usePower(workspaces: readonly Workspace[]): PowerView {
           });
         });
     }
-  }, [machines]);
+  }, [machines, owner]);
 
-  // Read on mount and whenever the machine list changes, so a machine that goes quiet while the
-  // dialog is closed is already marked by the time it opens.
+  // Read on mount, whenever the machine list changes, and whenever reachability or a target
+  // generation changes, so a remote that was checking when the sidebar mounted is read the
+  // moment it becomes available, and a machine that goes quiet while the dialog is closed is
+  // already marked by the time it opens.
   useEffect(() => {
     refresh();
-  }, [refresh]);
+  }, [refresh, statusKey]);
 
   useEffect(() => {
     if (open) refresh();
-  }, [open, refresh]);
+  }, [open, refresh, statusKey]);
 
   useServerEvent(
     "power",
@@ -136,7 +154,8 @@ export function usePower(workspaces: readonly Workspace[]): PowerView {
     (verb: "arm" | "disarm", targets: readonly string[]): void => {
       setBusy(true);
       setActionError(null);
-      clientFor("")
+      owner
+        .clientFor("")
         .power[verb](targets)
         .then((response) => {
           setResults(response.results);
@@ -145,7 +164,7 @@ export function usePower(workspaces: readonly Workspace[]): PowerView {
         .catch((cause: unknown) => setActionError(messageOf(cause)))
         .finally(() => setBusy(false));
     },
-    [refresh],
+    [owner, refresh],
   );
 
   const arm = useCallback((): void => send("arm", [...selected]), [selected, send]);

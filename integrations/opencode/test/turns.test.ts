@@ -70,6 +70,9 @@ test("a relayed loop submits an inbound message and relays the settled reply", a
   await relayLoop("s1", harness);
   expect(submitted).toEqual(["Review it"]);
   expect(turns[0]).toContain("turn-4");
+  // The submitted number is relayed as the turn the reply answers.
+  const args = turns[0] ?? [];
+  expect(args[args.indexOf("--in-reply-to") + 1]).toBe("4");
   expect(turns[0]?.at(-1)).toBe("done");
 });
 

@@ -123,7 +123,30 @@ a {
 .content {
   flex: 1;
   min-width: 0;
+  /* The column is `.app-body` now: without this a long page (the plan editor fills its height)
+     refuses to shrink below its content and pushes past the viewport instead of scrolling. */
+  min-height: 0;
   padding: 16px 24px 48px;
+}
+
+/* The banner and the page, sharing the space beside the navigation column: the banner is a row
+   above the content, never a column of the app's own row layout. */
+.app-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* A flush frame (the terminal's, the plan's) fills the window, so the column becomes exactly the
+   window's height: the banner is a row that takes its share, and the frame fills what is left.
+   Without a definite height here the frame's basis-0 flex has nothing to resolve against and its
+   internal scroll-past-end padding grows it past the viewport. A normal page keeps the
+   content-sized column, so the document still scrolls. */
+.app-body:has(> .content.flush) {
+  height: 100dvh;
+  overflow: hidden;
 }
 
 /* The one navigation element: changes, the pages of the one you picked, its terminals. */
@@ -1647,8 +1670,8 @@ button.create:hover:not(:disabled) {
   padding: 0;
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-height: 0;
-  height: 100dvh;
   overflow: hidden;
 }
 
@@ -3203,5 +3226,65 @@ button.danger:disabled {
   .page.terminal-page .change-bar,
   .change-tabs {
     padding-left: var(--chrome-left);
+  }
+}
+
+/* The unavailable-workspace banner: the server's reason, Retry now, and local settings. It sits
+   in the app's flow above the content, so it can never overlap a header or a terminal. */
+.remote-unavailable {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 6px 12px;
+  background: color-mix(in srgb, var(--warn) 14%, var(--surface));
+  border-bottom: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
+  color: var(--text);
+  font-size: 13px;
+}
+
+.remote-unavailable .spacer {
+  flex: 1;
+}
+
+.remote-unavailable button {
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  cursor: default;
+}
+
+.remote-unavailable button:hover {
+  background: var(--hover);
+}
+
+/* A retained remote answer: visible and readable, but not current. */
+.stale-marker {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
+  border-radius: 999px;
+  color: var(--warn);
+  font-size: 11px;
+  vertical-align: middle;
+}
+
+/* A disabled dashboard wrapper: the fieldset boxes the editors out without changing the grid. */
+.widgets-fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-inline-size: 0;
+}
+
+/* At the drawer breakpoint the toggle overlays the top-left corner: the banner keeps its text
+   clear of it. */
+@media (max-width: 720px) {
+  .remote-unavailable {
+    padding-left: 46px;
   }
 }

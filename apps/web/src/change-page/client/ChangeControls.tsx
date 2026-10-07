@@ -23,6 +23,7 @@ export function ChangeControls({
   activeId,
   change,
   idea,
+  blocked,
   actions,
   draft,
   onDraft,
@@ -39,6 +40,9 @@ export function ChangeControls({
   change: Change | undefined;
   /** Whether this change is still an idea: its state is not yours to pick. */
   idea: boolean;
+  /** The workspace is unavailable: the state select and an already-open rename are held back —
+   * the transport gate would refuse them, and the UI must not offer a mutation it cannot make. */
+  blocked?: boolean;
   actions: Action[];
   /** The name being typed, or null while the field is shut. */
   draft: string | null;
@@ -71,6 +75,7 @@ export function ChangeControls({
               autoFocus
               value={draft}
               placeholder="what this change is about"
+              disabled={blocked === true}
               onChange={(e) => onDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Escape") onDraft(null);
@@ -83,8 +88,9 @@ export function ChangeControls({
             className={stateClass(change.state)}
             value={change.state ?? "Implementation"}
             // An idea's state is not yours to pick: starting the work is what leaves it, and
-            // that does more than a word (see the actions).
-            disabled={idea}
+            // that does more than a word (see the actions). An unavailable workspace cannot
+            // write the state either, so the select is disabled rather than refused on click.
+            disabled={idea || blocked === true}
             // Your own view of where the change stands; completing it sets "Completed".
             onChange={(e) => onState(e.target.value as ChangeState)}
           >

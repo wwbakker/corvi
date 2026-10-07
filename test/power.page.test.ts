@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { chromium, webkit, type Browser } from "playwright";
+import { chromium, webkit, type Browser, type Locator } from "playwright";
 
 import { serve, type Serving } from "../apps/server/src/capabilities/serve.ts";
 import { guard, json } from "../apps/server/src/capabilities/web.ts";
@@ -68,19 +68,33 @@ beforeAll(async () => {
         },
       },
       "/api/events": {
-        GET: () =>
-          new Response(
+        GET: () => {
+          let heartbeat: ReturnType<typeof setInterval> | undefined;
+          return new Response(
             new ReadableStream({
               start(controller) {
                 const encoder = new TextEncoder();
-                pushRemote = (frame) => controller.enqueue(encoder.encode(frame));
+                const send = (text: string): void => controller.enqueue(encoder.encode(text));
+                // The local server's health signal is this stream's first byte; without it the
+                // remote stays `checking` and the page's gate never lets a read through.
+                send(": open\n\n");
+                heartbeat = setInterval(() => {
+                  try {
+                    send(": ping\n\n");
+                  } catch {
+                    if (heartbeat !== undefined) clearInterval(heartbeat);
+                  }
+                }, 250);
+                pushRemote = (frame) => send(frame);
               },
               cancel() {
+                if (heartbeat !== undefined) clearInterval(heartbeat);
                 pushRemote = undefined;
               },
             }),
             { headers: { "content-type": "text/event-stream" } },
-          ),
+          );
+        },
       },
     }),
   });
@@ -115,6 +129,15 @@ afterAll(async () => {
   await rm(tmp, { recursive: true, force: true });
 });
 
+/** The remote row, once the local server's health check has made it available and the gate lets
+ * its read through (the checkbox is enabled only after a successful read). */
+async function waitForRemote(dialog: Locator): Promise<Locator> {
+  const row = dialog.locator(".power-machine", { hasText: "Remote" });
+  await row.waitFor();
+  expect(await until(async () => !(await row.locator("input").isDisabled()), true)).toBe(true);
+  return row;
+}
+
 test.skipIf(!usable)("the dialog names this machine, arms it, and cancels", async () => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await page.goto(url, { waitUntil: "domcontentloaded" });
@@ -128,8 +151,7 @@ test.skipIf(!usable)("the dialog names this machine, arms it, and cancels", asyn
   const machine = dialog.locator(".power-machine", { hasText: "This machine" });
   await machine.waitFor();
   expect(await machine.locator("input").isChecked()).toBe(true);
-  const remoteRow = dialog.locator(".power-machine", { hasText: "Remote" });
-  await remoteRow.waitFor();
+  const remoteRow = await waitForRemote(dialog);
   expect(await remoteRow.locator("input").isChecked()).toBe(false);
 
   // Arm: the per-target result names this machine armed.
@@ -153,8 +175,7 @@ test.skipIf(!usable)(
     await page.locator(".sidebar .icon-entry[aria-label='Power']").click();
     const dialog = page.locator("dialog.power-dialog");
     await dialog.waitFor();
-    const remoteRow = dialog.locator(".power-machine", { hasText: "Remote" });
-    await remoteRow.waitFor();
+    const remoteRow = await waitForRemote(dialog);
 
     // Tick the remote while its read works, then take it offline.
     await remoteRow.locator("input").check();
@@ -194,7 +215,7 @@ test.skipIf(!usable)(
     await page.locator(".sidebar .icon-entry[aria-label='Power']").click();
     const dialog = page.locator("dialog.power-dialog");
     await dialog.waitFor();
-    await dialog.locator(".power-machine", { hasText: "Remote" }).waitFor();
+    await waitForRemote(dialog);
 
     // A local `power` event (this server's state changed) refetches the machines.
     const beforeLocal = localReads;

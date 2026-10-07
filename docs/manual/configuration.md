@@ -251,6 +251,42 @@ repository browser — send that as `?workspace=`. The remote resolves an id it 
 first workspace, so those particular calls may read the wrong one; a remote server that hosts a
 single workspace (the common case) is unaffected.
 
+### Remote workspaces that are unavailable
+
+An unreachable remote workspace is not hidden and does not empty the page. The workspace menu and
+the selected workspace's label suffix it **(Unavailable)**; the retained changes, windows and
+subagent entries stay in the navigation column without a suffix of their own. Choosing it keeps
+the last answer that arrived. A banner across the top of the content names it — `<name> is
+unavailable: <reason>` — with two controls: **Retry now** asks for an immediate check of that
+workspace, and **Local settings** opens Settings, which is local and reaches no remote.
+
+While a remote is unavailable, Corvi keeps the last successfully read data in memory and marks it
+stale: the overview cards and the change header carry the stale marker, and the banner names the
+source; every other retained surface — the change list, plan and notes documents, dashboard
+cards, windows and subagent sessions — stays readable and read-only under that banner. Nothing is
+emptied and nothing is invented — the retained data is the last answer, not a current one.
+
+Every call to the remote goes through a gate that refuses while the workspace is away, so no
+request is made: no mutation is queued for the unavailable workspace and nothing is replayed when
+it returns. Editors (the plan, notes and a change's rename field) hold their text and their
+saves; the phase selector and the action menus are disabled; a remote terminal closes its browser
+connection instead of feeding input to a shell it cannot reach. Local work — the local server, its
+terminals, and Settings — is untouched.
+
+Recovery is automatic: the background health check keeps trying, and when the workspace answers
+again the retained data is re-read in place, without a reload and without changing which page you
+are on. **Retry now** just asks for that check immediately. A save that never left the browser is
+reported as unsent rather than sent later, and a write that may have reached the remote before the
+target changed is reported as an unknown outcome rather than replayed.
+
+A remote capability is bound to the exact target it was acquired for: the workspace's `url`,
+`remote.workspace` and token, together with the target's generation — an opaque random value the
+server mints whenever the target changes, never derived from the credential. Changing the target
+does not carry anything across — the old target's cached data, in-flight reads and queued writes
+are retired, and a request or a save still holding the old capability is refused as belonging to a
+changed target rather than reaching the new one. Each target has its own cache, so the same change
+id on two targets is two different changes.
+
 The workspace switcher filters changes and available features. **All work** is a filter, not a
 workspace. With no configured workspace, Corvi supplies a default. Changes without a recorded
 workspace belong to the first workspace. A direct link can still open a change outside the
