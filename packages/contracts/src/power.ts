@@ -41,9 +41,11 @@ export type PowerArmRequestDto = typeof PowerArmRequestSchema.Type
 
 /** How one target's power command went. A free-text error would push the fan-out and the dialog
  * into matching on it, so the outcome is typed: `armed` accepted an arm; `disarmed` accepted a
- * disarm; `unreachable` could not be contacted; `unsupported` is a server without the routes (an
- * older one); `refused` answered but said no. `detail` carries the server's own words beside the
- * status. */
+ * disarm; `unreachable` could not be contacted or timed out; `unsupported` has no way to take the
+ * command — a server without the routes (an older one), or a source with no remote workspace in
+ * the config; `refused` was reached but would not do it, or cannot be used at all — the remote
+ * said no, or its configured url is not http or https. `detail` carries the server's own words
+ * beside the status. */
 export const PowerTargetStatus = Schema.Literals([
   "armed",
   "disarmed",

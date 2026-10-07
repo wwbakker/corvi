@@ -6,12 +6,13 @@
  */
 import { Effect } from "effect";
 
-import { InternalError } from "@corvi/contracts/errors";
+import { InternalError, type IweError } from "@corvi/contracts/errors";
 import { PowerArmRequestSchema, type PowerTargetResultDto } from "@corvi/contracts/power";
 
 import { runRoute } from "../capabilities/effect/run.ts";
 import { messageOf } from "../capabilities/effect/support.ts";
 import { bodyAs, guard, json } from "../capabilities/web.ts";
+import { fanOut, type PowerVerb } from "./server/fanout.ts";
 import { armLocal, disarmLocal, powerState } from "./server/index.ts";
 
 /** The machine's arm state, or a 500 carrying why it could not be verified. A failed agent read
@@ -26,17 +27,30 @@ const readState = (): Effect.Effect<Response, InternalError> =>
     ),
   );
 
-/** One result per target for the local server's own answer. A remote is not silently dropped:
- * the fan-out lands in a later change, so it answers `unsupported` with a reason. */
-const resultsFor = (
-  targets: readonly string[],
-  local: "armed" | "disarmed",
-): readonly PowerTargetResultDto[] =>
-  targets.map((source) =>
-    source === ""
-      ? { source, status: local }
-      : { source, status: "unsupported", detail: "remote fan-out is not available in this server yet" },
-  );
+/** Arm or disarm this machine and fan the command out to the remote targets, one result per
+ * requested target in the order given. `""` is this machine; a non-empty source goes through
+ * the fan-out, which reports a result even when it cannot reach the remote. */
+const handle = (req: Request, verb: PowerVerb): Effect.Effect<Response, IweError> =>
+  Effect.gen(function* () {
+    const body = yield* bodyAs(req, PowerArmRequestSchema);
+    const local = body.targets.includes("");
+    // One request per distinct remote, however many times it is named.
+    const remotes = [...new Set(body.targets.filter((source) => source !== ""))];
+    if (local) yield* verb === "arm" ? armLocal() : disarmLocal();
+    const remoteResults =
+      remotes.length === 0 ? [] : yield* Effect.promise(() => fanOut(verb, remotes));
+    const bySource = new Map(remoteResults.map((result) => [result.source, result]));
+    const results = body.targets.map((source): PowerTargetResultDto =>
+      source === ""
+        ? { source, status: verb === "arm" ? "armed" : "disarmed" }
+        : (bySource.get(source) ?? {
+            source,
+            status: "refused",
+            detail: "the fan-out produced no result",
+          }),
+    );
+    return json({ results });
+  });
 
 export const powerRoutes = guard({
   // See `readState`.
@@ -44,27 +58,11 @@ export const powerRoutes = guard({
     GET: () => runRoute(readState()),
   },
 
-  // Arm this machine when `""` is among the targets, and report every target on its own.
   "/api/power/arm": {
-    POST: (req) =>
-      runRoute(
-        Effect.gen(function* () {
-          const body = yield* bodyAs(req, PowerArmRequestSchema);
-          if (body.targets.includes("")) yield* armLocal();
-          return json({ results: resultsFor(body.targets, "armed") });
-        }),
-      ),
+    POST: (req) => runRoute(handle(req, "arm")),
   },
 
-  // Disarm this machine when `""` is among the targets; the same per-target shape as an arm.
   "/api/power/disarm": {
-    POST: (req) =>
-      runRoute(
-        Effect.gen(function* () {
-          const body = yield* bodyAs(req, PowerArmRequestSchema);
-          if (body.targets.includes("")) yield* disarmLocal();
-          return json({ results: resultsFor(body.targets, "disarmed") });
-        }),
-      ),
+    POST: (req) => runRoute(handle(req, "disarm")),
   },
 });

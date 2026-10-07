@@ -326,3 +326,27 @@ test("a redirect from the remote is refused, not followed", async () => {
     stream.close();
   }
 });
+
+test("a remote power event is forwarded, and an unknown one is ignored", async () => {
+  const fake = await newFake();
+  fake.onConnection((res) => {
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.write("event: power\ndata: \n\n");
+    res.write("event: mystery\ndata: \n\n");
+  });
+  writeConfig([remoteWorkspace("remote-client", fake.url)]);
+  const controller = newController();
+
+  const stream = await connectLocal(1500);
+  try {
+    expect((await stream.until("open"))?.event).toBe("open");
+    await runEffect(controller.reconcile());
+    const frame = await stream.until("source");
+    expect(frame).toBeDefined();
+    expect(JSON.parse(frame!.data)).toEqual({ source: "remote-client", event: "power", data: "" });
+    // The unknown event never becomes a source envelope; the stream's own timeout proves it.
+    expect(await stream.until("source")).toBeUndefined();
+  } finally {
+    stream.close();
+  }
+});

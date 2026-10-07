@@ -16,8 +16,8 @@ import { announceFromSource } from "../capabilities/bus.ts";
 import { runtimeConfig } from "../capabilities/runtime.ts";
 
 /** The remote event names the fan-in forwards. `open` and anything unknown are ignored. */
-const EVENT_NAMES = new Set(["changes", "windows", "notify", "update"]);
-type Forwarded = "changes" | "windows" | "notify" | "update";
+const EVENT_NAMES = new Set(["changes", "windows", "notify", "update", "power"]);
+type Forwarded = "changes" | "windows" | "notify" | "update" | "power";
 
 export type RemoteEvents = {
   /** Start, stop or restart subscriptions to match `runtimeConfig().workspaces`. */

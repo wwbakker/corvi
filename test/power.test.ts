@@ -101,10 +101,11 @@ test("arm reports armed, the state read sees the countdown, and disarm reports d
 });
 
 test("every target gets a result, and a remote is reported rather than dropped", async () => {
+  // No workspace named `remote-client` is configured here, which is itself a fan-out answer.
   const remote = {
     source: "remote-client",
     status: "unsupported",
-    detail: "remote fan-out is not available in this server yet",
+    detail: "no such remote workspace",
   };
   expect(await post("/api/power/arm", { targets: ["", "remote-client"] })).toEqual({
     results: [{ source: "", status: "armed" }, remote],
