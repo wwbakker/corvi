@@ -526,6 +526,7 @@ function App(): JSX.Element {
             onOpenPage={(page) => setView({ ...view, page, provision: undefined })}
             terminal={{ ...terminal, create: () => void terminals.create(selectedSource, view.id) }}
             windows={terminals.windows[changeKey(selectedSource, view.id)] ?? []}
+            windowError={terminals.errors[changeKey(selectedSource, view.id)]}
             onSelectWindow={(index) => {
               terminals.select(selectedSource, view.id, index);
               setWantsTerminal(true);
@@ -533,10 +534,11 @@ function App(): JSX.Element {
               // be a click that does nothing visible.
               setView({ name: "change", source: view.source, id: view.id, page: "terminals" });
             }}
-            onFocusWindow={(index) => {
-              // Focus the window without leaving the page: the Subagents page has the terminal
-              // beside the conversation, so selecting there must not navigate.
-              terminals.select(selectedSource, view.id, index);
+            onFocusPane={(windowId) => {
+              // Focus the subagent's window by stable identity, without leaving the page: the
+              // Subagents page has the pane beside the conversation, so selecting there must not
+              // navigate.
+              terminals.focus(selectedSource, view.id, windowId);
               setWantsTerminal(true);
             }}
             onNewWindow={() => {

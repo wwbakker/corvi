@@ -1,5 +1,6 @@
 import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
+import { connect } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, type Browser, type Page } from "playwright";
@@ -314,6 +315,8 @@ const live = "PROJ-LIVE";
 /** Its own change, so the rapid-switch test's extra window does not shift the shared change's tab
  * counts that later tests assume. */
 const rapid = "PROJ-RAPID";
+/** Its own change, so the ended-shell test's exit does not remove a window another test expects. */
+const exits = "PROJ-EXIT";
 
 const startServer = async (port = 0): Promise<void> => {
   server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
@@ -340,6 +343,9 @@ beforeAll(async () => {
   const repo4 = join(tmp, "repo4");
   await runSh(["git", "init", "-b", "main", repo4]);
   await fetch(`${url}/api/changes`, { method: "POST", body: JSON.stringify({ id: rapid, checkouts: checkoutsOf([repo4]) }) });
+  const repo5 = join(tmp, "repo5");
+  await runSh(["git", "init", "-b", "main", repo5]);
+  await fetch(`${url}/api/changes`, { method: "POST", body: JSON.stringify({ id: exits, checkouts: checkoutsOf([repo5]) }) });
   browser = await chromium.launch();
 }, budget(120_000));
 
@@ -385,6 +391,35 @@ test("a Bun server says it has no terminal rather than opening a silent socket",
   const { terminalUnavailable } = await import("../apps/server/src/terminals/server/session.ts");
   expect(terminalUnavailable()).toContain("needs Node");
 });
+
+test.skipIf(!usable)("a refused named-pane upgrade does not take the server down", async () => {
+  // A raw upgrade naming a pane that is gone: the route answers a refusal, the client resets before
+  // that answer is written, and the server must keep serving. Without the raw-socket error handling
+  // the Node server dies on the reset (ECONNRESET) and the request below never answers.
+  const port = Number(new URL(url).port);
+  const path = `/api/changes/${id}/terminal/socket?cols=80&rows=24&session=w-gone-pane`;
+  const socket = connect(port, "127.0.0.1", () => {
+    socket.write(
+      [
+        `GET ${path} HTTP/1.1`,
+        `Host: 127.0.0.1:${port}`,
+        "Connection: Upgrade",
+        "Upgrade: websocket",
+        "Sec-WebSocket-Version: 13",
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+        "",
+        "",
+      ].join("\r\n"),
+    );
+  });
+  socket.on("error", () => undefined);
+  await Bun.sleep(250);
+  socket.resetAndDestroy();
+  await Bun.sleep(250);
+
+  const response = await fetch(`${url}/api/workspaces`);
+  expect(response.ok).toBe(true);
+}, budget(30_000));
 
 test.skipIf(!usable)("the terminal tab runs a shell in the change directory", async () => {
   const { page, dir } = await openTerminal(id);
@@ -468,6 +503,15 @@ test.skipIf(!usable)("the window strip is the server's registry: a new tab is it
   const entries = page.locator(".sidebar .entry.window");
   expect(await until(() => entries.count(), 2)).toBe(2);
 
+  // The tab strip and the column name the same window as current: the highlight agrees with the
+  // window the server made active, and the command below proves the input follows it.
+  const currentTabId = await page.locator(".window-tab.current").getAttribute("data-window-id");
+  const currentSidebarId = await page
+    .locator(".sidebar .entry.sub.window.current")
+    .getAttribute("data-window-id");
+  expect(currentTabId).toBeTruthy();
+  expect(currentSidebarId).toBe(currentTabId);
+
   // The new window is active and is its own pty: a fresh shell without the first one's marker.
   await runCommand(page, `echo "\${TAB_MARK:-none}" > ${join(dir, "new-tab.txt")}`, join(dir, "new-tab.txt"), "none\n");
 
@@ -476,6 +520,10 @@ test.skipIf(!usable)("the window strip is the server's registry: a new tab is it
   // own attach follows it, and `runCommand` waits for that before typing.
   await tabs.first().click();
   expect(await until(() => page.locator(".window-tab.current").getAttribute("data-window-index"), "0", budget(20_000))).toBe("0");
+  // The column followed the switch to the same window the tab names.
+  expect(await page.locator(".sidebar .entry.sub.window.current").getAttribute("data-window-id")).toBe(
+    await page.locator(".window-tab.current").getAttribute("data-window-id"),
+  );
   await runCommand(page, `echo "\${TAB_MARK:-none}" > ${join(dir, "first-tab.txt")}`, join(dir, "first-tab.txt"), "one\n");
   await page.close();
 }, budget(90_000));
@@ -510,6 +558,99 @@ test.skipIf(!usable)("rapid window switching keeps the screen the tab names", as
   }
   await page.close();
 }, budget(120_000));
+
+test.skipIf(!usable)("a delayed window list never claims the session is gone", async () => {
+  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  // Hold the window list past the old five-second inference while the pane's own URL and socket
+  // resolve: an empty list is not evidence that the shells are lost.
+  let held = 0;
+  await page.route("**/api/terminals", async (route) => {
+    held += 1;
+    await Bun.sleep(9000);
+    await route.continue();
+  });
+  await page.goto(`${url}/changes/${id}/terminals`);
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await awaitAttached(page);
+  // Past the old threshold, with the list still held: no destructive loss message.
+  await Bun.sleep(6000);
+  expect(await page.locator(".terminal-gone").count()).toBe(0);
+  await awaitAttached(page);
+  // The list arrives and the strip appears without a reload.
+  await page.locator(".window-tab:not(.new):not(.overview)").first().waitFor({ timeout: 20_000 });
+  expect(held).toBeGreaterThan(0);
+  await page.close();
+}, budget(120_000));
+
+test.skipIf(!usable)("rapid selections settle on the last one when an earlier response is slow", async () => {
+  const { page } = await openTerminal(rapid);
+  const tabs = page.locator(".window-tab:not(.new):not(.overview)");
+  await tabs.first().waitFor({ timeout: 15_000 });
+  // The shared change may already carry windows from an earlier test in this file.
+  if ((await tabs.count()) < 2) {
+    await page.locator(".window-tab.new").click();
+    await until(async () => (await tabs.count()) >= 2, true, budget(20_000));
+  }
+
+  // The first selection request is held; the second must still win. Conflicting operations are
+  // serialized per change, so the page does not send the second until the first has answered.
+  let posts = 0;
+  await page.route("**/api/changes/*/terminal/windows", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    posts += 1;
+    if (posts === 1) await Bun.sleep(1200);
+    await route.continue();
+  });
+
+  await tabs.nth(0).click();
+  await tabs.nth(1).click();
+  await until(() => page.locator(".window-tab.current").getAttribute("data-window-index"), "1", budget(20_000));
+  // Let the held response arrive: it belongs to the older selection and must not roll it back.
+  await Bun.sleep(1500);
+  expect(await page.locator(".window-tab.current").getAttribute("data-window-index")).toBe("1");
+  expect(posts).toBeGreaterThanOrEqual(2);
+  await page.close();
+}, budget(120_000));
+
+test.skipIf(!usable)("a failed selection is said, not silently dropped", async () => {
+  const { page } = await openTerminal(rapid);
+  const tabs = page.locator(".window-tab:not(.new):not(.overview)");
+  await tabs.first().waitFor({ timeout: 15_000 });
+  // The shared change may already carry windows from an earlier test in this file.
+  if ((await tabs.count()) < 2) {
+    await page.locator(".window-tab.new").click();
+    await until(async () => (await tabs.count()) >= 2, true, budget(20_000));
+  }
+
+  // The next selection is refused by the server: the page must say so rather than leave the old
+  // selection on screen as if the click had never happened.
+  await page.route("**/api/changes/*/terminal/windows", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "the registry refused" }),
+    });
+  });
+  await tabs.nth(0).click();
+  await page.locator(".error-banner").waitFor({ timeout: budget(20_000) });
+  expect(await page.locator(".error-banner").innerText()).toContain("the registry refused");
+  await page.close();
+}, budget(90_000));
+
+test.skipIf(!usable)("exiting the shell says the session ended, not that the shell was lost", async () => {
+  const { page } = await openTerminal(exits);
+  await awaitAttached(page);
+  await page.keyboard.type("exit\n");
+  await page.locator(".terminal-gone").waitFor({ timeout: budget(20_000) });
+  const text = ((await page.locator(".terminal-gone").textContent()) ?? "").replace(/\s+/g, " ").trim();
+  // Purely factual and scoped: no claim that the whole change lost its shells, and no action
+  // promise (a reload or a tab is transient here and must not be presented as the fix).
+  expect(text).toBe("The shell in this terminal has ended. Other terminals in this change are unaffected.");
+  expect(text).not.toContain("Reload");
+  expect(text).not.toContain("shells in it");
+  await page.close();
+}, budget(90_000));
 
 test.skipIf(!usable)("every window's pty is the size the page shows", async () => {
   const { page, dir } = await openTerminal(id);

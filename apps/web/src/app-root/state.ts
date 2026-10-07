@@ -1,84 +1,114 @@
-import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import { ChangeId } from "@corvi/contracts/changes";
-import type { WindowActionBodyDto } from "@corvi/contracts/api";
 import { apiClient, type Change } from "./api.ts";
 import { changeKey, clientFor, sourceOf, useSources, type Source } from "./sources.ts";
 import { useServerEvent } from "./events.ts";
 import type { TerminalWindow } from "../domain/terminal.ts";
+import { makeWindowsStore, type SourceWindows, type WindowsStore } from "./windowState.ts";
+
+/** The flat map the navigation column, the tab strip and the change page read: every source's
+ * windows keyed by `changeKey(source, id)`, because two servers can mint the same change id. */
+const flattenWindows = (bySource: Readonly<Record<string, SourceWindows>>): Record<string, TerminalWindow[]> => {
+  const windows: Record<string, TerminalWindow[]> = {};
+  for (const [source, entry] of Object.entries(bySource)) {
+    for (const [id, list] of Object.entries(entry.byChange)) windows[changeKey(source, id)] = [...list];
+  }
+  return windows;
+};
+
+/** The same key for a mutation failure, so a change's page can say what failed. */
+const flattenErrors = (
+  errors: Readonly<Record<string, Readonly<Record<string, string>>>>,
+): Record<string, string> => {
+  const flat: Record<string, string> = {};
+  for (const [source, byChange] of Object.entries(errors)) {
+    for (const [id, message] of Object.entries(byChange)) flat[changeKey(source, id)] = message;
+  }
+  return flat;
+};
 
 /**
- * Every change's terminal windows, and the two things you do to them.
+ * Every change's terminal windows, and the things you do to them.
  *
  * One request per source for all of them, because the navigation column lists the terminals of
  * every change at once — and no poller at all: each server watches its windows and says when they
- * change. Windows are keyed by `changeKey(source, id)`, because two servers can mint the same
- * change id.
+ * change. The ordering rules live in `windowState.ts`; this is the React adapter around them.
  */
 export function useWindows(): {
   windows: Record<string, TerminalWindow[]>;
+  /** What a selection/creation/move failed with, by `changeKey`, until the next success. */
+  errors: Record<string, string>;
   select: (source: string, id: string, index: number) => void;
   create: (source: string, id: string) => Promise<void>;
   move: (source: string, id: string, from: number, to: number) => void;
-  refresh: () => Promise<void>;
+  /** Bring a window to the front by stable identity, for the subagent pane's explicit click. */
+  focus: (source: string, id: string, windowId: string) => void;
+  refresh: () => void;
 } {
   const { sources } = useSources();
-  const [windows, setWindows] = useState<Record<string, TerminalWindow[]>>({});
-
-  const load = useCallback(async (): Promise<void> => {
-    // Settled per source: one unreachable remote must not stop the local windows from loading.
-    const results = await Promise.allSettled(
-      sources.map(async (source) => ({
-        source,
-        byChange: await clientFor(source.id).terminals.list(),
-      })),
-    );
-    const merged: Record<string, TerminalWindow[]> = {};
-    for (const result of results) {
-      if (result.status !== "fulfilled") continue;
-      for (const [id, list] of Object.entries(result.value.byChange)) {
-        merged[changeKey(result.value.source.id, id)] = list;
-      }
-    }
-    setWindows(merged);
-  }, [sources]);
-
+  const store = useRef<WindowsStore | null>(null);
+  if (store.current === null) {
+    store.current = makeWindowsStore({
+      list: (sourceId: string): Promise<Readonly<Record<string, readonly TerminalWindow[]>>> =>
+        clientFor(sourceId).terminals.list(),
+      act: (sourceId: string, changeId: string, action) =>
+        clientFor(sourceId).terminals.windowAction(ChangeId.make(changeId), action),
+    });
+  }
+  const current = store.current;
+  const state = useSyncExternalStore(current.subscribe, current.snapshot, current.snapshot);
+  const sourceIds = useMemo(() => sources.map((source) => source.id), [sources]);
   useEffect(() => {
-    void load().catch(() => {}); // no host yet: the next tick will find it
-  }, [load]);
+    current.setSources(sourceIds);
+  }, [current, sourceIds]);
   // A remote event says which source changed, but refetching every source is simpler and still
-  // one request each; the result is a screen that is never stale, which matters more here than
-  // the few wasted reads. Stable callbacks: an inline arrow would resubscribe every render.
-  const reloadWindows = useCallback((): void => {
-    void load().catch(() => {});
-  }, [load]);
-  useServerEvent("windows", reloadWindows);
-  useServerEvent("source", reloadWindows);
+  // one request each; the store coalesces the overlap. Stable callbacks: an inline arrow would
+  // resubscribe every render.
+  const reload = useCallback((): void => current.refresh(), [current]);
+  useServerEvent("windows", reload);
+  useServerEvent("source", reload);
 
-  const act = useCallback(
-    (source: string, id: string, body: WindowActionBodyDto) =>
-      clientFor(source)
-        .terminals.windowAction(ChangeId.make(id), body)
-        .then((next) => setWindows((all) => ({ ...all, [changeKey(source, id)]: next })))
-        .catch(() => {}),
-    [],
-  );
+  const windows = useMemo(() => flattenWindows(state.bySource), [state.bySource]);
+  const errors = useMemo(() => flattenErrors(state.errors), [state.errors]);
 
   return {
     windows,
+    errors,
     select: useCallback(
-      (source: string, id: string, index: number) => void act(source, id, { action: "select", index }),
-      [act],
+      (source: string, id: string, index: number) => void current.select(source, id, index),
+      [current],
     ),
-    create: useCallback((source: string, id: string) => act(source, id, { action: "new" }), [act]),
+    create: useCallback((source: string, id: string) => current.create(source, id), [current]),
     /** Where a dragged tab landed: the window at `from` takes `to`'s place. */
     move: useCallback(
-      (source: string, id: string, from: number, to: number) =>
-        void act(source, id, { action: "move", from, to }),
-      [act],
+      (source: string, id: string, from: number, to: number) => void current.move(source, id, from, to),
+      [current],
     ),
-    refresh: load,
+    focus: useCallback(
+      (source: string, id: string, windowId: string) => void current.focus(source, id, windowId),
+      [current],
+    ),
+    refresh: reload,
   };
 }
+
+/** A terminal URL answer tagged with the target it belongs to, so a late answer can be shown only
+ * for the target it was asked for. */
+type TerminalUrlResult = {
+  readonly source: string;
+  readonly id: string;
+  readonly url: string | null;
+  readonly error: string | null;
+};
 
 /**
  * Where the change you are looking at opens its terminal socket.
@@ -93,25 +123,46 @@ export function useTerminal(
   archived: boolean,
   wanted: boolean,
 ): { url: string | null; error: string | null } {
-  const [url, setUrl] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<TerminalUrlResult | null>(null);
 
   useEffect(() => {
-    setUrl(null);
-    setError(null);
-  }, [source, id]);
-
-  useEffect(() => {
-    if (!id || archived || !wanted) return;
+    if (!id || archived || !wanted) {
+      setResult(null);
+      return;
+    }
+    // Generation guard: the effect's cleanup cancels the request and makes its answer inert, so a
+    // late result for a source/change the page has left cannot replace the current one (and cannot
+    // blank the current terminal). The tag is the render-time half of the same rule.
+    const controller = new AbortController();
+    let live = true;
+    setResult(null);
     clientFor(source)
-      .terminals.url(ChangeId.make(id))
+      .terminals.url(ChangeId.make(id), { signal: controller.signal })
       // The remote answers a path relative to its own origin; the page reaches it through the
       // owning source's gateway prefix, so the socket stays same-origin.
-      .then((r) => setUrl(source === "" ? r.url : `${sourceOf(source).baseUrl}${r.url}`))
-      .catch((e: Error) => setError(e.message));
+      .then((r) => {
+        if (!live) return;
+        setResult({
+          source,
+          id,
+          url: source === "" ? r.url : `${sourceOf(source).baseUrl}${r.url}`,
+          error: null,
+        });
+      })
+      .catch((e: Error) => {
+        // The cleanup sets `live` false before it aborts, so an aborted request is already inert;
+        // a genuine failure is the only thing that reaches here with `live` still true.
+        if (!live) return;
+        setResult({ source, id, url: null, error: e.message });
+      });
+    return () => {
+      live = false;
+      controller.abort();
+    };
   }, [source, id, archived, wanted]);
 
-  return { url, error };
+  const current = result !== null && result.source === source && result.id === id ? result : null;
+  return { url: current?.url ?? null, error: current?.error ?? null };
 }
 
 /** One source's changes, tagged with it. A remote source keeps only the changes of the workspace

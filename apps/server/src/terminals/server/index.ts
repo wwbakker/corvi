@@ -15,6 +15,7 @@ export {
   allWindows,
   newWindow,
   selectWindow,
+  selectWindowById,
   moveWindow,
   splitPane,
   closePane,

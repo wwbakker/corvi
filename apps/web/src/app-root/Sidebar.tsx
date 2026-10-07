@@ -223,6 +223,7 @@ export function Sidebar({
         {mine.map((w) => (
           <button
             key={w.index}
+            data-window-id={w.id}
             className={
               selected && page === "terminals" && w.active
                 ? "entry sub window current"

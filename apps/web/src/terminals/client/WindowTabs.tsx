@@ -106,6 +106,7 @@ export function WindowTabs({
           <button
             key={w.index}
             data-window-index={w.index}
+            data-window-id={w.id}
             className={classes.join(" ")}
             title={`ctrl-b ${w.index} — ${w.detail}`}
             // Focus is what a mousedown moves, and a terminal you cannot type in after clicking

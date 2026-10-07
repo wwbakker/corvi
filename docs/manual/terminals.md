@@ -20,6 +20,11 @@ and tells the first window it has been taken over: the first keeps its last scre
 terminal is open in another window, and offers **Take over** — which re-attaches it and, in turn,
 detaches the second. This also covers two tabs on one machine; neither screen freezes silently.
 
+A terminal that is starting or reconnecting says so; the pane does not claim the shells are lost.
+A shell that exits ends only its own pane and says that there — the other terminals in the change
+are unaffected. A slow startup or a temporarily unreachable server is a connection state, not a
+lost session, so it recovers when the answer arrives without a reload.
+
 This persistence is not a promise to restore processes after a machine reboot or to resume an
 agent conversation. Those are separate planned capabilities.
 
@@ -38,9 +43,12 @@ strip wraps to a second row instead of showing a horizontal scrollbar. The strip
 rows and scrolls once there are more; the **Actions** menu sits vertically centred in the strip.
 
 The new-window control, **Cmd-T** on macOS or **Ctrl-Alt-T** on Linux, creates another host session
-in the current window's directory. In a normal Chrome tab, Cmd-T remains a browser shortcut; the
-desktop app can deliver it to Corvi. Keyboard focus stays with the terminal while switching
-windows.
+in the current window's directory. It becomes the current window. Work that opens a window in the
+background — an action run, a subagent — does not: it leaves the terminal you are looking at
+selected, so an idle shell is never taken over by something you did not open. Explicitly opening a
+terminal — a strip tab, a notification, or a subagent entry — selects it. In a normal Chrome tab,
+Cmd-T remains a browser shortcut; the desktop app can deliver it to Corvi. Keyboard focus stays
+with the terminal while switching windows.
 
 The terminal owns the screen: drag to select, the wheel or the scrollbar scrolls back, and the
 right-click menu holds Copy, Paste, Select all, Clear, Find and Open link. A dot indicates output
@@ -143,8 +151,10 @@ local change that happens to share an id; clicking opens that remote change's wi
 The terminal host owns every pty. Its socket is `<state dir>/corvi/host.sock` (the state dir is
 `$XDG_STATE_HOME/corvi` unless overridden), and the window registry is `terminal-windows.json`
 beside it. A blank browser terminal with a live host session points to the connection or rendering
-path rather than lost shells; check the correct server's logs and the browser console. Stopping
-Corvi and starting it again leaves the host and its shells running by design.
+path rather than lost shells; the pane's own starting/connecting/reconnecting state says which,
+and a message that a shell ended appears only when the session really exited. Check the correct
+server's logs and the browser console. Stopping Corvi and starting it again leaves the host and its
+shells running by design.
 
 Tests isolate themselves with their own state directory (`XDG_STATE_HOME`), so they never touch
 your host. Follow the contributor [resource-safety

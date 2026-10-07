@@ -52,6 +52,7 @@ import {
   killHostWindow,
   liveSubagents,
   newSubagentWindow,
+  selectWindowById,
   type LiveSubagent,
 } from "../../terminals/server/index.ts";
 import type { Change } from "@corvi/changes/record";
@@ -107,7 +108,15 @@ const toDto = (record: SubagentWithMessages, live: Live | undefined): SubagentIn
     createdBy: record.createdBy,
     createdAt: record.createdAt,
     ...view,
-    ...(live === undefined ? {} : { windowIndex: live.index }),
+    // Stable identities for the pane to render and the window to focus; `windowIndex` is a
+    // positional fallback only, and is omitted when the rebuild did not contain the window.
+    ...(live === undefined
+      ? {}
+      : {
+          paneId: live.window,
+          windowId: live.windowId,
+          ...(live.index === undefined ? {} : { windowIndex: live.index }),
+        }),
     log: record.log,
     messages: [...record.messages],
   };
@@ -295,11 +304,24 @@ export const openSubagent = (
   openLock(`${change.id}\u0000${id}`).withPermits(1)(
     Effect.gen(function* () {
       const record = yield* requireInstance(change, id);
-      const live = (yield* liveBySubagent(change.id)).get(id);
-      if (live !== undefined) return toDto(record, live);
+      const existing = (yield* liveBySubagent(change.id)).get(id);
+      if (existing !== undefined) {
+        // An explicit open is the user asking for this terminal: bring it to the front by its
+        // stable window id, not a position another read computed. Creation (`createSubagent`)
+        // runs in the background and leaves the current terminal selected. A selection failure is
+        // reported: the caller asked for something that did not happen.
+        yield* selectWindowById(change.id, existing.windowId).pipe(
+          Effect.mapError((failure) => new BadRequestError({ message: failure.message })),
+        );
+        return toDto(record, existing);
+      }
       const window = yield* launcher(change, record);
       yield* opened(change, id, window);
       yield* Effect.sync(() => announce("windows"));
+      // The launcher returned the window's registration id; select exactly it.
+      yield* selectWindowById(change.id, window).pipe(
+        Effect.mapError((failure) => new BadRequestError({ message: failure.message })),
+      );
       return yield* refreshSubagent(change, id);
     }),
   );

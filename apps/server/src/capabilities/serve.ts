@@ -156,14 +156,21 @@ const writeResponse = async (res: ServerResponse, response: Response): Promise<v
   }
 };
 
-/** An upgrade-path answer that is not an upgrade (404 "no terminal for this change") has no
- * ServerResponse to write to: the request never became one. Write it to the socket as it is. */
+/** An upgrade-path answer that is not an upgrade (404 "no terminal for this change", a refused
+ * stale pane, a 401) has no ServerResponse to write to: the request never became one. Write it to
+ * the socket as it is. The client may abort the handshake once it sees the non-upgrade answer, so
+ * the socket's reset is handled here rather than crashing the server as an unhandled 'error'. */
 const writeRaw = async (socket: Socket, response: Response): Promise<void> => {
-  const body = Buffer.from(await response.arrayBuffer());
-  socket.write(`HTTP/1.1 ${response.status} ${response.statusText || "OK"}\r\n`);
-  response.headers.forEach((value, key) => socket.write(`${key}: ${value}\r\n`));
-  socket.write(`content-length: ${body.length}\r\nconnection: close\r\n\r\n`);
-  socket.end(body);
+  socket.on("error", () => socket.destroy());
+  try {
+    const body = Buffer.from(await response.arrayBuffer());
+    socket.write(`HTTP/1.1 ${response.status} ${response.statusText || "OK"}\r\n`);
+    response.headers.forEach((value, key) => socket.write(`${key}: ${value}\r\n`));
+    socket.write(`content-length: ${body.length}\r\nconnection: close\r\n\r\n`);
+    socket.end(body);
+  } catch {
+    socket.destroy();
+  }
 };
 
 export type WebSocketHandlers<Data> = {
@@ -264,6 +271,9 @@ export const serve = async <Data>(options: ServeOptions<Data>): Promise<Serving>
     // Node types the upgrade socket as a Duplex; it is a net.Socket, which is what the
     // handshake and the raw non-upgrade answer both need.
     const raw = socket as Socket;
+    // A client that gives up on the handshake resets the connection; that must never be an
+    // unhandled socket error, whether the route upgrades, refuses, or throws.
+    raw.on("error", () => raw.destroy());
     void (async () => {
       const request = toRequest(req, requestUrl(req));
       const refused = await options.authorize?.(request);

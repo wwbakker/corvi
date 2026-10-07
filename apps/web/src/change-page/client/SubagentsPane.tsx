@@ -8,7 +8,7 @@
  * TUI is still possible and is honestly just the terminal: it lives in the harness's own history,
  * not this log.
  */
-import { type JSX, useCallback, useEffect, useRef, useState } from "react";
+import { type JSX, useCallback, useEffect, useState } from "react";
 
 import { ChangeId } from "@corvi/contracts/changes";
 import type { SubagentInstanceDto, SubagentMessageDto, SubagentSystemEventDto } from "@corvi/contracts/subagents";
@@ -56,23 +56,22 @@ export function SubagentsPane({
   changeId,
   platform,
   terminal,
-  sessionId,
-  windowsCount,
-  onFocusWindow,
+  onFocusPane,
 }: {
   changeId: string;
   platform: Platform;
   terminal: { url: string | null; error: string | null; create: () => void };
-  /** The active window's focused pane that the embedded terminal shows; selecting a subagent sets
-   * it. */
-  sessionId: string | null;
-  windowsCount: number;
-  /** Switch the shared session to a window **without** leaving this page. */
-  onFocusWindow: (index: number) => void;
+  /** Bring the selected subagent's window to the front by stable identity (an explicit selection
+   * only). */
+  onFocusPane: (windowId: string) => void;
 }): JSX.Element {
   const client = useChangeClient();
   const [instances, setInstances] = useState<SubagentInstanceDto[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
+  // The subagent whose terminal the page shows when the user has not chosen one. It is pinned the
+  // first time there is anything to show, so a background creation or a reorder cannot move the
+  // rendered/input pane out from under the user.
+  const [pinned, setPinned] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -88,22 +87,33 @@ export function SubagentsPane({
   useServerEvent("changes", load);
   useServerEvent("windows", load);
 
-  const current = instances.find((instance) => instance.id === selected) ?? instances[0];
-
-  // Focusing the terminal on the selected subagent's window is the point of putting the two side
-  // by side. It runs when the *selection* changes, not whenever an index shifts, and it goes
-  // through a ref: the callback's identity changes on every app render, and depending on it here
-  // would re-fire the focus forever.
-  const focus = useRef(onFocusWindow);
-  focus.current = onFocusWindow;
-  const chosen = useRef<SubagentInstanceDto | undefined>(current);
-  chosen.current = current;
   useEffect(() => {
-    const instance = chosen.current;
-    if (instance?.presence === "attached" && instance.windowIndex !== undefined) {
-      focus.current(instance.windowIndex);
+    if (pinned !== null || selected !== null) return;
+    const first = instances[0];
+    if (first !== undefined) setPinned(first.id);
+  }, [instances, pinned, selected]);
+
+  const activeId = selected ?? pinned;
+  const current = activeId === null ? undefined : instances.find((instance) => instance.id === activeId);
+  // The pane the embedded terminal shows is the subagent's own live pane, named by the stable
+  // pane id from its DTO — never a positional join against another list. With no live pane the
+  // page shows a placeholder rather than falling back to the change's active shell, so keystrokes
+  // can never land in a terminal that is not this subagent's. A selection whose record is gone
+  // keeps the pinned id (no auto-switch to a survivor); its placeholder asks for another choice
+  // instead, matching the fact that no Open button exists for a record that is not there.
+  const shownPaneId = current?.paneId ?? null;
+  const selectedIsGone = activeId !== null && current === undefined;
+
+  // Focusing the terminal on a subagent you opened is the point of putting the two side by side.
+  // Only the click itself focuses, and it names the window/pane by identity: a later `instances`
+  // refresh must not fire a deferred selection the user did not just ask for, and a positional
+  // index from another read must not land the focus on a different window.
+  const chooseSubagent = (instance: SubagentInstanceDto): void => {
+    setSelected(instance.id);
+    if (instance.presence === "attached" && instance.windowId !== undefined) {
+      onFocusPane(instance.windowId);
     }
-  }, [current?.id, current?.presence]);
+  };
 
   const act = async (work: () => Promise<unknown>, message: string): Promise<void> => {
     setNotice(null);
@@ -170,16 +180,24 @@ export function SubagentsPane({
   return (
     <div className="subagents-layout">
       <div className="terminal-host subagent-terminal">
-        <TerminalPane
-          changeId={changeId}
-          url={terminal.url}
-          sessionId={sessionId}
-          error={terminal.error}
-          visible
-          platform={platform}
-          onNewWindow={terminal.create}
-          windows={windowsCount}
-        />
+        {selectedIsGone ? (
+          <p className="hint">this subagent is no longer here — choose another from the list</p>
+        ) : shownPaneId === null ? (
+          // The record exists but has no live pane: say so rather than attach this terminal to
+          // whatever shell the change happens to have active. Its Open button is in the actions
+          // row beside the conversation.
+          <p className="hint">this subagent has no live terminal — use Open to start one</p>
+        ) : (
+          <TerminalPane
+            changeId={changeId}
+            url={terminal.url}
+            sessionId={shownPaneId}
+            error={terminal.error}
+            visible
+            platform={platform}
+            onNewWindow={terminal.create}
+          />
+        )}
       </div>
       <div className="subagents-conversation">
         <header>
@@ -192,7 +210,7 @@ export function SubagentsPane({
             <button
               key={instance.id}
               className={`entry${instance.id === current?.id ? " current" : ""}`}
-              onClick={() => setSelected(instance.id)}
+              onClick={() => chooseSubagent(instance)}
             >
               {instance.label}
               {instance.interrupted ? (

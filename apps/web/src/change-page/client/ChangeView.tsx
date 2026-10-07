@@ -51,8 +51,9 @@ export function ChangeView({
   provision,
   terminal,
   windows,
+  windowError,
   onSelectWindow,
-  onFocusWindow,
+  onFocusPane,
   onNewWindow,
   onMoveWindow,
   onOpenPage,
@@ -77,11 +78,13 @@ export function ChangeView({
   };
   /** This change's terminal windows: what the terminal page's tabs are. */
   windows: TerminalWindow[];
+  /** What this change's last terminal selection/creation failed with, if anything. */
+  windowError?: string;
   /** Switching the session to one of its windows. */
   onSelectWindow: (index: number) => void;
-  /** Switching the session to a window **without** leaving the page (the Subagents page's
-   * embedded terminal). */
-  onFocusWindow: (index: number) => void;
+  /** Bring a window to the front by stable identity **without** leaving the page (the Subagents
+   * page's embedded pane). */
+  onFocusPane: (windowId: string) => void;
   /** Another window beside the current one. The terminal's own chord does this from inside it;
    * this is the tab that does. */
   onNewWindow: () => void;
@@ -432,7 +435,7 @@ export function ChangeView({
           onClose={() => setCancelWarning(null)}
         />
       )}
-      {error && <div className="error-banner">{error}</div>}
+      {(error ?? windowError) && <div className="error-banner">{error ?? windowError}</div>}
       {/* The downgrade fence, said up front: a record from a newer Corvi reads here but every
           write is refused, so the page says so before a button does. */}
       {change && (change.formatVersion ?? 0) > FORMAT_VERSION && (
@@ -486,9 +489,7 @@ export function ChangeView({
           changeId={id}
           platform={platform}
           terminal={terminal}
-          sessionId={activePaneId}
-          windowsCount={windows.length}
-          onFocusWindow={onFocusWindow}
+          onFocusPane={onFocusPane}
         />
       )}
       {/* The terminal page's pane. The Subagents page has its own terminal inside its layout, so
@@ -505,7 +506,6 @@ export function ChangeView({
             focusRequest={focusRequest}
             platform={platform}
             onNewWindow={terminal.create}
-            windows={windows.length}
           />
         </div>
       )}

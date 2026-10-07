@@ -162,7 +162,6 @@ export function TerminalPane({
   focusRequest,
   platform,
   onNewWindow,
-  windows,
 }: {
   changeId: string;
   url: string | null;
@@ -181,9 +180,6 @@ export function TerminalPane({
    * same test the server's own key handling applies, from @corvi/terminals/model). */
   platform: Platform;
   onNewWindow: () => void;
-  /** How many windows this change's session has: none while one is starting, and none forever
-   * once it is gone. */
-  windows: number;
 }): JSX.Element {
   const host = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
@@ -205,6 +201,13 @@ export function TerminalPane({
   /** The same id as state, so the view can say "attached" only while it matches the window the
    * page names: a stale socket's claim drops in the very render the window changes. */
   const [attached, setAttached] = useState<string | null>(null);
+  /** How the current socket is doing. The surface it drives is truthful: an open socket without a
+   * session is "connecting", a socket that closed without being told the session ended is
+   * "reconnecting", and only an `exit` frame is evidence that the session is over. */
+  const [socketState, setSocketState] = useState<"idle" | "connecting" | "open" | "closed">("idle");
+  /** The session told the page it exited: the pane says so, scoped to this terminal's shell, not
+   * to every shell of the change. */
+  const [ended, setEnded] = useState(false);
   /** Reconnection: a bounded backoff while the server is down, stopped when the session itself is
    * gone or the pane unmounts. */
   const reconnectAttempt = useRef(0);
@@ -228,19 +231,6 @@ export function TerminalPane({
   /** The link under the pointer: the URL and the point its tooltip is anchored at. */
   const [linkTooltip, setLinkTooltip] = useState<{ url: string; x: number; y: number } | null>(null);
   const linkTooltipRef = useRef<HTMLDivElement>(null);
-
-  // A terminal that was fine when the tab opened can lose its session while you watch it, the way
-  // a killed server does. The window list going empty and staying empty is what that looks like
-  // from here; waiting a moment tells "starting" from "lost".
-  const [lostWhileOpen, setLostWhileOpen] = useState(false);
-  useEffect(() => {
-    if (!visible || windows > 0) {
-      setLostWhileOpen(false);
-      return;
-    }
-    const timer = setTimeout(() => setLostWhileOpen(true), 5000);
-    return () => clearTimeout(timer);
-  }, [visible, windows]);
 
   // The xterm instance, once: it owns the screen for as long as the pane is mounted. The session
   // behind it is the socket's (below), so hiding the pane keeps the shells running.
@@ -447,6 +437,8 @@ export function TerminalPane({
     fitTerminal(term);
     const scheme = location.protocol === "https:" ? "wss:" : "ws:";
     const windowQuery = sessionId === undefined || sessionId === null ? "" : `&session=${encodeURIComponent(sessionId)}`;
+    setSocketState("connecting");
+    setEnded(false);
     const ws = new WebSocket(`${scheme}//${location.host}${url}?cols=${term.cols}&rows=${term.rows}${windowQuery}`);
     ws.binaryType = "arraybuffer";
     ws.onmessage = (event: MessageEvent) => {
@@ -477,8 +469,10 @@ export function TerminalPane({
           setDetached(true);
           setAttached(null);
         } else if (value.type === "exit") {
-          // The session is gone: the close that follows is final, not a restart to retry.
+          // The session is gone: the close that follows is final, not a restart to retry. This is
+          // the only evidence that ends a pane; a closed socket alone is a reconnect.
           sessionGone.current = true;
+          setEnded(true);
         }
         return;
       }
@@ -495,6 +489,7 @@ export function TerminalPane({
       sessionGone.current = false;
       detachedRef.current = false;
       setDetached(false);
+      setSocketState("open");
       if (!pendingResize.current) return;
       ws.send(JSON.stringify({ type: "resize", ...pendingResize.current }));
       pendingResize.current = null;
@@ -507,6 +502,7 @@ export function TerminalPane({
       socket.current = null;
       socketSession.current = null;
       setAttached(null);
+      setSocketState("closed");
       pendingResize.current = null;
       // A detached close is deliberate: the other window has it, and this pane waits for the
       // take-over rather than racing it for the connection.
@@ -703,10 +699,9 @@ export function TerminalPane({
 
   return (
     <div className="terminal">
-      {lostWhileOpen && (
+      {ended && (
         <div className="terminal-gone">
-          The terminal session for this change is gone: the shells in it, and anything that was
-          running in them, are lost. Reload this page to start a fresh session.
+          The shell in this terminal has ended. Other terminals in this change are unaffected.
         </div>
       )}
       {detached && (
@@ -717,6 +712,12 @@ export function TerminalPane({
       )}
       {error && <div className="error-banner">{error}</div>}
       {!url && !error && <p className="hint">starting terminal…</p>}
+      {url && !error && !ended && !detached && attached === null && socketState !== "closed" && (
+        <p className="hint">connecting…</p>
+      )}
+      {url && !error && !ended && !detached && socketState === "closed" && (
+        <p className="hint">reconnecting…</p>
+      )}
       {findOpen && (
         <div className="terminal-find">
           <input
@@ -747,6 +748,9 @@ export function TerminalPane({
         ref={host}
         className="terminal-screen"
         hidden={!url}
+        // The pane this xterm is rendering, by identity: a test can assert the intended target
+        // without reading a positional index out of another list.
+        data-session={sessionId ?? ""}
         // The pane is attached only while the open socket is for the window the page currently
         // names (or the page names none and the server resolved one): the tests' readiness gate
         // must not pass on the socket a window switch is about to replace.
