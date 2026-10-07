@@ -6,7 +6,7 @@ import { chromium, webkit, type Browser } from "playwright";
 
 import { serve, type Serving } from "../apps/server/src/capabilities/serve.ts";
 import { guard, json } from "../apps/server/src/capabilities/web.ts";
-import { closePages, requireFreshWebBundle, serverEnv, stopRunHost, testRun, testTempDir, until, waitFor, waitForUrl } from "./helpers.ts";
+import { budget, checkoutsOf, closePages, requireFreshWebBundle, runSh, serverEnv, stopRunHost, testRun, testTempDir, until, waitFor, waitForUrl } from "./helpers.ts";
 
 /**
  * A remote workspace in the one client: its change appears in the sidebar and the workspace
@@ -53,6 +53,8 @@ let remoteLeftovers: string[];
 /** The workspace ids the remote's change-create route was asked for, and what it created. */
 let remoteCreates: string[];
 let createdChange: typeof REMOTE_CHANGE | undefined;
+/** How long the remote's terminal URL answer is held, for the obsolete-answer test. */
+let remoteTerminalDelayMs = 0;
 
 beforeAll(async () => {
   if (!usable) return;
@@ -71,6 +73,12 @@ beforeAll(async () => {
   remote = await serve<unknown>({
     port: 0,
     routes: guard({
+      // The availability owner's health stream: a remote that does not answer this is unavailable,
+      // and the page would gate every one of its reads.
+      "/api/events": () =>
+        new Response(new ReadableStream<Uint8Array>({ start: (c) => c.enqueue(new TextEncoder().encode(": open\n\n")) }), {
+          headers: { "content-type": "text/event-stream" },
+        }),
       "/api/changes": {
         GET: (req) => {
           record(req);
@@ -112,8 +120,9 @@ beforeAll(async () => {
         GET: () => json({ steps: [], planTemplate: "" }),
       },
       "/api/changes/:id/terminal": {
-        GET: (req) => {
+        GET: async (req) => {
           record(req);
+          if (remoteTerminalDelayMs > 0) await Bun.sleep(remoteTerminalDelayMs);
           return json({ url: `/api/changes/${REMOTE_CHANGE.id}/terminal/socket` });
         },
       },
@@ -213,11 +222,18 @@ beforeAll(async () => {
   url = await waitForUrl(server);
 
   // A local change with the SAME id as the remote one: the collision the source dimension exists
-  // to keep straight.
+  // to keep straight. It has a checkout so its terminal can actually attach.
+  const repo = join(tmp, "repo");
+  await runSh(["git", "init", "-b", "main", repo]);
   await fetch(`${url}/api/changes`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ id: REMOTE_CHANGE.id, title: "Local idea", state: "Ideation" }),
+    body: JSON.stringify({
+      id: REMOTE_CHANGE.id,
+      title: "Local idea",
+      state: "Ideation",
+      checkouts: checkoutsOf([repo]),
+    }),
   });
 });
 
@@ -416,8 +432,9 @@ test.skipIf(!usable)(
     await page.getByRole("button", { name: "Azure DevOps" }).waitFor();
 
     // A workspace whose remote cannot be read: the previous workspace's links must not linger.
+    // The entry is annotated once the health check fails, and it stays selectable.
     await page.locator("button.workspace").click();
-    await page.getByText("Remote down", { exact: true }).click();
+    await page.getByRole("button", { name: /^Remote down( \(Unavailable\))?$/ }).click();
     await page.getByRole("button", { name: "Azure DevOps" }).waitFor({ state: "detached" });
     expect(await page.getByRole("button", { name: "Leftovers" }).count()).toBe(0);
     await page.close();
@@ -485,4 +502,41 @@ test.skipIf(!usable)(
     await page.close();
   },
   60_000,
+);
+
+test.skipIf(!usable)(
+  "a late terminal URL from a change you left cannot take over the current one",
+  async () => {
+    remoteTerminalDelayMs = 4000;
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const sockets: string[] = [];
+    page.on("websocket", (socket) => sockets.push(socket.url()));
+    try {
+      // Open the local twin's terminal once so it has a window entry in the column.
+      await page.goto(`${url}/changes/${REMOTE_CHANGE.id}/terminals`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector(".terminal-screen[data-attached]", { timeout: budget(30_000) });
+
+      // The remote change's terminal URL answer is held on its own page load...
+      await page.goto(`${url}/changes/${REMOTE_CHANGE.id}/terminals?source=remote-client`, {
+        waitUntil: "domcontentloaded",
+      });
+      // Only the local twin has a window (the fake remote serves none), so it is the one entry.
+      const localWindow = page.locator(".sidebar .entry.window").first();
+      await localWindow.waitFor({ timeout: budget(20_000) });
+      // ...and the page leaves for the local twin's terminal (client-side) before it arrives.
+      await localWindow.click();
+      await page.waitForSelector(".terminal-screen[data-attached]", { timeout: budget(30_000) });
+
+      // The held answer belongs to the source/change the page left; it must not attach its
+      // socket or blank the terminal that is now showing.
+      await Bun.sleep(4500);
+      expect(sockets.some((socket) => socket.includes("/remote/remote-client/"))).toBe(false);
+      expect(await page.locator(".terminal-gone").count()).toBe(0);
+      expect(await page.locator(".error-banner").count()).toBe(0);
+    } finally {
+      remoteTerminalDelayMs = 0;
+      await page.close();
+    }
+  },
+  budget(90_000),
 );

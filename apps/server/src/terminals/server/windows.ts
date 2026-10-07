@@ -275,8 +275,21 @@ export const liveSnapshotKeys = (
       .map((session) => snapshotKey(session.id, session.incarnation)),
   );
 
-/** Rebuild, apply a patch, mark `id` active, and persist. Caller holds the registry lock. */
-const activate = async (changeId: string, id: string, patch: Partial<WindowRecord> = {}): Promise<WindowRecord[]> => {
+/** Whether opening a window is the user's explicit creation — the new terminal becomes the active
+ * one — or background work (an action run, a subagent) that must leave the current terminal
+ * selected. A named intent rather than a boolean, so a call site reads as what it means. */
+export type WindowIntent = "activate" | "background";
+
+/** Rebuild, apply a patch, and persist. With `intent: "activate"` the window becomes the active
+ * one; with `intent: "background"` the existing selection is kept, and `mergeRecords` leaves the
+ * first window active when the change had none (so the registry stays usable). Caller holds the
+ * registry lock. */
+const persistWindow = async (
+  changeId: string,
+  id: string,
+  intent: WindowIntent,
+  patch: Partial<WindowRecord> = {},
+): Promise<WindowRecord[]> => {
   const { live } = await liveFor(changeId);
   const base = rebuild(changeId, live);
   const present = base.some((record) => record.id === id)
@@ -296,7 +309,12 @@ const activate = async (changeId: string, id: string, patch: Partial<WindowRecor
       ];
   return save(
     changeId,
-    present.map((record) => (record.id === id ? { ...record, ...patch, active: true, activity: false } : { ...record, active: false })),
+    present.map((record) => {
+      if (record.id !== id) return intent === "activate" ? { ...record, active: false } : record;
+      return intent === "activate"
+        ? { ...record, ...patch, active: true, activity: false }
+        : { ...record, ...patch };
+    }),
   );
 };
 
@@ -310,13 +328,14 @@ type HostWindowOptions = {
   readonly metadata?: Record<string, string>;
 };
 
-/** Open a host window running `command` (or a shell) and make it the active one. Caller holds the
- * registry lock. */
+/** Open a host window running `command` (or a shell). `intent` decides whether it takes the
+ * active flag or leaves it. Caller holds the registry lock. */
 const openHostWindow = async (
   changeId: string,
   dir: string,
   command: readonly string[],
   size: { readonly cols: number; readonly rows: number },
+  intent: WindowIntent,
   extra: RecordExtra = {},
   options: HostWindowOptions = {},
 ): Promise<string> => {
@@ -325,7 +344,7 @@ const openHostWindow = async (
   // restart, so the registry rebuild re-associates the window by its first pane, and a split
   // pane gets its own id.
   await openPane(changeId, id, id, dir, command, size, options);
-  await activate(changeId, id, extra);
+  await persistWindow(changeId, id, intent, extra);
   return id;
 };
 
@@ -373,7 +392,7 @@ export const newWindowAsync = (
   size: { readonly cols: number; readonly rows: number } = { cols: 80, rows: 24 },
 ): Promise<WindowRecord> =>
   withRegistryLock(async () => {
-    const id = await openHostWindow(changeId, dir, [shell()], size);
+    const id = await openHostWindow(changeId, dir, [shell()], size, "activate");
     const records = await listRecords(changeId);
     const created = records.find((record) => record.id === id);
     if (created === undefined) throw new Error(`the new window ${id} vanished from the registry`);
@@ -388,12 +407,19 @@ export const newWindowRunningAsync = (
   options: NewWindowOptions,
 ): Promise<string> =>
   withRegistryLock(() =>
-    openHostWindow(changeId, options.cwd ?? dir, [shell(), "-c", command], { cols: 100, rows: 30 }, {
-      command,
-      ...(options.announce?.label ? { label: options.announce.label } : {}),
-      ...(options.keepOpen || options.announce?.notify ? { keepOpen: true } : {}),
-      ...(options.announce ? { notify: options.announce.notify } : {}),
-    }),
+    openHostWindow(
+      changeId,
+      options.cwd ?? dir,
+      [shell(), "-c", command],
+      { cols: 100, rows: 30 },
+      "background",
+      {
+        command,
+        ...(options.announce?.label ? { label: options.announce.label } : {}),
+        ...(options.keepOpen || options.announce?.notify ? { keepOpen: true } : {}),
+        ...(options.announce ? { notify: options.announce.notify } : {}),
+      },
+    ),
   );
 
 /** Open a subagent's host window: the working directory is the subagent's own (which, with the
@@ -416,6 +442,7 @@ export const newSubagentWindowAsync = (
       args.changeDir,
       args.command,
       { cols: 100, rows: 30 },
+      "background",
       { command: args.command.join(" "), label: args.label },
       {
         cwd: args.cwd,
@@ -447,11 +474,17 @@ export const killHostWindowAsync = async (changeId: string, sessionId: string): 
 export const killHostWindow = (changeId: string, sessionId: string): Effect.Effect<void, CommandFailure> =>
   Effect.tryPromise({ try: () => killHostWindowAsync(changeId, sessionId), catch: asFailure });
 
-/** A live subagent host session, as the subagent store sees it: the record's `window` id, its
- * registry index (what the page focuses), and its reported status. */
+/** A live subagent host session, as the subagent store sees it: the pane session id the page
+ * renders (stable identity), the registry window id it focuses, the registry index when the
+ * current rebuild has it, and its reported status. */
 export type LiveSubagent = {
+  /** The pane session id: what the embedded terminal attaches to. */
   readonly window: string;
-  readonly index: number;
+  /** The registry window id, stable across a reorder or a rebuild. */
+  readonly windowId: string;
+  /** The window's position in the current strip, when it is in it. Omitted rather than guessed: an
+   * index that is not this rebuild's would focus a different shutter. */
+  readonly index?: number;
   readonly agentStatus?: "working" | "waiting";
 };
 
@@ -476,9 +509,11 @@ export const liveSubagentsAsync = async (changeId: string): Promise<Map<string, 
     const stored = statusOf(session.id, session.incarnation);
     const state = presentStatus(stored, session.status)?.state;
     const windowId = session.metadata?.window ?? session.id;
+    const index = indexOf.get(windowId);
     map.set(subagentId, {
       window: session.id,
-      index: indexOf.get(windowId) ?? 0,
+      windowId,
+      ...(index === undefined ? {} : { index }),
       ...(state === "working" || state === "waiting" ? { agentStatus: state } : {}),
     });
   }
@@ -495,6 +530,26 @@ export const selectWindowAsync = (changeId: string, index: number): Promise<void
     save(
       changeId,
       records.map((record, at) => ({ ...record, active: at === index, activity: at === index ? false : record.activity })),
+    );
+  });
+
+/** Bring the window named by id to the front, under the registry lock. A window id is stable
+ * across a reorder, so a caller that knows it (an explicit open) does not have to rely on a
+ * position another read computed. A missing window is a failure, not a silent no-op: the caller
+ * asked for something that is not there. */
+export const selectWindowByIdAsync = (changeId: string, windowId: string): Promise<void> =>
+  withRegistryLock(async () => {
+    const records = await listRecords(changeId);
+    if (!records.some((record) => record.id === windowId)) {
+      throw new Error(`no window ${windowId} in change ${changeId}`);
+    }
+    save(
+      changeId,
+      records.map((record) => ({
+        ...record,
+        active: record.id === windowId,
+        activity: record.id === windowId ? false : record.activity,
+      })),
     );
   });
 
@@ -580,9 +635,11 @@ export const focusPaneAsync = (changeId: string, windowId: string, paneSessionId
     );
   });
 
-/** The host session the change's socket attaches to: the requested pane, the active window's
- * active pane, or a new window. A stale pane id falls through; callers that name no pane get the
- * active one. */
+/** The host session the change's socket attaches to. A caller that names a pane gets exactly
+ * that pane: an absent one is refused rather than silently falling through to the active window
+ * or starting a shell, because a stale identity (a subagent's closed window, a pane whose tab is
+ * gone) must never carry keystrokes into, or create, an unrelated session. A caller that names no
+ * pane keeps the default: the active window's active pane, or a new window when there is none. */
 export const ensureActiveHostWindow = (
   changeId: string,
   dir: string,
@@ -591,12 +648,15 @@ export const ensureActiveHostWindow = (
 ): Promise<string> =>
   withRegistryLock(async () => {
     const records = await listRecords(changeId);
-    if (sessionId !== undefined && records.some((record) => record.panes.includes(sessionId))) return sessionId;
+    if (sessionId !== undefined) {
+      if (records.some((record) => record.panes.includes(sessionId))) return sessionId;
+      throw new Error(`no live pane ${sessionId} in change ${changeId}`);
+    }
     const active =
       records.find((record) => record.active && record.kind === "host") ??
       records.find((record) => record.kind === "host");
     if (active !== undefined && active.activePane !== "") return active.activePane;
-    return openHostWindow(changeId, dir, [shell()], size);
+    return openHostWindow(changeId, dir, [shell()], size, "activate");
   });
 
 /** Write raw bytes to a host window's pty; `false` when the window is gone. */
@@ -633,6 +693,9 @@ export const newWindow = (changeId: string, dir: string): Effect.Effect<void, Co
 
 export const selectWindow = (changeId: string, index: number): Effect.Effect<void, CommandFailure> =>
   Effect.tryPromise({ try: () => selectWindowAsync(changeId, index), catch: asFailure });
+
+export const selectWindowById = (changeId: string, windowId: string): Effect.Effect<void, CommandFailure> =>
+  Effect.tryPromise({ try: () => selectWindowByIdAsync(changeId, windowId), catch: asFailure });
 
 export const moveWindow = (changeId: string, from: number, to: number): Effect.Effect<void, CommandFailure> =>
   Effect.tryPromise({ try: () => moveWindowAsync(changeId, from, to), catch: asFailure });

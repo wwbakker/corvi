@@ -1,4 +1,5 @@
 import { Effect, Fiber } from "effect";
+import type { RemoteAvailabilitySnapshotDto } from "@corvi/contracts/availability";
 import type { SourceEventDto } from "@corvi/contracts/events";
 import { runRoute } from "./effect/run.ts";
 import { guard, json } from "./web.ts";
@@ -54,7 +55,7 @@ function stopWatcher(): void {
 
 /** Everything the local stream carries: the watched events, and the `source` envelope a remote
  * workspace's events arrive under. */
-export type BusEvent = EventName | "source";
+export type BusEvent = EventName | "source" | "availability";
 
 function broadcast(event: BusEvent, data = ""): void {
   for (const client of clients) {
@@ -93,6 +94,15 @@ export function announce(event: EventName): void {
 export function announceFromSource(source: string, event: EventName, data = ""): void {
   const envelope: SourceEventDto = { source, event, data };
   broadcast("source", JSON.stringify(envelope));
+}
+
+/** The availability owner's snapshot, whenever it changes.
+ *
+ * Not watched news: the owner is the source of truth, and the payload is the whole map so a
+ * consumer applies it by `(instance, revision)` rather than by arrival order. The event carries
+ * no credential — the owner publishes only source, state, generation and revision. */
+export function announceAvailability(snapshot: RemoteAvailabilitySnapshotDto): void {
+  broadcast("availability", JSON.stringify(snapshot));
 }
 
 /**

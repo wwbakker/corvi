@@ -1,11 +1,12 @@
 import { type JSX, useCallback, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
 import { type Change } from "./api.ts";
-import { clientFor } from "./sources.ts";
+import { useSourceOwner } from "./sources.ts";
 import type { ChangeSummary } from "../domain/change.ts";
 import { stateClass } from "./stateClass.ts";
 import { moment } from "./moment.ts";
 import { usePolled } from "./poll.ts";
+import { StaleMarker } from "./RemoteAvailability.tsx";
 
 const plural = (n: number, one: string, many = `${one}s`): string =>
   `${n} ${n === 1 ? one : many}`;
@@ -33,16 +34,27 @@ function Fact({ state, children }: { state: string; children: React.ReactNode })
  * The numbers come from their own request per card, because they cost CLI calls: a change whose
  * Azure DevOps is slow leaves the other cards alone.
  */
-export function ChangeCard({ change, onOpen }: { change: Change; onOpen: () => void }): JSX.Element {
+export function ChangeCard({
+  change,
+  stale,
+  onOpen,
+}: {
+  change: Change;
+  /** The card's remote source is unavailable: its numbers are the last known answer. */
+  stale?: boolean;
+  onOpen: () => void;
+}): JSX.Element {
   const [summary, setSummary] = useState<ChangeSummary | null>(null);
+  const owner = useSourceOwner();
 
   const load = useCallback(
     (signal: AbortSignal): Promise<void> =>
-      clientFor(change.source ?? "")
+      owner
+        .clientFor(change.source ?? "")
         .changes.summary(ChangeId.make(change.id), { signal })
         .then(setSummary)
         .catch(() => {}),
-    [change.id, change.source],
+    [change.id, change.source, owner],
   );
   // Builds finish and comments arrive while the overview is open; a minute is soon enough for a
   // page you are not looking at closely, and the calls behind it are not free. Only the moment is
@@ -55,6 +67,7 @@ export function ChangeCard({ change, onOpen }: { change: Change; onOpen: () => v
       {/* What it is, on its own line: the id and the ticket's summary read as one sentence. */}
       <div className="top" title={updated}>
         <h3>{change.id}</h3>
+        {stale === true && <StaleMarker>stale</StaleMarker>}
         {/* The branch stands in when there is no ticket, and reads as the identifier it is. */}
         <span className={change.title ? "story" : "branch"}>{change.title ?? change.branch}</span>
       </div>

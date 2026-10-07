@@ -10,6 +10,7 @@
     "./config": "./src/config.ts",
     "./devices": "./src/devices.ts",
     "./events": "./src/events.ts",
+    "./availability": "./src/availability.ts",
     "./tailscale": "./src/tailscale.ts",
     "./terminal": "./src/terminal.ts",
     "./actions": "./src/actions.ts",

@@ -3,6 +3,10 @@ import { Effect } from "effect";
 import { defaultCache, type CacheStore } from "./cache.ts";
 import type { Config } from "@corvi/configuration/config";
 import type { RemoteAccessStatusDto } from "@corvi/contracts/api";
+import type { RemoteAvailabilitySnapshotDto } from "@corvi/contracts/availability";
+import { NotFoundError } from "@corvi/contracts/errors";
+import { DEFAULT_GATEWAY_TIMEOUTS, type GatewayTimeouts } from "../gateway/server/timeouts.ts";
+import type { RemoteObservation } from "../remote-events/model.ts";
 import { readConfig, reloadInto } from "../workspace/server/config.ts";
 import { createRedeemLimiter, type RedeemLimiter } from "../devices/server/rate-limit.ts";
 
@@ -32,6 +36,16 @@ export type Runtime = {
   /** Bring the remote-event subscriptions in line with the current config. The entrypoint
    * installs the real one; the default does nothing. */
   readonly reconcileRemoteEvents: () => Effect.Effect<void>;
+  /** The availability owner's current map. The unstarted default is empty, not a claim. */
+  readonly remoteAvailabilitySnapshot: () => RemoteAvailabilitySnapshotDto;
+  /** Ask the availability owner for an immediate coordinated health check of one source. */
+  readonly remoteAvailabilityRetry: (
+    source: string,
+  ) => Effect.Effect<RemoteAvailabilitySnapshotDto, NotFoundError>;
+  /** A transport-level observation from the gateway: at most a request for a recheck. */
+  readonly remoteAvailabilityObserve: (source: string, observation: RemoteObservation) => void;
+  /** The gateway's bounded waits. The entrypoint builds them; the defaults are the shared ones. */
+  readonly gatewayTimeouts: GatewayTimeouts;
 };
 
 let current: Runtime | undefined;
@@ -47,6 +61,11 @@ const runtime = (): Runtime =>
     tailscalePublishedPort: undefined,
     reconcileRemoteAccess: () => Effect.void,
     reconcileRemoteEvents: () => Effect.void,
+    remoteAvailabilitySnapshot: () => ({ instance: "unstarted", revision: 0, availability: [] }),
+    remoteAvailabilityRetry: (source) =>
+      Effect.fail(new NotFoundError({ message: `no such remote workspace: ${source}` })),
+    remoteAvailabilityObserve: () => undefined,
+    gatewayTimeouts: DEFAULT_GATEWAY_TIMEOUTS,
   });
 
 
@@ -98,6 +117,22 @@ export const runtimeReconcileRemoteAccess = (): Effect.Effect<void> =>
  * after a save, so adding or removing a remote workspace takes effect at once. */
 export const runtimeReconcileRemoteEvents = (): Effect.Effect<void> =>
   runtime().reconcileRemoteEvents();
+
+/** The availability owner's current map, for the snapshot route. */
+export const runtimeRemoteAvailabilitySnapshot = (): RemoteAvailabilitySnapshotDto =>
+  runtime().remoteAvailabilitySnapshot();
+
+/** Ask for an immediate coordinated health check of one source, for the retry route. */
+export const runtimeRemoteAvailabilityRetry = (
+  source: string,
+): Effect.Effect<RemoteAvailabilitySnapshotDto, NotFoundError> => runtime().remoteAvailabilityRetry(source);
+
+/** Report a transport-level observation from the gateway. It may at most request a recheck. */
+export const runtimeRemoteAvailabilityObserve = (source: string, observation: RemoteObservation): void =>
+  runtime().remoteAvailabilityObserve(source, observation);
+
+/** The gateway's bounded waits, built by the entrypoint. */
+export const runtimeGatewayTimeouts = (): GatewayTimeouts => runtime().gatewayTimeouts;
 
 /** Refill the snapshot from the file. Sync, because the settings write path is synchronous and
  * the object identity must not change. */
