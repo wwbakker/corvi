@@ -160,6 +160,10 @@ export const SubagentRecordSchema = Schema.Struct({
 })
 export type SubagentRecordDto = typeof SubagentRecordSchema.Type
 
+/** A message number: a positive safe integer. `inReplyTo` carries an inbound message number, so
+ * `0`, negatives, fractions and non-numbers are not message numbers. */
+const MessageNumber = Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0)))
+
 /** One message, as a file and on the wire. */
 export const SubagentMessageSchema = Schema.Struct({
   number: Schema.Number,
@@ -170,6 +174,10 @@ export const SubagentMessageSchema = Schema.Struct({
   /** The idempotency key the write was made with: a retried send/turn finds the message again
    * instead of appending a second one. */
   key: Schema.optional(Schema.String),
+  /** The inbound message number this reply answers. Absent on a reply written before the field
+   * existed; such a reply settles only under the legacy rule (the latest message, nothing newer in
+   * the way). */
+  inReplyTo: Schema.optional(MessageNumber),
 })
 export type SubagentMessageDto = typeof SubagentMessageSchema.Type
 
@@ -221,6 +229,9 @@ export const SubagentTurnRequestSchema = Schema.Struct({
   text: Schema.String,
   /** The pane the reply came from, for the forensic trail when two panes claim one identity. */
   pane: Schema.optional(Schema.String),
+  /** The inbound message `next` handed over that this settled run answers. The relay echoes the
+   * submitted number, so later work cannot be mistaken for this turn's completion. */
+  inReplyTo: Schema.optional(MessageNumber),
 })
 export type SubagentTurnRequestDto = typeof SubagentTurnRequestSchema.Type
 

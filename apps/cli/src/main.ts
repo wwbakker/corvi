@@ -69,7 +69,9 @@ usage: corvi [--json] [--change <id>] [--server <url>] <group> <command> [args]
                                        block until one (or all) can be processed
   subagent result <id>                 the latest subagent message
   subagent next --subagent <id>        extension-facing: await the next inbound message
-  subagent turn --subagent <id> "…"    extension-facing: relay a settled reply
+  subagent turn --subagent <id> [--in-reply-to <n>] "…"
+                                       extension-facing: relay a settled reply, naming the
+                                       inbound message it answers
 
 Each group prints its own usage: corvi change, corvi action, corvi subagent.
 
@@ -142,9 +144,9 @@ usage: corvi subagent <command> [args]
   open <id> | close <id>        presence only; never starts work
   send <id> "…"                 append a message and deliver it as a turn
   await [<id>…] [--any|--all]   block until one (or all) can be processed — idle or
-                                waiting for input, or a reply already waiting; after
-                                five minutes it answers timeout (exit 6), so you can
-                                check in on them and await again
+                                waiting for input, or a reply for the current turn;
+                                after five minutes it answers timeout (exit 6), so you
+                                can check in on them and await again
   result <id>                   the latest subagent message
 
 To delegate work:
@@ -158,7 +160,7 @@ A profile is one Markdown file (frontmatter: label, harness; body: the initial p
 A repository profile is a file in the change's checkout — <checkout>/.corvi/subagents/<id>.md —
 written with --scope repository --repository <name> (or directly with your own tools).
 
-Extension-facing: next --subagent <id>, turn --subagent <id> "…".
+Extension-facing: next --subagent <id>, turn --subagent <id> [--in-reply-to <n>] "…".
 `,
 };
 
@@ -518,7 +520,18 @@ const subagentCommand = async (
       if (sub === undefined || text === undefined) {
         throw new CliFailure('subagent turn needs --subagent <id> and the reply text', EXIT.usage);
       }
-      const message = await client.subagents.turn(id, sub, { text }, stringFlag(args, "idempotency-key"));
+      // `--in-reply-to` must name a positive message number; checked before discovery too, so a
+      // bad value is usage (2) and not "no server".
+      const inReplyTo = turnInReplyTo(args);
+      const message = await client.subagents.turn(
+        id,
+        sub,
+        {
+          text,
+          ...(inReplyTo === undefined ? {} : { inReplyTo }),
+        },
+        stringFlag(args, "idempotency-key"),
+      );
       emit(io, json, { value: message, human: () => `relayed turn ${message.number}` });
       return EXIT.ok;
     }
@@ -577,6 +590,20 @@ type ProfileFileApi = {
 };
 
 type ProfileTarget = { readonly sub: "write" | "delete" } & (ProfileFileAt | RepositoryTarget);
+
+/** The inbound message number a `subagent turn` answers, from `--in-reply-to`; `undefined` when
+ * the flag is absent. Checked before discovery (`run` calls this beside `validateCommand`) and
+ * again in the turn case, which trusts it. The arg parser leaves a value that starts with `-`
+ * (e.g. `--in-reply-to -3`) as boolean `true` and shifts it into the positionals, so a present
+ * flag that is not a string is a usage error rather than a silent change of the reply text. */
+const turnInReplyTo = (args: ParsedArgs): number | undefined => {
+  if (!args.flags.has("in-reply-to")) return undefined;
+  const raw = stringFlag(args, "in-reply-to");
+  if (raw === undefined || !/^\d+$/.test(raw) || Number(raw) < 1) {
+    throw new CliFailure("--in-reply-to needs a positive message number", EXIT.usage);
+  }
+  return Number(raw);
+};
 
 /** The file operation's whole argv — `write`/`delete`, its id, its scope — checked before
  * discovery (`run` calls this beside `validateCommand`): a typo is a usage error (2) and must
@@ -1007,6 +1034,11 @@ export const run = async (
       (checkedSub === "write" || checkedSub === "delete")
     ) {
       profileTarget(args);
+    }
+    // `subagent turn`'s own flag, checked here for the same reason: a bad `--in-reply-to` is
+    // usage (2) before any probe, never "no server".
+    if (checkedGroup === "subagent" && checkedCommand === "turn") {
+      turnInReplyTo(args);
     }
     // `change create`'s body, checked here for the same reason: a missing id or title is usage
     // (2) before any probe, never "no server".

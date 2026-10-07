@@ -171,7 +171,15 @@ export const subagentsRoutes = guard({
         Effect.gen(function* () {
           const body = yield* bodyAs(req, SubagentTurnRequestSchema);
           const key = req.headers.get("idempotency-key") ?? undefined;
-          return json(yield* recordTurn(change, req.params.subagent, body.text, key, body.pane), 201);
+          return json(
+            yield* recordTurn(change, req.params.subagent, {
+              text: body.text,
+              ...(key === undefined ? {} : { key }),
+              ...(body.pane === undefined ? {} : { pane: body.pane }),
+              ...(body.inReplyTo === undefined ? {} : { inReplyTo: body.inReplyTo }),
+            }),
+            201,
+          );
         }),
       ),
   },

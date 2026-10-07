@@ -9,7 +9,11 @@
  * derived after a reboot (the session and the reporter are gone), so `inFlight` is written before a
  * message is delivered and cleared when the reply settles. A claimed turn counts as working even
  * when the reporter's last published status is a stale `waiting`, so `inFlight` wins over the
- * reporter. `interrupted` is exactly "in flight and no live window". */
+ * reporter. `interrupted` is exactly "in flight and no live window".
+ *
+ * A reply carries `inReplyTo`, the inbound turn it answers, so readiness is judged against the
+ * latest inbound turn rather than the latest message: a reply parked for an earlier turn never
+ * reads as the completion of a newer one. */
 import { Result, Schema } from "effect";
 
 import {
@@ -38,9 +42,46 @@ export type SubagentView = {
   readonly activity: SubagentActivity;
   /** In flight with no live window: the machine was interrupted mid-turn. */
   readonly interrupted: boolean;
-  /** The latest message is the subagent's: a reply is waiting for the orchestrator. */
+  /** The latest inbound turn is settled: a reply for it is parked for the orchestrator. */
   readonly awaitingReply: boolean;
 };
+
+/** The next message the relay has not picked up yet: everything the delivery cursor still holds
+ * back. The one predicate `claimInbound` delivers by and the view holds readiness back by — stated
+ * once, so the two cannot drift. Assumes messages are number-sorted (`readMessages` sorts them),
+ * so the first undelivered inbound is also the lowest. */
+export const pendingInbound = (record: SubagentWithMessages): SubagentMessage | undefined =>
+  record.messages.find(
+    (message) => message.role !== "subagent" && message.number > (record.deliveredThrough ?? 0),
+  );
+
+/** The highest numbered inbound message (`role !== "subagent"`), or 0 with none. Takes the max, so
+ * it does not depend on the messages being number-sorted. */
+export const latestInboundNumber = (messages: readonly SubagentMessage[]): number =>
+  messages.reduce(
+    (highest, message) =>
+      message.role !== "subagent" ? Math.max(highest, message.number) : highest,
+    0,
+  );
+
+/** The highest inbound message number a reply answers, counting only replies that name a turn the
+ * relay actually handed over (`inReplyTo <= deliveredThrough`). A reply naming a turn that was
+ * never delivered — a bogus high number, or one submitted for a turn the cursor never reached —
+ * credits nothing, so it cannot pin readiness forever. Takes the max over the credited replies, so
+ * it does not depend on the messages being number-sorted. */
+export const answeredThrough = (
+  messages: readonly SubagentMessage[],
+  deliveredThrough: number,
+): number =>
+  messages.reduce(
+    (highest, message) =>
+      message.role === "subagent" &&
+      message.inReplyTo !== undefined &&
+      message.inReplyTo <= deliveredThrough
+        ? Math.max(highest, message.inReplyTo)
+        : highest,
+    0,
+  );
 
 /** Derive the view from a record, whether a live window carries it, and the reporter's status
  * for that window (absent when the reporter has not spoken). An in-flight turn is work even when
@@ -54,11 +95,30 @@ export const viewOf = (
   // A claimed turn is working even when the reporter's last status is stale: `inFlight` is the
   // stored fact that the relay is about to run the turn.
   const working = live.attached && (live.agentStatus === "working" || record.inFlight !== undefined);
+  // A reply is parked only when the latest inbound turn is settled and nothing newer is pending.
+  // `inReplyTo` is credited only for a turn the relay delivered, so an earlier reply (or a bogus
+  // high attribution) cannot stand in for the latest turn; `latestInbound` includes the claimed
+  // turn because claiming advances the cursor. A reply written before `inReplyTo` existed counts
+  // only under the legacy rule: it is the latest message, with nothing pending and nothing in
+  // flight.
+  const deliveredThrough = record.deliveredThrough ?? 0;
+  const pending = pendingInbound({ ...record, messages });
+  const latestInbound = latestInboundNumber(messages);
+  const attributedTurn = answeredThrough(messages, deliveredThrough);
+  const attributed = pending === undefined && latestInbound > 0 && attributedTurn >= latestInbound;
+  // The legacy rule counts only an *unattributed* reply: one that names a turn credits it under
+  // `attributed`, and a reply naming a turn the relay never delivered (a bogus high number) must
+  // not fall back here and be credited anyway.
+  const legacy =
+    message?.role === "subagent" &&
+    message.inReplyTo === undefined &&
+    record.inFlight === undefined &&
+    pending === undefined;
   return {
     presence: live.attached ? "attached" : "detached",
     activity: working ? "working" : "idle",
     interrupted: record.inFlight !== undefined && !live.attached,
-    awaitingReply: message?.role === "subagent",
+    awaitingReply: attributed || legacy,
   };
 };
 
@@ -86,11 +146,13 @@ export const messageFileOf = (
   return { number: Number(match[1]), role: match[2] as SubagentRole };
 };
 
-/** One message as a file: YAML frontmatter (`from`, `at`, optional `pane`) and the body. */
+/** One message as a file: YAML frontmatter (`from`, `at`, optional `pane`, `key`, `in_reply_to`)
+ * and the body. */
 export const renderMessage = (message: SubagentMessage): string => {
   const lines = [`from: ${message.role}`, `at: ${message.at}`];
   if (message.pane !== undefined) lines.push(`pane: ${message.pane}`);
   if (message.key !== undefined) lines.push(`key: ${message.key}`);
+  if (message.inReplyTo !== undefined) lines.push(`in_reply_to: ${message.inReplyTo}`);
   return `---\n${lines.join("\n")}\n---\n${message.body}\n`;
 };
 
@@ -110,6 +172,14 @@ export const parseMessage = (text: string): Result.Result<SubagentMessage, reado
     return Result.fail(["from: must be orchestrator, user or subagent"]);
   }
   if (!fields["at"]) return Result.fail(["at: required"]);
+  // Only a plain positive message number attributes. Anything else — an empty value, `0x10`,
+  // `-3`, `1.5` — is absent and falls to the legacy rule rather than becoming a number, so a
+  // damaged file cannot credit a turn it does not name.
+  const inReplyToRaw = fields["in_reply_to"];
+  const inReplyTo =
+    inReplyToRaw !== undefined && /^\d+$/.test(inReplyToRaw) && Number(inReplyToRaw) >= 1
+      ? Number(inReplyToRaw)
+      : undefined;
   return Result.succeed({
     number: 0,
     role,
@@ -117,6 +187,7 @@ export const parseMessage = (text: string): Result.Result<SubagentMessage, reado
     body: (match[2] ?? "").trim(),
     ...(fields["pane"] ? { pane: fields["pane"] } : {}),
     ...(fields["key"] ? { key: fields["key"] } : {}),
+    ...(inReplyTo === undefined ? {} : { inReplyTo }),
   });
 };
 

@@ -151,8 +151,15 @@ const call = async <T>(harness: RelayHarness, args: readonly string[]): Promise<
 };
 
 /** Relay one settled reply, retrying with backoff: this is the one call whose payload would be
- * lost if it never lands, so a server restart must not drop it. */
-const relayTurn = async (harness: RelayHarness, subagentId: string, text: string, key: string): Promise<void> => {
+ * lost if it never lands, so a server restart must not drop it. `inReplyTo` is the inbound message
+ * number the run answered, so the reply is attributed to its own turn. */
+const relayTurn = async (
+  harness: RelayHarness,
+  subagentId: string,
+  text: string,
+  key: string,
+  inReplyTo: number,
+): Promise<void> => {
   const gate = createLogGate(harness.log);
   for (let attempt = 0; ; attempt += 1) {
     if (harness.signal?.aborted) return;
@@ -164,6 +171,8 @@ const relayTurn = async (harness: RelayHarness, subagentId: string, text: string
       subagentId,
       "--idempotency-key",
       key,
+      "--in-reply-to",
+      String(inReplyTo),
       "--json",
       "--",
       text,
@@ -225,7 +234,7 @@ export const relayLoop = async (subagentId: string, harness: RelayHarness): Prom
     // A settled run with no text (an abort) still closes the turn, so the subagent is not stranded
     // in flight forever; the note is honest about there being no reply.
     const reply = settled !== undefined && settled.trim() !== "" ? settled : "(the run ended without a reply)";
-    await relayTurn(harness, subagentId, reply, `turn-${message.number}`);
+    await relayTurn(harness, subagentId, reply, `turn-${message.number}`, message.number);
   }
 };
 

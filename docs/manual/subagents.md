@@ -44,14 +44,15 @@ triggers a turn.
 The subagent behaves as if it were talking to an ordinary user. There is no `ask`/`done` protocol:
 a turn is just the subagent's reply, and deciding whether it is a question or a result is the
 orchestrator's job. `await` answers when there is something to process — a subagent that is idle
-or waiting for input with nothing of yours still to deliver, or a reply already waiting — and
-immediately when one of the named subagents is already there. It takes several ids (any of them
+or waiting for input with nothing of yours still to deliver, or a reply for the latest inbound
+turn — and immediately when one of the named subagents is already there. It takes several ids (any
+of them
 by default, `--all` for every one), and after five quiet minutes it answers `timeout` (exit 6),
 so the orchestrator can check in on its subagents and run `await` again. With no subagents at
 all it answers `timeout` at once. `result` is simply the
-latest reply. A reply that is already parked answers `await` even when a newer message of yours
-is still queued: the parked reply is yours to process, and the queued one is delivered when the
-subagent is free again.
+latest reply. A parked reply answers `await` only when it answers your latest inbound turn; an
+earlier reply is held back while newer work of yours is still pending or in flight, and the
+queued work is delivered when the subagent is free again.
 
 ## Files
 

@@ -20,6 +20,7 @@ import { Effect, Semaphore } from "effect";
 
 import { launchOf } from "@corvi/agents/harness";
 import {
+  pendingInbound,
   viewOf,
   type SubagentMessage,
   type SubagentRecord,
@@ -31,7 +32,6 @@ import {
   createInstance,
   findCreatedByKey,
   instanceDir,
-  pendingInbound,
   readInstance,
   listInstances,
   mutateRecord,
@@ -357,14 +357,20 @@ export const sendToSubagent = (
     return message;
   });
 
-/** A settled subagent turn, relayed by the harness extension. Clears `inFlight`, appends the
- * reply, and wakes `await` and the UI. */
+/** A settled subagent turn, relayed by the harness extension. Appends the reply — with `inReplyTo`
+ * naming the inbound message it answers, when the relay echoed one — and wakes `await` and the UI.
+ * It clears `inFlight` only when the reply settles the claimed turn (an unattributed old relay, or
+ * a matching `inReplyTo`); a reply for a superseded delivered turn leaves the newer claim alone, so
+ * a late turn-1 answer cannot make turn 2 look settled. */
 export const recordTurn = (
   change: Change,
   id: string,
-  text: string,
-  key?: string,
-  pane?: string,
+  input: {
+    readonly text: string;
+    readonly key?: string;
+    readonly pane?: string;
+    readonly inReplyTo?: number;
+  },
 ): Effect.Effect<SubagentMessage, NotFoundError | BadRequestError> =>
   Effect.gen(function* () {
     yield* requireInstance(change, id);
@@ -373,19 +379,33 @@ export const recordTurn = (
       id,
       {
         role: "subagent",
-        body: text,
+        body: input.text,
         at: now(),
-        ...(key === undefined ? {} : { key }),
-        ...(pane === undefined ? {} : { pane }),
+        ...(input.key === undefined ? {} : { key: input.key }),
+        ...(input.pane === undefined ? {} : { pane: input.pane }),
+        ...(input.inReplyTo === undefined ? {} : { inReplyTo: input.inReplyTo }),
       },
-      (record) =>
-        record.inFlight === undefined
-          ? { ...record }
-          : {
-              ...record,
-              inFlight: undefined,
-              log: [...record.log, { kind: "turn_settled", at: now() }],
+      (record) => {
+        if (record.inFlight === undefined) return { ...record };
+        if (input.inReplyTo === undefined || input.inReplyTo === record.inFlight) {
+          return {
+            ...record,
+            inFlight: undefined,
+            log: [...record.log, { kind: "turn_settled", at: now() }],
+          };
+        }
+        return {
+          ...record,
+          log: [
+            ...record.log,
+            {
+              kind: "turn_settled",
+              at: now(),
+              note: `reply to message ${input.inReplyTo} does not settle the turn in flight (${record.inFlight})`,
             },
+          ],
+        };
+      },
     ).pipe(Effect.mapError((error) => new BadRequestError({ message: error.message })));
     yield* notify(change.id, id, { kind: "reply", id, message });
     yield* Effect.sync(() => announce("changes"));

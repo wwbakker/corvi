@@ -815,16 +815,44 @@ test("subagent commands drive an instance over the HTTP API", async () => {
   const turned = capture();
   expect(
     await run(
-      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "turn", "--subagent", "seed-1", "Looks good", "--json"],
+      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "turn", "--subagent", "seed-1", "--in-reply-to", "1", "Looks good", "--json"],
       turned.io,
     ),
   ).toBe(0);
+  expect((JSON.parse(turned.out.join("")) as { inReplyTo?: number }).inReplyTo).toBe(1);
 
   const result = capture();
   expect(
     await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "result", "seed-1", "--json"], result.io),
   ).toBe(0);
   expect((JSON.parse(result.out.join("")) as { body: string }).body).toBe("Looks good");
+});
+
+test("subagent turn refuses a bad --in-reply-to before any probe (usage 2)", async () => {
+  // A value that is not a positive message number is usage, checked before discovery: the reply
+  // body must never be silently replaced by a shifted flag value.
+  for (const value of ["abc", "-3", "0", "1.5"]) {
+    const bad = capture();
+    expect(
+      await run(
+        [
+          "--server",
+          "http://127.0.0.1:1",
+          "--change",
+          CHANGE_ID,
+          "subagent",
+          "turn",
+          "--subagent",
+          "seed-1",
+          "--in-reply-to",
+          value,
+          "Looks good",
+        ],
+        bad.io,
+      ),
+    ).toBe(EXIT.usage);
+    expect(bad.err.join("\n")).toContain("--in-reply-to needs a positive message number");
+  }
 });
 
 test("the exit codes are the documented contract, not an implementation detail", () => {
