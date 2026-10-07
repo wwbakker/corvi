@@ -1,6 +1,9 @@
 import type { Action } from "../../app-root/ActionsMenu.tsx";
 import type { Completion } from "../../app-root/api.ts";
 
+/** Why a blocked change's actions are disabled, on their hover. */
+const UNAVAILABLE_REASON = "Unavailable: this workspace cannot be reached";
+
 /**
  * The change's actions menu: what it is called, how the work starts, and — last and apart — the
  * two ways a change ends. Everything above the endings is reversible. An idea has a third —
@@ -18,13 +21,17 @@ export function changeActions(spec: {
   /** The last readiness poll, for the hover: the click re-checks fresh, so this is orientation,
    * not the decision. */
   completion: Completion | undefined;
+  /** The change's workspace is unavailable: every action is disabled with the reason, and the
+   * transport gate refuses the request even if one slips through. Drafts are never discarded for
+   * this — only the calls are held back. */
+  blocked?: boolean;
   onRename: () => void;
   onStart: () => void;
   onCopyDescription: () => void;
   onComplete: () => void;
   onCancel: () => void;
 }): Action[] {
-  const { idea, starting, completing, cancelling, completion } = spec;
+  const { idea, starting, completing, cancelling, completion, blocked } = spec;
   // Renaming sits in the menu rather than on the name itself: the row the name is in is the
   // window's title bar in the app, and a button there would be a hole in the region you drag
   // the window by (docs/manual/interface.md).
@@ -33,7 +40,7 @@ export function changeActions(spec: {
     title: "A name of your own; the ticket's summary is only a suggestion",
     onSelect: spec.onRename,
   };
-  return idea
+  const actions: Action[] = idea
     ? [
         rename,
         {
@@ -69,4 +76,17 @@ export function changeActions(spec: {
           onSelect: spec.onCancel,
         },
       ];
+  // Unavailable: the actions stay named and explain themselves, but none runs. The gate would
+  // refuse it anyway; disabling with the reason is what keeps the click from looking like it did
+  // nothing. The reason joins the action's own hover text rather than replacing it.
+  return blocked === true
+    ? actions.map((action) => ({
+        ...action,
+        disabled: true,
+        title:
+          action.title === undefined
+            ? UNAVAILABLE_REASON
+            : `${action.title}\n${UNAVAILABLE_REASON}`,
+      }))
+    : actions;
 }

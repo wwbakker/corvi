@@ -23,6 +23,7 @@ export function ChangeDashboard({
   infos,
   widgets,
   generation,
+  blocked,
   completing,
   onSaved,
   onFinished,
@@ -34,6 +35,9 @@ export function ChangeDashboard({
   widgets: WidgetInfo[] | undefined;
   /** Bumped to remount the cards, so they re-read the world after a merge. */
   generation: number;
+  /** The change's workspace is unavailable: every editor and mutation control inside is disabled.
+   * The transport gate is still the authority; this is so a control never looks usable. */
+  blocked?: boolean;
   completing: boolean;
   /** A card's editor saved: the change it wrote is the response, and the world is stale. */
   onSaved: (updated: Change, provision?: readonly ProvisionResult[]) => void;
@@ -63,6 +67,9 @@ export function ChangeDashboard({
     );
 
   return (
+    // `fieldset disabled` disables descends controls without changing the layout: the CSS
+    // neutralizes the fieldset's own box.
+    <fieldset className="widgets-fieldset" disabled={blocked === true}>
     <div className="widgets">
       <div className="column documents">
         {(infos ?? []).filter((i) => i.column === "left").map(card)}
@@ -101,5 +108,6 @@ export function ChangeDashboard({
             ))}
       </div>
     </div>
+    </fieldset>
   );
 }

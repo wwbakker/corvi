@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import { TerminalStatusSchema } from "@corvi/contracts/api";
 import { changeDir, readChange } from "../change/server/index.ts";
-import { BadRequestError } from "@corvi/contracts/errors";
+import { BadRequestError, InternalError } from "@corvi/contracts/errors";
 import { runRoute } from "../capabilities/effect/run.ts";
 import { guard } from "../capabilities/web.ts";
 import {
@@ -12,6 +12,7 @@ import {
   moveWindow,
   newWindow,
   selectWindow,
+  selectWindowById,
   splitPane,
   terminalSocketPath,
 } from "./server/index.ts";
@@ -77,10 +78,13 @@ export const terminalsRoutes = guard({
   // Every change's terminals, in one call: the navigation column lists them all, and asking
   // per change would be a read per change every few seconds.
   "/api/terminals": {
+    // A failure is a failure, not an empty answer: the browser's window store keeps the last
+    // known list and marks the source not fresh, which an empty 200 would hide. The plain
+    // `CommandFailure` is classified as a server failure so the message survives the transport.
     GET: () =>
       runRoute(
         Effect.map(
-          Effect.catch(allWindows(), () => Effect.succeed({})),
+          Effect.mapError(allWindows(), (failure) => new InternalError({ message: failure.message })),
           json,
         ),
       ),
@@ -124,13 +128,13 @@ export const terminalsRoutes = guard({
   },
 
   // The windows of the change's registry, and the three things you do to them. The registry is
-  // the source of truth for order and labels; a backing that cannot be read is stale data, not a
-  // failed request.
+  // the source of truth for order and labels; an unreadable backing is reported as a failure so
+  // the caller can keep its last known list instead of reading it as an empty change.
   "/api/changes/:id/terminal/windows": {
     GET: (req) =>
       withChange(req.params.id, (c) =>
         Effect.map(
-          Effect.catch(listWindows(c.id), () => Effect.succeed([])),
+          Effect.mapError(listWindows(c.id), (failure) => new InternalError({ message: failure.message })),
           json,
         ),
       ),
@@ -140,7 +144,16 @@ export const terminalsRoutes = guard({
           const body = yield* bodyAs(req, WindowBody);
           const windowId = body.window;
           if (body.action === "new") yield* newWindow(c.id, changeDir(c));
-          else if (body.action === "select") yield* selectWindow(c.id, body.index ?? 0);
+          else if (body.action === "select") {
+            // A caller that names a window id (the Subagents pane's explicit click) selects by
+            // stable identity under the registry lock; the strip's ordinary select keeps its
+            // index. A named window that is gone is reported, not silently ignored.
+            if (windowId !== undefined) {
+              yield* selectWindowById(c.id, windowId).pipe(
+                Effect.mapError((failure) => new BadRequestError({ message: failure.message })),
+              );
+            } else yield* selectWindow(c.id, body.index ?? 0);
+          }
           else if (body.action === "move") {
             yield* moveWindow(c.id, body.from ?? 0, body.to ?? 0);
           } else if (body.action === "split" && windowId !== undefined) {

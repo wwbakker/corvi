@@ -6,7 +6,7 @@ import { Effect } from "effect";
 
 import { closeHostClient, hostClient } from "../apps/server/src/terminals/server/host.ts";
 import * as registry from "../apps/server/src/terminals/server/registry.ts";
-import { closePaneAsync, focusPaneAsync, isKeptOpen, listWindowsAsync, moveWindowAsync, newWindowAsync, newWindowRunningAsync, selectWindowAsync, splitPaneAsync, stopHostTerminals } from "../apps/server/src/terminals/server/windows.ts";
+import { closePaneAsync, focusPaneAsync, isKeptOpen, listWindowsAsync, moveWindowAsync, newWindowAsync, newWindowRunningAsync, selectWindowAsync, selectWindowByIdAsync, splitPaneAsync, stopHostTerminals } from "../apps/server/src/terminals/server/windows.ts";
 import { TerminalSessions, terminalSessionsLayer } from "../apps/server/src/change/lifecycle-layer.ts";
 import { testTempDir, waitFor } from "./helpers.ts";
 
@@ -59,6 +59,49 @@ test("new windows persist in order with one active; select and move mutate them"
   // A fresh read sees the same list: what a restart's rebuild starts from.
   expect(registry.read().changes[changeId]?.map((record) => record.id)).toEqual([second.id, first.id]);
 }, 30_000);
+
+test("a background window does not take the active one; explicit creation does", async () => {
+  const backgroundChange = "REG-INTENT";
+  const explicit = await newWindowAsync(backgroundChange, dir);
+  // An action run opens in the background: it must leave the current terminal selected.
+  const background = await newWindowRunningAsync(backgroundChange, dir, "sleep 30", {});
+  let records = registry.records(backgroundChange);
+  expect(records.find((record) => record.id === explicit.id)?.active).toBe(true);
+  expect(records.find((record) => record.id === background)?.active).toBe(false);
+
+  // The strip's new-window control is explicit: its window becomes the active one.
+  const chosen = await newWindowAsync(backgroundChange, dir);
+  records = registry.records(backgroundChange);
+  expect(records.find((record) => record.id === chosen.id)?.active).toBe(true);
+  expect(records.find((record) => record.id === explicit.id)?.active).toBe(false);
+  await stopHostTerminals(backgroundChange);
+}, 60_000);
+
+test("select-window-by-id selects exactly that window; a missing id is a failure", async () => {
+  const byIdChange = "REG-BY-ID";
+  const first = await newWindowAsync(byIdChange, dir);
+  const second = await newWindowAsync(byIdChange, dir);
+  expect(registry.records(byIdChange).find((record) => record.active)?.id).toBe(second.id);
+
+  // The stable id picks the first window even though the second is active and later in order.
+  await selectWindowByIdAsync(byIdChange, first.id);
+  expect(registry.records(byIdChange).find((record) => record.active)?.id).toBe(first.id);
+
+  // A window that is not there is an error, never a fallback to whatever is at index 0.
+  await expect(selectWindowByIdAsync(byIdChange, "w-missing")).rejects.toThrow(/no window w-missing/);
+  expect(registry.records(byIdChange).find((record) => record.active)?.id).toBe(first.id);
+  await stopHostTerminals(byIdChange);
+}, 60_000);
+
+test("a background window is still a usable default when none was active", async () => {
+  const backgroundChange = "REG-BG-FIRST";
+  const background = await newWindowRunningAsync(backgroundChange, dir, "sleep 30", {});
+  const records = registry.records(backgroundChange);
+  expect(records.map((record) => record.id)).toEqual([background]);
+  expect(records.filter((record) => record.active)).toHaveLength(1);
+  expect(records[0]?.active).toBe(true);
+  await stopHostTerminals(backgroundChange);
+}, 60_000);
 
 test("a read rebuilds from the live host sessions and keeps the persisted order", async () => {
   const before = ids();
@@ -188,6 +231,31 @@ test("the socket resolves the pane it names, not the active one", async () => {
   expect(session.sessionId).toBe(firstPane);
   flushScreens();
   closeAttachments();
+}, 60_000);
+
+test("a named pane that is gone is refused; no other session is attached or created", async () => {
+  const staleChange = "REG-STALE";
+  const window = await newWindowAsync(staleChange, dir);
+  const before = await (await hostClient()).list();
+  const beforeIds = new Set(before.map((session) => session.id));
+
+  const { openSession, closeAttachments, flushScreens } = await import("../apps/server/src/terminals/server/session.ts");
+  // An explicitly named pane that no longer exists fails closed: it must not attach the active
+  // window and must not start a shell.
+  await expect(openSession(staleChange, dir, { cols: 80, rows: 24 }, "w-gone-pane")).rejects.toThrow(
+    /no live pane w-gone-pane/,
+  );
+
+  const after = await (await hostClient()).list();
+  expect(after.filter((session) => !beforeIds.has(session.id))).toEqual([]);
+  expect(registry.records(staleChange).find((record) => record.id === window.id)?.panes).toEqual([window.id]);
+
+  // The ordinary unnamed attach keeps its behavior: the active pane.
+  const session = await openSession(staleChange, dir, { cols: 80, rows: 24 });
+  expect(session.sessionId).toBe(window.id);
+  flushScreens();
+  closeAttachments();
+  await stopHostTerminals(staleChange);
 }, 60_000);
 
 test("completing/cancelling a change stops its host sessions through the lifecycle service", async () => {

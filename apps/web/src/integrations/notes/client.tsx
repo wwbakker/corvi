@@ -1,6 +1,6 @@
 import { type JSX } from "react";
 import { TextSchema } from "@corvi/contracts/api";
-import { changeKey, useChangeWireClient, useSource } from "../../app-root/sources.ts";
+import { changeKey, useChangeWireClient, useSource, useSourceAvailability } from "../../app-root/sources.ts";
 import { MarkdownEditor } from "../../editor/client/MarkdownEditor.tsx";
 import { useSavedText } from "../../editor/client/useSavedText.ts";
 import type { WidgetComponent } from "../client.tsx";
@@ -40,8 +40,16 @@ export function NotesCard({
   // The cached draft is keyed by source too: two servers can mint the same change id, and their
   // notes are not the same notes.
   const source = useSource();
+  // The generation is part of the key: a same-id retarget must not show (or later save) the old
+  // target's draft under the change id the two targets share. The reachability is what makes the
+  // retained notes read-only and holds their saves back: a contenteditable editor is not a form
+  // control, so the dashboard's disabled fieldset never reaches it.
+  const availability = useSourceAvailability(source);
+  const generation = availability.generation;
+  const blocked = availability.status._tag !== "available";
   const { text, change, saved, flush, stale, reload, keepMine } = useSavedText({
-    key: changeKey(source, changeId) + ":notes",
+    key: `${changeKey(source, changeId)}@${generation}:notes`,
+    canSave: !blocked,
     load: () =>
       wire
         .request("GET", endpoint, TextSchema)
@@ -77,6 +85,7 @@ export function NotesCard({
       <MarkdownEditor
         rows={20}
         value={text}
+        readOnly={blocked}
         placeholder="Anything worth remembering about this change."
         onChange={change}
         onBlur={flush}

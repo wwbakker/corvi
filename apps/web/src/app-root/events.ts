@@ -13,11 +13,14 @@ import { useEffect } from "react";
  * about a moment, not a state, and the moment would be gone by the time a fetch came back — so it
  * carries its own JSON. `update` is back to no data: the status route says what is new. `source`
  * carries a remote workspace's event as JSON (`{ source, event, data }`): a subscriber refetches
- * that source (or every source), the same way a local `changes` does.
+ * that source (or every source), the same way a local `changes` does. `availability` carries the
+ * local server's whole availability map as JSON (`{ instance, revision, availability }`); a
+ * subscriber applies it by `(instance, revision)` only for an instance it has established, and
+ * treats the empty payload of an `open` re-emit as "re-read the snapshot" rather than parsing it.
  */
 
 /** The events a page can hear. */
-export type ServerEvent = "changes" | "windows" | "notify" | "update" | "source";
+export type ServerEvent = "changes" | "windows" | "notify" | "update" | "source" | "availability";
 
 type Listener = (data: string) => void;
 
@@ -31,7 +34,7 @@ function emit(event: ServerEvent, data: string): void {
 function connect(): EventSource {
   if (source) return source;
   const opened = new EventSource("/api/events");
-  for (const event of ["changes", "windows", "notify", "update", "source"] as const) {
+  for (const event of ["changes", "windows", "notify", "update", "source", "availability"] as const) {
     opened.addEventListener(event, (e) => emit(event, (e as MessageEvent).data ?? ""));
   }
   // EventSource reconnects by itself, and what it missed while it was away is exactly what its

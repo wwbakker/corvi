@@ -197,8 +197,13 @@ export const SubagentInstanceSchema = Schema.Struct({
   activity: Schema.Literals(["idle", "working"]),
   interrupted: Schema.Boolean,
   awaitingReply: Schema.Boolean,
-  /** The window index of the live window, for the page to focus it. */
+  /** The window index of the live window, for the page to focus it. Positional and only a
+   * fallback: prefer `windowId`/`paneId`, which survive a reorder. */
   windowIndex: Schema.optional(Schema.Number),
+  /** The registry window id of the live window: stable across a reorder or a rebuild. */
+  windowId: Schema.optional(Schema.String),
+  /** The live pane session id to attach the embedded terminal to: stable identity, not an index. */
+  paneId: Schema.optional(Schema.String),
   log: Schema.mutable(Schema.Array(SubagentSystemEventSchema)),
   messages: Schema.mutable(Schema.Array(SubagentMessageSchema)),
 })

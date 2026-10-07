@@ -23,7 +23,7 @@ import {
 import { closeHostClient, hostClient } from "../apps/server/src/terminals/server/host.ts";
 import { liveSubagents, newSubagentWindow } from "../apps/server/src/terminals/server/index.ts";
 import { setStatus } from "../apps/server/src/terminals/server/status.ts";
-import { listWindowsAsync } from "../apps/server/src/terminals/server/windows.ts";
+import { listWindowsAsync, newWindowAsync } from "../apps/server/src/terminals/server/windows.ts";
 import { createInstance, readInstance, instanceDir, appendMessageAndPatch, writeRecord } from "@corvi/agents/node";
 import { pendingInbound, type SubagentRecord } from "@corvi/agents/instance";
 import { BadRequestError } from "@corvi/contracts/errors";
@@ -725,6 +725,25 @@ test("closing and reopening a subagent resumes the same pinned harness session",
   expect(session?.cwd).toBe(instanceDir(changeDir(own), created.id));
   expect(session?.metadata?.subagentId).toBe(created.id);
 }, 30_000);
+
+test("explicit open selects the subagent's window; create leaves the current one alone", async () => {
+  const own = await isolatedChange();
+  // An interactive shell the user is looking at before any subagent exists.
+  const shell = await newWindowAsync(own.id, changeDir(own));
+  const created = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher));
+  expect(created.presence).toBe("attached");
+  // Creation is background work: it must not steal the active terminal from the shell.
+  expect((await listWindowsAsync(own.id)).find((window) => window.active)?.id).toBe(shell.id);
+
+  await run(closeSubagent(own, created.id));
+  // Explicit open is the user asking for this terminal: it becomes the active one.
+  const reopened = await run(openSubagent(own, created.id, hostLauncher));
+  expect(reopened.presence).toBe("attached");
+  const live = await Effect.runPromise(liveSubagents(own.id));
+  const reopenedWindow = live.get(created.id)?.window;
+  expect(reopenedWindow).toBeDefined();
+  expect((await listWindowsAsync(own.id)).find((window) => window.active)?.id).toBe(reopenedWindow);
+}, 60_000);
 
 test("a subagent on a host session is discovered, presented, relays, and closes", async () => {
   const own = await isolatedChange();
