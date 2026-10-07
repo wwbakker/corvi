@@ -2221,6 +2221,56 @@ dialog .hint.error {
   color: var(--error);
 }
 
+/* The power dialog: one block per machine, the agents it reports, and its phase. Long lists
+   scroll rather than growing the dialog off the screen. */
+.power-machines {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  display: grid;
+  gap: 10px;
+}
+
+.power-machine {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.power-machine-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+  color: var(--text);
+}
+
+.power-agents {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.power-agents .working {
+  color: var(--warn);
+}
+
+.power-agents .idle {
+  color: var(--muted);
+}
+
+.power-results {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
 /* The overview: changes you are working on as cards, the rest as a table. */
 .page h2.section {
   font-size: 15px;
