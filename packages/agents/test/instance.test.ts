@@ -3,6 +3,7 @@ import { Result } from "effect";
 
 import {
   answeredThrough,
+  awaitDecisionOf,
   latestInboundNumber,
   latestMessage,
   messageFileOf,
@@ -29,6 +30,8 @@ test("message files name the number and the role, and read back", () => {
   expect(messageFileOf("12-orchestrator.md")).toEqual({ number: 12, role: "orchestrator" });
   expect(messageFileOf("notes.md")).toBeUndefined();
   expect(messageFileOf("007-system.md")).toBeUndefined();
+  // A zero-numbered file is not a message (the store writes 1-based, zero-padded names).
+  expect(messageFileOf("000-subagent.md")).toBeUndefined();
 });
 
 test("a message round-trips through its file", () => {
@@ -217,6 +220,118 @@ test("awaitingReply does not depend on the messages being number-sorted", () => 
       message(1, "orchestrator"),
     ]),
   ).toMatchObject({ awaitingReply: false });
+});
+
+test("awaitDecisionOf keeps waiting while the target turn is pending", () => {
+  const waiting = {
+    ...record(),
+    window: "@w",
+    deliveredThrough: 0,
+    messages: [message(1, "orchestrator")],
+  };
+  expect(awaitDecisionOf(waiting, attached)).toBeUndefined();
+});
+
+test("awaitDecisionOf settles an explicit parked reply before an interrupted newer turn", () => {
+  const claimed = {
+    ...record(),
+    window: "@w",
+    deliveredThrough: 2,
+    inFlight: 2,
+    messages: [message(1, "orchestrator"), message(2, "orchestrator"), reply(3, 1)],
+  };
+  const detached = { attached: false } as const;
+  // The explicit turn's reply is on disk: it wins over the interrupted claim on turn 2.
+  expect(awaitDecisionOf(claimed, detached, 1)).toEqual({
+    status: "ready",
+    reason: "replied",
+    turn: 1,
+    reply: 3,
+  });
+  // Without an explicit target, the claim is what interrupts.
+  expect(awaitDecisionOf(claimed, detached)).toEqual({ status: "interrupted", turn: 2 });
+});
+
+test("awaitDecisionOf labels an interruption with the claimed turn", () => {
+  const claimed = {
+    ...record(),
+    window: "@w",
+    deliveredThrough: 2,
+    inFlight: 2,
+    messages: [message(1, "orchestrator"), message(2, "orchestrator"), message(3, "orchestrator")],
+  };
+  // Turn 3 is queued but not claimed: the label is the in-flight turn 2, never the latest 3.
+  expect(awaitDecisionOf(claimed, { attached: false })).toEqual({ status: "interrupted", turn: 2 });
+});
+
+test("awaitDecisionOf calls a cleared window with pending work lost, naming the pending turn", () => {
+  const gone = {
+    ...record(),
+    deliveredThrough: 1,
+    messages: [message(1, "orchestrator"), message(2, "orchestrator"), message(3, "orchestrator")],
+  };
+  // The lowest undelivered inbound is 2, not the latest inbound 3.
+  expect(awaitDecisionOf(gone, attached)).toEqual({ status: "lost", turn: 2 });
+});
+
+test("awaitDecisionOf returns the default target's attributed reply, legacy reply or idle", () => {
+  const attributed = {
+    ...record(),
+    window: "@w",
+    deliveredThrough: 1,
+    messages: [message(1, "orchestrator"), reply(2, 1)],
+  };
+  expect(awaitDecisionOf(attributed, attached)).toEqual({
+    status: "ready",
+    reason: "replied",
+    turn: 1,
+    reply: 2,
+  });
+
+  const legacy = {
+    ...record(),
+    window: "@w",
+    deliveredThrough: 1,
+    messages: [message(1, "orchestrator"), reply(2)],
+  };
+  expect(awaitDecisionOf(legacy, attached)).toEqual({
+    status: "ready",
+    reason: "replied",
+    turn: 1,
+    reply: 2,
+  });
+
+  const idle = {
+    ...record(),
+    window: "@w",
+    deliveredThrough: 1,
+    messages: [message(1, "orchestrator")],
+  };
+  expect(awaitDecisionOf(idle, attached)).toEqual({ status: "ready", reason: "idle", turn: 1 });
+});
+
+test("awaitDecisionOf does not credit a reply to a turn that was never delivered", () => {
+  const bogus = {
+    ...record(),
+    window: "@w",
+    deliveredThrough: 1,
+    messages: [message(1, "orchestrator"), message(2, "orchestrator"), reply(3, 9999)],
+  };
+  // Turn 2 is still pending and the stray attribution credits nothing, so the wait continues.
+  expect(awaitDecisionOf(bogus, attached)).toBeUndefined();
+});
+
+test("awaitDecisionOf's explicit target is gated by the delivery cursor", () => {
+  const messages = [message(1, "orchestrator"), message(2, "orchestrator"), reply(3, 2)];
+  // The reply names turn 2, but the relay never delivered it: the explicit target keeps waiting
+  // even though pending work does not hold an explicit target back.
+  expect(
+    awaitDecisionOf({ ...record(), window: "@w", deliveredThrough: 1, messages }, attached, 2),
+  ).toBeUndefined();
+  // Once the cursor reaches turn 2, the same reply settles the explicit target.
+  expect(
+    awaitDecisionOf({ ...record(), window: "@w", deliveredThrough: 2, messages }, attached, 2),
+  ).toEqual({ status: "ready", reason: "replied", turn: 2, reply: 3 });
 });
 
 test("the inbound and answered-through numbers are the highest of each kind", () => {

@@ -148,6 +148,80 @@ export const latestMessage = (
 ): SubagentMessage | undefined =>
   [...messages].sort((left, right) => left.number - right.number).at(-1);
 
+/** One await target's decision from state alone: ready, lost, interrupted, or `undefined` to keep
+ * waiting. `turn` is the inbound turn the outcome concerns. */
+export type AwaitDecision =
+  | { readonly status: "ready"; readonly reason: "replied" | "idle"; readonly turn?: number; readonly reply?: number }
+  | { readonly status: "lost"; readonly turn?: number }
+  | { readonly status: "interrupted"; readonly turn: number };
+
+/** Decide one target's await outcome from its state, or undefined to keep waiting. The order is
+ * the contract:
+ *
+ * 1. an explicit `turn` whose reply is on disk — a fact, not a wait — wins over an interrupted or
+ *    lost window, so `await --turn n` retrieves an earlier reply while newer work continues;
+ * 2. an in-flight turn with no live window is interrupted, labelled with the turn actually claimed;
+ * 3. a cleared window with pending work is lost, labelled with the pending inbound the wait is
+ *    stuck on;
+ * 4. the default target (no `turn`) is ready when the latest inbound turn is settled — a parked
+ *    reply, or idle with nothing still to deliver.
+ *
+ * The pending-message hold-back is what keeps `send` (or a create's first prompt) followed by
+ * `await` from answering before the relay has picked the message up. */
+export const awaitDecisionOf = (
+  record: SubagentWithMessages,
+  live: { readonly attached: boolean; readonly agentStatus?: "working" | "waiting" },
+  turn?: number,
+): AwaitDecision | undefined => {
+  const deliveredThrough = record.deliveredThrough ?? 0;
+  // A reply on disk is a fact, not a wait: an explicit target settles before the arms that answer
+  // interrupted or lost for newer work.
+  if (turn !== undefined) {
+    const reply = replyForTurn(record.messages, turn, deliveredThrough);
+    if (reply !== undefined) {
+      return { status: "ready", reason: "replied", turn, reply: reply.number };
+    }
+  }
+  // In flight with no live window: the machine was interrupted mid-turn. The turn named is the
+  // one actually claimed, never a newer pending message.
+  if (record.inFlight !== undefined && !live.attached) {
+    return { status: "interrupted", turn: record.inFlight };
+  }
+  const pending = pendingInbound(record);
+  // A window `close` cleared cannot deliver what is still pending: the lost answer, read from the
+  // state so a close before the subscription cannot be waited out to the horizon. A record whose
+  // window was never set is the same story. The turn named is the pending inbound the wait is
+  // stuck on.
+  if (record.window === undefined && pending !== undefined) {
+    return { status: "lost", turn: pending.number };
+  }
+  if (turn === undefined) {
+    const latestInbound = latestInboundNumber(record.messages);
+    const withTarget = latestInbound > 0 ? { turn: latestInbound } : {};
+    const view = viewOf(record, live, record.messages);
+    // Ready is what lets the orchestrator process: a reply is parked, or the subagent is idle with
+    // nothing of the orchestrator's still to be delivered.
+    if (view.awaitingReply) {
+      // The reply for the target turn, or the latest unattributed reply under the legacy rule
+      // (the one `view.awaitingReply` credits).
+      const latest = latestMessage(record.messages);
+      const reply =
+        replyForTurn(record.messages, latestInbound, deliveredThrough) ??
+        (latest?.role === "subagent" ? latest : undefined);
+      return {
+        status: "ready",
+        reason: "replied",
+        ...withTarget,
+        ...(reply === undefined ? {} : { reply: reply.number }),
+      };
+    }
+    if (view.activity === "idle" && pending === undefined) {
+      return { status: "ready", reason: "idle", ...withTarget };
+    }
+  }
+  return undefined;
+};
+
 /** The next message number: one past the highest already on disk. */
 export const nextNumber = (messages: readonly SubagentMessage[]): number =>
   messages.reduce((highest, message) => Math.max(highest, message.number), 0) + 1;
@@ -158,13 +232,16 @@ export const messagePrefix = (number: number): string => String(number).padStart
 export const messageFileName = (number: number, role: SubagentRole): string =>
   `${messagePrefix(number)}-${role}.md`;
 
-/** The filename back to a number and role, or undefined for a name that is not a message. */
+/** The filename back to a number and role, or undefined for a name that is not a message. A
+ * zero-numbered file (`0-subagent.md`) is not one: the store writes 1-based, zero-padded names. */
 export const messageFileOf = (
   name: string,
 ): { readonly number: number; readonly role: SubagentRole } | undefined => {
   const match = /^(\d+)-(orchestrator|user|subagent)\.md$/.exec(name);
   if (!match) return undefined;
-  return { number: Number(match[1]), role: match[2] as SubagentRole };
+  const number = Number(match[1]);
+  if (number < 1) return undefined;
+  return { number, role: match[2] as SubagentRole };
 };
 
 /** One message as a file: YAML frontmatter (`from`, `at`, optional `pane`, `key`, `in_reply_to`)
@@ -177,9 +254,11 @@ export const renderMessage = (message: SubagentMessage): string => {
   return `---\n${lines.join("\n")}\n---\n${message.body}\n`;
 };
 
-/** Parse one message file. Total: a damaged file is a reason, not a throw. The number is left at
- * zero; the caller sets it from the filename. */
-export const parseMessage = (text: string): Result.Result<SubagentMessage, readonly string[]> => {
+/** Parse one message file. Total: a damaged file is a reason, not a throw. The number is not the
+ * file's to carry — a message number is positive, and the caller sets it from the filename. */
+export const parseMessage = (
+  text: string,
+): Result.Result<Omit<SubagentMessage, "number">, readonly string[]> => {
   const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n([\s\S]*))?$/.exec(text);
   if (!match) return Result.fail(["missing or unparseable frontmatter"]);
   const fields: Record<string, string> = {};
@@ -202,7 +281,6 @@ export const parseMessage = (text: string): Result.Result<SubagentMessage, reado
       ? Number(inReplyToRaw)
       : undefined;
   return Result.succeed({
-    number: 0,
     role,
     at: fields["at"] ?? "",
     body: (match[2] ?? "").trim(),

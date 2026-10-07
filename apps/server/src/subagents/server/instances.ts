@@ -20,9 +20,8 @@ import { Effect, Semaphore } from "effect";
 
 import { launchOf } from "@corvi/agents/harness";
 import {
+  awaitDecisionOf,
   latestInboundNumber,
-  latestMessage,
-  pendingInbound,
   replyForTurn,
   viewOf,
   type SubagentMessage,
@@ -573,7 +572,6 @@ export const awaitReady = (
           const step = yield* Effect.gen(function* () {
             const live = yield* liveBySubagent(change.id);
             const entry = live.get(id);
-            const attached = entry !== undefined;
             const record = yield* requireInstance(change, id).pipe(
               Effect.catch(() => Effect.succeed(null)),
             );
@@ -587,82 +585,23 @@ export const awaitReady = (
                 },
               };
             }
-            const deliveredThrough = record.deliveredThrough ?? 0;
-            const targetTurn = input.turn ?? latestInboundNumber(record.messages);
-            const withTarget = targetTurn > 0 ? { turn: targetTurn } : {};
-            // A reply on disk is a fact, not a wait: an explicit target settles before the arms
-            // that answer interrupted or lost for newer work, so `await --turn n` retrieves an
-            // earlier reply even while a later turn is unfinished.
-            if (input.turn !== undefined) {
-              const reply = replyForTurn(record.messages, input.turn, deliveredThrough);
-              if (reply !== undefined) {
-                return {
-                  done: true as const,
-                  result: {
-                    id,
-                    status: "ready" as const,
-                    reason: "replied" as const,
-                    turn: input.turn,
-                    reply: reply.number,
-                  },
-                };
-              }
-            }
-            // In flight with no live window: the machine was interrupted mid-turn. The turn named
-            // is the one actually claimed, never a newer pending message.
-            if (record.inFlight !== undefined && !attached) {
-              return {
-                done: true as const,
-                result: { id, status: "interrupted" as const, turn: record.inFlight },
-              };
-            }
-            const pendingMessage = pendingInbound(record);
-            // A window `close` cleared cannot deliver what is still pending: the lost answer,
-            // read from the state so a close before the subscription cannot be waited out to
-            // the horizon. A record whose window was never set is the same story. The turn named
-            // is the pending inbound the wait is stuck on.
-            if (record.window === undefined && pendingMessage !== undefined) {
-              return {
-                done: true as const,
-                result: { id, status: "lost" as const, turn: pendingMessage.number },
-              };
-            }
-            if (input.turn === undefined) {
-              const view = viewOf(record, viewInputOf(entry), record.messages);
-              // Ready is what lets the orchestrator process: a reply is parked, or the subagent
-              // is idle with nothing of the orchestrator's still to be delivered. The
-              // pending-message hold-back is what keeps `send` (or a create's first prompt)
-              // followed by `await` from answering before the relay has picked the message up.
-              if (view.awaitingReply) {
-                // The reply for the target turn, or the latest unattributed reply under the
-                // legacy rule (the one `view.awaitingReply` credits).
-                const latest = latestMessage(record.messages);
-                const reply =
-                  replyForTurn(record.messages, targetTurn, deliveredThrough) ??
-                  (latest?.role === "subagent" ? latest : undefined);
-                return {
-                  done: true as const,
-                  result: {
-                    id,
-                    status: "ready" as const,
-                    reason: "replied" as const,
-                    ...withTarget,
-                    ...(reply === undefined ? {} : { reply: reply.number }),
-                  },
-                };
-              }
-              if (view.activity === "idle" && pendingMessage === undefined) {
-                return {
-                  done: true as const,
-                  result: { id, status: "ready" as const, reason: "idle" as const, ...withTarget },
-                };
-              }
+            const decision = awaitDecisionOf(record, viewInputOf(entry), input.turn);
+            if (decision !== undefined) {
+              return { done: true as const, result: { id, ...decision } };
             }
             // A lost window resolves the wait as itself (exit 5) — today's answer — while the
             // other events just wake a re-read of the state.
+            const targetTurn = input.turn ?? latestInboundNumber(record.messages);
             const event = yield* subscription.await.pipe(Effect.timeoutOption(recheckMs));
             if (event._tag === "Some" && event.value.kind === "lost") {
-              return { done: true as const, result: { id, status: "lost" as const, ...withTarget } };
+              return {
+                done: true as const,
+                result: {
+                  id,
+                  status: "lost" as const,
+                  ...(targetTurn > 0 ? { turn: targetTurn } : {}),
+                },
+              };
             }
             return { done: false as const };
           }).pipe(Effect.ensuring(subscription.close));
@@ -672,7 +611,12 @@ export const awaitReady = (
 
     const waits = targets.map(settleOne);
     if (input.mode === "all") {
-      const settled = yield* Effect.all(waits).pipe(Effect.timeoutOption(longPollMs()));
+      // Every target must park concurrently and get the full horizon. Run them in sequence and a
+      // slow first target would starve the rest: their reads happen only after it settles, so a
+      // target that was already ready could still be timed out as if it never was.
+      const settled = yield* Effect.all(waits, { concurrency: "unbounded" }).pipe(
+        Effect.timeoutOption(longPollMs()),
+      );
       if (settled._tag === "None") return { status: "timeout", outcomes: [] };
       const outcomes = settled.value;
       const status = outcomes.some((outcome) => outcome.status === "lost")

@@ -137,6 +137,14 @@ export const SubagentSystemEventSchema = Schema.Struct({
 })
 export type SubagentSystemEventDto = typeof SubagentSystemEventSchema.Type
 
+/** A message number: a positive safe integer. A message's own `number`, the in-flight claim and a
+ * reply's `inReplyTo` are all one, so `0`, negatives, fractions and non-numbers are never valid. */
+const MessageNumber = Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0)))
+
+/** The delivery cursor: how far the relay has handed inbound messages over. `0` is the legitimate
+ * "nothing delivered yet", so the cursor is non-negative where a message number is positive. */
+const MessageCursor = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)))
+
 /** The stored record: `session.json`. `deliveredThrough` is the durable delivery cursor `next`
  * reads; `inFlight` is the one thing not derivable after a reboot. */
 export const SubagentRecordSchema = Schema.Struct({
@@ -151,8 +159,8 @@ export const SubagentRecordSchema = Schema.Struct({
   createdBy: Schema.Literals(["orchestrator", "user"]),
   createdAt: Schema.String,
   window: Schema.optional(Schema.String),
-  deliveredThrough: Schema.optional(Schema.Number),
-  inFlight: Schema.optional(Schema.Number),
+  deliveredThrough: Schema.optional(MessageCursor),
+  inFlight: Schema.optional(MessageNumber),
   /** The idempotency key a create was made with, so a retried create returns the same instance
    * rather than minting a second one. */
   createdKey: Schema.optional(Schema.String),
@@ -160,13 +168,9 @@ export const SubagentRecordSchema = Schema.Struct({
 })
 export type SubagentRecordDto = typeof SubagentRecordSchema.Type
 
-/** A message number: a positive safe integer. `inReplyTo` carries an inbound message number, so
- * `0`, negatives, fractions and non-numbers are not message numbers. */
-const MessageNumber = Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0)))
-
 /** One message, as a file and on the wire. */
 export const SubagentMessageSchema = Schema.Struct({
-  number: Schema.Number,
+  number: MessageNumber,
   role: SubagentRole,
   at: Schema.String,
   body: Schema.String,

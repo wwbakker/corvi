@@ -662,6 +662,29 @@ test("await --all discards a settled sibling when the horizon expires", async ()
   }
 });
 
+test("await --all parks every target concurrently", async () => {
+  const savedPollMs = process.env.CORVI_SUBAGENT_POLL_MS;
+  try {
+    const own = await isolatedChange();
+    const a = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "a" }, fakeLauncher));
+    const b = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "b" }, fakeLauncher));
+    // A horizon with room to sample: both targets are far from settled, so both must park.
+    process.env.CORVI_SUBAGENT_POLL_MS = "2000";
+    const awaited = Effect.runPromise(awaitReady(own, { ids: [a.id, b.id], mode: "all" }));
+    // Reading the waiter registry while they wait shows two registrations: `all` started every
+    // target rather than running them in sequence (which would have only the first parked).
+    await waitFor("both targets to park", async () => waiterCount() === 2, 1_000);
+    const settled = await awaited;
+    expect(settled.status).toBe("timeout");
+    expect(settled.outcomes).toEqual([]);
+    // The interrupt path closed every registration.
+    expect(waiterCount()).toBe(0);
+  } finally {
+    if (savedPollMs === undefined) delete process.env.CORVI_SUBAGENT_POLL_MS;
+    else process.env.CORVI_SUBAGENT_POLL_MS = savedPollMs;
+  }
+});
+
 test("result names the reply for an explicit turn, or null when none has landed", async () => {
   const id = await fresh(); // #1 orchestrator
   await run(sendToSubagent(change, id, "More work", "orchestrator")); // inbound #2

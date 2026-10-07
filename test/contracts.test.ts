@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { Schema } from "effect";
 
-import { SubagentAwaitResponseSchema, SubagentMessageSchema, SubagentTurnRequestSchema } from "@corvi/contracts/subagents";
+import { SubagentAwaitResponseSchema, SubagentMessageSchema, SubagentRecordSchema, SubagentTurnRequestSchema } from "@corvi/contracts/subagents";
 
 import { runSh, testTempDir } from "./helpers.ts";
 
@@ -46,6 +46,39 @@ test("inReplyTo is a positive integer on the subagent boundary schemas", () => {
   for (const invalid of [0, -3, 1.5]) {
     expect(() => message({ ...body, inReplyTo: invalid })).toThrow();
     expect(() => turn({ text: "b", inReplyTo: invalid })).toThrow();
+  }
+});
+
+test("message numbers are positive integers; the delivery cursor is non-negative", () => {
+  const message = Schema.decodeUnknownSync(SubagentMessageSchema);
+  const record = Schema.decodeUnknownSync(SubagentRecordSchema);
+  const bare = {
+    id: "s1",
+    changeId: "c",
+    profile: "builtin:reviewer",
+    label: "Reviewer",
+    harness: "pi" as const,
+    createdBy: "orchestrator" as const,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    log: [],
+  };
+  const valid = { ...bare, deliveredThrough: 2, inFlight: 3 };
+
+  expect(message({ number: 1, role: "subagent", at: "t", body: "b" }).number).toBe(1);
+  expect(record(valid)).toMatchObject({ deliveredThrough: 2, inFlight: 3 });
+  // A record from before either cursor field existed still decodes.
+  expect(record(bare)).toEqual(bare);
+  // The cursor may be 0 — "nothing delivered yet" is legitimate, and a decode failure here would
+  // make `readInstance` silently return null.
+  expect(record({ ...valid, deliveredThrough: 0 })).toMatchObject({ deliveredThrough: 0 });
+  // A message's own number and the in-flight claim are positive integers.
+  for (const invalid of [0, -1, 1.5]) {
+    expect(() => message({ number: invalid, role: "subagent", at: "t", body: "b" })).toThrow();
+    expect(() => record({ ...valid, inFlight: invalid })).toThrow();
+  }
+  // The cursor is an integer or nothing — never negative, fractional or a non-number.
+  for (const invalid of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "1"]) {
+    expect(() => record({ ...valid, deliveredThrough: invalid })).toThrow();
   }
 });
 
