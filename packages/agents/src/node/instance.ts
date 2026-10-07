@@ -141,6 +141,70 @@ export const listInstances = (
     return instances;
   });
 
+/** Whether a filesystem failure is "the path is not there" — the one read error a strict read
+ * treats as "nothing to read" rather than a failure. */
+const isMissing = (cause: unknown): boolean =>
+  typeof cause === "object" && cause !== null && (cause as { code?: unknown }).code === "ENOENT";
+
+/** A `readText` that propagates a real read failure instead of folding it into `undefined`: a
+ * missing file is still "no file", every other failure is a `SubagentStoreError`. */
+const readTextStrict = (path: string): Effect.Effect<string | undefined, SubagentStoreError> =>
+  Effect.tryPromise({
+    try: () => readFile(path, "utf8"),
+    catch: (cause) => new SubagentStoreError({ operation: "read", message: path, cause }),
+  }).pipe(
+    Effect.catch((error) =>
+      isMissing(error.cause) ? Effect.succeed(undefined) : Effect.fail(error),
+    ),
+  );
+
+/** One instance read strictly: an unreadable or damaged `session.json` fails rather than
+ * reading as absent, so an agent it hides cannot be mistaken for no agent. A missing record is
+ * still null. */
+export const readInstanceStrict = (
+  changeDir: string,
+  id: string,
+): Effect.Effect<SubagentWithMessages | null, SubagentStoreError> =>
+  Effect.gen(function* () {
+    const path = join(instanceDir(changeDir, id), "session.json");
+    const text = yield* readTextStrict(path);
+    if (text === undefined) return null;
+    const parsed = parseRecord(text);
+    if (parsed._tag === "Failure") {
+      return yield* Effect.fail(
+        new SubagentStoreError({
+          operation: "read",
+          message: `${path}: ${parsed.failure.join("; ")}`,
+        }),
+      );
+    }
+    const messages = yield* readMessages(changeDir, id);
+    return { ...parsed.success, messages };
+  });
+
+/** Every instance of a change, read strictly for the power monitor: a missing store is empty,
+ * but any other read failure propagates instead of reading as "no subagents". */
+export const listInstancesStrict = (
+  changeDir: string,
+): Effect.Effect<readonly SubagentWithMessages[], SubagentStoreError> =>
+  Effect.gen(function* () {
+    const dir = subagentsDir(changeDir);
+    const names = yield* Effect.tryPromise({
+      try: () => readdir(dir),
+      catch: (cause) => new SubagentStoreError({ operation: "read", message: dir, cause }),
+    }).pipe(
+      Effect.catch((error) =>
+        isMissing(error.cause) ? Effect.succeed([] as string[]) : Effect.fail(error),
+      ),
+    );
+    const instances: SubagentWithMessages[] = [];
+    for (const name of names.sort()) {
+      const found = yield* readInstanceStrict(changeDir, name);
+      if (found) instances.push(found);
+    }
+    return instances;
+  });
+
 /** Create a record and its directory. Refuses to overwrite an existing instance. */
 export const createInstance = (
   changeDir: string,

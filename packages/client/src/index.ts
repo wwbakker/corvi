@@ -9,6 +9,7 @@ import { makeActionsApi, type ActionsApi } from "./actions.ts"
 import { makeChangesApi, type ChangesApi } from "./changes.ts"
 import { makeDashboardApi, type DashboardApi } from "./dashboard.ts"
 import { makeDevicesApi, type DevicesApi } from "./devices.ts"
+import { makePowerApi, type PowerApi } from "./power.ts"
 import { makeRemotesApi, type RemotesApi } from "./remotes.ts"
 import { makeRepositoriesApi, type RepositoriesApi } from "./repositories.ts"
 import { makeServerApi, type ServerApi } from "./server.ts"
@@ -25,6 +26,7 @@ export interface CorviClient {
   readonly changes: ChangesApi
   readonly dashboard: DashboardApi
   readonly devices: DevicesApi
+  readonly power: PowerApi
   readonly remotes: RemotesApi
   readonly terminals: TerminalsApi
   readonly repositories: RepositoriesApi
@@ -44,6 +46,7 @@ export const makeCorviClient = (options: ClientOptions): CorviClient => {
     changes: makeChangesApi(send),
     dashboard: makeDashboardApi(send),
     devices: makeDevicesApi(send),
+    power: makePowerApi(send),
     remotes: makeRemotesApi(send),
     terminals: makeTerminalsApi(send),
     repositories: makeRepositoriesApi(send),

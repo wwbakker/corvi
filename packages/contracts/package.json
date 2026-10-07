@@ -13,6 +13,7 @@
     "./availability": "./src/availability.ts",
     "./tailscale": "./src/tailscale.ts",
     "./terminal": "./src/terminal.ts",
+    "./power": "./src/power.ts",
     "./actions": "./src/actions.ts",
     "./subagents": "./src/subagents.ts",
     "./errors": "./src/errors.ts",

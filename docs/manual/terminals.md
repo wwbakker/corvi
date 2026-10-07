@@ -161,6 +161,41 @@ A change in a remote workspace notifies too. Its notice carries the source it ca
 toast names that server (`source · change`) and the banner and the click both keep it apart from a
 local change that happens to share an id; clicking opens that remote change's window.
 
+## Power down when done
+
+Arm a machine to power itself off once no agent on it is working — start a long agent run, tick
+**Power down when done**, and walk away. The control is the power icon in the navigation column's
+bottom row, beside Settings and the update icon. It lists this machine and any remote workspaces;
+this machine is ticked already and remotes are opt-in. Each machine shows the agents it reports
+right now, each marked **working** or **waiting / done**, so you can confirm the reporters are
+there before arming.
+
+Only a **working** agent — or a subagent that is working — blocks the power-off. A waiting or
+finished agent does not, and neither does a plain command — a build or a test run in another
+window is ignored. An agent without the reporter extension looks like a plain process and is
+invisible to this, exactly as it is to [attention
+notifications](#attention-notifications), so arm a machine only when the agents it lists are the
+ones you started.
+
+Arming starts a 60-second countdown as soon as the machine is quiet. The dialog shows the
+countdown, but the armed machine's own server owns it, so it runs whether or not a page is open.
+If an agent starts working during the countdown, the countdown is cancelled and a new one begins
+when the machine is quiet again. **Disarm** cancels it — from this control, or from a remote's own
+server.
+
+If the power command itself fails — a denied `systemctl`, or a macOS permission prompt you
+dismissed — the dialog shows the reason and the machine is left disarmed. It does not retry, so a
+refused shutdown is visible rather than silent, and you can arm it again.
+
+Each remote workspace runs its own Corvi server on its own machine. Arming a remote sends it the
+same command, and it powers *that* machine off using *its* own agents; this page only reads their
+state through the gateway. A machine whose state cannot be read is shown as un-armable and cannot
+be ticked, so a failure to see its agents never arms a blind power-off.
+
+Shutdown only: the machine powers off, it does not sleep. On macOS the first power-off may raise a
+one-time permission prompt for System Events; approve it, or the command does not run. The
+countdown lives with the server: closing the app's window stops the local server and disarms it.
+
 ## Troubleshooting and safety
 
 The terminal host owns every pty. Its socket is `<state dir>/corvi/host.sock` (the state dir is

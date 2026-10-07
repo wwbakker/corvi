@@ -23,6 +23,8 @@ import { makeRemoteEvents, type RemoteEvents } from "./remote-events/server.ts";
 import { tailscaleRoutes } from "./tailscale/routes.ts";
 import { readPublishedPort } from "./tailscale/server/index.ts";
 import { settingsRoutes } from "./settings/routes.ts";
+import { powerRoutes } from "./power/routes.ts";
+import { startPowerMonitor } from "./power/server/index.ts";
 import { subagentsRoutes } from "./subagents/routes.ts";
 import { terminalsRoutes } from "./terminals/routes.ts";
 import { workspaceRoutes } from "./workspace/routes.ts";
@@ -123,6 +125,7 @@ const routes: Record<string, unknown> = {
   ...eventsRoutes,
   ...availabilityRoutes,
   ...integrationRoutes,
+  ...powerRoutes,
   ...settingsRoutes,
   ...subagentsRoutes,
   ...tailscaleRoutes,
@@ -194,6 +197,11 @@ setRuntime({
 });
 await Effect.runPromise(remoteEvents.reconcile());
 const remoteStatus = runtimeRemoteAccessStatus();
+
+// The power monitor: arm state and countdown live with this server, independent of any page. The
+// ticker is always on — while disarmed a tick reads nothing — so arming is the only thing that
+// makes it do work.
+startPowerMonitor();
 
 instancePort = server.port;
 // Sweep records a hard kill or a reboot left behind, then write this one: a client that reads the

@@ -5,9 +5,10 @@
 ## Navigation
 
 The left column contains the workspace switcher, change overview, ideas, active changes and their
-terminal windows. At the bottom sit Settings — a gear — and, to its right, the update icon: yellow
-when a new version of the app is waiting, grey when there is none, and absent when this run
-cannot update itself (see [install](install.md#updates)). The column is resizable and remembers
+terminal windows. At the bottom sit Settings — a gear — the power control (see [Power down when
+done](terminals.md#power-down-when-done)), and the update icon: yellow when a new version of the
+app is waiting, grey when there is none, and absent when this run cannot update itself (see
+[install](install.md#updates)). The column is resizable and remembers
 its width in the browser. On a narrow window it becomes an overlay drawer instead: a toggle opens
 and closes it, as do choosing something, clicking the backdrop, pressing Escape, and widening the
 window. While it is closed the content owns the window, rather than sitting below the column.

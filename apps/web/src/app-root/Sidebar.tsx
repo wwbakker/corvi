@@ -2,7 +2,7 @@ import { type JSX, useEffect, useRef, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
 import type { Change } from "./api.ts";
 import { stateClass } from "./stateClass.ts";
-import { CiIcon, TerminalIcon, AgentIcon, GearIcon, UpdateIcon } from "./icons.tsx";
+import { CiIcon, TerminalIcon, AgentIcon, GearIcon, PowerIcon, UpdateIcon } from "./icons.tsx";
 import { byWorkOrder, IDEATION, isFinished, isIdeation, type ChangeSummary } from "../domain/change.ts";
 import { TRAFFIC_LIGHTS } from "../domain/chrome.ts";
 import type { TerminalWindow } from "../domain/terminal.ts";
@@ -14,6 +14,8 @@ import { ALL, type Workspace } from "../workspace/client/workspaces.ts";
 import { ActionsMenu } from "./ActionsMenu.tsx";
 import { hostOf } from "./host.ts";
 import type { AppUpdateStatus } from "../app-update/model.ts";
+import { PowerDialog } from "../power/PowerDialog.tsx";
+import { usePower } from "../power/state.ts";
 
 /** Which page of a change is open. The dashboard is what selecting a change opens; terminals is
  * the core's own, and any other id is a tab an extension contributed — the id is the last
@@ -151,6 +153,9 @@ export function Sidebar({
   const [width, setWidth] = useState(storedWidth);
   const dragging = useRef(false);
   const [summaries, setSummaries] = useState<Record<string, ChangeSummary>>({});
+  // The power control is self-contained here: the column already has the workspaces, and it only
+  // needs the page's own event connection to keep the machines fresh.
+  const power = usePower(workspaces);
   const owner = useSourceOwner();
   const availability = useAvailability();
   // A local workspace's source is the local server (""); a remote one is its own id. The suffix
@@ -388,6 +393,14 @@ export function Sidebar({
         >
           <GearIcon title="Settings" />
         </button>
+        <button
+          className={`icon-entry${power.open ? " current" : ""}`}
+          title="Power down when done"
+          aria-label="Power"
+          onClick={power.openDialog}
+        >
+          <PowerIcon title="Power" />
+        </button>
         {update?.eligible && (
           <button
             className={`icon-entry update${update.behind > 0 ? " available" : ""}`}
@@ -409,6 +422,8 @@ export function Sidebar({
           document.body.classList.add("resizing");
         }}
       />
+
+      {power.open && <PowerDialog view={power} onClose={power.closeDialog} />}
     </nav>
   );
 }

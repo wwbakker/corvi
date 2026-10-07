@@ -20,7 +20,7 @@ import { useEffect } from "react";
  */
 
 /** The events a page can hear. */
-export type ServerEvent = "changes" | "windows" | "notify" | "update" | "source" | "availability";
+export type ServerEvent = "changes" | "windows" | "notify" | "update" | "power" | "source" | "availability";
 
 type Listener = (data: string) => void;
 
@@ -34,7 +34,7 @@ function emit(event: ServerEvent, data: string): void {
 function connect(): EventSource {
   if (source) return source;
   const opened = new EventSource("/api/events");
-  for (const event of ["changes", "windows", "notify", "update", "source", "availability"] as const) {
+  for (const event of ["changes", "windows", "notify", "update", "power", "source", "availability"] as const) {
     opened.addEventListener(event, (e) => emit(event, (e as MessageEvent).data ?? ""));
   }
   // EventSource reconnects by itself, and what it missed while it was away is exactly what its

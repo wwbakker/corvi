@@ -47,6 +47,10 @@ export const agentsWindowPresenter: TerminalPresenter = {
       icon: "agent",
       state: agent === "working" ? "ok" : "idle",
       busy: agent === "working",
+      // The explicit agent fact, and the agent-only account of work, separate from `busy`: the
+      // quiet rule waits on these and only these, so a build or a test run never blocks.
+      agent: true,
+      working: agent === "working",
       // Waiting for you is what a notification is for; working is not. The edge into this is
       // the one thing the core looks at.
       attention: agent === "waiting",

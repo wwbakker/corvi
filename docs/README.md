@@ -15,7 +15,7 @@ Start with [AGENTS.md](../AGENTS.md) and [CONTRIBUTING.md](../CONTRIBUTING.md).
 | Guide | Owns |
 | --- | --- |
 | [Architecture](guides/architecture.md) | Package responsibilities, dependency direction, runtime and UI composition |
-| [Terminal](guides/terminal-architecture.md) | The pty host, the window registry, the server-owned screen, the status channel and subagents |
+| [Terminal](guides/terminal-architecture.md) | The pty host, the window registry, the server-owned screen, the status channel, subagents and the power monitor |
 | [API design](guides/api-design.md) | Public capabilities, schemas, errors, examples, review checklist |
 | [Effect conventions](guides/effect-conventions.md) | Service construction, execution, state and resource ownership |
 | [Style](guides/style.md) | Naming, typing, module organization, comments |
