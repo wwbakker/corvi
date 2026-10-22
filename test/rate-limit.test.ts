@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Deferred, Effect, Fiber, Option, Result } from "effect";
 import { TestClock } from "effect/testing";
-import { gh, ghOrThrow, GitHubRateLimited } from "@corvi/github/rate-limit";
+import { gh, ghOrThrow, GitHubRateLimited, refusalNow } from "@corvi/github/rate-limit";
 import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
 import {
   fakeShell,
@@ -130,6 +130,23 @@ test("each command's real argv shape spends the budget gh actually uses", async 
     });
     expect(rateLimited(await runWithShellEither(shell, gh(command.split(" ")))).resource).toBe(resource);
   }
+});
+
+test("asking whether the gate is shut records nothing", async () => {
+  const shell = fakeShell({ "gh pr list": "[]" });
+
+  const asked = await runWithShell(
+    shell,
+    Effect.all([refusalNow("graphql"), refusalNow("core"), refusalNow("secondary")]),
+  );
+  expect(asked.every(Option.isNone)).toBe(true);
+  // An open gate is answered from what is recorded, and asking leaves nothing behind: no spawn,
+  // no probe, and the next command runs as usual.
+  expect(spawned(shell)).toHaveLength(0);
+  expect(probes(shell)).toHaveLength(0);
+  expect(await runWithShell(shell, gh(["gh", "pr", "list"]))).toMatchObject({ code: 0, stdout: "[]" });
+  expect(spawned(shell)).toEqual(["gh pr list"]);
+  expect(probes(shell)).toHaveLength(0);
 });
 
 test("a failure that is not a limit stays the result a caller branches on, and gates nothing", async () => {

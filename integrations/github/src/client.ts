@@ -1,11 +1,11 @@
 import { baseName } from "@corvi/contracts/paths";
 import { effectiveBranchOf } from "@corvi/contracts/changes";
-import { Effect, Result, Schema } from "effect";
+import { Effect, Option, Result, Schema } from "effect";
 import type { ChangeWireDto as Change } from "@corvi/contracts/api";
 import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { stackOnBase, describeStack, mergeStacked, type Stack } from "./stacks.ts";
 import { shOrThrow, shSoft, type ShellResult } from "./shell.ts";
-import { ghOrThrow, ghSoft, type GitHubRateLimited } from "./rate-limit.ts";
+import { ghOrThrow, ghSoft, refusalNow, type GitHubRateLimited } from "./rate-limit.ts";
 import { Cache, Changes, GitFacts, invalidate, swr } from "@corvi/contracts/capabilities";
 import { BadRequestError, type CliError } from "@corvi/contracts/errors";
 import { cliJson } from "@corvi/shell/cli";
@@ -463,11 +463,16 @@ export const prItem = (
     };
   });
 
-/** Whether this repository's pull request may be merged as part of completing the change. */
+/** Whether this repository's pull request may be merged as part of completing the change.
+ *
+ * Not being ready is a reason and its kind. `forceable` is this pull request's own state — a
+ * draft, a conflict, a review still required — which a person may knowingly finish without
+ * merging. `hard` is the token's limit: external, transient, and true of every repository at
+ * once, so there is nothing here to decide and "Complete anyway" would fail at the merge. */
 export type MergeReadiness =
   | { ready: true; merged: true }
   | { ready: true; merged: false; number: number }
-  | { ready: false; reason: string };
+  | { ready: false; reason: string; kind: "forceable" | "hard" };
 
 /** Forget this change's cached pull-request reads: an action just made them wrong. Called once
  * per click path, before the fresh readiness check, so the dialog and the page that follows it
@@ -477,27 +482,28 @@ export const forgetPrs = (change: Change): Effect.Effect<void, never, Cache> =>
 
 /** A readiness check against freshly fetched refs: the branch may have merged upstream
  * seconds ago, and the local remote-tracking refs would still say otherwise. Fetches first,
- * then reads live — `mergeReadiness` never reads the shared cache — so the override dialog
- * only lists requirements that are genuinely unmet. The polled check is the same live read
- * without the fetch; there is no cached verdict for either to fall back on. */
+ * then reads live — the click that decides never reads the shared cache — so the override
+ * dialog only lists requirements that are genuinely unmet. The poll that orients asks
+ * `cachedReadiness` instead. */
 export const refreshReadiness = (
   change: Change,
   repo: string,
-): Effect.Effect<MergeReadiness, BadRequestError | GitHubRateLimited, Changes | GitFacts> =>
+): Effect.Effect<MergeReadiness, BadRequestError, Changes | GitFacts> =>
   Effect.gen(function* () {
     yield* shSoft(["git", "fetch", "--quiet", "origin"], repo);
     return yield* mergeReadiness(change, repo);
   });
 
-/** Live, never cached: a pull request that was approved ninety seconds ago is not a merge. */
-export const mergeReadiness = (
+/** The verdict for a pull request that was already found: `mergeReadiness` reads it live, the
+ * poll reads the display cache, and both decide the same way. */
+const verdictOf = (
   change: Change,
   repo: string,
-): Effect.Effect<MergeReadiness, BadRequestError | GitHubRateLimited, Changes | GitFacts> =>
+  found: FoundPr | undefined,
+): Effect.Effect<MergeReadiness, BadRequestError, GitFacts> =>
   Effect.gen(function* () {
     const name = baseName(repo);
-    const found = yield* prQuery(change, repo);
-    if (!found) return { ready: false, reason: `${name}: no worktree` };
+    if (!found) return { ready: false, reason: `${name}: no worktree`, kind: "forceable" };
     const pr = found.prs[0];
     if (pr?.state === "MERGED") return { ready: true, merged: true };
     // No pull request, or one that was closed without merging: the work may still have
@@ -515,20 +521,63 @@ export const mergeReadiness = (
       return {
         ready: false,
         reason: pr ? `${name}: pull request is closed` : `${name}: no pull request`,
+        kind: "forceable",
       };
     }
-    if (pr.isDraft) return { ready: false, reason: `${name}: pull request is a draft` };
-    if (pr.mergeable === "CONFLICTING") return { ready: false, reason: `${name}: conflicts` };
+    if (pr.isDraft) return { ready: false, reason: `${name}: pull request is a draft`, kind: "forceable" };
+    if (pr.mergeable === "CONFLICTING") {
+      return { ready: false, reason: `${name}: conflicts`, kind: "forceable" };
+    }
     // Only an outstanding required review, or one that asked for changes, blocks. No decision
     // at all means the repository requires no review, so there is nothing left to wait for.
     const review = reviewState(pr);
     if (review === "required" || review === "changes-requested") {
       const decision = (pr.reviewDecision ?? "review required").toLowerCase().replace(/_/g, " ");
-      return { ready: false, reason: `${name}: not approved (${decision})` };
+      return { ready: false, reason: `${name}: not approved (${decision})`, kind: "forceable" };
     }
     return { ready: true, merged: false, number: pr.number };
   });
 
+/** A token at its limit is not this repository's failure, so it is a verdict rather than a thrown
+ * error: the sentence carries no repository prefix — ten repositories share one token — and no
+ * acknowledgement waives it. */
+const rateLimited = (error: GitHubRateLimited): MergeReadiness => ({
+  ready: false,
+  reason: error.message,
+  kind: "hard",
+});
+
+/** Live, never cached: a pull request that was approved ninety seconds ago is not a merge. The
+ * click that decides asks this one. */
+export const mergeReadiness = (
+  change: Change,
+  repo: string,
+): Effect.Effect<MergeReadiness, BadRequestError, Changes | GitFacts> =>
+  prQuery(change, repo).pipe(
+    Effect.flatMap((found) => verdictOf(change, repo, found)),
+    Effect.catchTag("GitHubRateLimited", (error) => Effect.succeed(rateLimited(error))),
+  );
+
+/** The same verdict from the display read the cards already make — `shownPr` — so a poll costs no
+ * live lookup per repository. Freshness is what it gives up: the cache is stale-while-revalidate,
+ * so its answer is at least `PR_TTL` old and, while refreshes keep failing, older than that for
+ * as long as GitHub stays unreachable. The click that decides does not use it.
+ *
+ * That gives-up freshness is why the gate is asked first: a warm entry survives the limit — the
+ * cache keeps its last good value — so the display read would answer with the pre-limit verdict
+ * (even "ready") for as long as the limit lasts. The gate knows without spawning or probing. */
+export const cachedReadiness = (
+  change: Change,
+  repo: string,
+): Effect.Effect<MergeReadiness, BadRequestError, Changes | GitFacts | Cache> =>
+  Effect.gen(function* () {
+    const refused = yield* refusalNow("graphql");
+    if (Option.isSome(refused)) return rateLimited(refused.value);
+    return yield* shownPr(change, repo).pipe(
+      Effect.flatMap((found) => verdictOf(change, repo, found)),
+      Effect.catchTag("GitHubRateLimited", (error) => Effect.succeed(rateLimited(error))),
+    );
+  });
 
 /**
  * Squash-merge the pull request: the repositories this was written for allow squash only, and

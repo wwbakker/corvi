@@ -27,11 +27,12 @@ of the cards/issue UI live in `@corvi/web` (`apps/web/src/integrations/*/client.
   (`githubIssuesTitleSource`, `githubIssuesDescriptionSection`, `planIssueClose`,
   `closeIssueOnComplete`, `repoFromRemote`)
 - `@corvi/github/client`: the `gh` client (`prItem`, `prSummary`, `createPr`, `mergeReadiness`,
-  `refreshReadiness`, `mergePr`, `forgetPrs`, `prNumberOf`, `readiness`, `headRef`,
+  `cachedReadiness`, `refreshReadiness`, `mergePr`, `forgetPrs`, `prNumberOf`, `readiness`, `headRef`,
   `waitingOnYou`, `reviewState`, `repoFromUrl`, `MergeReadiness`, `Stack`)
 - `@corvi/github/checks`: `checkItems`, `groupChecks`, `Check`
 - `@corvi/github/rate-limit`: the seam every `gh` call runs through (`gh`, `ghOrThrow`,
-  `ghSoft`), the gate and its reset (`GitHubRateLimited`, `forgetRateLimit`)
+  `ghSoft`), the gate, its reset and its cheap question (`GitHubRateLimited`, `refusalNow`,
+  `forgetRateLimit`)
 
 ## Dependencies
 

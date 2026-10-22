@@ -247,17 +247,19 @@ const limitReached = (
     return yield* refusal(resource, until, now);
   });
 
-/** The gate itself: answered before a process exists, so a closed gate costs nothing. */
-const refuseWhileClosed = (
-  workspace: string,
+/** The gate itself: answered before a process exists, so a closed gate costs nothing — no spawn
+ * and no probe. A cached read asks this before trusting what it has, because a cache keeps its
+ * last good value while refreshes fail and would otherwise answer with the pre-limit verdict for
+ * as long as the gate lasts. */
+export const refusalNow = (
   resource: RateLimitResource,
-): Effect.Effect<void, GitHubRateLimited> =>
+): Effect.Effect<Option.Option<GitHubRateLimited>> =>
   Effect.gen(function* () {
-    const closed = closedBy(workspace, resource);
-    if (closed === undefined) return;
+    const closed = closedBy(yield* workspaceId(), resource);
+    if (closed === undefined) return Option.none();
     const now = yield* Clock.currentTimeMillis;
-    if (closed.until <= now) return;
-    return yield* refusal(closed.resource, closed.until, now);
+    if (closed.until <= now) return Option.none();
+    return Option.some(refusal(closed.resource, closed.until, now));
   });
 
 /** A `gh` command's outcome, or the refusal that it will not be run until `resetsAt`. The limit
@@ -267,14 +269,14 @@ export const gh = (
   cwd?: string,
 ): Effect.Effect<ShellResult, CliError | GitHubRateLimited> =>
   Effect.gen(function* () {
-    const workspace = yield* workspaceId();
     const budget = resourceOf(cmd);
-    yield* refuseWhileClosed(workspace, budget);
+    const refused = yield* refusalNow(budget);
+    if (Option.isSome(refused)) return yield* refused.value;
     const result = yield* sh(cmd, cwd);
     if (result.code === 0) return result;
     const limited = classify(result, budget);
     if (limited === undefined) return result;
-    return yield* limitReached(workspace, limited);
+    return yield* limitReached(yield* workspaceId(), limited);
   });
 
 /** `gh`, with a non-zero exit as a failure — `<cmd> failed: <stderr>`, as `shOrThrow` has it. */

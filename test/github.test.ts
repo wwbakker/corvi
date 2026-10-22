@@ -1,8 +1,10 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { Effect, Result, Layer } from "effect";
+import { Effect, Option, Result, Layer } from "effect";
+import { gh, refusalNow } from "@corvi/github/rate-limit";
 import {
+  cachedReadiness,
   createPr,
   headRef,
   mergePr,
@@ -541,29 +543,34 @@ test("mergeReadiness names every reason a pull request is not ready", async () =
     expect(await runWithShell(shell, mergeReadiness(change(), repo))).toEqual(expected);
   };
 
-  await check("mr-nowt", { noWorktree: true }, { ready: false, reason: "mr-nowt: no worktree" });
-  await check("mr-nopr", { prs: [] }, { ready: false, reason: "mr-nopr: no pull request" });
+  await check("mr-nowt", { noWorktree: true }, { ready: false, reason: "mr-nowt: no worktree", kind: "forceable" });
+  await check("mr-nopr", { prs: [] }, { ready: false, reason: "mr-nopr: no pull request", kind: "forceable" });
   await check("mr-merged", { prs: [pr({ state: "MERGED" })] }, { ready: true, merged: true });
   await check("mr-closed", { prs: [pr({ state: "CLOSED" })] }, {
     ready: false,
     reason: "mr-closed: pull request is closed",
+    kind: "forceable",
   });
   await check("mr-draft", { prs: [pr({ isDraft: true })] }, {
     ready: false,
     reason: "mr-draft: pull request is a draft",
+    kind: "forceable",
   });
   await check("mr-conflict", { prs: [pr({ mergeable: "CONFLICTING" })] }, {
     ready: false,
     reason: "mr-conflict: conflicts",
+    kind: "forceable",
   });
   await check("mr-review", { prs: [pr({ reviewDecision: "REVIEW_REQUIRED" })] }, {
     ready: false,
     reason: "mr-review: not approved (review required)",
+    kind: "forceable",
   });
   // A decision GitHub spells with underscores reads as words.
   await check("mr-changes", { prs: [pr({ reviewDecision: "CHANGES_REQUESTED" })] }, {
     ready: false,
     reason: "mr-changes: not approved (changes requested)",
+    kind: "forceable",
   });
   // No review decision: the repository requires no review, so the pull request can merge as is.
   await check("mr-noreview", { prs: [pr({ reviewDecision: null })] }, {
@@ -572,6 +579,131 @@ test("mergeReadiness names every reason a pull request is not ready", async () =
     number: 7,
   });
   await check("mr-approved", { prs: [pr()] }, { ready: true, merged: false, number: 7 });
+});
+
+test("mergeReadiness: a rate limit is a hard verdict, not a failure", async () => {
+  const repo = "/repos/mr-limited";
+  const shell = ghShell({
+    repo,
+    prs: [pr()],
+    prListCode: 1,
+    prListStderr: "GraphQL: API rate limit already exceeded for user ID 13013300.",
+  });
+
+  const verdict = await runWithShell(shell, mergeReadiness(change(), repo));
+  // A fact about the token rather than the repository: the sentence stands alone — no repository
+  // prefix — and no acknowledgement waives it.
+  expect(verdict).toMatchObject({ ready: false, kind: "hard" });
+  if (!verdict.ready) {
+    expect(verdict.reason).toMatch(
+      /^GitHub rate limit reached; resets at \d\d:\d\d UTC \(in (a minute|\d+ minutes)\)$/,
+    );
+  }
+
+  // The poll's read is refused the same way and answers the same; its own change id keeps the
+  // display cache empty, so it really does ask.
+  forgetRateLimit();
+  expect(await runWithShell(shell, cachedReadiness(change({ id: "PROJ-2" }), repo))).toMatchObject({
+    ready: false,
+    kind: "hard",
+  });
+  forgetRateLimit();
+});
+
+test("cachedReadiness: a warm display read does not outlive the token", async () => {
+  const repo = "/repos/mr-warm";
+  // A healthy read first: this is the state the bug happens in — a warm `shownPr` entry.
+  const healthy = ghShell({ repo, prs: [pr()] });
+  expect(await runWithShell(healthy, cachedReadiness(change(), repo))).toEqual({
+    ready: true,
+    merged: false,
+    number: 7,
+  });
+
+  // Then the token runs out on a live read, which leaves the display cache warm and correct as of
+  // before the limit.
+  const limited = ghShell({
+    repo,
+    prs: [pr()],
+    prListCode: 1,
+    prListStderr: "GraphQL: API rate limit already exceeded for user ID 13013300.",
+  });
+  expect(await runWithShell(limited, mergeReadiness(change(), repo))).toMatchObject({
+    ready: false,
+    kind: "hard",
+  });
+  expect(limited.calls.some((call) => call.cmd.join(" ") === "gh pr list --head feature --state all --limit 1 --json number,title,url,state,isDraft,reviewDecision,mergeable,statusCheckRollup")).toBe(true);
+
+  // The poll must not answer "ready" from the warm entry while the gate is shut — and it must not
+  // ask GitHub, nor even read the cache, to know it.
+  const askedBefore = healthy.calls.length;
+  const polled = await runWithShell(healthy, cachedReadiness(change(), repo));
+  expect(polled).toMatchObject({ ready: false, kind: "hard" });
+  if (!polled.ready) {
+    expect(polled.reason).toMatch(/^GitHub rate limit reached; resets at \d\d:\d\d UTC/);
+  }
+  expect(healthy.calls).toHaveLength(askedBefore);
+
+  // An explicit retry opens the gate, and the same change polls the display read again.
+  forgetRateLimit();
+  expect(await runWithShell(healthy, cachedReadiness(change(), repo))).toEqual({
+    ready: true,
+    merged: false,
+    number: 7,
+  });
+});
+
+test("cachedReadiness: a shut REST budget leaves the GraphQL display read alone", async () => {
+  const repo = "/repos/mr-core-gate";
+  const shell = ghShell({
+    repo,
+    prs: [pr()],
+    gh: (line) => {
+      if (line === "gh api rate_limit") {
+        return JSON.stringify({
+          resources: { core: { reset: Math.floor((Date.now() + 20 * 60_000) / 1_000) } },
+        });
+      }
+      return line === "gh api repos/org/repo"
+        ? { code: 1, stderr: "HTTP 403: API rate limit exceeded for 203.0.113.7." }
+        : undefined;
+    },
+  });
+
+  // Spending the REST budget shuts `core` — and nothing else matters to a readiness check, which
+  // reads through GraphQL.
+  expect(await runEither(shell, gh(["gh", "api", "repos/org/repo"]))).toMatchObject({
+    _tag: "Failure",
+  });
+  const [core, graphql] = await runWithShell(
+    shell,
+    Effect.all([refusalNow("core"), refusalNow("graphql")]),
+  );
+  expect(Option.isSome(core)).toBe(true);
+  expect(Option.isNone(graphql)).toBe(true);
+
+  // The poll still reads the display answer, and says so.
+  expect(await runWithShell(shell, cachedReadiness(change(), repo))).toEqual({
+    ready: true,
+    merged: false,
+    number: 7,
+  });
+  expect(shell.calls.map((call) => call.cmd.join(" ")).some((line) => line.startsWith("gh pr list")))
+    .toBe(true);
+  forgetRateLimit();
+});
+
+test("cachedReadiness reads the display answer the cards already have", async () => {
+  const repo = "/repos/mr-cached";
+  const shell = ghShell({ repo, prs: [pr()] });
+
+  const first = await runWithShell(shell, cachedReadiness(change(), repo));
+  const second = await runWithShell(shell, cachedReadiness(change(), repo));
+  expect(first).toEqual({ ready: true, merged: false, number: 7 });
+  expect(second).toEqual(first);
+  // The 20 s display read is shared, so the second poll cost no `gh` at all.
+  expect(shell.calls.map((c) => c.cmd.join(" ")).filter((line) => line.startsWith("gh pr list")))
+    .toHaveLength(1);
 });
 
 test("mergePr: a plain pull request is squash-merged through gh", async () => {
@@ -1408,7 +1540,7 @@ test("mergeReadiness: content in main reads as merged without a PR", async () =>
             ? "- abc123 first\n+ def456 second"
             : undefined,
     },
-    { ready: false, reason: "mr-diverged: no pull request" },
+    { ready: false, reason: "mr-diverged: no pull request", kind: "forceable" },
   );
   // A closed PR whose content landed elsewhere reads as merged too.
   await check(
@@ -1426,6 +1558,6 @@ test("mergeReadiness: content in main reads as merged without a PR", async () =>
       prs: [pr({ reviewDecision: "REVIEW_REQUIRED" })],
       gh: (line) => (line.startsWith("git rev-list --count") ? "0" : undefined),
     },
-    { ready: false, reason: "mr-open-integrated: not approved (review required)" },
+    { ready: false, reason: "mr-open-integrated: not approved (review required)", kind: "forceable" },
   );
 });

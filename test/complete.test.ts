@@ -13,7 +13,7 @@ import { plannedCompletionSteps, providerError } from "../apps/server/src/change
 import { changeDir, createChange, readChange, writeSidecar } from "../apps/server/src/change/server/index.ts";
 import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import { Effect } from "effect";
-import { checkoutsOf, fakeShell, runEffect, runRouteWithShell, runWithShell, TestError, type FakeShell, type ShellCall  } from "./helpers.ts";
+import { checkoutsOf, fakeShell, forgetRateLimit, runEffect, runRouteWithShell, runWithShell, TestError, type FakeShell, type ShellCall  } from "./helpers.ts";
 import { contentInMain, integrated } from "../apps/server/src/vendors/git.ts";
 import { changeActions } from "../apps/web/src/change-page/client/changeActions.ts";
 
@@ -46,7 +46,8 @@ const changeWith = (over: Partial<Change> = {}): Change => ({
 test("verdict: every repository must be ready, and unsafe work blocks the whole change", () => {
   const merged = { ready: true, merged: true } as const;
   const approved = (n: number) => ({ ready: true, merged: false, number: n }) as const;
-  const blocked = (reason: string) => ({ ready: false, reason }) as const;
+  const blocked = (reason: string, kind: "forceable" | "hard" = "forceable") =>
+    ({ ready: false, reason, kind }) as const;
 
   // An empty change is ready and has nothing to merge.
   expect(verdict([])).toEqual({ ready: true, reasons: [], tagged: [], toMerge: [] });
@@ -93,6 +94,60 @@ test("verdict: every repository must be ready, and unsafe work blocks the whole 
       { text: "b: 2 unpushed commit(s)", kind: "forceable" },
     ],
     toMerge: [{ repo: "/parent/b", number: 3 }],
+  });
+});
+
+test("verdict: one token at its limit is one line, not ten", () => {
+  const reason = (minutes: number): string =>
+    `GitHub rate limit reached; resets at 12:32 UTC (in ${minutes} minutes)`;
+  const completion = verdict(
+    Array.from({ length: 10 }, (_, index) => ({
+      repo: `/r/repo-${index}`,
+      // The sentence counts down, and the repositories are asked one after another: the same fact
+      // refused either side of a minute boundary is still one fact.
+      readiness: { ready: false as const, reason: reason(8 - (index % 2)), kind: "hard" as const },
+    })),
+  );
+
+  expect(completion.ready).toBe(false);
+  // No acknowledgement clears it, and ten repositories share one token: said once.
+  expect(completion.reasons).toEqual([reason(8)]);
+  expect(completion.tagged).toEqual([{ text: reason(8), kind: "hard" }]);
+  expect(completion.toMerge).toEqual([]);
+});
+
+test("verdict: a repository's own hard fact is that repository's, dirty worktrees and all", () => {
+  const dirty = { kind: "dirty", text: "uncommitted changes" } as const;
+  const limited = "GitHub rate limit reached; resets at 12:32 UTC (in 8 minutes)";
+
+  // Two dirty worktrees are two problems to fix, both named.
+  expect(
+    verdict([
+      { repo: "/r/one", readiness: { ready: true, merged: false, number: 1 }, unsafe: dirty },
+      { repo: "/r/two", readiness: { ready: true, merged: false, number: 2 }, unsafe: dirty },
+    ]),
+  ).toMatchObject({
+    ready: false,
+    reasons: ["one: uncommitted changes", "two: uncommitted changes"],
+    tagged: [
+      { text: "one: uncommitted changes", kind: "hard" },
+      { text: "two: uncommitted changes", kind: "hard" },
+    ],
+  });
+
+  // A dirty worktree and a limited token are different facts, and both are said.
+  expect(
+    verdict([
+      { repo: "/r/one", readiness: { ready: true, merged: false, number: 1 }, unsafe: dirty },
+      {
+        repo: "/r/two",
+        readiness: { ready: false, reason: limited, kind: "hard" as const },
+        unsafe: dirty,
+      },
+      { repo: "/r/three", readiness: { ready: false, reason: limited, kind: "hard" as const } },
+    ]),
+  ).toMatchObject({
+    reasons: ["one: uncommitted changes", limited, "two: uncommitted changes"],
   });
 });
 
@@ -240,6 +295,46 @@ test("completionOf: a live look at one repository becomes the change's verdict",
     tagged: [],
     toMerge: [{ repo, number: 7 }],
   });
+});
+
+test("completionOf: a rate-limited poll is a hard verdict, not a failure", async () => {
+  const repo = join(tmp, "limited-repo");
+  const change = changeWith({ checkouts: checkoutsOf([repo]), branch: "PROJ-limited" });
+  const shell = completionShell({
+    worktree: join(tmp, "wt-limited"),
+    branch: change.branch,
+    prList: { code: 1, stderr: "GraphQL: API rate limit already exceeded for user ID 13013300." },
+  });
+
+  const completion = await runWithShell(shell, completionOf(change));
+  expect(completion.ready).toBe(false);
+  expect(completion.tagged).toHaveLength(1);
+  expect(completion.tagged[0]!.kind).toBe("hard");
+  // The token's sentence, with no repository in front of it.
+  expect(completion.tagged[0]!.text).toMatch(/^GitHub rate limit reached; resets at \d\d:\d\d UTC/);
+  expect(completion.toMerge).toEqual([]);
+  forgetRateLimit();
+});
+
+test("completionOf: the poll reads the display answer, the click does not", async () => {
+  const repo = join(tmp, "poll-repo");
+  const change = changeWith({ checkouts: checkoutsOf([repo]), branch: "PROJ-poll" });
+  const shell = completionShell({
+    worktree: join(tmp, "wt-poll"),
+    branch: change.branch,
+    pr: approved(7),
+  });
+  const asked = (): number =>
+    shell.calls.map((call) => call.cmd.join(" ")).filter((line) => line.startsWith("gh pr list")).length;
+
+  expect(await runWithShell(shell, completionOf(change))).toMatchObject({ ready: true });
+  expect(await runWithShell(shell, completionOf(change))).toMatchObject({ ready: true });
+  // Two polls, one display read.
+  expect(asked()).toBe(1);
+
+  // The click that decides forgets it and asks GitHub again.
+  expect(await runWithShell(shell, completionOf(change, true))).toMatchObject({ ready: true });
+  expect(asked()).toBe(2);
 });
 
 test("completionOf: a pull request merged by hand leaves nothing to merge", async () => {

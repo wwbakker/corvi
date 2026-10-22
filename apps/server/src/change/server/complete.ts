@@ -8,8 +8,7 @@ import type {
 } from "@corvi/changes/record";
 import { isIdeation } from "@corvi/changes/record";
 import type { MergeReadiness } from "@corvi/github/client";
-import type { GitHubRateLimited } from "@corvi/github/rate-limit";
-import { mergeReadiness, refreshReadiness, forgetPrs } from "@corvi/github/client";
+import { cachedReadiness, refreshReadiness, forgetPrs } from "@corvi/github/client";
 import type { Cache, GitFacts } from "@corvi/contracts/capabilities";
 import type { Changes } from "../../integrations/api/capabilities.ts";
 import { unsafeToRemove, type Unsafe } from "../../vendors/git.ts";
@@ -55,18 +54,31 @@ export type CompletionResult =
 export function verdict(
   results: { repo: string; readiness: MergeReadiness; unsafe?: Unsafe }[],
 ): Completion {
-  const tagged: CompletionReason[] = results.flatMap(({ repo, readiness, unsafe }) => [
-    ...(readiness.ready ? [] : [{ text: readiness.reason, kind: "forceable" as const }]),
+  const tagged: CompletionReason[] = [];
+  // A hard readiness verdict is the token's — the only hard readiness verdict there is — and it
+  // shuts every repository at once, so ten of them are one line, and the sentence's countdown must
+  // not make them two. A repository's own hard fact (a dirty worktree) is said per repository,
+  // with its name.
+  let tokenSaid = false;
+  for (const { repo, readiness, unsafe } of results) {
+    if (!readiness.ready) {
+      if (readiness.kind === "forceable") {
+        tagged.push({ text: readiness.reason, kind: "forceable" });
+      } else if (!tokenSaid) {
+        tagged.push({ text: readiness.reason, kind: "hard" });
+        tokenSaid = true;
+      }
+    }
     // Completing removes worktrees, so anything the remote never saw would be lost.
     // Unpushed commits survive on the branch and can be acknowledged away; uncommitted
     // work exists nowhere else and refuses outright, even with force.
-    ...(unsafe
-      ? [{
+    if (unsafe) {
+      tagged.push({
         text: `${repo.split("/").pop()}: ${unsafe.text}`,
-        kind: (unsafe.kind === "dirty" ? "hard" : "forceable") as CompletionReason["kind"],
-      }]
-      : []),
-  ]);
+        kind: unsafe.kind === "dirty" ? "hard" : "forceable",
+      });
+    }
+  }
   const toMerge = results.flatMap(({ repo, readiness }) =>
     readiness.ready && !readiness.merged ? [{ repo, number: readiness.number }] : [],
   );
@@ -78,19 +90,19 @@ export function verdict(
   };
 }
 
-/** One repository's readiness, checked live: the two lookups per repository run sequentially,
- * and the repositories in parallel. `fresh` fetches before reading, for the click path — the
- * branch may have merged upstream seconds ago, and the poll's verdict would still say
- * otherwise. */
+/** One repository's readiness: the two lookups per repository run sequentially, and the
+ * repositories in parallel. `fresh` fetches and reads live, for the click path — the branch may
+ * have merged upstream seconds ago, and a cached verdict would still say otherwise. The poll
+ * reads the display cache the cards already fill. */
 const completionOfRepo = (
   change: Change,
   repo: string,
   fresh: boolean,
-): Effect.Effect<{ repo: string; readiness: MergeReadiness; unsafe: Unsafe | undefined }, BadRequestError | GitHubRateLimited, Changes | GitFacts | Cache> =>
+): Effect.Effect<{ repo: string; readiness: MergeReadiness; unsafe: Unsafe | undefined }, BadRequestError, Changes | GitFacts | Cache> =>
   Effect.gen(function* () {
     return {
       repo,
-      readiness: yield* (fresh ? refreshReadiness : mergeReadiness)(change, repo),
+      readiness: yield* (fresh ? refreshReadiness : cachedReadiness)(change, repo),
       unsafe: yield* unsafeToRemove(change, repo),
     };
   });
@@ -98,7 +110,7 @@ const completionOfRepo = (
 export const completionOf = (
   change: Change,
   fresh = false,
-): Effect.Effect<Completion, CliError | BadRequestError | GitHubRateLimited, Changes | GitFacts | Cache> =>
+): Effect.Effect<Completion, CliError | BadRequestError, Changes | GitFacts | Cache> =>
   // An idea has nothing to complete: no pull requests, no checkouts. Answered without the CLI
   // lookups, which would find nothing and cost a call per repository. Hard: starting the work
   // is the only way out of Ideation, and no override waives it.

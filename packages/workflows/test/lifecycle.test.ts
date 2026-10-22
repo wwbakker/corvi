@@ -259,6 +259,54 @@ test("an unready pull request needs an acknowledgement", async () => {
   }
 })
 
+test("a hard readiness reason blocks, force does not waive it, and ten repositories say it once", async () => {
+  const rateLimited = (minutes: number): string =>
+    `GitHub rate limit reached; resets at 12:32 UTC (in ${minutes} minutes)`
+  const links = Array.from({ length: 10 }, (_, index) => link(`repo-${index}`))
+  const state = script({
+    links,
+    readiness: links.map((entry, index) => ({
+      repository: ref(entry.repositoryId),
+      number: 0,
+      ready: false,
+      merged: false,
+      // The repositories are asked one after another and the sentence counts down: the same fact
+      // refused either side of a minute boundary is still one fact.
+      reason: rateLimited(8 - (index % 2)),
+      kind: "hard" as const,
+    })),
+  })
+
+  // A token at its limit is a fact no acknowledgement changes: Blocked, not a dialog.
+  const assessed = await assessment(state, "completion")
+  expect(Result.isSuccess(assessed)).toBe(true)
+  if (Result.isSuccess(assessed)) {
+    expect(assessed.success._tag).toBe("Blocked")
+    if (assessed.success._tag === "Blocked") {
+      // Ten repositories share one token, so they say it once — and the reason belongs to the
+      // change rather than to any one of them.
+      expect(assessed.success.reasons.map((reason) => reason.text)).toEqual([rateLimited(8)])
+      expect(assessed.success.reasons[0]?.kind).toBe("hard")
+      expect(assessed.success.reasons[0]?.subject).toBeUndefined()
+    }
+  }
+
+  // Force is an acknowledgement, and an acknowledgement is not a fact: even acknowledged, a hard
+  // reason still blocks.
+  const completed = await run(
+    state,
+    Effect.gen(function* () {
+      const service = yield* lifecycle
+      return yield* service.completeChange({
+        changeId: ChangeId.make("demo"),
+        acknowledgements: [{ code: "review-pending", facts: "review:x:0:" }],
+      })
+    }),
+  )
+  expect(Result.isSuccess(completed)).toBe(true)
+  if (Result.isSuccess(completed)) expect(completed.success._tag).toBe("Blocked")
+})
+
 test("a dirty checkout blocks completion", async () => {
   const result = await assessment(
     script({
@@ -487,6 +535,86 @@ test("the checkout is rechecked before removal and a changed fact blocks", async
   expect(Result.isSuccess(result)).toBe(true)
   if (Result.isSuccess(result)) expect(result.success._tag).toBe("NeedsAcknowledgement")
   expect(state.calls).not.toContain("remove /workspace/demo/created")
+})
+
+test("two dirty worktrees are two problems, both named", async () => {
+  const dirty: RemovalAssessment = {
+    _tag: "Unsafe",
+    reasons: [
+      { code: "dirty-worktree", kind: "hard", text: "uncommitted changes", facts: "dirty:abc" },
+    ],
+  }
+  const state = script({
+    links: [link("one"), link("two")],
+    readiness: [
+      { repository: ref("one"), number: 1, ready: true, merged: true },
+      { repository: ref("two"), number: 2, ready: true, merged: true },
+    ],
+    removal: dirty,
+  })
+
+  const result = await assessment(state, "completion")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result) && result.success._tag !== "Ready") {
+    const reasons = result.success.reasons
+    // The same sentence twice would collapse if the rule keyed on text: these are two
+    // repositories' own problems, told apart by their subject.
+    expect(reasons.map((reason) => reason.text)).toEqual(["uncommitted changes", "uncommitted changes"])
+    expect(reasons.map((reason) => reason.subject?.repositoryId)).toEqual([
+      ref("one").repositoryId,
+      ref("two").repositoryId,
+    ])
+  }
+})
+
+test("a dirty worktree and a limited token are different facts, and both are said", async () => {
+  const rateLimited = "GitHub rate limit reached; resets at 12:32 UTC (in 8 minutes)"
+  // The links are asked in order: the first is dirty, the second is clean.
+  let asked = 0
+  const state = script({
+    links: [link("dirty"), link("limited")],
+    readiness: [
+      { repository: ref("dirty"), number: 1, ready: true, merged: true },
+      {
+        repository: ref("limited"),
+        number: 0,
+        ready: false,
+        merged: false,
+        reason: rateLimited,
+        kind: "hard",
+      },
+    ],
+    removal: () => {
+      asked += 1
+      return asked === 1
+        ? {
+            _tag: "Unsafe",
+            reasons: [
+              {
+                code: "dirty-worktree",
+                kind: "hard",
+                text: "uncommitted changes",
+                facts: "dirty:abc",
+              },
+            ],
+          }
+        : { _tag: "Safe" }
+    },
+  })
+
+  const result = await assessment(state, "completion")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result) && result.success._tag !== "Ready") {
+    expect(result.success.reasons.map((reason) => reason.text)).toEqual([
+      "uncommitted changes",
+      rateLimited,
+    ])
+    expect(result.success.reasons.map((reason) => reason.kind)).toEqual(["hard", "hard"])
+    expect(result.success.reasons.map((reason) => reason.subject?.repositoryId)).toEqual([
+      ref("dirty").repositoryId,
+      undefined,
+    ])
+  }
 })
 
 test("cancelling a dirty checkout is refused", async () => {

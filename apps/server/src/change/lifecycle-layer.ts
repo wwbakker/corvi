@@ -47,7 +47,7 @@ import { prLooseEnds } from "@corvi/github"
 import { closeIssueOnComplete, planIssueClose } from "@corvi/github/issues"
 import { jiraLooseEnds, moveIssueOnComplete, planIssueCompletion } from "@corvi/jira"
 import { stopHostTerminals } from "../terminals/server/index.ts"
-import { forgetPrs, mergePr, mergeReadiness, refreshReadiness } from "@corvi/github/client"
+import { cachedReadiness, forgetPrs, mergePr, refreshReadiness } from "@corvi/github/client"
 import type { Cache, Changes, GitFacts } from "@corvi/contracts/capabilities"
 import { runtimeCache } from "../capabilities/runtime.ts"
 import { runtimeConfig, workspaceById } from "../workspace/server/index.ts"
@@ -173,15 +173,24 @@ export const pullRequestsLayer = (): Layer.Layer<PullRequests, never, ChangeRepo
             const link = yield* linkFor(change, repository.repositoryId)
             const legacy = yield* legacyFor(change)
             if (fresh) yield* forgetPrs(legacy)
+            // The click that decides is live; the poll that orients reads what the cards already
+            // read. Both apply the same verdict.
             const observed = yield* (fresh
               ? refreshReadiness(legacy, link.originalLocation)
-              : mergeReadiness(legacy, link.originalLocation)
+              : cachedReadiness(legacy, link.originalLocation)
             ).pipe(Effect.mapError((e) => providerError("github", "readiness", e)))
             const state: PullRequestState = observed.ready
               ? observed.merged
                 ? { repository, number: 0, ready: true, merged: true }
                 : { repository, number: observed.number, ready: true, merged: false }
-              : { repository, number: 0, ready: false, merged: false, reason: observed.reason }
+              : {
+                  repository,
+                  number: 0,
+                  ready: false,
+                  merged: false,
+                  reason: observed.reason,
+                  kind: observed.kind,
+                }
             return state
           }).pipe(Effect.provide(providerNeeds())),
         merge: ({ change, repository, number }) =>

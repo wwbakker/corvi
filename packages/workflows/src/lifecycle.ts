@@ -114,6 +114,10 @@ export type PullRequestState = {
   readonly ready: boolean
   readonly merged: boolean
   readonly reason?: string
+  /** Why the pull request is not ready, where the provider can say: `hard` needs no
+   * acknowledgement because none would change it, so it blocks rather than asks. Absent reads as
+   * `forceable`, the shape every provider had before this existed. */
+  readonly kind?: "forceable" | "hard"
 }
 
 export type OutstandingPullRequest = {
@@ -237,6 +241,23 @@ const readinessFrom = (
       ? { _tag: "AcknowledgementRequired", reasons, toMerge }
       : { _tag: "Ready", toMerge }
 
+/** One change-wide hard fact is one line: ten repositories behind one exhausted token must not
+ * read as ten problems. A hard reason a repository owns — a dirty worktree, said with its name —
+ * is that repository's and always stays. Keyed by code rather than by sentence: the limit's
+ * sentence carries a countdown, and two repositories refused a minute apart would otherwise be
+ * two facts. */
+const withoutRepeatedChangeWideHardReasons = (
+  reasons: readonly LifecycleReason[],
+): readonly LifecycleReason[] => {
+  const seen = new Set<string>()
+  return reasons.filter((reason) => {
+    if (reason.kind !== "hard" || reason.subject !== undefined) return true
+    if (seen.has(reason.code)) return false
+    seen.add(reason.code)
+    return true
+  })
+}
+
 const isAcknowledged = (reason: LifecycleReason, acknowledgements: readonly Acknowledgement[]): boolean =>
   acknowledgements.some(
     (acknowledgement) =>
@@ -352,6 +373,16 @@ export const layer = Layer.effect(
             // Already in the base; nothing to do.
           } else if (state.ready) {
             toMerge.push({ link, number: state.number })
+          } else if (state.kind === "hard") {
+            // A fact no repository owns — the token at its limit, which shuts every repository at
+            // once — so no subject: it is the change's, and said once for all of them. Nothing
+            // acknowledges a hard reason, so it never needs one to be matched against.
+            reasons.push({
+              code: "review-pending",
+              kind: "hard",
+              text: state.reason ?? `pull request #${state.number} is not ready`,
+              facts: `review:${state.reason ?? ""}`,
+            })
           } else {
             reasons.push({
               code: "review-pending",
@@ -367,7 +398,7 @@ export const layer = Layer.effect(
           for (const reason of safety.reasons)
             reasons.push({ ...reason, subject, kind: reason.kind, text: reason.text })
         }
-        return { reasons, toMerge }
+        return { reasons: withoutRepeatedChangeWideHardReasons(reasons), toMerge }
       })
 
     const cancellationReasons = (
