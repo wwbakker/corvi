@@ -3,7 +3,7 @@ import type { ChangeWireDto as Change } from "@corvi/contracts/api";
 import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { Cache, Changes, GitFacts, Shell, Workspace } from "@corvi/contracts/capabilities";
 import { cliJson } from "@corvi/shell/cli";
-import type { ShellResult } from "@corvi/contracts/capabilities";
+import { ghSoft, type GitHubRateLimited } from "./rate-limit.ts";
 
 export type Check = {
   name: string;
@@ -33,17 +33,6 @@ const checkState = (bucket: string): WidgetState =>
     | WidgetState
     | undefined ?? "none";
 
-/** The ShellResult-branching contract: the one failure `Shell` can raise here is a timeout, which
- * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
- * everything downstream branches on `code`. */
-const shResult = (cmd: string[], cwd?: string): Effect.Effect<ShellResult, never, Shell | Workspace> =>
-  Effect.gen(function* () {
-    const shell = yield* Shell;
-    return yield* shell.run(cmd, { cwd }).pipe(
-      Effect.catch((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
-    );
-  });
-
 /** The change's checkout of `repo`, read through the contract's `Changes` store. */
 const worktreeOf = (change: Change, repo: string): Effect.Effect<string | undefined, never, Changes> =>
   Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
@@ -61,27 +50,41 @@ export const checkItems = (
 ): Effect.Effect<WidgetItem[], never, Changes | Shell | Workspace | Cache | GitFacts> =>
   Effect.gen(function* () {
     const cache = yield* Cache;
-    return yield* cache.swr(
-      `gh:checks:${repo}:${number}`,
-      15_000,
-      Effect.gen(function* () {
-        const worktree = (yield* worktreeOf(change, repo)) ?? repo;
-        // Non-zero means "something is failing or pending", which is a result, not an error.
-        const r = yield* shResult(
-          [
-            "gh",
-            "pr",
-            "checks",
-            String(number),
-            "--json",
-            "name,state,bucket,link,startedAt,completedAt",
-          ],
-          worktree,
-        );
-        return groupChecks(yield* cliJson(ChecksSchema, [] as Check[])(r.stdout));
-      }),
+    const read = Effect.gen(function* () {
+      const worktree = (yield* worktreeOf(change, repo)) ?? repo;
+      // Non-zero means "something is failing or pending", which is a result, not an error; a rate
+      // limit stays in the error channel, for the cache boundary below to catch.
+      const r = yield* ghSoft(
+        [
+          "gh",
+          "pr",
+          "checks",
+          String(number),
+          "--json",
+          "name,state,bucket,link,startedAt,completedAt",
+        ],
+        worktree,
+      );
+      return groupChecks(yield* cliJson(ChecksSchema, [] as Check[])(r.stdout));
+    });
+    // A minute: a `gh` call costs at least a point, so what is saved here is calls, and a check's
+    // state does not change faster than this that anybody watches. That is why the gate is not
+    // asked first, as `prSummary` does: inside the TTL the last real checks stand, stale but true;
+    // past it, a gated read answers with the limit's row.
+    return yield* cache.swr(`gh:checks:${repo}:${number}`, 60_000, read).pipe(
+      // One row saying the checks could not be asked. An empty list would read as "no checks",
+      // which is the one thing a gated read does not know. Caught outside the cache on purpose:
+      // stored, the row would keep saying so for the whole TTL after GitHub answers again.
+      Effect.catchTag("GitHubRateLimited", (error) => Effect.succeed([rateLimitedRow(error)])),
     );
   });
+
+/** The row a gated read shows instead of the checks: what is unknown, and until when. */
+const rateLimitedRow = (error: GitHubRateLimited): WidgetItem => ({
+  label: "checks",
+  detail: error.message,
+  state: "warn",
+});
 
 /** Grouped by the part of the name before the bracket, so thirty jobs of one build read as one
  * row you can open. */

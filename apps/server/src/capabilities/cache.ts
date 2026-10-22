@@ -9,8 +9,10 @@
  *
  * Two rules keep that honest, and they belong in the code rather than in a comment:
  *
- * - **Decisions do not read this.** `completionOf`, `mergeReadiness` and the merge itself always
- *   run live: a pull request that was approved ninety seconds ago is not a merge.
+ * - **The click that decides is live; the poll that orients is not.** `refreshReadiness` — what
+ *   the complete dialog asks when it is clicked — and the merge itself always run live: a pull
+ *   request that was approved ninety seconds ago is not a merge. The completion poll reads the
+ *   shared display answer the cards already fill.
  * - **A failed refresh keeps the last good value.** A Jira that is down means "no news", not
  *   "no data".
  */

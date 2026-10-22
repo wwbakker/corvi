@@ -4,7 +4,7 @@ import { cpus, loadavg, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
 import { isRunToken, runPidPath } from "../scripts/clean-test.ts";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Result, Schema } from "effect";
 import { TestClock, TestConsole } from "effect/testing";
 import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
 import { runtimeConfig, type Config } from "../apps/server/src/workspace/server/index.ts";
@@ -411,6 +411,10 @@ export class TestError extends Schema.TaggedError<TestError>()("TestError", {
   message: Schema.String,
 }) {}
 
+/** Open the `gh` gate again. The rate limit it learned belongs to the token, so it outlives a
+ * test's scripted failures: a test that scripts one starts from an open gate. */
+export { forgetRateLimit } from "@corvi/github/rate-limit";
+
 /** A command a fake Shell was asked to run, in the order it was asked. */
 export type ShellCall = { cmd: readonly string[]; cwd?: string };
 
@@ -472,6 +476,58 @@ export const runWithShell = <A, E, R>(
         SettingsLive,
         ChangesLive,
         GitFactsLive,
+      ),
+    ),
+  );
+
+/** `runWithShell` with a failure captured as a `Result` instead of rejecting: the shape a test
+ * asserts a typed failure's fields from. */
+export const runWithShellEither = <A, E, R>(
+  shell: FakeShell,
+  effect: Effect.Effect<A, E, R>,
+): Promise<Result.Result<A, E>> => runWithShell(shell, Effect.result(effect));
+
+/** The same, as the workspace named: for the tests that exercise per-workspace behaviour, such
+ * as a budget that belongs to one workspace's token and not another's. */
+export const runWithShellAs = <A, E, R>(
+  workspace: Workspace,
+  shell: FakeShell,
+  effect: Effect.Effect<A, E, R>,
+): Promise<A> =>
+  Effect.runPromise(
+    Effect.provide(
+      effect as Effect.Effect<A, E, never>,
+      Layer.mergeAll(
+        Layer.succeed(Shell, shell),
+        Layer.succeed(WorkspaceTag, workspace),
+        CacheLive,
+        SettingsLive,
+        ChangesLive,
+        GitFactsLive,
+      ),
+    ),
+  );
+
+/** `runWithShell` under Effect's `TestClock`, which starts at the wall clock: a test that waits
+ * for a deadline — a gate that reopens at a reset — advances it with `TestClock.adjust` instead
+ * of sleeping. */
+export const runWithShellWithTestClock = <A, E, R>(
+  shell: FakeShell,
+  effect: Effect.Effect<A, E, R>,
+): Promise<A> =>
+  Effect.runPromise(
+    Effect.andThen(TestClock.setTime(Date.now()), effect as Effect.Effect<A, E, never>).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          TestConsole.layer,
+          TestClock.layer(),
+          Layer.succeed(Shell, shell),
+          Layer.succeed(WorkspaceTag, workspaceById(undefined)),
+          CacheLive,
+          SettingsLive,
+          ChangesLive,
+          GitFactsLive,
+        ),
       ),
     ),
   );

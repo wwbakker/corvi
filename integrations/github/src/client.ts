@@ -1,14 +1,14 @@
 import { baseName } from "@corvi/contracts/paths";
 import { effectiveBranchOf } from "@corvi/contracts/changes";
-import { Effect, Result, Schema } from "effect";
+import { Effect, Option, Result, Schema } from "effect";
 import type { ChangeWireDto as Change } from "@corvi/contracts/api";
 import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { stackOnBase, describeStack, mergeStacked, type Stack } from "./stacks.ts";
-import { shOrThrow, type ShellResult } from "./shell.ts";
+import { shOrThrow, shSoft, type ShellResult } from "./shell.ts";
+import { ghOrThrow, ghSoft, refusalNow, type GitHubRateLimited } from "./rate-limit.ts";
 import { Cache, Changes, GitFacts, invalidate, swr } from "@corvi/contracts/capabilities";
 import { BadRequestError, type CliError } from "@corvi/contracts/errors";
 import { cliJson } from "@corvi/shell/cli";
-import { shSoft } from "./shell.ts";
 
 /** `gh pr list --json` for one head. */
 const PrSchema = Schema.Struct({
@@ -163,13 +163,15 @@ type FoundPr = { worktree: string; head: string; prs: Pr[] };
 const prQuery = (
   change: Change,
   repo: string,
-): Effect.Effect<FoundPr | undefined, BadRequestError, Changes | GitFacts> =>
+): Effect.Effect<FoundPr | undefined, BadRequestError | GitHubRateLimited, Changes | GitFacts> =>
   Effect.gen(function* () {
     const worktree = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
     if (!worktree) return undefined;
     const branch = yield* effectiveBranchName(change, repo, worktree);
     const head = yield* pushedAs(worktree, repo, branch);
-    const r = yield* shSoft(
+    // A rate limit is not this command's failure but the token's, so `ghSoft` keeps it in the
+    // error channel instead of letting it become the sentence below.
+    const r = yield* ghSoft(
       [
         "gh",
         "pr",
@@ -200,13 +202,30 @@ const prQuery = (
   });
 
 /**
- * How long a pull request's state is worth reusing. Long enough that the overview, the dashboard
- * and the summaries share one lookup; short enough that pushing and refreshing shows the change.
- * Only the *display* paths use it — merging asks GitHub itself, every time.
+ * How long a pull request's state is worth reusing. A `gh` call costs at least one GraphQL point,
+ * so the budget is in practice a budget of calls rather than of objects: this is what makes the
+ * overview, the dashboard and the summaries share one lookup, and what keeps a change page's
+ * polling inside the token. Thirty seconds is still short enough that pushing and refreshing
+ * shows the change. Only the *display* paths use it — the click that decides asks GitHub itself.
  */
-const PR_TTL = 20_000;
+const PR_TTL = 30_000;
 
-const shownPr = (change: Change, repo: string): Effect.Effect<FoundPr | undefined, BadRequestError, Changes | GitFacts | Cache> =>
+/** How long a pull request's review threads and stack position are worth reusing: ten times a
+ * poll would otherwise ask GitHub for things nobody watches at that cadence, and both are quiet —
+ * a comment count or a stack position does not change between two polls.
+ *
+ * A repository without GitHub's stacks preview pays **two** queries per refresh — the preview
+ * query, then the same one without the stack fields — so its details cost twice what this TTL
+ * implies, which is why the TTL is what makes that doubling affordable. */
+const DETAILS_TTL = 120_000;
+
+/** How many repositories are asked at once, for every fan-out over a change's repositories. Each
+ * lookup is a `gh` process, and ten started together are also a burst GitHub answers with a
+ * secondary limit — which would gate the very reads being asked for. Four keeps a ten-repository
+ * change to three rounds. */
+export const REPOSITORY_CONCURRENCY = 4;
+
+const shownPr = (change: Change, repo: string): Effect.Effect<FoundPr | undefined, BadRequestError | GitHubRateLimited, Changes | GitFacts | Cache> =>
   swr(`gh:pr:${change.id}:${repo}`, PR_TTL, prQuery(change, repo));
 
 /** Owner and name from a pull request URL, so counting threads costs no extra lookup. */
@@ -324,18 +343,23 @@ const prDetails = (
   url: string,
   number: number,
 ): Effect.Effect<Details, never, Changes | GitFacts | Cache> =>
-  swr(`gh:details:${url}`, PR_TTL, readDetails(worktree, url, number));
+  swr(`gh:details:${url}`, DETAILS_TTL, readDetails(worktree, url, number)).pipe(
+    // The counts are a nicety: where GitHub will not answer, the card says nothing rather than
+    // reporting zero as if it had asked. Caught outside the cache on purpose — an answer stored
+    // as "no answer" would keep saying so for the whole TTL after GitHub answers again.
+    Effect.catchTag("GitHubRateLimited", () => Effect.succeed({} as Details)),
+  );
 
 const readDetails = (
   worktree: string,
   url: string,
   number: number,
-): Effect.Effect<Details, never, Changes | GitFacts | Cache> =>
+): Effect.Effect<Details, GitHubRateLimited, Changes | GitFacts> =>
   Effect.gen(function* () {
     const repo = repoFromUrl(url);
     if (!repo) return {};
-    const ask = (withStack: boolean): Effect.Effect<ShellResult, never, Changes | GitFacts> =>
-      shSoft(
+    const ask = (withStack: boolean): Effect.Effect<ShellResult, GitHubRateLimited> =>
+      ghSoft(
         [
           "gh",
           "api",
@@ -368,7 +392,10 @@ const readDetails = (
 /**
  * The pull request of this repository as the overview needs it: its number, and how many review
  * threads are still open. A merged or closed pull request is waiting for nobody, so it reports
- * none. Failures are not errors here — the overview says nothing rather than a red card.
+ * none. Failures are not errors here — the overview says nothing rather than a red card — except
+ * a rate limit, which is said: a gated read reports `checks: "warn"` and the limit's sentence, so
+ * the summary does not read green, and `detail` is what the summary contributor says once for the
+ * whole change.
  *
  * The number alone is what the azure-devops extension needs for the merge ref, through
  * `prNumberOf` below: one cached lookup serves both cards.
@@ -382,20 +409,40 @@ export const prNumberOf = (
     (summary) => summary?.number,
   );
 
+export type PrSummary = {
+  number?: number;
+  unresolved: number;
+  checks: WidgetState;
+  /** The limit's sentence, when the token is out: the row says it, and the overview says it once
+   * for the change rather than once per repository. */
+  detail?: string;
+};
+
 export const prSummary = (
   change: Change,
   repo: string,
-): Effect.Effect<{ number?: number; unresolved: number; checks: WidgetState }, never, Changes | GitFacts | Cache> =>
+): Effect.Effect<PrSummary, never, Changes | GitFacts | Cache> =>
   Effect.gen(function* () {
-    const found = yield* Effect.orElseSucceed(shownPr(change, repo), () => undefined);
-    const pr = found?.prs[0];
-    if (!found || !pr) return { unresolved: 0, checks: "none" };
-    // The checks come with the pull request itself — `statusCheckRollup` is part of the lookup
-    // that was already made — so the state of the build costs nothing extra here.
-    const checks = pr.state === "MERGED" ? "ok" : checksState(pr).state;
-    if (["MERGED", "CLOSED"].includes(pr.state)) return { number: pr.number, unresolved: 0, checks };
-    const details = yield* prDetails(found.worktree, pr.url, pr.number);
-    return { number: pr.number, unresolved: details.unresolved ?? 0, checks };
+    const summary = yield* Effect.gen(function* () {
+      const found = yield* Effect.orElseSucceed(shownPr(change, repo), () => undefined);
+      const pr = found?.prs[0];
+      if (!found || !pr) return { unresolved: 0, checks: "none" as WidgetState };
+      // The checks come with the pull request itself — `statusCheckRollup` is part of the lookup
+      // that was already made — so the state of the build costs nothing extra here.
+      const checks = pr.state === "MERGED" ? "ok" : checksState(pr).state;
+      if (["MERGED", "CLOSED"].includes(pr.state)) {
+        return { number: pr.number, unresolved: 0, checks };
+      }
+      const details = yield* prDetails(found.worktree, pr.url, pr.number);
+      return { number: pr.number, unresolved: details.unresolved ?? 0, checks };
+    });
+    // Asked last, and only once: the gate is the record of a limit whether it was already shut —
+    // a warm display entry would otherwise report the state from before it — or was shut by the
+    // read just made, whose details half swallows its own limit. A cheap question, with no I/O.
+    const refused = yield* refusalNow("graphql");
+    return Option.isSome(refused)
+      ? { ...summary, checks: "warn" as WidgetState, detail: refused.value.message }
+      : summary;
   });
 
 /** The pull request for this change in `repo`, plus a row describing it. */
@@ -420,6 +467,23 @@ export const prItem = (
           detail: "not pushed yet",
           state: "none",
           actions: [{ id: "create", label: "Push & create PR", arg: repo }],
+        },
+      };
+    }
+    // The gate is asked before the row is described: a warm display entry would otherwise paint
+    // the state from before the limit while the checks row and the summary say the token is out —
+    // and the details read swallows its own limit, so the row would quietly lose its comment
+    // count. The number stays: the repository row uses it to ask for the checks, whose warn row
+    // says the same thing.
+    const refused = yield* refusalNow("graphql");
+    if (Option.isSome(refused)) {
+      return {
+        number: pr.number,
+        item: {
+          label: `#${pr.number} ${pr.title}`,
+          detail: refused.value.message,
+          url: pr.url,
+          state: "warn",
         },
       };
     }
@@ -456,23 +520,36 @@ export const prItem = (
     };
   });
 
-/** Whether this repository's pull request may be merged as part of completing the change. */
+/** Whether this repository's pull request may be merged as part of completing the change.
+ *
+ * Not being ready is a reason and its kind. `forceable` is this pull request's own state — a
+ * draft, a conflict, a review still required — which a person may knowingly finish without
+ * merging. `hard` is the token's limit: external, transient, and true of every repository at
+ * once, so there is nothing here to decide and "Complete anyway" would fail at the merge. */
 export type MergeReadiness =
   | { ready: true; merged: true }
   | { ready: true; merged: false; number: number }
-  | { ready: false; reason: string };
+  | { ready: false; reason: string; kind: "forceable" | "hard" };
 
 /** Forget this change's cached pull-request reads: an action just made them wrong. Called once
  * per click path, before the fresh readiness check, so the dialog and the page that follows it
- * are not painting the state that was just superseded. */
+ * are not painting the state that was just superseded.
+ *
+ * The review threads go too, and their key is the pull request's URL rather than this change's:
+ * two minutes of thread counts surviving a reply is what "action invalidates what it made wrong"
+ * forbids, and a shared key only means another change re-reads a count it would have re-read
+ * anyway. */
 export const forgetPrs = (change: Change): Effect.Effect<void, never, Cache> =>
-  invalidate(`gh:pr:${change.id}:`);
+  Effect.gen(function* () {
+    yield* invalidate(`gh:pr:${change.id}:`);
+    yield* invalidate("gh:details:");
+  });
 
 /** A readiness check against freshly fetched refs: the branch may have merged upstream
  * seconds ago, and the local remote-tracking refs would still say otherwise. Fetches first,
- * then reads live — `mergeReadiness` never reads the shared cache — so the override dialog
- * only lists requirements that are genuinely unmet. The polled check is the same live read
- * without the fetch; there is no cached verdict for either to fall back on. */
+ * then reads live — the click that decides never reads the shared cache — so the override
+ * dialog only lists requirements that are genuinely unmet. The poll that orients asks
+ * `cachedReadiness` instead. */
 export const refreshReadiness = (
   change: Change,
   repo: string,
@@ -482,15 +559,16 @@ export const refreshReadiness = (
     return yield* mergeReadiness(change, repo);
   });
 
-/** Live, never cached: a pull request that was approved ninety seconds ago is not a merge. */
-export const mergeReadiness = (
+/** The verdict for a pull request that was already found: `mergeReadiness` reads it live, the
+ * poll reads the display cache, and both decide the same way. */
+const verdictOf = (
   change: Change,
   repo: string,
-): Effect.Effect<MergeReadiness, BadRequestError, Changes | GitFacts> =>
+  found: FoundPr | undefined,
+): Effect.Effect<MergeReadiness, BadRequestError, GitFacts> =>
   Effect.gen(function* () {
     const name = baseName(repo);
-    const found = yield* prQuery(change, repo);
-    if (!found) return { ready: false, reason: `${name}: no worktree` };
+    if (!found) return { ready: false, reason: `${name}: no worktree`, kind: "forceable" };
     const pr = found.prs[0];
     if (pr?.state === "MERGED") return { ready: true, merged: true };
     // No pull request, or one that was closed without merging: the work may still have
@@ -508,20 +586,63 @@ export const mergeReadiness = (
       return {
         ready: false,
         reason: pr ? `${name}: pull request is closed` : `${name}: no pull request`,
+        kind: "forceable",
       };
     }
-    if (pr.isDraft) return { ready: false, reason: `${name}: pull request is a draft` };
-    if (pr.mergeable === "CONFLICTING") return { ready: false, reason: `${name}: conflicts` };
+    if (pr.isDraft) return { ready: false, reason: `${name}: pull request is a draft`, kind: "forceable" };
+    if (pr.mergeable === "CONFLICTING") {
+      return { ready: false, reason: `${name}: conflicts`, kind: "forceable" };
+    }
     // Only an outstanding required review, or one that asked for changes, blocks. No decision
     // at all means the repository requires no review, so there is nothing left to wait for.
     const review = reviewState(pr);
     if (review === "required" || review === "changes-requested") {
       const decision = (pr.reviewDecision ?? "review required").toLowerCase().replace(/_/g, " ");
-      return { ready: false, reason: `${name}: not approved (${decision})` };
+      return { ready: false, reason: `${name}: not approved (${decision})`, kind: "forceable" };
     }
     return { ready: true, merged: false, number: pr.number };
   });
 
+/** A token at its limit is not this repository's failure, so it is a verdict rather than a thrown
+ * error: the sentence carries no repository prefix — ten repositories share one token — and no
+ * acknowledgement waives it. */
+const rateLimited = (error: GitHubRateLimited): MergeReadiness => ({
+  ready: false,
+  reason: error.message,
+  kind: "hard",
+});
+
+/** Live, never cached: a pull request that was approved ninety seconds ago is not a merge. The
+ * click that decides asks this one. */
+export const mergeReadiness = (
+  change: Change,
+  repo: string,
+): Effect.Effect<MergeReadiness, BadRequestError, Changes | GitFacts> =>
+  prQuery(change, repo).pipe(
+    Effect.flatMap((found) => verdictOf(change, repo, found)),
+    Effect.catchTag("GitHubRateLimited", (error) => Effect.succeed(rateLimited(error))),
+  );
+
+/** The same verdict from the display read the cards already make — `shownPr` — so a poll costs no
+ * live lookup per repository. Freshness is what it gives up: the cache is stale-while-revalidate,
+ * so its answer is at least `PR_TTL` old and, while refreshes keep failing, older than that for
+ * as long as GitHub stays unreachable. The click that decides does not use it.
+ *
+ * That gives-up freshness is why the gate is asked first: a warm entry survives the limit — the
+ * cache keeps its last good value — so the display read would answer with the pre-limit verdict
+ * (even "ready") for as long as the limit lasts. The gate knows without spawning or probing. */
+export const cachedReadiness = (
+  change: Change,
+  repo: string,
+): Effect.Effect<MergeReadiness, BadRequestError, Changes | GitFacts | Cache> =>
+  Effect.gen(function* () {
+    const refused = yield* refusalNow("graphql");
+    if (Option.isSome(refused)) return rateLimited(refused.value);
+    return yield* shownPr(change, repo).pipe(
+      Effect.flatMap((found) => verdictOf(change, repo, found)),
+      Effect.catchTag("GitHubRateLimited", (error) => Effect.succeed(rateLimited(error))),
+    );
+  });
 
 /**
  * Squash-merge the pull request: the repositories this was written for allow squash only, and
@@ -535,7 +656,7 @@ export const mergePr = (
   change: Change,
   repo: string,
   number: number,
-): Effect.Effect<string | undefined, BadRequestError | CliError, Changes | GitFacts> =>
+): Effect.Effect<string | undefined, BadRequestError | CliError | GitHubRateLimited, Changes | GitFacts> =>
   Effect.gen(function* () {
     const worktree = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
     const branch = yield* effectiveBranchName(change, repo, worktree);
@@ -545,7 +666,7 @@ export const mergePr = (
 
     const stacked = yield* isStacked(worktree, repo, number);
     if (!stacked) {
-      yield* shOrThrow(["gh", "pr", "merge", String(number), "--squash"], worktree);
+      yield* ghOrThrow(["gh", "pr", "merge", String(number), "--squash"], worktree);
       return undefined;
     }
     // Returns a note when the merge did not simply happen: a queued stack has not landed yet.
@@ -558,13 +679,13 @@ const isStacked = (
   worktree: string,
   repo: string,
   number: number,
-): Effect.Effect<string | undefined> =>
+): Effect.Effect<string | undefined, GitHubRateLimited> =>
   Effect.gen(function* () {
     const repository = (
-      yield* shSoft(["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], worktree)
+      yield* ghSoft(["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], worktree)
     ).stdout;
     if (!repository) return undefined;
-    const pr = yield* shSoft(["gh", "api", `repos/${repository}/pulls/${number}`], worktree);
+    const pr = yield* ghSoft(["gh", "api", `repos/${repository}/pulls/${number}`], worktree);
     const parsed = yield* cliJson(
       Schema.Struct({ stack: Schema.optional(Schema.Unknown) }),
       {} as { stack?: unknown },
@@ -576,7 +697,7 @@ const isStacked = (
 export const createPr = (
   change: Change,
   repo: string,
-): Effect.Effect<void, BadRequestError | CliError, Changes | GitFacts | Cache> =>
+): Effect.Effect<void, BadRequestError | CliError | GitHubRateLimited, Changes | GitFacts | Cache> =>
   Effect.gen(function* () {
     const worktree = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
     const branch = yield* effectiveBranchName(change, repo, worktree);
@@ -591,9 +712,18 @@ export const createPr = (
     const base = yield* facts.targetFor(change, repo);
     const target = base?.startsWith("origin/") ? base.slice("origin/".length) : base;
     const against = target && (yield* facts.remoteDefaultBranch(repo)) !== base ? ["--base", target] : [];
-    yield* shOrThrow(["gh", "pr", "create", "--fill", ...against], worktree);
+    yield* ghOrThrow(["gh", "pr", "create", "--fill", ...against], worktree);
     if (against.length) {
-      const view = yield* shSoft(["gh", "pr", "view", "--json", "number", "-q", ".number"], worktree);
+      // The pull request exists by now: not learning its number costs the stack nicety, not the
+      // create.
+      const view = yield* ghSoft(
+        ["gh", "pr", "view", "--json", "number", "-q", ".number"],
+        worktree,
+      ).pipe(
+        Effect.catchTag("GitHubRateLimited", () =>
+          Effect.succeed({ code: 1, stdout: "", stderr: "" }),
+        ),
+      );
       const number = Number(view.stdout);
       if (number) yield* stackOnBase(worktree, target!, number);
     }

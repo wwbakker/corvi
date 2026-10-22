@@ -13,12 +13,13 @@ import { repoStatusOf, runCard, statusOne } from "../apps/server/src/integration
 import { integrationRoutes } from "../apps/server/src/integrations/routes.ts";
 import { createChange } from "../apps/server/src/change/server/index.ts";
 import githubExtension, { githubSummaryContributor, prLooseEnds } from "@corvi/github";
+import { mergeReadiness } from "@corvi/github/client";
 import azureDevopsExtension, { azureDevopsSummaryContributor } from "@corvi/azure-devops";
 import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
-import { checkoutsOf, fakeShell, runEffect, runWithShell, TestError, testTempDir, withRuntimeConfig, type FakeShell  } from "./helpers.ts";
+import { checkoutsOf, fakeShell, forgetRateLimit, runEffect, runWithShell, TestError, testTempDir, withRuntimeConfig, type FakeShell  } from "./helpers.ts";
 
 /**
  * The cards' server half: the GitHub tree and the Azure DevOps tree the dashboard draws, the
@@ -29,6 +30,9 @@ import { checkoutsOf, fakeShell, runEffect, runWithShell, TestError, testTempDir
 
 beforeEach(() => {
   clearCache();
+  // The gh gate belongs to the tokens and outlives a test: one that scripts a limit clears it
+  // first, so it cannot refuse the next test's commands.
+  forgetRateLimit();
 });
 
 const change = (over: Partial<Change> = {}): Change => ({
@@ -355,6 +359,74 @@ test("the azure-devops summary counts active pipelines, in the singular and plur
     azureDevopsSummaryContributor.facts(change({ checkouts: checkoutsOf([orderRepo]) })),
   );
   expect(two.facts.map((f) => f.label)).toEqual(["2 pipelines active"]);
+});
+
+test("the github summary says a limited token once, for the change", async () => {
+  const shell = fakeShell((cmd) => {
+    const line = cmd.join(" ");
+    const checked = checkedOut(line);
+    if (checked !== undefined) return checked;
+    if (line === "gh api rate_limit") {
+      return JSON.stringify({
+        resources: { graphql: { reset: Math.floor((Date.now() + 20 * 60_000) / 1_000) } },
+      });
+    }
+    if (line.startsWith("gh pr list --head")) {
+      return { code: 1, stderr: "GraphQL: API rate limit already exceeded for user ID 13013300." };
+    }
+    return undefined;
+  });
+
+  // Two repositories behind one token: the overview says it once, and does not read green.
+  const summary = await runWithShell(
+    shell,
+    githubSummaryContributor.facts(change({ checkouts: checkoutsOf([orderRepo, "/repos/other"]) })),
+  );
+  expect(summary.facts).toHaveLength(1);
+  expect(summary.facts[0]).toMatchObject({ id: "rate-limit", state: "warn" });
+  expect(summary.facts[0]!.label).toMatch(/^GitHub rate limit reached; resets at \d\d:\d\d UTC/);
+  expect(summary.state).toBe("warn");
+  forgetRateLimit();
+});
+
+test("the github summary does not report a comment count it could not refresh", async () => {
+  const repo = "/repos/summary-gated-threads";
+  // A healthy summary warms the display read with one open thread.
+  const healthy = summaryShell(0, 1);
+  const warm = await runWithShell(
+    healthy,
+    githubSummaryContributor.facts(change({ checkouts: checkoutsOf([repo]) })),
+  );
+  expect(warm.facts.map((fact) => fact.id)).toEqual(["unresolved"]);
+
+  // Then the token runs out. The thread count is still in the cache, and stale.
+  const limited = fakeShell((cmd) => {
+    const line = cmd.join(" ");
+    const checked = checkedOut(line);
+    if (checked !== undefined) return checked;
+    if (line === "gh api rate_limit") {
+      return JSON.stringify({
+        resources: { graphql: { reset: Math.floor((Date.now() + 20 * 60_000) / 1_000) } },
+      });
+    }
+    return line.startsWith("gh pr list")
+      ? { code: 1, stderr: "GraphQL: API rate limit already exceeded for user ID 13013300." }
+      : undefined;
+  });
+  // A live read is what closes the gate; the display cache stays warm and stale.
+  expect(await runWithShell(limited, mergeReadiness(change(), repo))).toMatchObject({
+    ready: false,
+    kind: "hard",
+  });
+
+  const gated = await runWithShell(
+    healthy,
+    githubSummaryContributor.facts(change({ checkouts: checkoutsOf([repo]) })),
+  );
+  // The limit's line, and no count beside it: the count is one this summary could not ask for.
+  expect(gated.facts.map((fact) => fact.id)).toEqual(["rate-limit"]);
+  expect(gated.state).toBe("warn");
+  forgetRateLimit();
 });
 
 test("an idle inbox and idle pipelines contribute nothing but the idle line", async () => {

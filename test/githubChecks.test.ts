@@ -3,9 +3,12 @@ import { checkItems, groupChecks, type Check } from "@corvi/github/checks";
 import type { Change } from "@corvi/changes/record";
 import type { WidgetItemDto } from "@corvi/contracts/api";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
-import { checkoutsOf, fakeShell, runWithShell  } from "./helpers.ts";
+import { checkoutsOf, fakeShell, forgetRateLimit, runWithShell  } from "./helpers.ts";
 
-beforeEach(() => clearCache());
+beforeEach(() => {
+  clearCache();
+  forgetRateLimit();
+});
 
 const check = (name: string, bucket: string, link?: string, startedAt?: string): Check => ({
   name,
@@ -106,6 +109,43 @@ test("checkItems reads gh pr checks and groups them, even when the CLI exits non
   expect(items[0]!.detail).toBe("2 checks · 1 failing");
   expect(items[1]!.state).toBe("ok");
   expect(items[1]!.url).toBe("u3");
+});
+
+test("checkItems: a rate-limited read is not stored as the answer", async () => {
+  const change: Change = {
+    id: "PROJ-1",
+    branch: "PROJ-1-thing",
+    checkouts: checkoutsOf(["/repos/repo"]),
+    createdAt: "2026-01-01T00:00:00Z",
+  };
+  let gated = true;
+  const shell = fakeShell((cmd) => {
+    const line = cmd.join(" ");
+    if (line === "gh api rate_limit") {
+      return JSON.stringify({
+        resources: { graphql: { reset: Math.floor((Date.now() + 30 * 60_000) / 1_000) } },
+      });
+    }
+    if (line.startsWith("gh pr checks 11")) {
+      return gated
+        ? { code: 1, stderr: "GraphQL: API rate limit already exceeded for user ID 13013300." }
+        : JSON.stringify([{ name: "build", state: "SUCCESS", bucket: "pass" }]);
+    }
+    return undefined;
+  });
+
+  // Gated: one row saying the checks could not be asked — an empty list would read as "no checks".
+  const limited = await runWithShell(shell, checkItems(change, "/repos/repo", 11));
+  expect(limited).toHaveLength(1);
+  expect(limited[0]).toMatchObject({ label: "checks", state: "warn" });
+  expect(limited[0]!.detail).toMatch(/^GitHub rate limit reached; resets at \d\d:\d\d UTC/);
+
+  forgetRateLimit();
+  gated = false;
+  // The gated answer was never stored, so the checks are there at once rather than after the TTL.
+  expect(
+    (await runWithShell(shell, checkItems(change, "/repos/repo", 11))).map((item) => item.label),
+  ).toEqual(["build"]);
 });
 
 test("checkItems reads an empty or unreadable answer as no checks", async () => {
