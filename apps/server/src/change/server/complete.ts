@@ -8,7 +8,7 @@ import type {
 } from "@corvi/changes/record";
 import { isIdeation } from "@corvi/changes/record";
 import type { MergeReadiness } from "@corvi/github/client";
-import { cachedReadiness, refreshReadiness, forgetPrs } from "@corvi/github/client";
+import { cachedReadiness, refreshReadiness, forgetPrs, REPOSITORY_CONCURRENCY } from "@corvi/github/client";
 import type { Cache, GitFacts } from "@corvi/contracts/capabilities";
 import type { Changes } from "../../integrations/api/capabilities.ts";
 import { unsafeToRemove, type Unsafe } from "../../vendors/git.ts";
@@ -132,8 +132,8 @@ export const completionOf = (
         const results = yield* Effect.forEach(
           change.checkouts ?? [],
           (spec) => completionOfRepo(change, spec.path, fresh),
-          // Unbounded concurrency is deliberate: these per-repo lookups are independent.
-          { concurrency: "unbounded" },
+          // The same cap the integration's own fan-outs use, and for the same reason.
+          { concurrency: REPOSITORY_CONCURRENCY },
         );
         return verdict(results);
       });

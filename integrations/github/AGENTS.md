@@ -13,6 +13,13 @@ capability (`src/shell.ts`), caches through the `Cache` capability, and reads re
 provides. Every `gh` command goes through `src/rate-limit.ts` instead of `sh` directly: GitHub's
 limit belongs to the token, so one seam owns the gate for the whole process.
 
+A `gh` call costs at least one GraphQL point, so the token's budget is in practice a budget of
+calls: the TTLs in `src/client.ts` (`PR_TTL`, `DETAILS_TTL`) and `src/checks.ts` exist to make
+the page's several readers share one call, and they are the numbers to change when traffic has to
+come down. When the gate is shut the surfaces say so rather than reading empty — a warn row for
+the checks, `checks: "warn"` plus one fact for the overview, the sentence on the pull request
+row.
+
 ## Does not own
 
 The application's git layer or its git commands' environment; `apps/server` implements
@@ -28,7 +35,8 @@ of the cards/issue UI live in `@corvi/web` (`apps/web/src/integrations/*/client.
   `closeIssueOnComplete`, `repoFromRemote`)
 - `@corvi/github/client`: the `gh` client (`prItem`, `prSummary`, `createPr`, `mergeReadiness`,
   `cachedReadiness`, `refreshReadiness`, `mergePr`, `forgetPrs`, `prNumberOf`, `readiness`, `headRef`,
-  `waitingOnYou`, `reviewState`, `repoFromUrl`, `MergeReadiness`, `Stack`)
+  `waitingOnYou`, `reviewState`, `repoFromUrl`, `MergeReadiness`, `PrSummary`, `Stack`,
+  `REPOSITORY_CONCURRENCY`)
 - `@corvi/github/checks`: `checkItems`, `groupChecks`, `Check`
 - `@corvi/github/rate-limit`: the seam every `gh` call runs through (`gh`, `ghOrThrow`,
   `ghSoft`), the gate, its reset and its cheap question (`GitHubRateLimited`, `refusalNow`,

@@ -2,7 +2,10 @@ import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect, Option, Result, Layer } from "effect";
+import { TestClock } from "effect/testing";
 import { gh, refusalNow } from "@corvi/github/rate-limit";
+import { checkItems } from "@corvi/github/checks";
+import github from "@corvi/github";
 import {
   cachedReadiness,
   createPr,
@@ -39,7 +42,7 @@ import { createChange, readChange, writeChange } from "../apps/server/src/change
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
 import type { Change } from "@corvi/changes/record";
-import { checkoutsOf, fakeShell, forgetRateLimit, runSwr, runWithShell, testTempDir, type FakeShell  } from "./helpers.ts";
+import { checkoutsOf, fakeShell, forgetRateLimit, runSwr, runWithShell, runWithShellWithTestClock, testTempDir, type FakeShell  } from "./helpers.ts";
 
 /**
  * `@corvi/github/client` and the github-issues extension, driven through the fake-Shell
@@ -339,17 +342,15 @@ test("prSummary: a rate-limited threads read is not stored as the answer", async
     },
   });
 
-  // Gated: the card says nothing rather than reading zero as if it had asked.
-  expect(await runWithShell(shell, prSummary(change(), repo))).toEqual({
-    number: 7,
-    unresolved: 0,
-    checks: "ok",
-  });
+  // Gated: the summary says so — a green dot and "no news" would read as a healthy build.
+  const gatedSummary = await runWithShell(shell, prSummary(change(), repo));
+  expect(gatedSummary).toMatchObject({ number: 7, unresolved: 0, checks: "warn" });
+  expect(gatedSummary.detail).toMatch(/^GitHub rate limit reached; resets at \d\d:\d\d UTC/);
 
   forgetRateLimit();
   gated = false;
   // The gated answer was never stored, so the counts are there at once rather than after the
-  // details TTL.
+  // details TTL — and the warning is gone with the gate.
   expect(await runWithShell(shell, prSummary(change(), repo))).toEqual({
     number: 7,
     unresolved: 1,
@@ -610,6 +611,64 @@ test("mergeReadiness: a rate limit is a hard verdict, not a failure", async () =
   forgetRateLimit();
 });
 
+test("prItem: a warm display read under a shut gate keeps its number and says the limit", async () => {
+  const repo = "/repos/item-warm";
+  // A healthy read warms the display entry the cards poll.
+  const shell = ghShell({ repo, prs: [pr()] });
+  expect(await runWithShell(shell, prItem(change(), repo))).toMatchObject({ number: 7 });
+
+  // The token runs out on a live read; the display entry is still warm and pre-limit.
+  const limited = ghShell({
+    repo,
+    prs: [pr()],
+    prListCode: 1,
+    prListStderr: "GraphQL: API rate limit already exceeded for user ID 13013300.",
+  });
+  expect(await runWithShell(limited, mergeReadiness(change(), repo))).toMatchObject({
+    ready: false,
+    kind: "hard",
+  });
+
+  const warm = await runWithShell(shell, prItem(change(), repo));
+  // The number survives — the repository row uses it to ask for the checks — and the sentence
+  // stands where the comment count would have been.
+  expect(warm.number).toBe(7);
+  expect(warm.item).toMatchObject({
+    label: "#7 Do the thing",
+    url: "https://github.com/org/repo/pull/7",
+    state: "warn",
+  });
+  expect(warm.item.detail).toMatch(/^GitHub rate limit reached; resets at \d\d:\d\d UTC/);
+
+  // So the repository's row still carries the checks' warn row beneath it.
+  const card = github.cards[0]!;
+  const rows = await runWithShell(
+    shell,
+    card.repoStatus!(change({ checkouts: checkoutsOf([repo]) }), repo),
+  );
+  const prRow = rows[0]!.children![0]!;
+  expect(prRow).toMatchObject({ state: "warn", label: "#7 Do the thing" });
+  expect(prRow.children?.[0]).toMatchObject({ label: "checks", state: "warn" });
+  forgetRateLimit();
+});
+
+test("prItem: a gated read is an error row with the limit's sentence", async () => {
+  const repo = "/repos/item-gated";
+  const shell = ghShell({
+    repo,
+    prs: [pr()],
+    prListCode: 1,
+    prListStderr: "GraphQL: API rate limit already exceeded for user ID 13013300.",
+  });
+
+  const { item } = await runWithShell(shell, prItem(change(), repo));
+  // Not a blank row, and not "nothing is wrong": what happened, in GitHub's own sentence.
+  expect(item.label).toBe("pull request");
+  expect(item.state).toBe("error");
+  expect(item.detail).toMatch(/^GitHub rate limit reached; resets at \d\d:\d\d UTC/);
+  forgetRateLimit();
+});
+
 test("cachedReadiness: a warm display read does not outlive the token", async () => {
   const repo = "/repos/mr-warm";
   // A healthy read first: this is the state the bug happens in — a warm `shownPr` entry.
@@ -693,6 +752,89 @@ test("cachedReadiness: a shut REST budget leaves the GraphQL display read alone"
   forgetRateLimit();
 });
 
+test("a repository without the stacks preview pays two queries per details refresh", async () => {
+  const repo = "/repos/details-preview";
+  // The preview query fails and the retry without the stack fields answers: the shape a repository
+  // whose stacks preview is off gives every time.
+  const shell = ghShell({ repo, prs: [pr()], stackQueryFails: true, details: { data: {} } });
+  const details = (): number =>
+    shell.calls.map((call) => call.cmd.join(" ")).filter((line) => line.startsWith("gh api graphql"))
+      .length;
+
+  const read = Effect.gen(function* () {
+    yield* prSummary(change(), repo);
+    // A stale read refreshes on a fiber of its own; give it its turn before the clock moves.
+    for (let turn = 0; turn < 8; turn++) yield* Effect.yieldNow;
+  });
+
+  await runWithShellWithTestClock(
+    shell,
+    Effect.gen(function* () {
+      yield* read;
+      expect(details()).toBe(2);
+
+      // Still inside the two minutes: no refresh, so no second pair.
+      yield* TestClock.adjust(119_000);
+      yield* read;
+      expect(details()).toBe(2);
+
+      // Past it: one refresh, which is two queries again.
+      yield* TestClock.adjust(1_000);
+      yield* read;
+      expect(details()).toBe(4);
+    }),
+  );
+});
+
+test("the display TTLs are the numbers the traffic notes claim", async () => {
+  const repo = "/repos/ttl";
+  const shell = ghShell({ repo, prs: [pr()], details: { data: {} } });
+  const asked = (prefix: string): number =>
+    shell.calls.map((call) => call.cmd.join(" ")).filter((line) => line.startsWith(prefix)).length;
+
+  const read = Effect.gen(function* () {
+    yield* prSummary(change(), repo);
+    yield* checkItems(change(), repo, 7);
+    // A stale read refreshes on a fiber of its own; give it its turn before the clock moves.
+    for (let turn = 0; turn < 8; turn++) yield* Effect.yieldNow;
+  });
+
+  await runWithShellWithTestClock(
+    shell,
+    Effect.gen(function* () {
+      yield* read;
+      expect(asked("gh pr list")).toBe(1);
+      expect(asked("gh api graphql")).toBe(1);
+      expect(asked("gh pr checks")).toBe(1);
+
+      // 25 s: past the old 20 s, inside the pull request's 30 s.
+      yield* TestClock.adjust(25_000);
+      yield* read;
+      expect(asked("gh pr list")).toBe(1);
+      // 35 s: past it.
+      yield* TestClock.adjust(10_000);
+      yield* read;
+      expect(asked("gh pr list")).toBe(2);
+
+      // 55 s is still inside the checks' minute; 65 s is past it.
+      yield* TestClock.adjust(20_000);
+      yield* read;
+      expect(asked("gh pr checks")).toBe(1);
+      yield* TestClock.adjust(10_000);
+      yield* read;
+      expect(asked("gh pr checks")).toBe(2);
+
+      // 115 s is still inside the details' two minutes; 125 s is past it.
+      yield* TestClock.adjust(50_000);
+      yield* read;
+      expect(asked("gh api graphql")).toBe(1);
+      yield* TestClock.adjust(10_000);
+      yield* read;
+      expect(asked("gh api graphql")).toBe(2);
+    }),
+  );
+});
+
 test("cachedReadiness reads the display answer the cards already have", async () => {
   const repo = "/repos/mr-cached";
   const shell = ghShell({ repo, prs: [pr()] });
@@ -701,7 +843,7 @@ test("cachedReadiness reads the display answer the cards already have", async ()
   const second = await runWithShell(shell, cachedReadiness(change(), repo));
   expect(first).toEqual({ ready: true, merged: false, number: 7 });
   expect(second).toEqual(first);
-  // The 20 s display read is shared, so the second poll cost no `gh` at all.
+  // The display read is shared inside its TTL, so the second poll cost no `gh` at all.
   expect(shell.calls.map((c) => c.cmd.join(" ")).filter((line) => line.startsWith("gh pr list")))
     .toHaveLength(1);
 });

@@ -134,8 +134,11 @@ test("checkItems: a rate-limited read is not stored as the answer", async () => 
     return undefined;
   });
 
-  // Gated: no checks rather than an error.
-  expect(await runWithShell(shell, checkItems(change, "/repos/repo", 11))).toEqual([]);
+  // Gated: one row saying the checks could not be asked — an empty list would read as "no checks".
+  const limited = await runWithShell(shell, checkItems(change, "/repos/repo", 11));
+  expect(limited).toHaveLength(1);
+  expect(limited[0]).toMatchObject({ label: "checks", state: "warn" });
+  expect(limited[0]!.detail).toMatch(/^GitHub rate limit reached; resets at \d\d:\d\d UTC/);
 
   forgetRateLimit();
   gated = false;

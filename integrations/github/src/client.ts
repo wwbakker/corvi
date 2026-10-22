@@ -202,11 +202,28 @@ const prQuery = (
   });
 
 /**
- * How long a pull request's state is worth reusing. Long enough that the overview, the dashboard
- * and the summaries share one lookup; short enough that pushing and refreshing shows the change.
- * Only the *display* paths use it — merging asks GitHub itself, every time.
+ * How long a pull request's state is worth reusing. A `gh` call costs at least one GraphQL point,
+ * so the budget is in practice a budget of calls rather than of objects: this is what makes the
+ * overview, the dashboard and the summaries share one lookup, and what keeps a change page's
+ * polling inside the token. Thirty seconds is still short enough that pushing and refreshing
+ * shows the change. Only the *display* paths use it — the click that decides asks GitHub itself.
  */
-const PR_TTL = 20_000;
+const PR_TTL = 30_000;
+
+/** How long a pull request's review threads and stack position are worth reusing: ten times a
+ * poll would otherwise ask GitHub for things nobody watches at that cadence, and both are quiet —
+ * a comment count or a stack position does not change between two polls.
+ *
+ * A repository without GitHub's stacks preview pays **two** queries per refresh — the preview
+ * query, then the same one without the stack fields — so its details cost twice what this TTL
+ * implies, which is why the TTL is what makes that doubling affordable. */
+const DETAILS_TTL = 120_000;
+
+/** How many repositories are asked at once, for every fan-out over a change's repositories. Each
+ * lookup is a `gh` process, and ten started together are also a burst GitHub answers with a
+ * secondary limit — which would gate the very reads being asked for. Four keeps a ten-repository
+ * change to three rounds. */
+export const REPOSITORY_CONCURRENCY = 4;
 
 const shownPr = (change: Change, repo: string): Effect.Effect<FoundPr | undefined, BadRequestError | GitHubRateLimited, Changes | GitFacts | Cache> =>
   swr(`gh:pr:${change.id}:${repo}`, PR_TTL, prQuery(change, repo));
@@ -326,7 +343,7 @@ const prDetails = (
   url: string,
   number: number,
 ): Effect.Effect<Details, never, Changes | GitFacts | Cache> =>
-  swr(`gh:details:${url}`, PR_TTL, readDetails(worktree, url, number)).pipe(
+  swr(`gh:details:${url}`, DETAILS_TTL, readDetails(worktree, url, number)).pipe(
     // The counts are a nicety: where GitHub will not answer, the card says nothing rather than
     // reporting zero as if it had asked. Caught outside the cache on purpose — an answer stored
     // as "no answer" would keep saying so for the whole TTL after GitHub answers again.
@@ -375,7 +392,10 @@ const readDetails = (
 /**
  * The pull request of this repository as the overview needs it: its number, and how many review
  * threads are still open. A merged or closed pull request is waiting for nobody, so it reports
- * none. Failures are not errors here — the overview says nothing rather than a red card.
+ * none. Failures are not errors here — the overview says nothing rather than a red card — except
+ * a rate limit, which is said: a gated read reports `checks: "warn"` and the limit's sentence, so
+ * the summary does not read green, and `detail` is what the summary contributor says once for the
+ * whole change.
  *
  * The number alone is what the azure-devops extension needs for the merge ref, through
  * `prNumberOf` below: one cached lookup serves both cards.
@@ -389,20 +409,40 @@ export const prNumberOf = (
     (summary) => summary?.number,
   );
 
+export type PrSummary = {
+  number?: number;
+  unresolved: number;
+  checks: WidgetState;
+  /** The limit's sentence, when the token is out: the row says it, and the overview says it once
+   * for the change rather than once per repository. */
+  detail?: string;
+};
+
 export const prSummary = (
   change: Change,
   repo: string,
-): Effect.Effect<{ number?: number; unresolved: number; checks: WidgetState }, never, Changes | GitFacts | Cache> =>
+): Effect.Effect<PrSummary, never, Changes | GitFacts | Cache> =>
   Effect.gen(function* () {
-    const found = yield* Effect.orElseSucceed(shownPr(change, repo), () => undefined);
-    const pr = found?.prs[0];
-    if (!found || !pr) return { unresolved: 0, checks: "none" };
-    // The checks come with the pull request itself — `statusCheckRollup` is part of the lookup
-    // that was already made — so the state of the build costs nothing extra here.
-    const checks = pr.state === "MERGED" ? "ok" : checksState(pr).state;
-    if (["MERGED", "CLOSED"].includes(pr.state)) return { number: pr.number, unresolved: 0, checks };
-    const details = yield* prDetails(found.worktree, pr.url, pr.number);
-    return { number: pr.number, unresolved: details.unresolved ?? 0, checks };
+    const summary = yield* Effect.gen(function* () {
+      const found = yield* Effect.orElseSucceed(shownPr(change, repo), () => undefined);
+      const pr = found?.prs[0];
+      if (!found || !pr) return { unresolved: 0, checks: "none" as WidgetState };
+      // The checks come with the pull request itself — `statusCheckRollup` is part of the lookup
+      // that was already made — so the state of the build costs nothing extra here.
+      const checks = pr.state === "MERGED" ? "ok" : checksState(pr).state;
+      if (["MERGED", "CLOSED"].includes(pr.state)) {
+        return { number: pr.number, unresolved: 0, checks };
+      }
+      const details = yield* prDetails(found.worktree, pr.url, pr.number);
+      return { number: pr.number, unresolved: details.unresolved ?? 0, checks };
+    });
+    // Asked last, and only once: the gate is the record of a limit whether it was already shut —
+    // a warm display entry would otherwise report the state from before it — or was shut by the
+    // read just made, whose details half swallows its own limit. A cheap question, with no I/O.
+    const refused = yield* refusalNow("graphql");
+    return Option.isSome(refused)
+      ? { ...summary, checks: "warn" as WidgetState, detail: refused.value.message }
+      : summary;
   });
 
 /** The pull request for this change in `repo`, plus a row describing it. */
@@ -427,6 +467,23 @@ export const prItem = (
           detail: "not pushed yet",
           state: "none",
           actions: [{ id: "create", label: "Push & create PR", arg: repo }],
+        },
+      };
+    }
+    // The gate is asked before the row is described: a warm display entry would otherwise paint
+    // the state from before the limit while the checks row and the summary say the token is out —
+    // and the details read swallows its own limit, so the row would quietly lose its comment
+    // count. The number stays: the repository row uses it to ask for the checks, whose warn row
+    // says the same thing.
+    const refused = yield* refusalNow("graphql");
+    if (Option.isSome(refused)) {
+      return {
+        number: pr.number,
+        item: {
+          label: `#${pr.number} ${pr.title}`,
+          detail: refused.value.message,
+          url: pr.url,
+          state: "warn",
         },
       };
     }
@@ -476,9 +533,17 @@ export type MergeReadiness =
 
 /** Forget this change's cached pull-request reads: an action just made them wrong. Called once
  * per click path, before the fresh readiness check, so the dialog and the page that follows it
- * are not painting the state that was just superseded. */
+ * are not painting the state that was just superseded.
+ *
+ * The review threads go too, and their key is the pull request's URL rather than this change's:
+ * two minutes of thread counts surviving a reply is what "action invalidates what it made wrong"
+ * forbids, and a shared key only means another change re-reads a count it would have re-read
+ * anyway. */
 export const forgetPrs = (change: Change): Effect.Effect<void, never, Cache> =>
-  invalidate(`gh:pr:${change.id}:`);
+  Effect.gen(function* () {
+    yield* invalidate(`gh:pr:${change.id}:`);
+    yield* invalidate("gh:details:");
+  });
 
 /** A readiness check against freshly fetched refs: the branch may have merged upstream
  * seconds ago, and the local remote-tracking refs would still say otherwise. Fetches first,

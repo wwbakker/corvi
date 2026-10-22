@@ -3,7 +3,7 @@ import type { ChangeWireDto as Change } from "@corvi/contracts/api";
 import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { Cache, Changes, GitFacts, Shell, Workspace } from "@corvi/contracts/capabilities";
 import { cliJson } from "@corvi/shell/cli";
-import { ghSoft } from "./rate-limit.ts";
+import { ghSoft, type GitHubRateLimited } from "./rate-limit.ts";
 
 export type Check = {
   name: string;
@@ -67,13 +67,24 @@ export const checkItems = (
       );
       return groupChecks(yield* cliJson(ChecksSchema, [] as Check[])(r.stdout));
     });
-    return yield* cache.swr(`gh:checks:${repo}:${number}`, 15_000, read).pipe(
-      // A stand-in until the card has a row for this: the empty list reads as "no checks", which
-      // is not what a gated read knows. Caught outside the cache on purpose — stored, the
-      // stand-in would keep saying so for the whole TTL after GitHub answers again.
-      Effect.catchTag("GitHubRateLimited", () => Effect.succeed([] as WidgetItem[])),
+    // A minute: a `gh` call costs at least a point, so what is saved here is calls, and a check's
+    // state does not change faster than this that anybody watches. That is why the gate is not
+    // asked first, as `prSummary` does: inside the TTL the last real checks stand, stale but true;
+    // past it, a gated read answers with the limit's row.
+    return yield* cache.swr(`gh:checks:${repo}:${number}`, 60_000, read).pipe(
+      // One row saying the checks could not be asked. An empty list would read as "no checks",
+      // which is the one thing a gated read does not know. Caught outside the cache on purpose:
+      // stored, the row would keep saying so for the whole TTL after GitHub answers again.
+      Effect.catchTag("GitHubRateLimited", (error) => Effect.succeed([rateLimitedRow(error)])),
     );
   });
+
+/** The row a gated read shows instead of the checks: what is unknown, and until when. */
+const rateLimitedRow = (error: GitHubRateLimited): WidgetItem => ({
+  label: "checks",
+  detail: error.message,
+  state: "warn",
+});
 
 /** Grouped by the part of the name before the bracket, so thirty jobs of one build read as one
  * row you can open. */

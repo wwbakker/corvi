@@ -13,7 +13,11 @@ import { plannedCompletionSteps, providerError } from "../apps/server/src/change
 import { changeDir, createChange, readChange, writeSidecar } from "../apps/server/src/change/server/index.ts";
 import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import { Effect } from "effect";
-import { checkoutsOf, fakeShell, forgetRateLimit, runEffect, runRouteWithShell, runWithShell, TestError, type FakeShell, type ShellCall  } from "./helpers.ts";
+import { TestClock } from "effect/testing";
+import { checkoutsOf, fakeShell, forgetRateLimit, runEffect, runRouteWithShell, runWithShell, runWithShellWithTestClock, TestError, type FakeShell, type ShellCall  } from "./helpers.ts";
+import { prItem, REPOSITORY_CONCURRENCY } from "@corvi/github/client";
+import { checkItems } from "@corvi/github/checks";
+import { githubSummaryContributor } from "@corvi/github";
 import { contentInMain, integrated } from "../apps/server/src/vendors/git.ts";
 import { changeActions } from "../apps/web/src/change-page/client/changeActions.ts";
 
@@ -335,6 +339,182 @@ test("completionOf: the poll reads the display answer, the click does not", asyn
   // The click that decides forgets it and asks GitHub again.
   expect(await runWithShell(shell, completionOf(change, true))).toMatchObject({ ready: true });
   expect(asked()).toBe(2);
+});
+
+/** A ten-repository world in which every repository has a pushed worktree with one approved pull
+ * request: nothing in the counts depends on git, only on the cache's TTLs. */
+const trafficShell = (repos: readonly string[], branch: string): FakeShell => {
+  const calls: ShellCall[] = [];
+  // Every answer takes one turn of the scheduler, as a real `gh` takes time: the cache refreshes a
+  // stale entry on a fiber of its own, and those join one in-flight refresh only while it is
+  // still running — an answer that arrived instantly would make each of them spawn again.
+  const out = (stdout: string): Effect.Effect<{ code: number; stdout: string; stderr: string }> =>
+    Effect.andThen(Effect.yieldNow, Effect.succeed({ code: 0, stdout, stderr: "" }));
+  return {
+    calls,
+    run: (cmd, opts) => {
+      calls.push({ cmd: [...cmd], cwd: opts?.cwd });
+      const line = cmd.join(" ");
+      const where = opts?.cwd ?? "";
+      if (line === "git worktree list --porcelain") {
+        return out(`worktree ${where}\nHEAD abc\nbranch refs/heads/${branch}\n`);
+      }
+      if (line === "git status --porcelain") return out("");
+      if (line === "git status --porcelain=v2 --branch") {
+        return out(`# branch.upstream origin/${branch}\n# branch.ab +0 -0\n`);
+      }
+      if (line === "git remote") return out("origin");
+      if (line === "git symbolic-ref --quiet --short refs/remotes/origin/HEAD") {
+        return out("origin/main");
+      }
+      if (line === "git symbolic-ref refs/remotes/origin/HEAD") return out("refs/remotes/origin/main");
+      if (line === `git rev-parse --abbrev-ref --symbolic-full-name ${branch}@{upstream}`) {
+        return out(`origin/${branch}`);
+      }
+      if (line.startsWith("git rev-list") || line.startsWith("git cherry") || line.startsWith("git merge-base")) {
+        // Nothing to prove about main: these worktrees are clean and pushed, so a removal is
+        // safe without the integration check.
+        return Effect.andThen(
+          Effect.yieldNow,
+          Effect.succeed({ code: 128, stdout: "", stderr: "unknown revision" }),
+        );
+      }
+      if (line.startsWith("gh pr list")) {
+        const index = Math.max(0, repos.indexOf(where));
+        return out(
+          JSON.stringify([
+            {
+              number: 7,
+              title: "Do the thing",
+              url: `https://github.com/org/repo-${index}/pull/7`,
+              state: "OPEN",
+              isDraft: false,
+              reviewDecision: "APPROVED",
+              mergeable: "MERGEABLE",
+              statusCheckRollup: [{ conclusion: "SUCCESS" }],
+            },
+          ]),
+        );
+      }
+      if (line.startsWith("gh api graphql")) {
+        return out(
+          JSON.stringify({
+            data: {
+              viewer: { login: "me" },
+              repository: { pullRequest: { reviewThreads: { nodes: [] } } },
+            },
+          }),
+        );
+      }
+      return out("");
+    },
+  };
+};
+
+test("traffic: a cold first minute of polling a ten-repository change costs the calls the TTLs imply", async () => {
+  const repos = Array.from({ length: 10 }, (_, index) => join(tmp, `traffic-${index}`));
+  const branch = "PROJ-traffic";
+  const change = changeWith({ checkouts: checkoutsOf(repos), branch });
+  const shell = trafficShell(repos, branch);
+
+  await runWithShellWithTestClock(
+    shell,
+    Effect.gen(function* () {
+      const poll = Effect.gen(function* () {
+        // One page poll: the completion tooltip, the overview's summary, and each repository's
+        // card — its pull request row and its checks.
+        yield* completionOf(change);
+        yield* githubSummaryContributor.facts(change);
+        for (const repo of repos) {
+          yield* prItem(change, repo);
+          yield* checkItems(change, repo, 7);
+        }
+        // The cache refreshes a stale entry on a daemon of its own: give those fibers their turns
+        // before the clock moves, which is what a real second between polls does.
+        for (let turn = 0; turn < 24; turn++) yield* Effect.yieldNow;
+      });
+
+      // The page polls every 15 s. Five polls is a minute: 0, 15, 30, 45 and 60 seconds.
+      for (let tick = 0; tick < 5; tick++) {
+        yield* poll;
+        yield* TestClock.adjust(15_000);
+      }
+      for (let turn = 0; turn < 24; turn++) yield* Effect.yieldNow;
+
+      const lines = shell.calls.map((call) => call.cmd.join(" "));
+      const asked = (prefix: string): number =>
+        lines.filter((line) => line.startsWith(prefix)).length;
+      // A cold first minute, ten repositories in five polls:
+      // - the pull request list (30 s) is asked at 0, 30 and 60 s → 3 × 10;
+      // - the threads/stack query (120 s) once → 1 × 10;
+      // - the checks (60 s) at 0 and 60 s → 2 × 10.
+      // A change to any of those TTLs has to change these numbers deliberately.
+      expect(asked("gh pr list")).toBe(30);
+      expect(asked("gh api graphql")).toBe(10);
+      expect(asked("gh pr checks")).toBe(20);
+      expect(asked("gh ")).toBe(60);
+
+      // Steady state, measured after the cold read and over four minutes: twice the least common
+      // multiple of the three TTLs (30, 60 and 120 s), which is what makes the details average —
+      // one refresh per two minutes — come out exact rather than rounded by a boundary.
+      const cold = shell.calls.length;
+      for (let tick = 0; tick < 16; tick++) {
+        yield* poll;
+        yield* TestClock.adjust(15_000);
+      }
+      const steady = shell.calls.slice(cold).map((call) => call.cmd.join(" "));
+      const refreshed = (prefix: string): number =>
+        steady.filter((line) => line.startsWith(prefix)).length;
+      // Per repository per four minutes: the list 8 (every 30 s), the details 2 (every 120 s),
+      // the checks 4 (every 60 s) — 14 calls, and 3.5 a minute for each repository: 2 100/h for
+      // ten repositories, the plan's number.
+      expect(refreshed("gh pr list")).toBe(80);
+      expect(refreshed("gh api graphql")).toBe(20);
+      expect(refreshed("gh pr checks")).toBe(40);
+      expect(refreshed("gh ")).toBe(140);
+      // A fleet without GitHub's stacks preview pays two details queries per refresh, so the same
+      // four minutes cost 160 calls — 4 per repository a minute, 2 400/h for ten of them: still
+      // inside the budget, and not the 2 100/h of a preview-enabled world.
+    }),
+  );
+});
+
+test("repository fan-outs never hold more than four gh processes at once", async () => {
+  const repos = Array.from({ length: 10 }, (_, index) => join(tmp, `burst-${index}`));
+  const branch = "PROJ-burst";
+  const change = changeWith({ checkouts: checkoutsOf(repos), branch });
+  const base = trafficShell(repos, branch);
+  // What GitHub's secondary limit sees: the commands in flight at one moment, not the total.
+  let inFlight = 0;
+  let peak = 0;
+  const shell: FakeShell = {
+    calls: base.calls,
+    run: (cmd, opts) => {
+      const work = base.run(cmd, opts);
+      if (!cmd.join(" ").startsWith("gh ")) return work;
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      return Effect.ensuring(work, Effect.sync(() => (inFlight -= 1)));
+    },
+  };
+
+  await runWithShell(
+    shell,
+    Effect.gen(function* () {
+      yield* completionOf(change);
+      expect(peak).toBeGreaterThan(1);
+      expect(peak).toBeLessThanOrEqual(REPOSITORY_CONCURRENCY);
+
+      // The summary's own fan-out, over repositories no earlier read has cached.
+      const other = Array.from({ length: 10 }, (_, index) => join(tmp, `burst-summary-${index}`));
+      peak = 0;
+      yield* githubSummaryContributor.facts(
+        changeWith({ checkouts: checkoutsOf(other), branch }),
+      );
+      expect(peak).toBeGreaterThan(1);
+      expect(peak).toBeLessThanOrEqual(REPOSITORY_CONCURRENCY);
+    }),
+  );
 });
 
 test("completionOf: a pull request merged by hand leaves nothing to merge", async () => {

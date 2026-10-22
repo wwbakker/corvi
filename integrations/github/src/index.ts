@@ -4,7 +4,7 @@ import { worst } from "@corvi/contracts/display";
 import type { ChangeWireDto as Change } from "@corvi/contracts/api";
 import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { Cache, Changes, GitFacts, Shell, Workspace } from "@corvi/contracts/capabilities";
-import { prItem, prSummary, createPr } from "./client.ts";
+import { prItem, prSummary, createPr, REPOSITORY_CONCURRENCY } from "./client.ts";
 import { checkItems } from "./checks.ts";
 import type { GitHubRateLimited } from "./rate-limit.ts";
 import { BadRequestError, type CliError } from "@corvi/contracts/errors";
@@ -79,17 +79,26 @@ const summaryContribution = (
     const perRepo = yield* Effect.forEach(
       change.checkouts ?? [],
       ({ path: repo }) =>
-        Effect.gen(function* () {
-          const { unresolved, checks } = yield* prSummary(change, repo);
-          return { unresolved, checks };
-        }),
-      { concurrency: "unbounded" },
+        Effect.map(prSummary(change, repo), ({ unresolved, checks, detail }) => ({
+          unresolved,
+          checks,
+          detail,
+        })),
+      { concurrency: REPOSITORY_CONCURRENCY },
     );
     const unresolved = perRepo.reduce((n, r) => n + r.unresolved, 0);
+    // The limit belongs to the token, so it is the change's fact and is said once, however many
+    // repositories are gated by it.
+    const limited = perRepo.find((r) => r.detail !== undefined)?.detail;
     return {
       facts: [
-        // Nothing at all when every thread is resolved: an empty inbox needs no line.
-        ...(unresolved > 0
+        ...(limited
+          ? [{ id: "rate-limit", label: limited, state: "warn" as const }]
+          : []),
+        // Nothing at all when every thread is resolved: an empty inbox needs no line. And nothing
+        // while the gate is shut: the count would come from a cache we could not refresh, which is
+        // the number we could not ask for — the limit's own line is what the card says instead.
+        ...(unresolved > 0 && limited === undefined
           ? [{
               id: "unresolved",
               label: `${unresolved} unresolved comment${unresolved === 1 ? "" : "s"}`,
@@ -120,7 +129,7 @@ export const prLooseEnds = (
           Effect.orElseSucceed(prSummary(change, repo), () => undefined),
           (summary) => (summary?.number ? `${baseName(repo)} #${summary.number} is still open` : undefined),
         ),
-      { concurrency: "unbounded" },
+      { concurrency: REPOSITORY_CONCURRENCY },
     ),
     (prs) => prs.filter((p): p is string => Boolean(p)),
   );
