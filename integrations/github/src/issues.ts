@@ -1,4 +1,4 @@
-import { Context, Effect, Option, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import type { ChangeWireDto as Change, OperationStepDto as CompletionStep } from "@corvi/contracts/api";
 import type { WidgetDto as Widget, WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { Cache, Shell, Workspace } from "@corvi/contracts/capabilities";
@@ -8,6 +8,7 @@ import type { IncludedIntegration } from "@corvi/contracts/integration";
 import type { DescriptionSection, TitleSource } from "@corvi/contracts/integration";
 import { BadRequestError, NotFoundError, type CliError } from "@corvi/contracts/errors";
 import { cliJson } from "@corvi/shell/cli";
+import { gh, type GitHubRateLimited } from "./rate-limit.ts";
 import { refLabel, refOf, KEY, type GitHubIssue, type IssueRef } from "@corvi/contracts/integrations/github-issues";
 
 /**
@@ -46,6 +47,11 @@ const flatten = (json: Schema.Schema.Type<typeof IssueSchema>): GitHubIssue => (
 });
 
 const ISSUE_TTL = 60_000;
+
+/** The host's route table speaks the error taxonomy: a rate limit is this integration's typed
+ * failure, and its sentence is what the page shows. */
+const asBadRequest = (error: GitHubRateLimited): Effect.Effect<never, BadRequestError> =>
+  Effect.fail(new BadRequestError({ message: error.message }));
 
 /** Owner and name from a git remote URL: the https, ssh and git shapes GitHub answers to, with
  * or without the `.git` suffix. Pure, so the shapes stay testable without a repository. */
@@ -89,30 +95,28 @@ export const listIssues = (
   repo: string,
 ): Effect.Effect<
   { repository?: string; issues: GitHubIssue[] },
-  CliError,
+  CliError | GitHubRateLimited,
   Workspace | Shell | Cache
 > =>
   Effect.gen(function* () {
-    const shell = yield* Shell;
     const cache = yield* Cache;
     const repository = yield* nameWithOwner(repo);
     if (!repository) return { issues: [] };
     const issues = yield* cache.swr(
       `gh:issues:list:${repository}`,
       ISSUE_TTL,
-      Effect.flatMap(
-        shell.run(
+      Effect.gen(function* () {
+        const r = yield* gh(
           [
             "gh", "issue", "list", "-R", repository, "--state", "open", "--limit", "100",
             "--json", "number,title,state,url,assignees,labels",
           ],
-          { cwd: repo },
-        ),
-        (r) =>
-          r.code !== 0
-            ? Effect.succeed([])
-            : cliJson(Schema.Array(IssueSchema), [] as Schema.Schema.Type<typeof IssueSchema>[])(r.stdout),
-      ),
+          repo,
+        );
+        return r.code !== 0
+          ? []
+          : yield* cliJson(Schema.Array(IssueSchema), [] as Schema.Schema.Type<typeof IssueSchema>[])(r.stdout);
+      }),
     );
     return { repository, issues: issues.map(flatten) };
   });
@@ -121,26 +125,22 @@ export const listIssues = (
 export const viewIssue = (
   repository: string,
   number: number,
-): Effect.Effect<GitHubIssue | undefined, CliError, Workspace | Shell | Cache> =>
+): Effect.Effect<GitHubIssue | undefined, CliError | GitHubRateLimited, Workspace | Shell | Cache> =>
   Effect.gen(function* () {
-    const shell = yield* Shell;
     const cache = yield* Cache;
     const found = yield* cache.swr(
       `gh:issues:issue:${repository}#${number}`,
       ISSUE_TTL,
-      Effect.flatMap(
-        shell.run(
+      Effect.gen(function* () {
+        const r = yield* gh(
           [
             "gh", "issue", "view", String(number), "-R", repository,
             "--json", "number,title,state,url,assignees,labels",
           ],
-          { cwd: process.cwd() },
-        ),
-        (r) =>
-          r.code !== 0
-            ? Effect.succeed(null)
-            : cliJson(Schema.NullOr(IssueSchema), null)(r.stdout),
-      ),
+          process.cwd(),
+        );
+        return r.code !== 0 ? null : yield* cliJson(Schema.NullOr(IssueSchema), null)(r.stdout);
+      }),
     );
     return found ? flatten(found) : undefined;
   });
@@ -152,11 +152,10 @@ export const createIssue = (
   body: string | undefined,
 ): Effect.Effect<
   { repository: string; issue: GitHubIssue },
-  BadRequestError | CliError,
+  BadRequestError | CliError | GitHubRateLimited,
   Workspace | Shell | Cache
 > =>
   Effect.gen(function* () {
-    const shell = yield* Shell;
     const cache = yield* Cache;
     const repository = yield* nameWithOwner(repo);
     if (!repository) {
@@ -164,7 +163,7 @@ export const createIssue = (
     }
     const args = ["gh", "issue", "create", "-R", repository, "-t", title];
     if (body?.trim()) args.push("-b", body);
-    const created = yield* Effect.flatMap(shell.run(args, { cwd: repo }), (r) =>
+    const created = yield* Effect.flatMap(gh(args, repo), (r) =>
       r.code !== 0
         ? Effect.fail(new BadRequestError({ message: r.stderr || "gh issue create failed" }))
         : Effect.succeed(r.stdout.trim()));
@@ -174,28 +173,31 @@ export const createIssue = (
       return yield* new BadRequestError({ message: `could not read the new issue's number: ${created}` });
     }
     yield* cache.invalidate(`gh:issues:list:${repository}`);
-    const issue =
-      (yield* viewIssue(repository, number)) ?? {
-        number,
-        title,
-        state: "open",
-        assignees: [],
-        labels: [],
-      };
+    // The issue exists: reading it back is a convenience, so a limit or a timeout there must not
+    // turn a successful create into a failure the caller has to retry. What was asked for stands
+    // in for what could not be read.
+    const read = yield* Effect.option(viewIssue(repository, number));
+    const issue = Option.getOrUndefined(read) ?? {
+      number,
+      title,
+      state: "open",
+      url: created,
+      assignees: [],
+      labels: [],
+    };
     return { repository, issue };
   });
 
 /** Close the issue with a word about where the work landed. */
 const closeIssue = (
-  shell: Context.Service.Shape<typeof Shell>,
   repository: string,
   number: number,
   comment: string,
-): Effect.Effect<void, BadRequestError | CliError, Workspace> =>
+): Effect.Effect<void, BadRequestError | CliError | GitHubRateLimited> =>
   Effect.flatMap(
-    shell.run(
+    gh(
       ["gh", "issue", "close", String(number), "-R", repository, "-c", comment],
-      { cwd: process.cwd() },
+      process.cwd(),
     ),
     (r) =>
       r.code !== 0
@@ -249,15 +251,14 @@ export const planIssueClose = (change: Change): CompletionStep | undefined => {
 
 export const closeIssueOnComplete = (
   change: Change,
-): Effect.Effect<string | undefined, BadRequestError | CliError, Capabilities> =>
+): Effect.Effect<string | undefined, BadRequestError | CliError | GitHubRateLimited, Capabilities> =>
   Effect.gen(function* () {
-    const shell = yield* Shell;
     const cache = yield* Cache;
     const ref = refOf(change);
     if (!ref) return;
     const repository = yield* nameWithOwner(ref.repo);
     if (!repository) return `not a GitHub repository: ${ref.repo}`;
-    yield* closeIssue(shell, repository, ref.number, `Completed in change ${change.id}`);
+    yield* closeIssue(repository, ref.number, `Completed in change ${change.id}`);
     yield* cache.invalidate(`gh:issues:issue:${repository}#${ref.number}`);
     return `closed ${refLabel(repository, ref)}`;
   });
@@ -340,7 +341,10 @@ export default {
       path: "/issues",
       handler: (req) => {
         const repo = new URL(req.url).searchParams.get("repo") ?? "";
-        return Effect.map(listIssues(repo), (listing) => Response.json(listing));
+        return Effect.map(
+          listIssues(repo).pipe(Effect.catchTag("GitHubRateLimited", asBadRequest)),
+          (listing) => Response.json(listing),
+        );
       },
     },
     {
@@ -360,7 +364,7 @@ export default {
           }
           const created = yield* createIssue(body.repo, body.title.trim(), body.description);
           return Response.json(created, { status: 201 });
-        }),
+        }).pipe(Effect.catchTag("GitHubRateLimited", asBadRequest)),
     },
     {
       // The link, repointed: this extension's bag entry is replaced in one write. What the

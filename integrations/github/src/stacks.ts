@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import { BadRequestError } from "@corvi/contracts/errors";
 import { cliJson } from "@corvi/shell/cli";
-import { shSoft } from "./shell.ts";
+import { ghSoft, type GitHubRateLimited } from "./rate-limit.ts";
 
 /** Where a pull request sits in its stack, when it is in one. */
 export type Stack = { number: number; size: number; position: number };
@@ -86,12 +86,37 @@ export function pollResult(code: number, stdout: string): MergeResult | undefine
   }
 }
 
+/** The gate's answer, read as a failed command: for a call whose answer is optional — setting up
+ * the stack link, polling a merge already under way — a limit means "no result", and the caller
+ * says what it could not learn. */
+const noAnswer = { code: 1, stdout: "", stderr: "" };
+
 /** Whether the pull request is merged, asked of the pull request itself. The merge request is a
  * report about the work; this is the work. */
-const merged = (worktree: string, repository: string, number: number): Effect.Effect<boolean> =>
+const merged = (
+  worktree: string,
+  repository: string,
+  number: number,
+): Effect.Effect<boolean, GitHubRateLimited> =>
   Effect.map(
-    shSoft(["gh", "api", `repos/${repository}/pulls/${number}`, "-q", ".merged"], worktree),
+    ghSoft(["gh", "api", `repos/${repository}/pulls/${number}`, "-q", ".merged"], worktree),
     (r) => r.stdout.trim() === "true",
+  );
+
+/** The same question where the answer decides what to say about a merge that is already under
+ * way: a limit here means "could not confirm", and the sentence names the pull request so the
+ * person knows which one is unaccounted for. */
+const confirmMerge = (
+  worktree: string,
+  repository: string,
+  number: number,
+): Effect.Effect<boolean, BadRequestError> =>
+  merged(worktree, repository, number).pipe(
+    Effect.catchTag("GitHubRateLimited", (error) =>
+      Effect.fail(
+        new BadRequestError({ message: `could not confirm the merge of #${number}: ${error.message}` }),
+      ),
+    ),
   );
 
 /**
@@ -107,9 +132,9 @@ export const mergeStacked = (
   repository: string,
   number: number,
   method = "squash",
-): Effect.Effect<string | undefined, BadRequestError> =>
+): Effect.Effect<string | undefined, BadRequestError | GitHubRateLimited> =>
   Effect.gen(function* () {
-    const submit = yield* shSoft(
+    const submit = yield* ghSoft(
       [
         "gh",
         "api",
@@ -143,21 +168,24 @@ export const mergeStacked = (
     while (outcomeOf(result).waiting && uuid) {
       if (Date.now() > deadline) {
         // It may well have landed while we were failing to hear about it.
-        if (yield* merged(worktree, repository, number)) return undefined;
+        if (yield* confirmMerge(worktree, repository, number)) return undefined;
         return yield* new BadRequestError({ message: `the merge of #${number} is still running after 5m` });
       }
       // An interruptible sleep: an interrupted completion stops the polling too, and the `gh`
       // child of the next poll dies with it rather than outliving the request.
       yield* Effect.sleep(1000);
-      const poll = yield* shSoft(
+      // A refused poll is no result, like a failed one: the merge is under way and only its
+      // progress is unknown, which `confirmMerge` below says with the pull request's name — and
+      // it can still confirm the merge when only the poll's budget is the one that is shut.
+      const poll = yield* ghSoft(
         ["gh", "api", ...STACKS_API, `repos/${repository}/pulls/${number}/merge-async/${uuid}`],
         worktree,
-      );
+      ).pipe(Effect.catchTag("GitHubRateLimited", () => Effect.succeed(noAnswer)));
       const read = pollResult(poll.code, poll.stdout);
       // A failed poll is not "still pending": that would turn a hiccup into five minutes of
       // silence and then a timeout, while the merge had usually happened. Ask the pull request.
       if (!read) {
-        if (yield* merged(worktree, repository, number)) return undefined;
+        if (yield* confirmMerge(worktree, repository, number)) return undefined;
         return yield* new BadRequestError({
           message: `lost track of the merge of #${number}: ${poll.stderr.split("\n")[0] || "no result"}`,
         });
@@ -188,12 +216,14 @@ export const stackOnBase = (
 ): Effect.Effect<void> =>
   Effect.gen(function* () {
     const repo = (
-      yield* shSoft(["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], worktree)
+      yield* ghSoft(["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], worktree).pipe(
+        Effect.catchTag("GitHubRateLimited", () => Effect.succeed(noAnswer)),
+      )
     ).stdout;
-    const listed = yield* shSoft(
+    const listed = yield* ghSoft(
       ["gh", "pr", "list", "--head", baseBranch, "--state", "open", "--json", "number", "--limit", "1"],
       worktree,
-    );
+    ).pipe(Effect.catchTag("GitHubRateLimited", () => Effect.succeed(noAnswer)));
     const below = (yield* cliJson(
       Schema.Array(Schema.Struct({ number: Schema.Number })),
       [] as { number: number }[],
@@ -204,11 +234,13 @@ export const stackOnBase = (
       Schema.Struct({ stack: Schema.optional(Schema.Struct({ number: Schema.optional(Schema.Number) })) }),
       {} as { stack?: { number?: number } },
     )(
-      (yield* shSoft(["gh", "api", `repos/${repo}/pulls/${below}`, ...STACKS_API], worktree)).stdout,
+      (yield* ghSoft(["gh", "api", `repos/${repo}/pulls/${below}`, ...STACKS_API], worktree).pipe(
+        Effect.catchTag("GitHubRateLimited", () => Effect.succeed(noAnswer)),
+      )).stdout,
     );
-    const r = yield* shSoft(
+    const r = yield* ghSoft(
       ["gh", "api", "-X", "POST", ...STACKS_API, ...stackRequest(repo, below, number, stack.stack?.number)],
       worktree,
-    );
+    ).pipe(Effect.catchTag("GitHubRateLimited", () => Effect.succeed(noAnswer)));
     if (r.code !== 0) console.warn(`could not stack #${number} onto #${below}: ${r.stderr.trim()}`);
   });

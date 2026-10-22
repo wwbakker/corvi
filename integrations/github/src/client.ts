@@ -4,11 +4,11 @@ import { Effect, Result, Schema } from "effect";
 import type { ChangeWireDto as Change } from "@corvi/contracts/api";
 import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { stackOnBase, describeStack, mergeStacked, type Stack } from "./stacks.ts";
-import { shOrThrow, type ShellResult } from "./shell.ts";
+import { shOrThrow, shSoft, type ShellResult } from "./shell.ts";
+import { ghOrThrow, ghSoft, type GitHubRateLimited } from "./rate-limit.ts";
 import { Cache, Changes, GitFacts, invalidate, swr } from "@corvi/contracts/capabilities";
 import { BadRequestError, type CliError } from "@corvi/contracts/errors";
 import { cliJson } from "@corvi/shell/cli";
-import { shSoft } from "./shell.ts";
 
 /** `gh pr list --json` for one head. */
 const PrSchema = Schema.Struct({
@@ -163,13 +163,15 @@ type FoundPr = { worktree: string; head: string; prs: Pr[] };
 const prQuery = (
   change: Change,
   repo: string,
-): Effect.Effect<FoundPr | undefined, BadRequestError, Changes | GitFacts> =>
+): Effect.Effect<FoundPr | undefined, BadRequestError | GitHubRateLimited, Changes | GitFacts> =>
   Effect.gen(function* () {
     const worktree = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
     if (!worktree) return undefined;
     const branch = yield* effectiveBranchName(change, repo, worktree);
     const head = yield* pushedAs(worktree, repo, branch);
-    const r = yield* shSoft(
+    // A rate limit is not this command's failure but the token's, so `ghSoft` keeps it in the
+    // error channel instead of letting it become the sentence below.
+    const r = yield* ghSoft(
       [
         "gh",
         "pr",
@@ -206,7 +208,7 @@ const prQuery = (
  */
 const PR_TTL = 20_000;
 
-const shownPr = (change: Change, repo: string): Effect.Effect<FoundPr | undefined, BadRequestError, Changes | GitFacts | Cache> =>
+const shownPr = (change: Change, repo: string): Effect.Effect<FoundPr | undefined, BadRequestError | GitHubRateLimited, Changes | GitFacts | Cache> =>
   swr(`gh:pr:${change.id}:${repo}`, PR_TTL, prQuery(change, repo));
 
 /** Owner and name from a pull request URL, so counting threads costs no extra lookup. */
@@ -324,18 +326,23 @@ const prDetails = (
   url: string,
   number: number,
 ): Effect.Effect<Details, never, Changes | GitFacts | Cache> =>
-  swr(`gh:details:${url}`, PR_TTL, readDetails(worktree, url, number));
+  swr(`gh:details:${url}`, PR_TTL, readDetails(worktree, url, number)).pipe(
+    // The counts are a nicety: where GitHub will not answer, the card says nothing rather than
+    // reporting zero as if it had asked. Caught outside the cache on purpose — an answer stored
+    // as "no answer" would keep saying so for the whole TTL after GitHub answers again.
+    Effect.catchTag("GitHubRateLimited", () => Effect.succeed({} as Details)),
+  );
 
 const readDetails = (
   worktree: string,
   url: string,
   number: number,
-): Effect.Effect<Details, never, Changes | GitFacts | Cache> =>
+): Effect.Effect<Details, GitHubRateLimited, Changes | GitFacts> =>
   Effect.gen(function* () {
     const repo = repoFromUrl(url);
     if (!repo) return {};
-    const ask = (withStack: boolean): Effect.Effect<ShellResult, never, Changes | GitFacts> =>
-      shSoft(
+    const ask = (withStack: boolean): Effect.Effect<ShellResult, GitHubRateLimited> =>
+      ghSoft(
         [
           "gh",
           "api",
@@ -476,7 +483,7 @@ export const forgetPrs = (change: Change): Effect.Effect<void, never, Cache> =>
 export const refreshReadiness = (
   change: Change,
   repo: string,
-): Effect.Effect<MergeReadiness, BadRequestError, Changes | GitFacts> =>
+): Effect.Effect<MergeReadiness, BadRequestError | GitHubRateLimited, Changes | GitFacts> =>
   Effect.gen(function* () {
     yield* shSoft(["git", "fetch", "--quiet", "origin"], repo);
     return yield* mergeReadiness(change, repo);
@@ -486,7 +493,7 @@ export const refreshReadiness = (
 export const mergeReadiness = (
   change: Change,
   repo: string,
-): Effect.Effect<MergeReadiness, BadRequestError, Changes | GitFacts> =>
+): Effect.Effect<MergeReadiness, BadRequestError | GitHubRateLimited, Changes | GitFacts> =>
   Effect.gen(function* () {
     const name = baseName(repo);
     const found = yield* prQuery(change, repo);
@@ -535,7 +542,7 @@ export const mergePr = (
   change: Change,
   repo: string,
   number: number,
-): Effect.Effect<string | undefined, BadRequestError | CliError, Changes | GitFacts> =>
+): Effect.Effect<string | undefined, BadRequestError | CliError | GitHubRateLimited, Changes | GitFacts> =>
   Effect.gen(function* () {
     const worktree = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
     const branch = yield* effectiveBranchName(change, repo, worktree);
@@ -545,7 +552,7 @@ export const mergePr = (
 
     const stacked = yield* isStacked(worktree, repo, number);
     if (!stacked) {
-      yield* shOrThrow(["gh", "pr", "merge", String(number), "--squash"], worktree);
+      yield* ghOrThrow(["gh", "pr", "merge", String(number), "--squash"], worktree);
       return undefined;
     }
     // Returns a note when the merge did not simply happen: a queued stack has not landed yet.
@@ -558,13 +565,13 @@ const isStacked = (
   worktree: string,
   repo: string,
   number: number,
-): Effect.Effect<string | undefined> =>
+): Effect.Effect<string | undefined, GitHubRateLimited> =>
   Effect.gen(function* () {
     const repository = (
-      yield* shSoft(["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], worktree)
+      yield* ghSoft(["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], worktree)
     ).stdout;
     if (!repository) return undefined;
-    const pr = yield* shSoft(["gh", "api", `repos/${repository}/pulls/${number}`], worktree);
+    const pr = yield* ghSoft(["gh", "api", `repos/${repository}/pulls/${number}`], worktree);
     const parsed = yield* cliJson(
       Schema.Struct({ stack: Schema.optional(Schema.Unknown) }),
       {} as { stack?: unknown },
@@ -576,7 +583,7 @@ const isStacked = (
 export const createPr = (
   change: Change,
   repo: string,
-): Effect.Effect<void, BadRequestError | CliError, Changes | GitFacts | Cache> =>
+): Effect.Effect<void, BadRequestError | CliError | GitHubRateLimited, Changes | GitFacts | Cache> =>
   Effect.gen(function* () {
     const worktree = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
     const branch = yield* effectiveBranchName(change, repo, worktree);
@@ -591,9 +598,18 @@ export const createPr = (
     const base = yield* facts.targetFor(change, repo);
     const target = base?.startsWith("origin/") ? base.slice("origin/".length) : base;
     const against = target && (yield* facts.remoteDefaultBranch(repo)) !== base ? ["--base", target] : [];
-    yield* shOrThrow(["gh", "pr", "create", "--fill", ...against], worktree);
+    yield* ghOrThrow(["gh", "pr", "create", "--fill", ...against], worktree);
     if (against.length) {
-      const view = yield* shSoft(["gh", "pr", "view", "--json", "number", "-q", ".number"], worktree);
+      // The pull request exists by now: not learning its number costs the stack nicety, not the
+      // create.
+      const view = yield* ghSoft(
+        ["gh", "pr", "view", "--json", "number", "-q", ".number"],
+        worktree,
+      ).pipe(
+        Effect.catchTag("GitHubRateLimited", () =>
+          Effect.succeed({ code: 1, stdout: "", stderr: "" }),
+        ),
+      );
       const number = Number(view.stdout);
       if (number) yield* stackOnBase(worktree, target!, number);
     }

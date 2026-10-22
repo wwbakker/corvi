@@ -6,6 +6,7 @@ import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from 
 import { Cache, Changes, GitFacts, Shell, Workspace } from "@corvi/contracts/capabilities";
 import { prItem, prSummary, createPr } from "./client.ts";
 import { checkItems } from "./checks.ts";
+import type { GitHubRateLimited } from "./rate-limit.ts";
 import { BadRequestError, type CliError } from "@corvi/contracts/errors";
 import type { IncludedIntegration } from "@corvi/contracts/integration";
 import type { SummaryContribution, SummaryContributor } from "@corvi/contracts/integration";
@@ -25,7 +26,7 @@ import type { SummaryContribution, SummaryContributor } from "@corvi/contracts/i
 const repoItem = (
   change: Change,
   repo: string,
-): Effect.Effect<WidgetItem, BadRequestError, Changes | Shell | Workspace | Cache | GitFacts | GitFacts> =>
+): Effect.Effect<WidgetItem, BadRequestError, Changes | Shell | Workspace | Cache | GitFacts> =>
   Effect.gen(function* () {
     const { number, item: pr } = yield* prItem(change, repo);
     const checks = number ? yield* checkItems(change, repo, number) : [];
@@ -55,7 +56,7 @@ const runEffect = (
   change: Change,
   action: string,
   repo?: string,
-): Effect.Effect<void, BadRequestError | CliError, Changes | Shell | Workspace | Cache | GitFacts> =>
+): Effect.Effect<void, BadRequestError | CliError | GitHubRateLimited, Changes | Shell | Workspace | Cache | GitFacts> =>
   Effect.gen(function* () {
     if (action !== "create") {
       return yield* new BadRequestError({ message: `unknown github action: ${action}` });

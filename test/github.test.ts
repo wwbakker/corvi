@@ -37,7 +37,7 @@ import { createChange, readChange, writeChange } from "../apps/server/src/change
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
 import type { Change } from "@corvi/changes/record";
-import { checkoutsOf, fakeShell, runSwr, runWithShell, testTempDir, type FakeShell  } from "./helpers.ts";
+import { checkoutsOf, fakeShell, forgetRateLimit, runSwr, runWithShell, testTempDir, type FakeShell  } from "./helpers.ts";
 
 /**
  * `@corvi/github/client` and the github-issues extension, driven through the fake-Shell
@@ -46,7 +46,12 @@ import { checkoutsOf, fakeShell, runSwr, runWithShell, testTempDir, type FakeShe
  * provide the whole capability union with a scripted Shell in place of the live one.
  */
 
-beforeEach(() => clearCache());
+beforeEach(() => {
+  clearCache();
+  // The gh gate outlives a file in a worker: a rate limit another file scripted must not refuse
+  // this one's commands.
+  forgetRateLimit();
+});
 
 // The link route writes the change record, so its tests own a change root of their own — a
 // store write must never reach whatever root the rest of the run points at.
@@ -301,6 +306,48 @@ test("prSummary reads the pull request and counts the threads still waiting on y
       },
     },
   });
+  expect(await runWithShell(shell, prSummary(change(), repo))).toEqual({
+    number: 7,
+    unresolved: 1,
+    checks: "ok",
+  });
+});
+
+test("prSummary: a rate-limited threads read is not stored as the answer", async () => {
+  const repo = "/repos/summary-gated";
+  const reviewThreads = {
+    nodes: [{ isResolved: false, comments: { nodes: [{ author: { login: "reviewer" } }] } }],
+  };
+  let gated = true;
+  const shell = ghShell({
+    repo,
+    prs: [pr()],
+    details: { data: { viewer: { login: "me" }, repository: { pullRequest: { reviewThreads } } } },
+    gh: (line) => {
+      if (line === "gh api rate_limit") {
+        return JSON.stringify({
+          resources: { graphql: { reset: Math.floor((Date.now() + 30 * 60_000) / 1_000) } },
+        });
+      }
+      // REST's wording from a GraphQL command is still a GraphQL limit: the command's budget is
+      // the fallback when the words name none.
+      return gated && line.startsWith("gh api graphql")
+        ? { code: 1, stderr: "HTTP 403: API rate limit exceeded for 203.0.113.7." }
+        : undefined;
+    },
+  });
+
+  // Gated: the card says nothing rather than reading zero as if it had asked.
+  expect(await runWithShell(shell, prSummary(change(), repo))).toEqual({
+    number: 7,
+    unresolved: 0,
+    checks: "ok",
+  });
+
+  forgetRateLimit();
+  gated = false;
+  // The gated answer was never stored, so the counts are there at once rather than after the
+  // details TTL.
   expect(await runWithShell(shell, prSummary(change(), repo))).toEqual({
     number: 7,
     unresolved: 1,
@@ -582,6 +629,104 @@ test("mergePr: a stack that cannot start the merge fails with what GitHub said",
   if (Result.isFailure(either)) expect(either.failure.message).toContain("could not start the merge of #7");
 });
 
+test("mergePr: a gated stack question is the answer, not a guess about stacking", async () => {
+  const repo = "/repos/merge-gated-stack";
+  const shell = ghShell({
+    repo,
+    gh: (line) => {
+      if (line === "gh api rate_limit") {
+        return JSON.stringify({
+          resources: { graphql: { reset: Math.floor((Date.now() + 30 * 60_000) / 1_000) } },
+        });
+      }
+      return line.startsWith("gh repo view")
+        ? { code: 1, stderr: "HTTP 403: API rate limit exceeded for 203.0.113.7." }
+        : undefined;
+    },
+  });
+  const either = await runEither(shell, mergePr(change(), repo, 7));
+  expect(Result.isFailure(either)).toBe(true);
+  // Not "not stacked, so try squashing": the merge gh would attempt spends the same budget.
+  if (Result.isFailure(either)) expect(either.failure._tag).toBe("GitHubRateLimited");
+  expect(shell.calls.map((c) => c.cmd.join(" "))).not.toContain("gh pr merge 7 --squash");
+  forgetRateLimit();
+});
+
+test("mergePr: a gated confirmation says which merge is unaccounted for", async () => {
+  const repo = "/repos/merge-gated-confirm";
+  const shell = ghShell({
+    repo,
+    gh: (line) => {
+      if (line.startsWith("gh repo view")) return "org/repo";
+      if (line === "gh api repos/org/repo/pulls/7") return JSON.stringify({ stack: { number: 5 } });
+      // Accepted, and then the poll loses it, so the merge is confirmed on the pull request — and
+      // that question is the one the limit answers.
+      if (line.includes("merge-async") && !line.includes("merge-async/")) {
+        return JSON.stringify({ status: "pending", details: { uuid: "u1" } });
+      }
+      if (line.includes("merge-async/u1")) return { code: 1, stderr: "gateway timeout" };
+      if (line === "gh api repos/org/repo/pulls/7 -q .merged") {
+        return { code: 1, stderr: "HTTP 403: API rate limit exceeded for 203.0.113.7." };
+      }
+      if (line === "gh api rate_limit") {
+        return JSON.stringify({
+          resources: { core: { reset: Math.floor((Date.now() + 20 * 60_000) / 1_000) } },
+        });
+      }
+      return undefined;
+    },
+  });
+
+  const either = await runEither(shell, mergePr(change(), repo, 7));
+  expect(Result.isFailure(either)).toBe(true);
+  if (Result.isFailure(either)) {
+    // Neither "still running" nor "not merged": what is unknown, and when GitHub answers again.
+    expect(either.failure._tag).toBe("BadRequestError");
+    expect(either.failure.message).toMatch(
+      /^could not confirm the merge of #7: GitHub rate limit reached; resets at \d\d:\d\d UTC \(in \d+ minutes\)$/,
+    );
+  }
+  forgetRateLimit();
+});
+
+test("mergePr: a gated poll says which merge is unaccounted for", async () => {
+  const repo = "/repos/merge-gated-poll";
+  const shell = ghShell({
+    repo,
+    gh: (line) => {
+      if (line.startsWith("gh repo view")) return "org/repo";
+      if (line === "gh api repos/org/repo/pulls/7") return JSON.stringify({ stack: { number: 5 } });
+      // Accepted, and then the poll itself is the call the limit answers.
+      if (line.includes("merge-async") && !line.includes("merge-async/")) {
+        return JSON.stringify({ status: "pending", details: { uuid: "u1" } });
+      }
+      if (line.includes("merge-async/u1")) {
+        return { code: 1, stderr: "HTTP 403: API rate limit exceeded for 203.0.113.7." };
+      }
+      if (line === "gh api rate_limit") {
+        return JSON.stringify({
+          resources: { core: { reset: Math.floor((Date.now() + 20 * 60_000) / 1_000) } },
+        });
+      }
+      return undefined;
+    },
+  });
+
+  const either = await runEither(shell, mergePr(change(), repo, 7));
+  expect(Result.isFailure(either)).toBe(true);
+  if (Result.isFailure(either)) {
+    expect(either.failure._tag).toBe("BadRequestError");
+    expect(either.failure.message).toMatch(
+      /^could not confirm the merge of #7: GitHub rate limit reached; resets at \d\d:\d\d UTC \(in \d+ minutes\)$/,
+    );
+  }
+  // The pull request was never asked to confirm either: the same budget is shut.
+  expect(shell.calls.map((c) => c.cmd.join(" "))).not.toContain(
+    "gh api repos/org/repo/pulls/7 -q .merged",
+  );
+  forgetRateLimit();
+});
+
 test("mergePr: no worktree is a bad request before any merge is attempted", async () => {
   const repo = "/repos/merge-nowt";
   const either = await runEither(ghShell({ repo, noWorktree: true }), mergePr(change(), repo, 7));
@@ -818,16 +963,49 @@ test("createIssue omits a blank body and falls back when the new issue cannot be
       { code: 1, stderr: "not yet" },
   });
   const created = await runExtension(shell, createIssue("/r/create-blank", "Title", "   "));
-  // The read-back failed, so the fallback describes what was asked for rather than losing it.
+  // The read-back failed, so the fallback describes what was asked for and the URL gh printed,
+  // rather than losing either.
   expect(created.issue).toEqual({
     number: 6,
     title: "Title",
     state: "open",
+    url: "https://github.com/owner/name/issues/6",
     assignees: [],
     labels: [],
   });
   // Whitespace is not a body: no `-b` was passed.
   expect(shell.calls.some((c) => c.cmd.join(" ") === "gh issue create -R owner/name -t Title -b    ")).toBe(false);
+});
+
+test("createIssue: a gated read-back still returns the issue it made", async () => {
+  const shell = fakeShell({
+    "git remote get-url origin": "https://github.com/owner/name.git\n",
+    "gh issue create -R owner/name -t Title": "https://github.com/owner/name/issues/7\n",
+    "gh api rate_limit": JSON.stringify({
+      resources: { graphql: { reset: Math.floor((Date.now() + 30 * 60_000) / 1_000) } },
+    }),
+    "gh issue view 7 -R owner/name --json number,title,state,url,assignees,labels": {
+      code: 1,
+      stderr: "GraphQL: API rate limit already exceeded for user ID 13013300.",
+    },
+  });
+
+  // The issue exists. A limit on reading it back must not turn the create into a failure the
+  // caller retries — it would create a second issue.
+  const created = await runExtension(shell, createIssue("/r/create-gated", "Title", undefined));
+  // The URL gh printed is the one thing the read-back would have added: it still links.
+  expect(created).toEqual({
+    repository: "owner/name",
+    issue: {
+      number: 7,
+      title: "Title",
+      state: "open",
+      url: "https://github.com/owner/name/issues/7",
+      assignees: [],
+      labels: [],
+    },
+  });
+  forgetRateLimit();
 });
 
 test("createIssue: no GitHub remote, a failing gh and an unreadable URL are bad requests", async () => {

@@ -10,7 +10,8 @@ merge readiness and merging (`./client`).
 `./client` runs `gh`/`git` through the package's own `sh`/`shOrThrow`/`shSoft` over the `Shell`
 capability (`src/shell.ts`), caches through the `Cache` capability, and reads repository facts
 (branch base, remote default, content-in-main) through the `GitFacts` capability the host
-provides.
+provides. Every `gh` command goes through `src/rate-limit.ts` instead of `sh` directly: GitHub's
+limit belongs to the token, so one seam owns the gate for the whole process.
 
 ## Does not own
 
@@ -29,6 +30,8 @@ of the cards/issue UI live in `@corvi/web` (`apps/web/src/integrations/*/client.
   `refreshReadiness`, `mergePr`, `forgetPrs`, `prNumberOf`, `readiness`, `headRef`,
   `waitingOnYou`, `reviewState`, `repoFromUrl`, `MergeReadiness`, `Stack`)
 - `@corvi/github/checks`: `checkItems`, `groupChecks`, `Check`
+- `@corvi/github/rate-limit`: the seam every `gh` call runs through (`gh`, `ghOrThrow`,
+  `ghSoft`), the gate and its reset (`GitHubRateLimited`, `forgetRateLimit`)
 
 ## Dependencies
 

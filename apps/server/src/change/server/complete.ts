@@ -8,6 +8,7 @@ import type {
 } from "@corvi/changes/record";
 import { isIdeation } from "@corvi/changes/record";
 import type { MergeReadiness } from "@corvi/github/client";
+import type { GitHubRateLimited } from "@corvi/github/rate-limit";
 import { mergeReadiness, refreshReadiness, forgetPrs } from "@corvi/github/client";
 import type { Cache, GitFacts } from "@corvi/contracts/capabilities";
 import type { Changes } from "../../integrations/api/capabilities.ts";
@@ -85,7 +86,7 @@ const completionOfRepo = (
   change: Change,
   repo: string,
   fresh: boolean,
-): Effect.Effect<{ repo: string; readiness: MergeReadiness; unsafe: Unsafe | undefined }, BadRequestError, Changes | GitFacts | Cache> =>
+): Effect.Effect<{ repo: string; readiness: MergeReadiness; unsafe: Unsafe | undefined }, BadRequestError | GitHubRateLimited, Changes | GitFacts | Cache> =>
   Effect.gen(function* () {
     return {
       repo,
@@ -97,7 +98,7 @@ const completionOfRepo = (
 export const completionOf = (
   change: Change,
   fresh = false,
-): Effect.Effect<Completion, CliError | BadRequestError, Changes | GitFacts | Cache> =>
+): Effect.Effect<Completion, CliError | BadRequestError | GitHubRateLimited, Changes | GitFacts | Cache> =>
   // An idea has nothing to complete: no pull requests, no checkouts. Answered without the CLI
   // lookups, which would find nothing and cost a call per repository. Hard: starting the work
   // is the only way out of Ideation, and no override waives it.
