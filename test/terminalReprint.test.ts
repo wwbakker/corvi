@@ -32,8 +32,6 @@ const savedEnv = {
   CORVI_HOST_RUNTIME: process.env.CORVI_HOST_RUNTIME,
   CORVI_HOST_REPLAY_BYTES: process.env.CORVI_HOST_REPLAY_BYTES,
   CORVI_SCREEN_CADENCE_MS: process.env.CORVI_SCREEN_CADENCE_MS,
-  CORVI_REPAINT_QUIET_MS: process.env.CORVI_REPAINT_QUIET_MS,
-  CORVI_REPAINT_MAX_MS: process.env.CORVI_REPAINT_MAX_MS,
 };
 const restoreEnv = (): void => {
   for (const [key, value] of Object.entries(savedEnv)) {
@@ -45,8 +43,6 @@ process.env.CORVI_HOST_RUNTIME = "node";
 // Keep the host's replay ring tiny: the gap tests deliberately outrun it. The production default
 // is 4 MiB.
 process.env.CORVI_HOST_REPLAY_BYTES = "1024";
-// A short quiet period keeps a gap reprint fast in tests.
-process.env.CORVI_REPAINT_QUIET_MS = "60";
 const dir = await testTempDir("reprint");
 const fixture = fileURLToPath(new URL("./fixtures/reprint-tui.mjs", import.meta.url));
 const fixtureBase = "REPRINT-BASE\r\n";
@@ -65,6 +61,14 @@ const fakeSocket = (session: TerminalSession): FakeSocket => {
 const control = (frames: readonly Frame[]): Record<string, unknown>[] =>
   frames.filter((frame): frame is string => typeof frame === "string").map((frame) => JSON.parse(frame) as Record<string, unknown>);
 const firstScreen = (frames: readonly Frame[]): string => String(control(frames)[0]?.data ?? "");
+/** The live bytes after the snapshot, as text. */
+const liveText = (frames: readonly Frame[]): string =>
+  frames
+    .filter((frame): frame is Uint8Array => typeof frame !== "string")
+    .map((frame) => Buffer.from(frame).toString("utf8"))
+    .join("");
+/** The page's screen as the snapshot plus the live reprint bytes that followed it. */
+const pageText = (frames: readonly Frame[]): string => firstScreen(frames) + liveText(frames);
 /** The highest `REPRINT-<n>` marker the screen shows, or 0 for none. */
 const maxReprint = (screen: string): number =>
   Math.max(0, ...[...screen.matchAll(/REPRINT-(\d+)/g)].map((match) => Number(match[1])));
@@ -103,7 +107,10 @@ const gapWindow = async (changeId: string): Promise<{ readonly id: string; reado
   const opened = await subagentWindow(changeId, gapCommand());
   await waitFor(
     "the gap padding and the fixture base",
-    async () => (await lastSeq(opened.id)) >= paddingBytes + fixtureBase.length,
+    // The shell prints its own base before the padding, then the fixture prints another after it.
+    // Wait for the fixture's own base so its SIGWINCH handler is installed before a view can
+    // trigger the reprint.
+    async () => (await lastSeq(opened.id)) >= paddingBytes + 2 * fixtureBase.length,
     20_000,
   );
   closeAttachments();
@@ -197,8 +204,13 @@ test("a live seeded agent hub reprints once on a host-ring gap", async () => {
   await waitFor("the snapshot", async () => control(ws.frames).some((frame) => frame.type === "snapshot"), 20_000);
   const screen = firstScreen(ws.frames);
   expect(screen).toContain("SEEDED-GAP-SCREEN");
-  expect(screen).toContain("REPRINT-BASE");
-  expect(maxReprint(screen)).toBeGreaterThanOrEqual(1);
+  expect(maxReprint(screen)).toBe(0); // the snapshot was taken before the reprint was issued
+  // The ring replay is live bytes after the snapshot: wait for it there, not in the snapshot.
+  await waitFor("the ring tail", async () => pageText(ws.frames).includes("REPRINT-BASE"), 15_000);
+  await waitFor("the reprint bytes", async () => maxReprint(pageText(ws.frames)) >= 1, 15_000);
+  await waitFor("the reprint counter", async () => hubStats().reprints === 1, 15_000);
+  expect(pageText(ws.frames)).toContain("SEEDED-GAP-SCREEN");
+  expect(pageText(ws.frames)).toContain("REPRINT-BASE");
   expect(hubStats()).toMatchObject({ serves: 1, reprints: 1 });
 }, 30_000);
 
@@ -209,25 +221,49 @@ test("a host-ring gap reprints once and still serves a snapshot", async () => {
   // is truncated, so the first view jiggles the pty and the fixture prints REPRINT-1.
   const session = await openSession(change, dir, { cols: 100, rows: 30 }, id);
   const ws = fakeSocket(session);
+  const openedAt = Date.now();
   terminalSockets.open(ws);
-  await waitFor("the snapshot", async () => control(ws.frames).some((frame) => frame.type === "snapshot"), 20_000);
+  await waitFor("the snapshot", async () => control(ws.frames).some((frame) => frame.type === "snapshot"), 5_000);
+  // The snapshot is not gated on the reprint settling: it is a warm serialize-and-send.
+  expect(Date.now() - openedAt).toBeLessThan(3_000);
   const screen = firstScreen(ws.frames);
   expect(screen).toContain("REPRINT-BASE");
-  // The fixture redraws on every SIGWINCH, and the jiggle is two of them; the invariant is that the
-  // hub issued exactly one reprint.
-  const firstMax = maxReprint(screen);
-  expect(firstMax).toBeGreaterThanOrEqual(1);
+  expect(maxReprint(screen)).toBe(0); // the reprint follows the snapshot
+  await waitFor("the reprint bytes", async () => maxReprint(pageText(ws.frames)) >= 1, 15_000);
+  await waitFor("the reprint counter", async () => hubStats().reprints === 1, 15_000);
   expect(hubStats()).toMatchObject({ hubs: 1, attached: 1, subscribers: 1, serves: 1, reprints: 1 });
 
   // A second view reuses the warm hub: the gap marker is cleared, so it does not reprint again.
+  await Bun.sleep(50); // let the live reprint bytes (including a late REPRINT-2) reach the screen
+  const firstMax = maxReprint(pageText(ws.frames));
   session.kill();
   const second = await openSession(change, dir, { cols: 100, rows: 30 }, id);
   const again = fakeSocket(second);
   terminalSockets.open(again);
   await waitFor("the second snapshot", async () => control(again.frames).some((frame) => frame.type === "snapshot"), 15_000);
-  expect(firstScreen(again.frames)).toContain("REPRINT-1");
-  expect(maxReprint(firstScreen(again.frames))).toBe(firstMax);
+  expect(maxReprint(pageText(again.frames))).toBe(firstMax);
   expect(hubStats()).toMatchObject({ serves: 2, reprints: 1 });
+}, 30_000);
+
+test("a gap window that keeps painting still gets a quick snapshot and converges", async () => {
+  process.env.REPRINT_PAINT_MS = "40";
+  try {
+    const change = "REPRINT-PAINTING";
+    const { id } = await gapWindow(change);
+    const session = await openSession(change, dir, { cols: 100, rows: 30 }, id);
+    const ws = fakeSocket(session);
+    const openedAt = Date.now();
+    terminalSockets.open(ws);
+    await waitFor("the snapshot", async () => control(ws.frames).some((frame) => frame.type === "snapshot"), 5_000);
+    // Continuous output must not gate the view: the snapshot is the warm screen, not a quiet wait.
+    expect(Date.now() - openedAt).toBeLessThan(3_000);
+    expect(firstScreen(ws.frames)).toContain("REPRINT-BASE");
+    await waitFor("the reprint bytes", async () => maxReprint(pageText(ws.frames)) >= 1, 15_000);
+    await waitFor("the reprint counter", async () => hubStats().reprints === 1, 15_000);
+    expect(liveText(ws.frames)).toContain("PAINT-");
+  } finally {
+    delete process.env.REPRINT_PAINT_MS;
+  }
 }, 30_000);
 
 test("an unviewed gap does not reprint until the first view, and counters reset", async () => {
@@ -250,7 +286,8 @@ test("an unviewed gap does not reprint until the first view, and counters reset"
   const ws = fakeSocket(session);
   terminalSockets.open(ws);
   await waitFor("the first view", async () => control(ws.frames).some((frame) => frame.type === "snapshot"), 20_000);
-  expect(hubStats()).toMatchObject({ serves: 1, reprints: 1 });
+  await waitFor("the reprint counter", async () => hubStats().reprints === 1, 15_000);
+  expect(hubStats().serves).toBe(1);
   expect(hubStats().attaches).toBeGreaterThanOrEqual(1);
 
   closeAttachments();
@@ -338,7 +375,7 @@ test("a dead kept-open hub persists on exit and seeds on restore", async () => {
   expect(firstScreen(again.frames)).toContain("DEAD-REPRINT-MARK");
 }, 30_000);
 
-test("a second open during a gap reprint is served, not closed", async () => {
+test("a second open during a background gap reprint supersedes, with one reprint and no exit", async () => {
   process.env.REPRINT_DELAY_MS = "500";
   try {
     const change = "REPRINT-QUEUE";
@@ -346,9 +383,15 @@ test("a second open during a gap reprint is served, not closed", async () => {
     const { id } = await gapWindow(change);
     const first = await openSession(change, dir, { cols: 100, rows: 30 }, id);
     const one = fakeSocket(first);
-    terminalSockets.open(one); // starts the first view, whose gap reprint is slow
-    // The page's normal unnamed→named rename: the first socket closes and a named one opens while
-    // the reprint is still in flight.
+    terminalSockets.open(one); // starts the first view; its delayed reprint follows the snapshot
+    await waitFor(
+      "the first snapshot",
+      async () => control(one.frames).some((frame) => frame.type === "snapshot"),
+      15_000,
+    );
+    // The background reprint no longer holds the attach, so this is an ordinary supersede: the
+    // first page leaves while the reprint is in flight, and the second is served a snapshot plus
+    // the reprint bytes. It must not be told the session ended, and the reprint runs once.
     first.kill();
     const second = await openSession(change, dir, { cols: 100, rows: 30 }, id);
     const two = fakeSocket(second);
@@ -361,7 +404,8 @@ test("a second open during a gap reprint is served, not closed", async () => {
     // Served, never told the session is gone.
     expect(control(two.frames).some((frame) => frame.type === "exit")).toBe(false);
     expect(hubStats().subscribers).toBe(1);
-    expect(hubStats().reprints).toBe(1);
+    await waitFor("the reprint bytes", async () => maxReprint(pageText(two.frames)) >= 1, 15_000);
+    await waitFor("the reprint counter", async () => hubStats().reprints === 1, 15_000);
   } finally {
     delete process.env.REPRINT_DELAY_MS;
   }
@@ -440,8 +484,9 @@ test("a page that leaves mid-reprint leaves no ghost subscriber", async () => {
     const session = await openSession(change, dir, { cols: 100, rows: 30 }, id);
     const ws = fakeSocket(session);
     terminalSockets.open(ws);
-    session.kill(); // leave while the gap reprint is still running
-    await waitFor("the serve to finish", async () => hubStats().subscribers === 0, 15_000);
+    await waitFor("the snapshot", async () => control(ws.frames).some((frame) => frame.type === "snapshot"), 15_000);
+    session.kill(); // leave while the delayed gap reprint is still running
+    await waitFor("the page to leave", async () => hubStats().subscribers === 0, 15_000);
     // The screen stays warm: no page is attached, but the hub and its host attachment remain.
     expect(hubStats()).toMatchObject({ hubs: 1, attached: 1, subscribers: 0 });
   } finally {
@@ -449,23 +494,48 @@ test("a page that leaves mid-reprint leaves no ghost subscriber", async () => {
   }
 }, 30_000);
 
-test("a resize during a gap reprint is not clobbered", async () => {
-  // A wide settle window so the refit lands between the reprint's capture and its restore.
-  process.env.CORVI_REPAINT_QUIET_MS = "300";
-  try {
-    const change = "REPRINT-RESIZE";
-    const { id, incarnation } = await gapWindow(change);
-    const session = await openSession(change, dir, { cols: 100, rows: 30 }, id);
-    const ws = fakeSocket(session);
-    terminalSockets.open(ws);
-    await Bun.sleep(200);
-    // The page refits while the reprint is in flight; the pty and screen must end at the new grid,
-    // not the size repaintHub captured.
-    session.resize(90, 30);
-    await waitFor("the snapshot", async () => control(ws.frames).some((frame) => frame.type === "snapshot"), 20_000);
-    await waitFor("the grid to settle", async () => hubGrid(id, incarnation)?.cols === 90, 10_000);
-    expect(hubGrid(id, incarnation)?.cols).toBe(90);
-  } finally {
-    delete process.env.CORVI_REPAINT_QUIET_MS;
-  }
+test("a session exit during a reprint disposes the hub and does not count a reprint", async () => {
+  const change = "REPRINT-EXIT";
+  const { id, incarnation } = await gapWindow(change);
+  const session = await openSession(change, dir, { cols: 100, rows: 30 }, id);
+  const snapshots: string[] = [];
+  let stopped: "exit" | "detached" | undefined;
+  session.attach(
+    () => undefined,
+    (frame) => {
+      snapshots.push(frame.data);
+      // Hold the background reprint at its pre-jiggle applied-byte wait, so the exit lands while
+      // it is in flight.
+      setReceivedForTest(id, incarnation, 1_000_000);
+    },
+    (reason) => {
+      stopped = reason;
+    },
+  );
+  await waitFor("the snapshot", async () => snapshots.length > 0, 15_000);
+  await waitFor("the reprint to be in flight", async () => hubStats().screens[0]?.reprinting === true, 10_000);
+  await (await hostClient()).kill(id);
+  await waitFor("the hub to be disposed", async () => hubStats().hubs === 0, 15_000);
+  expect(stopped).toBe("exit");
+  // The interrupted reprint never jiggled to completion, so it is not counted; no ghost subscriber
+  // and no disposed screen remain.
+  expect(hubStats()).toMatchObject({ hubs: 0, attached: 0, subscribers: 0, reprints: 0 });
+}, 30_000);
+
+test("a resize around a gap reprint ends at the latest grid", async () => {
+  const change = "REPRINT-RESIZE";
+  const { id, incarnation } = await gapWindow(change);
+  const session = await openSession(change, dir, { cols: 100, rows: 30 }, id);
+  const ws = fakeSocket(session);
+  terminalSockets.open(ws);
+  await waitFor("the snapshot", async () => control(ws.frames).some((frame) => frame.type === "snapshot"), 20_000);
+  // The snapshot is already on its way; the reprint follows it. A refit now must win over the
+  // reprint's captured size and leave both the pty and the screen at the latest grid.
+  session.resize(90, 30);
+  await waitFor("the grid to settle", async () => hubGrid(id, incarnation)?.cols === 90, 10_000);
+  expect(hubGrid(id, incarnation)?.cols).toBe(90);
+  await waitFor("the reprint bytes", async () => maxReprint(pageText(ws.frames)) >= 1, 15_000);
+  await waitFor("the reprint counter", async () => hubStats().reprints === 1, 15_000);
+  // The completion must not leave the grid at the reprint's transient size.
+  expect(hubGrid(id, incarnation)?.cols).toBe(90);
 }, 30_000);

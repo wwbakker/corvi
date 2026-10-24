@@ -21,9 +21,9 @@
  * whether or not a page is looking. On creation a screen is seeded from the store and the host
  * attaches from the stored offset; see `hubFor` for the gap policy and its visible cost. A host
  * ring gap (`reply.truncated`) is the only reason a view reprints the screen, and the reprint is
- * issued on the first view after the gap. "Exact" here is screen-content exact: the serializer
- * restores the text and the modes it knows, not every parser state, and the stored offset can fall
- * mid-escape.
+ * issued after the first view's snapshot so its bytes stream to the page. "Exact" here is
+ * screen-content exact: the serializer restores the text and the modes it knows, not every parser
+ * state, and the stored offset can fall mid-escape.
  *
  * The socket protocol, chosen so neither direction can be mistaken for the other:
  *
@@ -48,16 +48,6 @@ const SNAPSHOT_CADENCE_MS = 5000;
 /** The largest batch of host bytes fed to the screen in one turn. A turn that reaches it flushes
  * at once, so a flood cannot grow a batch without bound. */
 const MAX_BATCH_BYTES = 256 * 1024;
-/** A gap reprint must be quiet this long before it is served: a full-screen program re-emits its
- * view on the resize jiggle, and we wait for that burst to stop (capped) rather than guess a
- * duration. A test can shorten both with `CORVI_REPAINT_QUIET_MS`/`CORVI_REPAINT_MAX_MS`. */
-const REPAINT_QUIET_MS = 120;
-const REPAINT_START_MS = 600;
-const REPAINT_MAX_MS = 4000;
-const repaintQuietMs = (): number => envMs("CORVI_REPAINT_QUIET_MS", REPAINT_QUIET_MS);
-const repaintStartMs = (): number => envMs("CORVI_REPAINT_START_MS", REPAINT_START_MS);
-const repaintMaxMs = (): number => envMs("CORVI_REPAINT_MAX_MS", REPAINT_MAX_MS);
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 /** The persistence sweep's tick: it decides whether each screen is due to persist. Cheap (it
  * iterates hubs), so the cadence can be read per tick. */
 const SWEEP_TICK_MS = 250;
@@ -138,8 +128,8 @@ type Hub = {
   readonly id: string;
   incarnation: number;
   readonly screen: Screen;
-  /** The grid the page wants. `repaintHub` shrinks the pty and grows back to **this**, so a resize
-   * that lands during the repaint is not clobbered by the captured size. */
+  /** The grid the page wants. `repaintHub` grows back to the latest desired grid, so a resize
+   * that lands during the jiggle is not clobbered by the captured size. */
   desiredCols: number;
   desiredRows: number;
   readonly subscribers: Set<Subscriber>;
@@ -159,9 +149,8 @@ type Hub = {
   /** An attach has claimed the hub (its guard and claim are one synchronous step); the session's
    * exit waits for it to finish. */
   attachingPage?: boolean;
-  /** The newest page waiting for an in-flight attach to settle. A gap reprint can hold the attach
-   * for seconds, so a newcomer (the page's unnamed→named rename, a second tab) is queued here
-   * rather than answered with a final `exit`. */
+  /** The newest page waiting for an in-flight snapshot to finish. A newcomer (the page's
+   * unnamed→named rename, a second tab) is queued here rather than answered with a final `exit`. */
   queued?: Subscriber;
   /** The screen changed since it was last written to the store. */
   dirty: boolean;
@@ -173,6 +162,8 @@ type Hub = {
   flushScheduled: boolean;
   /** The host ring had a gap at attach, so the first view after it must reprint the screen. */
   needsReprint: boolean;
+  /** The gap reprint is running after the page's snapshot; its bytes stream to the page. */
+  reprintInFlight: boolean;
   /** When the screen was last written to the store, for the cadence. */
   lastPersist: number;
   /** Bytes of the last serialized screen, whether that serialization served a page or persisted. */
@@ -215,6 +206,8 @@ const counters: HubCounters = {
 
 /** The trace's last emission, so the 250 ms persistence tick can carry a 5 s trace. */
 let lastTraceAt = 0;
+/** Invalidates reprints still running when the attachments are reset. */
+let reprintEpoch = 0;
 
 /** Get-or-create synchronously: two concurrent opens of one incarnation cannot each make a hub. */
 const hubFor = (
@@ -242,6 +235,7 @@ const hubFor = (
     pendingBytes: 0,
     flushScheduled: false,
     needsReprint: false,
+    reprintInFlight: false,
     lastPersist: 0,
     serializedBytes: 0,
     persists: 0,
@@ -291,17 +285,28 @@ const screenSnapshot = (hub: Hub): SnapshotInput | "empty" | undefined => {
   try {
     snapshot = hub.screen.serialize();
   } catch {
+    // Do not re-serialize on every 250 ms tick: a failed attempt still waits for the cadence.
+    hub.lastPersist = Date.now();
     return undefined;
   }
   const bytes = byteLength(snapshot.data);
   hub.serializedBytes = bytes;
   hub.lastPersistMs = Date.now() - startedAt;
+  if (snapshot.data === "") return "empty";
+  if (bytes > SNAPSHOT_MAX_BYTES) {
+    // The store cannot hold this screen; wait for the next cadence instead of hammering the
+    // serializer every sweep tick.
+    hub.lastPersist = Date.now();
+    return undefined;
+  }
+  return { sessionId: hub.id, incarnation: hub.incarnation, data: snapshot.data, highWater: snapshot.offset };
+};
+
+/** Count a screen that actually reached the store (a write or an empty-screen forget). */
+const countPersist = (hub: Hub): void => {
   hub.persists += 1;
   counters.persists += 1;
   counters.lastPersistMs = hub.lastPersistMs;
-  if (snapshot.data === "") return "empty";
-  if (bytes > SNAPSHOT_MAX_BYTES) return undefined;
-  return { sessionId: hub.id, incarnation: hub.incarnation, data: snapshot.data, highWater: snapshot.offset };
 };
 
 /** Mark screens stored: `dirty` clears only after the write succeeded; `lastPersist` always moves,
@@ -309,7 +314,10 @@ const screenSnapshot = (hub: Hub): SnapshotInput | "empty" | undefined => {
 const markStored = (entries: readonly { readonly hub: Hub }[], at: number, stored: boolean): void => {
   for (const { hub } of entries) {
     hub.lastPersist = at;
-    if (stored) hub.dirty = false;
+    if (stored) {
+      hub.dirty = false;
+      countPersist(hub);
+    }
   }
 };
 
@@ -318,7 +326,11 @@ const persistScreen = (hub: Hub): void => {
   const result = screenSnapshot(hub);
   if (result === undefined) return;
   if (result === "empty") {
-    if (forgetSnapshot(hub.id, hub.incarnation)) hub.dirty = false;
+    if (forgetSnapshot(hub.id, hub.incarnation)) {
+      hub.dirty = false;
+      countPersist(hub);
+    }
+    hub.lastPersist = Date.now();
     return;
   }
   markStored([{ hub }], Date.now(), setSnapshots([result]));
@@ -338,7 +350,10 @@ export const flushScreens = (): void => {
     markStored(due, Date.now(), setSnapshots(due.map((entry) => entry.input)));
   }
   for (const hub of empty) {
-    if (forgetSnapshot(hub.id, hub.incarnation)) hub.dirty = false;
+    if (forgetSnapshot(hub.id, hub.incarnation)) {
+      hub.dirty = false;
+      countPersist(hub);
+    }
   }
 };
 
@@ -375,12 +390,16 @@ const sweep = (): void => {
     markStored(due, now, setSnapshots(due.map((entry) => entry.input)));
   }
   for (const hub of empty) {
-    if (forgetSnapshot(hub.id, hub.incarnation)) hub.dirty = false;
+    if (forgetSnapshot(hub.id, hub.incarnation)) {
+      hub.dirty = false;
+      countPersist(hub);
+    }
+    hub.lastPersist = now;
   }
   if (traceDue) {
     for (const hub of hubs.values()) {
       logLine(
-        `[terminals] screen ${hub.key} grid=${hub.screen.cols}x${hub.screen.rows} bufferRows=${hub.screen.bufferRows} scrollbackRows=${hub.screen.scrollbackRows} estBytes=${estimateScreenBytes(hub)} attached=${hub.dataListener !== undefined ? 1 : 0} subscribers=${hub.subscribers.size} serializedBytes=${hub.serializedBytes} persists=${hub.persists} lastPersistMs=${hub.lastPersistMs}`,
+        `[terminals] screen ${hub.key} grid=${hub.screen.cols}x${hub.screen.rows} bufferRows=${hub.screen.bufferRows} scrollbackRows=${hub.screen.scrollbackRows} estBytes=${estimateScreenBytes(hub)} attached=${hub.dataListener !== undefined ? 1 : 0} subscribers=${hub.subscribers.size} serializedBytes=${hub.serializedBytes} persists=${hub.persists} lastPersistMs=${hub.lastPersistMs} reprinting=${hub.reprintInFlight ? 1 : 0}`,
       );
     }
   }
@@ -471,46 +490,68 @@ const flushHub = (hub: Hub): void => {
   for (const subscriber of hub.subscribers) subscriber.send(bytes);
 };
 
-/** Wait until the host has been quiet for a period (capped), so one burst of output is finished
- * before the next step. */
-const settleQuiet = async (hub: Hub, deadline = Date.now() + repaintMaxMs()): Promise<void> => {
-  let seen = hub.received;
-  for (;;) {
-    await sleep(repaintQuietMs());
-    if (hub.received === seen) return;
-    seen = hub.received;
-    if (Date.now() >= deadline) return;
-  }
+/** Whether this hub can no longer be resized or fed: its screen is disposed or its session ended. */
+const stopped = (hub: Hub): boolean => hub.disposed === true || hub.exited;
+
+/** Force a full-screen program to reprint its whole view by jiggling its pty size. The reprint is
+ * issued after the snapshot, so its bytes stream to the registered page and are fed to the screen
+ * at the same time. The page may briefly see the one-column-narrower shrink view; the final grow is
+ * returned to the latest desired grid, which is also the grid the page converges to. Hiding only
+ * the shrink output would need a byte boundary we cannot know without waiting for quiet, which
+ * this path deliberately does not do.
+ *
+ * The headless screen is resized in step so it stays at the pty's grid. A resize that lands during
+ * the jiggle wins: the grow reads `desiredCols`/`desiredRows` after the shrink round trip, and the
+ * screen is matched to the latest desired grid afterwards (the page's own resize has already sent
+ * the pty resize in order). */
+const repaintHub = async (hub: Hub): Promise<boolean> => {
+  if (stopped(hub)) return false;
+  const client = await hostClient();
+  if (stopped(hub)) return false;
+  // The hold drain writes the replay tail without awaiting it. Wait for the bytes already
+  // delivered to the screen to parse before changing its grid; this is not a wait for quiet.
+  await hub.screen.whenApplied(hub.received);
+  if (stopped(hub)) return false;
+  const shrinkCols = Math.max(1, hub.desiredCols - 1);
+  const shrinkRows = hub.desiredRows;
+  const shrinkApplied = await client.resize(hub.id, shrinkCols, shrinkRows).catch(() => false);
+  if (stopped(hub)) return false;
+  hub.screen.resize(shrinkCols, shrinkRows);
+  // Read the desired grid **after** the shrink: a resize may have landed while the pty was small.
+  const growCols = hub.desiredCols;
+  const growRows = hub.desiredRows;
+  const growApplied = await client.resize(hub.id, growCols, growRows).catch(() => false);
+  if (stopped(hub)) return false;
+  // The page's resize, if one landed during the grow await, is already ordered to the pty; match
+  // the screen to the latest desired grid rather than the captured one.
+  hub.screen.resize(hub.desiredCols, hub.desiredRows);
+  return shrinkApplied === true && growApplied === true;
 };
 
-/** Force a full-screen program to reprint its whole view by jiggling its pty size, then wait for
- * the burst to settle. The headless screen is resized in step, so the snapshot is taken at the grid
- * the program reprinted at. (Measured against a live pi: the jiggle re-emits the whole view, and a
- * blank screen fed only those bytes reconstructs the viewport.)
- *
- * `hub.hold` is deliberately **not** set here: the reprint's bytes must be fed to the screen, not
- * held for a snapshot cut before them — the caller holds only after this returns. */
-const repaintHub = async (hub: Hub): Promise<void> => {
-  const client = await hostClient();
-  // One deadline for both settles (the ring's and the reprint's), so the worst case is the cap, not
-  // twice it.
-  const deadline = Date.now() + repaintMaxMs();
-  // The host's ring replay (the base) arrives just after the attach reply: let it land before the
-  // jiggle, so the reprint's bytes are told apart from it.
-  await settleQuiet(hub, deadline);
-  const shrunken = Math.max(1, hub.desiredCols - 1);
-  await client.resize(hub.id, shrunken, hub.desiredRows).catch(() => undefined);
-  hub.screen.resize(shrunken, hub.desiredRows);
-  // Grow back to the grid the page wants **now**: a resize may have landed during the jiggle, and
-  // restoring the captured size would strand the pty on a grid the ResizeObserver will not re-fit.
-  await client.resize(hub.id, hub.desiredCols, hub.desiredRows).catch(() => undefined);
-  hub.screen.resize(hub.desiredCols, hub.desiredRows);
-  // Wait for the reprint to begin (the SIGWINCH round trip and the program's redraw are not
-  // instantaneous; a program that ignores the resize never starts), then for it to stop.
-  const before = hub.received;
-  const startDeadline = Date.now() + repaintStartMs();
-  while (hub.received === before && Date.now() < startDeadline) await sleep(15);
-  await settleQuiet(hub, deadline);
+/** Issue a gap reprint after the snapshot and the hold are done, without awaiting it: the jiggle's
+ * bytes stream to the page and are fed to the screen, so a busy program does not delay the view.
+ * The counter and timing are recorded on completion, and a failure puts the gap back for the next
+ * view to retry. */
+const issueReprint = (hub: Hub): void => {
+  if (hub.reprintInFlight || hub.disposed === true || hub.exited) return;
+  hub.needsReprint = false;
+  hub.reprintInFlight = true;
+  const epoch = reprintEpoch;
+  const startedAt = Date.now();
+  void repaintHub(hub)
+    .then((jiggled) => {
+      if (!jiggled || epoch !== reprintEpoch || hub.disposed === true || hub.exited) return;
+      counters.reprints += 1;
+      counters.lastReprintMs = Date.now() - startedAt;
+      trace(`reprinted ${hub.key}`, startedAt);
+    })
+    .catch((error: unknown) => {
+      logFailure(`reprint ${hub.key} failed`, error);
+      if (epoch === reprintEpoch && hub.disposed !== true && !hub.exited) hub.needsReprint = true;
+    })
+    .finally(() => {
+      hub.reprintInFlight = false;
+    });
 };
 
 /** Attach to the host once, from the offset already received, and feed every byte to the screen.
@@ -577,8 +618,8 @@ const startServe = (hub: Hub, subscriber: Subscriber): void => {
 };
 
 /** Serve one page: serialize the screen at the offset received so far, hold the bytes after it,
- * then hand the page the snapshot and every byte since. A reprint is issued only when the host
- * ring had a gap; a warm screen is a serialize-and-send. */
+ * then hand the page the snapshot and every byte since. A warm screen is a serialize-and-send; only
+ * a host-ring gap issues a reprint, after the snapshot, without delaying it. */
 const serve = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
   counters.serves += 1;
   const startedAt = Date.now();
@@ -599,16 +640,6 @@ const serve = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
     // The screen is attached from the moment it opens (`ensureScreen`), so this is a no-op for a
     // warm hub; it remains the retry point after a failed attach.
     await ensureAttached(hub);
-    // Only a host-ring gap makes the screen untrustworthy: reprint it once, on the first view
-    // after the gap. A fresh session's replay is complete and never reprints.
-    if (hub.needsReprint && !hub.exited) {
-      const reprintStarted = Date.now();
-      await repaintHub(hub);
-      hub.needsReprint = false;
-      counters.reprints += 1;
-      counters.lastReprintMs = Date.now() - reprintStarted;
-      trace(`reprinted ${hub.key}`, reprintStarted);
-    }
     // Feed the current batch before holding anything: the cutoff below includes it, and a byte left
     // pending would go into `hold` (which is only applied after the snapshot) and deadlock
     // `whenApplied`. After this, only bytes that arrive later are held.
@@ -642,6 +673,9 @@ const serve = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
       for (const chunk of hub.hold ?? []) hub.screen.write(chunk.data, chunk.seq);
       hub.hold = undefined;
     }
+    // The page has its snapshot and the held bytes have been drained: a gap reprint can now run
+    // without delaying the view, and its output reaches both the screen and the page.
+    if (hub.needsReprint && !hub.exited) issueReprint(hub);
   } catch (error) {
     // A page this attach could not serve gets the exit, and the hub stays retryable. The attach
     // released the host listener on its own failure, so a later failure (serialize, send) must not
@@ -661,14 +695,15 @@ const serve = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
         queued.onStop("exit");
       }
     }
+    // The session may have exited while the snapshot was serialized; its exit was deferred to
+    // here, including the early return of a cancelled page.
+    if (!queuedNext && hub.exited) finish(hub);
   }
-  // The session may have exited while the snapshot was serialized; its exit was deferred to here.
-  if (!queuedNext && hub.exited) finish(hub);
 };
 
-/** Ask to serve a page. An attach already in flight (a gap reprint can hold it for seconds) queues
- * the newcomer — newest wins — instead of answering with a final `exit`, which the page would read
- * as the session being gone. */
+/** Ask to serve a page. An attach already in flight (its snapshot is being serialized) queues the
+ * newcomer — newest wins — instead of answering with a final `exit`, which the page would read as
+ * the session being gone. */
 const subscribe = (hub: Hub, subscriber: Subscriber): void => {
   if (hub.disposed === true) {
     subscriber.onStop("exit");
@@ -793,7 +828,7 @@ export const openSession = async (
     },
     kill: () => {
       if (subscriber === undefined) return;
-      // The page may leave before its attach finished (a gap reprint can hold it for seconds):
+      // The page may leave before its attach finished (its snapshot may still be serializing):
       // mark it cancelled so `serve` drops it instead of adding a ghost subscriber that pins the
       // screen and parses forever.
       subscriber.cancelled = true;
@@ -816,6 +851,7 @@ export const closeAttachments = (): void => {
     hub.screen.dispose();
   }
   hubs.clear();
+  reprintEpoch += 1;
   counters.serves = 0;
   counters.reprints = 0;
   counters.attaches = 0;
@@ -844,6 +880,7 @@ export type HubScreenStats = {
   /** Persistence serializations and the last one's serialize time. */
   readonly persists: number;
   readonly lastPersistMs: number;
+  readonly reprinting: boolean;
 };
 
 /** Attachment counts and trace counters, for the tests that pin one-attach, no-listener-leak,
@@ -885,6 +922,7 @@ export const hubStats = (): HubStats => {
       serializedBytes: hub.serializedBytes,
       persists: hub.persists,
       lastPersistMs: hub.lastPersistMs,
+      reprinting: hub.reprintInFlight,
     });
   }
   return {
@@ -903,7 +941,7 @@ export const hubStats = (): HubStats => {
   };
 };
 
-/** The grid a live hub's screen is at, for the tests that pin the repaint's size handling. */
+/** The grid a live hub's screen is at, for the tests that pin the gap reprint's size handling. */
 export const hubGrid = (
   sessionId: string,
   incarnation: number,
