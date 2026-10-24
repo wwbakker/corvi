@@ -10,8 +10,10 @@
  *   - the pty and its shell, whether or not a client is attached;
  *   - the session record, keyed by id, with cwd / createdAt / pty pid / alive / lastSeq and the
  *     reporter's OSC status, discoverable with `session.list`;
- *   - a bounded (256 KB) byte replay buffer with offsets, so `attach since` can resume. The reply
- *     carries `oldestSeq` and `truncated` (a `since` before the buffer start);
+ *   - a bounded (4 MiB by default) byte replay buffer with offsets, so `attach since` can resume.
+ *     The reply carries `oldestSeq` and `truncated` (a `since` before the buffer start). The bound
+ *     is per live session and configurable with `CORVI_HOST_REPLAY_BYTES` (read once at host
+ *     startup), which the tests use to force a gap;
  *   - the **exit** of a session: a dead session is retained (exitCode, signal, exitedAt) rather
  *     than deleted, and `attach` replays its buffer then sends the final `exit`; `kill` signals
  *     the pty and the record is retained like any other exit. At most 64 dead sessions are kept,
@@ -39,7 +41,16 @@ import { spawn, type IPty } from "node-pty";
 import { parseRequest, requestIdFrom, requestTypeOf, PROTOCOL, type HostRequest, type Owner, type SessionInfo } from "./protocol.ts";
 import { parseOsc } from "./osc.ts";
 
-const MAX_BUFFER_BYTES = 256 * 1024;
+const DEFAULT_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
+
+/** The replay bound, read once when the host process starts. A non-numeric, non-positive or
+ * non-finite override falls back to the default rather than disabling the bound. */
+const replayBufferBytes = (): number => {
+  const value = Number(process.env.CORVI_HOST_REPLAY_BYTES);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : DEFAULT_MAX_BUFFER_BYTES;
+};
+
+const MAX_BUFFER_BYTES = replayBufferBytes();
 const MAX_DEAD_SESSIONS = 64;
 
 export type HostOptions = {

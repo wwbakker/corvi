@@ -33,6 +33,7 @@ import { budget, testTempDir, until, waitFor } from "./helpers.ts";
 // files of a run in one process).
 const savedEnv = {
   CORVI_HOST_RUNTIME: process.env.CORVI_HOST_RUNTIME,
+  CORVI_HOST_REPLAY_BYTES: process.env.CORVI_HOST_REPLAY_BYTES,
 };
 const restoreEnv = (): void => {
   for (const [key, value] of Object.entries(savedEnv)) {
@@ -41,6 +42,9 @@ const restoreEnv = (): void => {
   }
 };
 process.env.CORVI_HOST_RUNTIME = "node";
+// Keep the host's replay ring small in this file: the gap and eviction cases deliberately outrun it,
+// and the production default (4 MiB) would hide the very hole they stage.
+process.env.CORVI_HOST_REPLAY_BYTES = "131072";
 const dir = await testTempDir("snapshot");
 
 const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
@@ -398,40 +402,31 @@ test("flushScreens writes a dirty screen synchronously", async () => {
   expect(snapshotOf(session.sessionId, session.incarnation)?.data).toContain("FLUSH_MARK");
 }, budget(30_000));
 
-test("an unattended screen is released and kept in the store", async () => {
-  process.env.CORVI_SCREEN_IDLE_MS = "1500";
-  try {
-    const session = await openSession("SNAP-IDLE", dir, { cols: 80, rows: 24 });
-    const command = "echo IDLE_MARK\n";
-    await runAndWait(session, command);
-    await waitFor("the screen to be released", async () => hubStats().hubs === 0, budget(15_000));
-    // The store keeps it, so a later attach reseeds rather than rebuilds; the shell itself is
-    // untouched and still alive.
-    expect(snapshotOf(session.sessionId, session.incarnation)?.data).toContain("IDLE_MARK");
-    expect((await (await hostClient()).list()).some((entry) => entry.id === session.sessionId && entry.alive)).toBe(true);
-  } finally {
-    delete process.env.CORVI_SCREEN_IDLE_MS;
-  }
-}, budget(30_000));
+test("a screen stays warm and keeps being fed with no page", async () => {
+  const session = await openSession("SNAP-WARM", dir, { cols: 80, rows: 24 });
+  // Attach once so the screen is served, then detach: the screen belongs to the session and must
+  // stay warm, not be released after a grace.
+  const first = fakeSocket(session);
+  terminalSockets.open(first);
+  await waitFor(
+    "the first opening frame",
+    async () => control(first.frames).some((frame) => frame.type === "snapshot" || frame.type === "reset"),
+    budget(15_000),
+  );
+  session.kill();
+  expect(hubStats()).toMatchObject({ hubs: 1, attached: 1, subscribers: 0 });
 
-test("an unattended screen that never stops painting is still released", async () => {
-  process.env.CORVI_SCREEN_IDLE_MS = "1500";
-  try {
-    const session = await openSession("SNAP-BUSY", dir, { cols: 80, rows: 24 });
-    session.write("while :; do printf '\\033[2J\\033[H'; yes row | head -24; sleep 0.05; done\n");
-    // Prove it is painting, then let the grace pass: output must not postpone the release, or an
-    // agent that never stops repainting would be parsed forever with nobody watching.
-    await waitFor(
-      "the screen to be painting",
-      async () => ((await (await hostClient()).list()).find((entry) => entry.id === session.sessionId)?.lastSeq ?? 0) > 1000,
-      budget(15_000),
-    );
-    await waitFor("the unattended screen to be released", async () => hubStats().hubs === 0, budget(15_000));
-    // The shell is untouched — only the server's screen and feed stopped.
-    expect((await (await hostClient()).list()).some((entry) => entry.id === session.sessionId && entry.alive)).toBe(true);
-  } finally {
-    delete process.env.CORVI_SCREEN_IDLE_MS;
-  }
+  // Produced with no page attached. The screen is still fed it while the shell stays untouched.
+  const command = "echo WARM_MARK\n";
+  await runAndWait(session, command);
+  await Bun.sleep(500);
+  expect(hubStats()).toMatchObject({ hubs: 1, attached: 1, subscribers: 0 });
+
+  const second = fakeSocket(session);
+  terminalSockets.open(second);
+  await waitFor("the warm snapshot", async () => control(second.frames).some((frame) => frame.type === "snapshot"), budget(15_000));
+  expect(String(control(second.frames)[0]?.data ?? "")).toContain("WARM_MARK");
+  expect((await (await hostClient()).list()).some((entry) => entry.id === session.sessionId && entry.alive)).toBe(true);
 }, budget(30_000));
 
 test("a seeded screen's applied offset never regresses when a ring byte lands behind it", async () => {
@@ -486,31 +481,48 @@ test("a persisted and reseeded hub resumes from the stored high-water, not the r
   expect(snapshots[0]?.offset).toBe(emitted);
 }, budget(30_000));
 
-test("a stale session cannot attach after its screen was released", async () => {
-  process.env.CORVI_SCREEN_IDLE_MS = "1500";
-  try {
-    const session = await openSession("SNAP-STALE", dir, { cols: 80, rows: 24 });
-    await waitFor("the screen to be released", async () => hubStats().hubs === 0, budget(15_000));
-    // The session object predates the release; attaching now must be refused rather than touch
-    // the disposed screen.
-    let exited = false;
-    const snapshots: { data: string; offset: number }[] = [];
-    session.attach(
-      () => undefined,
-      (frame) => snapshots.push(frame),
-      () => {
-        exited = true;
-      },
-    );
-    await until(async () => exited, true, budget(5_000));
-    expect(exited).toBe(true);
-    expect(snapshots).toHaveLength(0);
-  } finally {
-    delete process.env.CORVI_SCREEN_IDLE_MS;
-  }
+test("a stale session cannot attach after closeAttachments", async () => {
+  const session = await openSession("SNAP-STALE", dir, { cols: 80, rows: 24 });
+  expect(hubStats().hubs).toBe(1);
+  // The reset disposes the screen and forgets the hub; a session object from before it must be
+  // refused rather than touch the disposed screen.
+  closeAttachments();
+  let exited = false;
+  const snapshots: { data: string; offset: number }[] = [];
+  session.attach(
+    () => undefined,
+    (frame) => snapshots.push(frame),
+    () => {
+      exited = true;
+    },
+  );
+  await until(async () => exited, true, budget(5_000));
+  expect(exited).toBe(true);
+  expect(snapshots).toHaveLength(0);
 }, budget(30_000));
 
-test("a window with no page captures its startup within the grace, before the ring evicts it", async () => {
+test("a killed non-kept session disposes its hub and refuses a stale attach", async () => {
+  const session = await openSession("SNAP-EXIT-STALE", dir, { cols: 80, rows: 24 });
+  expect(hubStats().hubs).toBe(1);
+  // A non-kept session exit disposes the hub. A session object from before the exit must be
+  // refused rather than touch the disposed screen.
+  await (await hostClient()).kill(session.sessionId);
+  await waitFor("the hub to be disposed", async () => hubStats().hubs === 0, budget(15_000));
+  let exited = false;
+  const snapshots: { data: string; offset: number }[] = [];
+  session.attach(
+    () => undefined,
+    (frame) => snapshots.push(frame),
+    () => {
+      exited = true;
+    },
+  );
+  await until(async () => exited, true, budget(5_000));
+  expect(exited).toBe(true);
+  expect(snapshots).toHaveLength(0);
+}, budget(30_000));
+
+test("a window with no page captures its startup before the ring evicts it", async () => {
   const change = "SNAP-NOPAGE";
   const changeDir = join(process.env.CORVI_ROOT ?? dir, change);
   await mkdir(changeDir, { recursive: true });

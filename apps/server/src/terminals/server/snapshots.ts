@@ -4,7 +4,7 @@
  * The hub (`./session.ts`) writes a screen here while it is dirty on a cadence and synchronously
  * on a controlled shutdown. `server.ts` loads the store on start; when a screen is created for a
  * session the hub seeds it from the stored entry and attaches the host from the stored offset, so
- * deep scrollback survives a Corvi restart even past the host's 256 KiB ring. Dead incarnations
+ * deep scrollback survives a Corvi restart even past the host's 4 MiB replay ring. Dead incarnations
  * are pruned by the windows layer (`pruneSnapshots`) down to the live and kept-open keys.
  *
  * A snapshot is `data` plus the host byte offset it covers (`highWater`), keyed by incarnation so

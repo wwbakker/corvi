@@ -5,15 +5,20 @@
  * whether a later view ran it again.
  *
  * `REPRINT_DELAY_MS` delays each redraw, widening the window in which a test can attach, resize or
- * leave during the first view.
+ * leave during a gap view; `REPRINT_PAINT_MS` adds a continuous painter for the busy-gap test.
  */
 const delay = Number(process.env.REPRINT_DELAY_MS ?? "0") || 0;
+const paintMs = Number(process.env.REPRINT_PAINT_MS ?? "0") || 0;
 process.stdout.write("REPRINT-BASE\r\n");
 let repaints = 0;
+let paints = 0;
 process.on("SIGWINCH", () => {
   repaints += 1;
   const n = repaints;
   setTimeout(() => process.stdout.write(`REPRINT-${n}\r\n`), delay);
 });
+if (paintMs > 0) {
+  setInterval(() => process.stdout.write(`PAINT-${(paints += 1)}\r\n`), paintMs);
+}
 // Stay alive: the relay owns the session's lifetime, not this program.
 setInterval(() => undefined, 1000);

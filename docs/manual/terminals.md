@@ -25,10 +25,11 @@ another window and offers **Take over**, while a pane whose shell exited says on
 pane's shell ended. A socket that closes on its own is neither — it is a connection state that
 reconnects. The browser socket is not the shell: within one change, a hidden pane that stays
 mounted may keep its attachment (switching between the change's views generally does not
-reconnect it), but leaving the change or unmounting the pane can close the socket while the
-shells and the server-side screen survive in the host and are resumed on the next attach. An
-unavailable workspace or a retargeted target disconnects the pane; completing or cancelling a
-change explicitly ends the sessions it owns (see
+reconnect it), but leaving the change or unmounting the pane can close the socket while the shells
+survive in the host and the server keeps the screen; both are resumed on the next attach, and the
+screen comes back through the store across a server restart. An unavailable workspace or a
+retargeted target disconnects the pane; completing or cancelling a change explicitly ends the
+sessions it owns (see
 [completing a change](changes.md#completing-a-change)).
 
 A remote workspace's terminals are unavailable with it: the pane says the workspace cannot be
