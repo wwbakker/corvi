@@ -388,6 +388,10 @@ describe.skipIf(!usable)("terminal host under Node", () => {
   }, 30_000);
 
   test("reports truncation only once the output has settled", async () => {
+    // Shrink the replay ring so the emitter outruns it without writing megabytes. The host reads the
+    // override once, at startup, so it must be set before this test's host is spawned.
+    const saved = process.env.CORVI_HOST_REPLAY_BYTES;
+    process.env.CORVI_HOST_REPLAY_BYTES = "131072";
     const fixture = await openHost();
     try {
       const emitter = `for(let i=0;i<12000;i++)process.stdout.write("x".repeat(40)+"\\n");setTimeout(()=>{},6000)`;
@@ -412,6 +416,8 @@ describe.skipIf(!usable)("terminal host under Node", () => {
       await expect(fixture.client.attach("missing")).rejects.toThrow();
     } finally {
       await closeHost(fixture);
+      if (saved === undefined) delete process.env.CORVI_HOST_REPLAY_BYTES;
+      else process.env.CORVI_HOST_REPLAY_BYTES = saved;
     }
   }, 40_000);
 

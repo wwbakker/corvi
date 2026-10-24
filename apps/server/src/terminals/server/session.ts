@@ -16,18 +16,14 @@
  * the host listener stays because the screen exists. The exit of the session ends the hub.
  *
  * Persistence: a screen is written to `./snapshots.ts` while it is dirty on a cadence, and
- * synchronously on a controlled shutdown — **except an agent session** (`metadata.subagentId`),
- * which reprints its whole view when its pty is jiggled, so it is attached (and jiggled) on first
- * view instead of being serialized on a schedule; only a dead kept-open one is written on exit. A
- * screen with no page for a short grace is released —
- * the store keeps it, so a later attach still resumes, and the server drops its host attachment.
- * That grace is the CPU bound: a window is parsed while its startup is captured and while a page is
- * looking, not for as long as its shell paints. (The host's own idle timeout is disabled while the
- * server holds its connection, so this release is what frees the host's interest; the host idles
- * once the server exits.) On creation a screen is seeded from the store and the host attaches from
- * the stored offset; see `hubFor` for the gap policy and its visible cost. "Exact" here is
- * screen-content exact: the serializer restores the text and the modes it knows, not every parser
- * state, and the stored offset can fall mid-escape.
+ * synchronously on a controlled shutdown. The screen is warm for the life of its session: the hub
+ * attaches the host when the screen is created and keeps the attachment until the session exits,
+ * whether or not a page is looking. On creation a screen is seeded from the store and the host
+ * attaches from the stored offset; see `hubFor` for the gap policy and its visible cost. A host
+ * ring gap (`reply.truncated`) is the only reason a view reprints the screen, and the reprint is
+ * issued on the first view after the gap. "Exact" here is screen-content exact: the serializer
+ * restores the text and the modes it knows, not every parser state, and the stored offset can fall
+ * mid-escape.
  *
  * The socket protocol, chosen so neither direction can be mistaken for the other:
  *
@@ -49,18 +45,12 @@ import { ensureActiveHostWindow, isKeptOpen } from "./windows.ts";
  * and a quiet one costs nothing. The shutdown flush makes the last moments exact regardless. A
  * test can shorten it with `CORVI_SCREEN_CADENCE_MS`. */
 const SNAPSHOT_CADENCE_MS = 5000;
-/** A screen with no page is released this long after the last page left (or after it opened, when
- * no page ever attached): the store keeps it for a later attach, and the host is left holding
- * nothing. This is the CPU bound for unattended screens — a window is parsed while its startup is
- * captured and while you are looking, not forever. A test can shorten it with
- * `CORVI_SCREEN_IDLE_MS`. */
-const SCREEN_UNATTENDED_MS = 10_000;
 /** The largest batch of host bytes fed to the screen in one turn. A turn that reaches it flushes
  * at once, so a flood cannot grow a batch without bound. */
 const MAX_BATCH_BYTES = 256 * 1024;
-/** A first-view repaint must be quiet this long before it is served: a full-screen program
- * re-emits its view on the resize jiggle, and we wait for that burst to stop (capped) rather than
- * guess a duration. A test can shorten both with `CORVI_REPAINT_QUIET_MS`/`CORVI_REPAINT_MAX_MS`. */
+/** A gap reprint must be quiet this long before it is served: a full-screen program re-emits its
+ * view on the resize jiggle, and we wait for that burst to stop (capped) rather than guess a
+ * duration. A test can shorten both with `CORVI_REPAINT_QUIET_MS`/`CORVI_REPAINT_MAX_MS`. */
 const REPAINT_QUIET_MS = 120;
 const REPAINT_START_MS = 600;
 const REPAINT_MAX_MS = 4000;
@@ -68,17 +58,18 @@ const repaintQuietMs = (): number => envMs("CORVI_REPAINT_QUIET_MS", REPAINT_QUI
 const repaintStartMs = (): number => envMs("CORVI_REPAINT_START_MS", REPAINT_START_MS);
 const repaintMaxMs = (): number => envMs("CORVI_REPAINT_MAX_MS", REPAINT_MAX_MS);
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-/** The lifecycle sweep's tick: it decides whether each screen is due to persist or to be released.
- * Cheap (it iterates hubs), so the cadence and timeout can be read per tick. */
+/** The persistence sweep's tick: it decides whether each screen is due to persist. Cheap (it
+ * iterates hubs), so the cadence can be read per tick. */
 const SWEEP_TICK_MS = 250;
 
 const cadenceMs = (): number => envMs("CORVI_SCREEN_CADENCE_MS", SNAPSHOT_CADENCE_MS);
-const unattendedMs = (): number => envMs("CORVI_SCREEN_IDLE_MS", SCREEN_UNATTENDED_MS);
+/** How often the trace writes one line per hub, so an unattended warm screen is observable even
+ * when it never serves. A test can shorten it with `CORVI_TERMINAL_TRACE_MS`. */
+const TRACE_PERIOD_MS = 5000;
+const tracePeriodMs = (): number => envMs("CORVI_TERMINAL_TRACE_MS", TRACE_PERIOD_MS);
 
-/** Append a terminal failure to the app log (or stderr), so a page reporting "the session is gone"
- * can be traced to the serve that failed. */
-const logFailure = (message: string, error: unknown): void => {
-  const text = `[terminals] ${message}: ${error instanceof Error ? error.message : String(error)}`;
+/** Append a terminal line to the app log (or stderr). */
+const logLine = (text: string): void => {
   const log = process.env.CORVI_LOG;
   try {
     if (log !== undefined && log !== "") appendFileSync(log, `[${new Date().toISOString()}] ${text}\n`);
@@ -86,6 +77,21 @@ const logFailure = (message: string, error: unknown): void => {
   } catch {
     // a failure to log a failure is still not a crash
   }
+};
+
+/** Append a terminal failure to the app log (or stderr), so a page reporting "the session is gone"
+ * can be traced to the serve that failed. */
+const logFailure = (message: string, error: unknown): void => {
+  logLine(`[terminals] ${message}: ${error instanceof Error ? error.message : String(error)}`);
+};
+
+const traceEnabled = (): boolean => process.env.CORVI_TERMINAL_TRACE === "1";
+
+/** Trace one terminal operation with the wall time it took. Off unless `CORVI_TERMINAL_TRACE=1`;
+ * no HTTP surface, just the app log. */
+const trace = (message: string, startedAt: number): void => {
+  if (!traceEnabled()) return;
+  logLine(`[terminals] ${message} (${Date.now() - startedAt} ms)`);
 };
 
 /** A millisecond override from the environment, or the fallback. `Number(x) || fallback` cannot
@@ -124,18 +130,6 @@ type ExitListener = (exitCode: number, signal: number, incarnation: number) => v
 /** A host chunk held while a page attach serializes. */
 type Held = { readonly seq: number; readonly data: Buffer };
 
-/** How a screen is persisted and first viewed. An agent session reprints its whole view on a pty
- * resize, so it is not persisted on the cadence and is attached only on first view; a dead
- * kept-open one has its frozen screen in the store.
- *
- * `reprintable` is **provenance-based**: it comes from the host session's `metadata.subagentId`
- * (which survives a server restart, since the host outlives the server). A hand-run TUI — htop, or
- * pi started at a prompt — has no such metadata and stays on the cadence path: correct, but it
- * keeps paying the per-cadence serialization. */
-export type ScreenOrigin = { readonly reprintable: boolean; readonly dead: boolean };
-
-const plainOrigin: ScreenOrigin = { reprintable: false, dead: false };
-
 type Hub = {
   /** `sessionId#incarnation`: a reused session id gets a fresh hub and screen. */
   readonly key: string;
@@ -144,11 +138,6 @@ type Hub = {
   readonly id: string;
   incarnation: number;
   readonly screen: Screen;
-  /** An agent session that reprints itself: no cadence persistence, and the host attach (and the
-   * resize jiggle that forces the reprint) happens on first view, not at window open. */
-  readonly reprintable: boolean;
-  /** A reprintable hub has had its first-view attach and jiggle; a later viewer reuses it. */
-  repainted: boolean;
   /** The grid the page wants. `repaintHub` shrinks the pty and grows back to **this**, so a resize
    * that lands during the repaint is not clobbered by the captured size. */
   desiredCols: number;
@@ -170,9 +159,9 @@ type Hub = {
   /** An attach has claimed the hub (its guard and claim are one synchronous step); the session's
    * exit waits for it to finish. */
   attachingPage?: boolean;
-  /** The newest page waiting for an in-flight attach to settle. The first-view repaint can hold
-   * the attach for seconds, so a newcomer (the page's unnamed→named rename, a second tab) is queued
-   * here rather than answered with a final `exit`. */
+  /** The newest page waiting for an in-flight attach to settle. A gap reprint can hold the attach
+   * for seconds, so a newcomer (the page's unnamed→named rename, a second tab) is queued here
+   * rather than answered with a final `exit`. */
   queued?: Subscriber;
   /** The screen changed since it was last written to the store. */
   dirty: boolean;
@@ -182,11 +171,15 @@ type Hub = {
   pendingBytes: number;
   /** A flush is queued for this turn. */
   flushScheduled: boolean;
-  /** When the last page left — or when the screen opened, if no page ever attached — for the
-   * unattended release. Undefined while a page is attached. */
-  unattendedSince?: number;
+  /** The host ring had a gap at attach, so the first view after it must reprint the screen. */
+  needsReprint: boolean;
   /** When the screen was last written to the store, for the cadence. */
   lastPersist: number;
+  /** Bytes of the last serialized screen, whether that serialization served a page or persisted. */
+  serializedBytes: number;
+  /** Serializations for persistence, and how long the last one took. */
+  persists: number;
+  lastPersistMs: number;
   /** The screen has been disposed; a stale `TerminalSession` must not attach to it. */
   disposed?: boolean;
   /** The host ring's join from the attach reply: where its oldest retained byte is and whether the
@@ -197,35 +190,48 @@ type Hub = {
 
 const hubs = new Map<string, Hub>();
 
+/** Test/observability counters, reset by `closeAttachments`. */
+type HubCounters = {
+  serves: number;
+  reprints: number;
+  attaches: number;
+  persists: number;
+  lastServeMs: number;
+  lastReprintMs: number;
+  lastAttachMs: number;
+  lastPersistMs: number;
+};
+
+const counters: HubCounters = {
+  serves: 0,
+  reprints: 0,
+  attaches: 0,
+  persists: 0,
+  lastServeMs: 0,
+  lastReprintMs: 0,
+  lastAttachMs: 0,
+  lastPersistMs: 0,
+};
+
+/** The trace's last emission, so the 250 ms persistence tick can carry a 5 s trace. */
+let lastTraceAt = 0;
+
 /** Get-or-create synchronously: two concurrent opens of one incarnation cannot each make a hub. */
 const hubFor = (
   changeId: string,
   id: string,
   incarnation: number,
   size: { readonly cols: number; readonly rows: number },
-  origin: ScreenOrigin = plainOrigin,
 ): Hub => {
   const key = `${id}#${incarnation}`;
   const existing = hubs.get(key);
-  if (existing !== undefined) {
-    // The first creation wins; the classifier is provenance-based, so a disagreement means the
-    // metadata changed underneath a live hub (or two callers disagree). Say so rather than silently
-    // keeping either answer.
-    if (existing.reprintable !== origin.reprintable) {
-      console.error(
-        `[terminals] ${key} is already ${existing.reprintable ? "reprintable" : "persisted"}, not the newly reported ${origin.reprintable ? "reprintable" : "persisted"}`,
-      );
-    }
-    return existing;
-  }
+  if (existing !== undefined) return existing;
   const hub: Hub = {
     key,
     changeId,
     id,
     incarnation,
     screen: makeScreen(size),
-    reprintable: origin.reprintable,
-    repainted: false,
     desiredCols: size.cols,
     desiredRows: size.rows,
     subscribers: new Set(),
@@ -235,23 +241,25 @@ const hubFor = (
     pending: [],
     pendingBytes: 0,
     flushScheduled: false,
-    unattendedSince: Date.now(),
+    needsReprint: false,
     lastPersist: 0,
+    serializedBytes: 0,
+    persists: 0,
+    lastPersistMs: 0,
   };
-  // Seed the screen from the store when one exists for this exact incarnation. A **live**
-  // reprintable hub never reads the store — it reconstructs its view from the host on first view —
-  // but a dead kept-open one seeded from its frozen exit screen does. The host then attaches from
-  // `received` (the stored offset), so one server's resume is exact — with the caveats in the
-  // module and `screen.ts` docs: "exact" is the screen content the serializer can restore (text and
-  // the modes it knows, not every parser state, and the stored offset can fall mid-escape). Gap
-  // policy: when the host's ring has already evicted past the stored offset, there is a hole
-  // between it and the ring's oldest byte. We keep the deep screen and let the ring's incremental
-  // bytes land on top of it rather than rebuild — the store exists for deep history, and rebuilding
-  // would forfeit it. The visible cost is that those incremental bytes address a screen state from
-  // an older offset, so a TUI that never fully redraws can look scrambled until its next paint; the
-  // hole is bounded by the 256 KiB ring, not by the missing span. `screen.write`'s monotonic offset
-  // keeps the ring's older seqs from pulling the stored high-water back.
-  const stored = origin.reprintable && !origin.dead ? undefined : snapshotOf(id, incarnation);
+  // Seed the screen from the store when one exists for this exact incarnation. The host then
+  // attaches from `received` (the stored offset), so one server's resume is exact — with the
+  // caveats in the module and `screen.ts` docs: "exact" is the screen content the serializer can
+  // restore (text and the modes it knows, not every parser state, and the stored offset can fall
+  // mid-escape). Gap policy: when the host's ring has already evicted past the stored offset,
+  // there is a hole between it and the ring's oldest byte. We keep the deep screen and let the
+  // ring's incremental bytes land on top of it rather than rebuild — the store exists for deep
+  // history, and rebuilding would forfeit it. The visible cost is that those incremental bytes
+  // address a screen state from an older offset, so a TUI that never fully redraws can look
+  // scrambled until its next paint; the hole is bounded by the host replay ring, not by the missing
+  // span. `screen.write`'s monotonic offset keeps the ring's older seqs from pulling the stored
+  // high-water back. A gap sets `needsReprint`, so the first view after it reprints the screen.
+  const stored = snapshotOf(id, incarnation);
   if (stored !== undefined && stored.data !== "") {
     // Seed across geometry can reflow: a screen stored at one grid size, seeded into a window the
     // page now shows at another, is reflowed by the headless terminal. The P3 record should say so.
@@ -265,20 +273,34 @@ const hubFor = (
 
 const byteLength = (text: string): number => new TextEncoder().encode(text).length;
 
+/** A cheap footprint estimate: 12 bytes a cell plus ~0.5 KB a row (the numbers the screen record
+ * uses). It reads the buffer's row count, never serializes. */
+const estimateScreenBytes = (hub: Hub): number => {
+  const rows = hub.screen.bufferRows;
+  return rows * hub.screen.cols * 12 + rows * 512;
+};
+
 /** What a dirty screen yields for the store: an `input` to write, `"empty"` when the screen is
  * genuinely empty (so any stored entry is dropped), or undefined when there is nothing to do — a
  * clean screen, a serializer that threw, or a serialization too large for the store's cap, in
  * which case the previous entry is kept and the screen stays dirty. */
 const screenSnapshot = (hub: Hub): SnapshotInput | "empty" | undefined => {
   if (!hub.dirty) return undefined;
+  const startedAt = Date.now();
   let snapshot: ScreenSnapshot;
   try {
     snapshot = hub.screen.serialize();
   } catch {
     return undefined;
   }
+  const bytes = byteLength(snapshot.data);
+  hub.serializedBytes = bytes;
+  hub.lastPersistMs = Date.now() - startedAt;
+  hub.persists += 1;
+  counters.persists += 1;
+  counters.lastPersistMs = hub.lastPersistMs;
   if (snapshot.data === "") return "empty";
-  if (byteLength(snapshot.data) > SNAPSHOT_MAX_BYTES) return undefined;
+  if (bytes > SNAPSHOT_MAX_BYTES) return undefined;
   return { sessionId: hub.id, incarnation: hub.incarnation, data: snapshot.data, highWater: snapshot.offset };
 };
 
@@ -291,7 +313,7 @@ const markStored = (entries: readonly { readonly hub: Hub }[], at: number, store
   }
 };
 
-/** Write one dirty screen (exit, idle release). */
+/** Write one dirty screen (session exit or lost host connection). */
 const persistScreen = (hub: Hub): void => {
   const result = screenSnapshot(hub);
   if (result === undefined) return;
@@ -308,8 +330,6 @@ export const flushScreens = (): void => {
   const due: { hub: Hub; input: SnapshotInput }[] = [];
   const empty: Hub[] = [];
   for (const hub of hubs.values()) {
-    // A reprintable hub is never persisted on a schedule; a dead kept-open one was written on exit.
-    if (hub.reprintable) continue;
     const result = screenSnapshot(hub);
     if (result === "empty") empty.push(hub);
     else if (result !== undefined) due.push({ hub, input: result });
@@ -322,79 +342,58 @@ export const flushScreens = (): void => {
   }
 };
 
-/** Drop a screen without killing its shell: release the host attachment, mark it disposed so a
- * stale `TerminalSession` cannot attach to it, and forget the hub. A later attach reseeds from
- * the store. */
-const releaseScreen = (hub: Hub): void => {
-  release(hub);
-  watchExitOff(hub);
-  hub.disposed = true;
-  hub.screen.dispose();
-  hubs.delete(hub.key);
-};
-
-/** The lifecycle tick: persist dirty screens on the cadence, release screens a timeout past their
- * last activity. Cheap enough to run often, so both intervals can be read per tick (and shortened
- * by a test). One store write per tick however many screens are due. */
+/** The persistence tick: write dirty screens on the cadence. Cheap enough to run often, so the
+ * cadence can be read per tick (and shortened by a test). One store write per tick however many
+ * screens are due. A screen is never released here: it stays warm for the life of its session. */
 const sweep = (): void => {
   const now = Date.now();
   const cadence = cadenceMs();
-  const unattended = unattendedMs();
+  const traceDue = traceEnabled() && now - lastTraceAt >= tracePeriodMs();
+  if (traceDue) lastTraceAt = now;
   const due: { hub: Hub; input: SnapshotInput }[] = [];
   const empty: Hub[] = [];
-  const releasing: Hub[] = [];
-  const failed = new Set<Hub>();
-  for (const hub of [...hubs.values()]) {
+  for (const hub of hubs.values()) {
     if (hub.attachingPage) continue; // an in-flight attach owns the screen right now
-    // Unattended: no page has looked for the grace. Output does not postpone this — stopping the
-    // parse is the point — only a page does.
-    const unattendedNow =
-      hub.subscribers.size === 0 && hub.unattendedSince !== undefined && now - hub.unattendedSince >= unattended;
-    // A reprintable hub is never serialized or written on the cadence: it reconstructs its view on
-    // first view, and the store only ever holds a dead kept-open one's frozen exit screen.
-    if (hub.reprintable) {
-      if (unattendedNow) releasing.push(hub);
+    if (!hub.exited && hub.client?.isClosed() === true) {
+      // The host connection is gone: nothing can feed this screen again, and `ensureAttached`
+      // would see the old listener and never retry. Persist what it has, end any page (the pty's
+      // owner is unreachable), and drop the hub unless a kept-open window still wants the frozen
+      // screen. This is the small stopgap until host-death adoption is designed.
+      hub.exited = true;
+      watchExitOff(hub);
+      persistScreen(hub);
+      finish(hub);
+      hub.client = undefined;
       continue;
     }
-    const dueForCadence = hub.dirty && now - hub.lastPersist >= cadence;
-    if (!dueForCadence && !unattendedNow) continue;
-    const result = screenSnapshot(hub); // persist before releasing, so nothing is lost
+    if (!hub.dirty || now - hub.lastPersist < cadence) continue;
+    const result = screenSnapshot(hub);
     if (result === "empty") empty.push(hub);
     else if (result !== undefined) due.push({ hub, input: result });
-    if (unattendedNow) releasing.push(hub);
   }
   if (due.length > 0) {
-    const stored = setSnapshots(due.map((entry) => entry.input));
-    markStored(due, now, stored);
-    if (!stored) for (const { hub } of due) failed.add(hub);
+    markStored(due, now, setSnapshots(due.map((entry) => entry.input)));
   }
   for (const hub of empty) {
     if (forgetSnapshot(hub.id, hub.incarnation)) hub.dirty = false;
-    else failed.add(hub);
   }
-  // A screen is released only once its state is on disk: a failed write keeps it for the next
-  // attempt rather than dropping history. A screen the store cannot hold at all (over-cap, or a
-  // serializer that threw) is not a write failure — the previous entry stands, and it is released.
-  for (const hub of releasing) {
-    if (!failed.has(hub)) releaseScreen(hub);
+  if (traceDue) {
+    for (const hub of hubs.values()) {
+      logLine(
+        `[terminals] screen ${hub.key} grid=${hub.screen.cols}x${hub.screen.rows} bufferRows=${hub.screen.bufferRows} scrollbackRows=${hub.screen.scrollbackRows} estBytes=${estimateScreenBytes(hub)} attached=${hub.dataListener !== undefined ? 1 : 0} subscribers=${hub.subscribers.size} serializedBytes=${hub.serializedBytes} persists=${hub.persists} lastPersistMs=${hub.lastPersistMs}`,
+      );
+    }
   }
 };
 
 // The sweep is the only timer the module owns; it must not keep a test process alive.
 setInterval(sweep, SWEEP_TICK_MS).unref();
 
-/** Record attendance: a screen with a page is attended (its clock cleared); with none, the
- * unattended clock runs from now, so the sweep releases it after the grace. */
-const noteAttendance = (hub: Hub): void => {
-  hub.unattendedSince = hub.subscribers.size > 0 ? undefined : Date.now();
-};
-
 /** Tell the hub's live client the session is gone and forget the hub — unless the window asked to
  * be kept open, whose frozen screen stays for a later look. */
 const finish = (hub: Hub): void => {
   const subscribers = [...hub.subscribers];
   hub.subscribers.clear();
-  noteAttendance(hub);
   release(hub);
   if (!isKeptOpen(hub.changeId, hub.id)) {
     hub.disposed = true;
@@ -412,9 +411,8 @@ const onSessionExit = (hub: Hub) => (): void => {
   watchExitOff(hub);
   const kept = isKeptOpen(hub.changeId, hub.id);
   // The session's last screen is worth keeping before the hub lets go: a kept-open window's frozen
-  // output survives a restart through it. A reprintable hub is normally not persisted at all, but a
-  // kept-open one cannot reprint once dead, so its final screen is written here.
-  if (!hub.reprintable || kept) persistScreen(hub);
+  // output survives a restart through it, and an ordinary screen simply gets its last state.
+  persistScreen(hub);
   // A dead session emits nothing: stop listening now. An attach serializing the last screen is
   // allowed to finish first, so it serves what the session left.
   release(hub);
@@ -539,12 +537,19 @@ const ensureAttached = async (hub: Hub): Promise<void> => {
     };
     hub.dataListener = listener;
     client.onData(hub.id, listener);
+    const startedAt = Date.now();
     try {
       const reply = await client.attach(hub.id, hub.received);
-      // Record the ring's join. A truncated replay from a seeded screen is the gap policy's case;
-      // the oldest byte can fall mid-escape, so this is a diagnostic/future-use fact, not part of
-      // the resume.
+      // Record the ring's join. A truncated replay is the gap policy's case and the only reason a
+      // view reprints; the oldest byte can fall mid-escape, so the join itself is diagnostic.
       hub.ring = { oldestSeq: reply.oldestSeq, truncated: reply.truncated };
+      if (reply.truncated && !hub.exited) hub.needsReprint = true;
+      counters.attaches += 1;
+      counters.lastAttachMs = Date.now() - startedAt;
+      trace(
+        `attached ${hub.key} since=${hub.received} oldest=${reply.oldestSeq} truncated=${reply.truncated}`,
+        startedAt,
+      );
     } catch (error) {
       // Do not stay half-attached: a later connect retries this from the same offset.
       release(hub);
@@ -572,12 +577,14 @@ const startServe = (hub: Hub, subscriber: Subscriber): void => {
 };
 
 /** Serve one page: serialize the screen at the offset received so far, hold the bytes after it,
- * then hand the page the snapshot and every byte since. */
+ * then hand the page the snapshot and every byte since. A reprint is issued only when the host
+ * ring had a gap; a warm screen is a serialize-and-send. */
 const serve = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
+  counters.serves += 1;
+  const startedAt = Date.now();
   // Claim the hub synchronously: the guard and the claim are one step, so two attaches racing the
   // await below cannot both pass — the second would orphan the first's held bytes.
   hub.attachingPage = true;
-  hub.unattendedSince = undefined;
   let queuedNext = false;
   try {
     // One live client per hub, newest wins. An established subscriber may be the previous socket
@@ -589,13 +596,18 @@ const serve = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
     const superseded = [...hub.subscribers];
     hub.subscribers.clear();
     for (const old of superseded) old.onStop("detached");
-    // The host attach is deferred to the first view for a reprintable hub; for every other screen it
-    // is already attached (`ensureScreen`) and this is a no-op.
+    // The screen is attached from the moment it opens (`ensureScreen`), so this is a no-op for a
+    // warm hub; it remains the retry point after a failed attach.
     await ensureAttached(hub);
-    // The first view of a live agent forces a reprint; a dead or already-viewed hub does not.
-    if (hub.reprintable && !hub.repainted && !hub.exited) {
+    // Only a host-ring gap makes the screen untrustworthy: reprint it once, on the first view
+    // after the gap. A fresh session's replay is complete and never reprints.
+    if (hub.needsReprint && !hub.exited) {
+      const reprintStarted = Date.now();
       await repaintHub(hub);
-      hub.repainted = true;
+      hub.needsReprint = false;
+      counters.reprints += 1;
+      counters.lastReprintMs = Date.now() - reprintStarted;
+      trace(`reprinted ${hub.key}`, reprintStarted);
     }
     // Feed the current batch before holding anything: the cutoff below includes it, and a byte left
     // pending would go into `hold` (which is only applied after the snapshot) and deadlock
@@ -610,6 +622,7 @@ const serve = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
         return;
       }
       const { data, offset } = hub.screen.serialize();
+      hub.serializedBytes = byteLength(data);
       subscriber.snapshot({ data, offset });
       hub.subscribers.add(subscriber);
       // Consume the held bytes one at a time (shift, then write/send), so a `send` that throws
@@ -619,6 +632,8 @@ const serve = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
         hub.screen.write(chunk.data, chunk.seq);
         if (!subscriber.cancelled) subscriber.send(chunk.data);
       }
+      counters.lastServeMs = Date.now() - startedAt;
+      trace(`served ${hub.key} offset=${offset} bytes=${byteLength(data)}`, startedAt);
     } finally {
       // Whatever was held but not delivered must still reach the screen: `hub.received` already
       // covers it, so a later `whenApplied(cutoff)` would otherwise wait forever — a dead hub with
@@ -636,9 +651,6 @@ const serve = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
     subscriber.onStop("exit");
   } finally {
     hub.attachingPage = false;
-    // Restart the unattended clock unless a subscriber is attached (`noteAttendance` clears it when
-    // one is): a serve that added nothing — or threw after adding — must not pin the screen.
-    noteAttendance(hub);
     const queued = hub.queued;
     hub.queued = undefined;
     if (queued !== undefined) {
@@ -654,9 +666,9 @@ const serve = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
   if (!queuedNext && hub.exited) finish(hub);
 };
 
-/** Ask to serve a page. An attach already in flight (a first-view repaint can hold it for seconds)
- * queues the newcomer — newest wins — instead of answering with a final `exit`, which the page
- * would read as the session being gone. */
+/** Ask to serve a page. An attach already in flight (a gap reprint can hold it for seconds) queues
+ * the newcomer — newest wins — instead of answering with a final `exit`, which the page would read
+ * as the session being gone. */
 const subscribe = (hub: Hub, subscriber: Subscriber): void => {
   if (hub.disposed === true) {
     subscriber.onStop("exit");
@@ -717,31 +729,24 @@ const backpressureGraceMs = (): number =>
   envMs("CORVI_BACKPRESSURE_GRACE_MS", WS_BACKPRESSURE_GRACE_MS);
 
 /** Create the server screen for a host window (idempotent) and start feeding it. Called when the
- * window is *opened*, not only when a page attaches: a window with no page (a subagent, a command)
- * captures its startup within the unattended grace, or for as long as the output fits the host's
- * 256 KiB ring, so a page attaching soon after misses nothing; a streaming session past the grace
- * falls to the gap policy (the stored screen plus the ring tail). The unattended release is what
- * drops a screen no page ever attaches to. */
+ * window is *opened*, not only when a page attaches: every screen is warm for the life of its
+ * session, so a window with no page (a subagent, a command) captures its startup before the host
+ * ring can evict it, and a page attaching later gets a serialize-and-send. */
 export const ensureScreen = async (
   changeId: string,
   sessionId: string,
   incarnation: number,
   size: { readonly cols: number; readonly rows: number },
-  origin: ScreenOrigin = plainOrigin,
 ): Promise<void> => {
   const client = await hostClient();
-  const hub = hubFor(changeId, sessionId, incarnation, size, origin);
-  // Opening or attaching restarts the unattended clock: the sweep must not release a screen that
-  // is about to be looked at (between `openSession` and the socket's `subscribe`).
-  noteAttendance(hub);
+  const hub = hubFor(changeId, sessionId, incarnation, size);
   hub.desiredCols = size.cols;
   hub.desiredRows = size.rows;
   hub.screen.resize(size.cols, size.rows);
   watchExit(hub, client);
-  // A reprintable hub is attached (and jiggled) on first view, not here: an unwatched agent must
-  // not pay for a full-view reprint. Every other screen is fed from the moment it opens, so its
-  // startup is captured before the ring can evict it.
-  if (!hub.reprintable) await ensureAttached(hub);
+  // Attach at open, not on first view: the screen is fed from the start and stays warm until the
+  // session exits.
+  await ensureAttached(hub);
 };
 
 /** Start (or reuse) the change's active host window and hand back a session the socket drives.
@@ -764,17 +769,10 @@ export const openSession = async (
   await client.resize(sessionId, size.cols, size.rows).catch(() => undefined);
   const entry = (await client.list()).find((candidate) => candidate.id === sessionId);
   const incarnation = entry?.incarnation ?? 0;
-  // The session's own metadata classifies the screen: a subagent (`subagentId`) reprints itself,
-  // and a dead one (a restored kept-open window) seeds from its frozen store entry.
-  const subagentId = entry?.metadata?.subagentId?.trim();
-  const origin: ScreenOrigin = {
-    reprintable: subagentId !== undefined && subagentId !== "",
-    dead: entry !== undefined && !entry.alive,
-  };
   // Idempotent: the screen already exists for a window `windows.ts` opened (and is attached); it
   // is created here only for a window this route started itself.
-  await ensureScreen(changeId, sessionId, incarnation, size, origin);
-  const hub = hubFor(changeId, sessionId, incarnation, size, origin);
+  await ensureScreen(changeId, sessionId, incarnation, size);
+  const hub = hubFor(changeId, sessionId, incarnation, size);
   let subscriber: Subscriber | undefined;
   return {
     sessionId,
@@ -795,17 +793,15 @@ export const openSession = async (
     },
     kill: () => {
       if (subscriber === undefined) return;
-      // The page may leave before its attach finished (a first-view repaint can hold it for
-      // seconds): mark it cancelled so `serve` drops it instead of adding a ghost subscriber that
-      // pins the screen and parses forever.
+      // The page may leave before its attach finished (a gap reprint can hold it for seconds):
+      // mark it cancelled so `serve` drops it instead of adding a ghost subscriber that pins the
+      // screen and parses forever.
       subscriber.cancelled = true;
       hub.subscribers.delete(subscriber);
       if (hub.queued === subscriber) hub.queued = undefined;
       subscriber = undefined;
       // The last page leaving leaves the screen and the host listener: the screen belongs to the
-      // session, not to the page. The sweep releases it after the unattended grace, which is what
-      // stops an unwatched screen from being parsed forever.
-      noteAttendance(hub);
+      // session, not to the page, and stays warm until the session exits.
     },
   };
 };
@@ -820,17 +816,91 @@ export const closeAttachments = (): void => {
     hub.screen.dispose();
   }
   hubs.clear();
+  counters.serves = 0;
+  counters.reprints = 0;
+  counters.attaches = 0;
+  counters.persists = 0;
+  counters.lastServeMs = 0;
+  counters.lastReprintMs = 0;
+  counters.lastAttachMs = 0;
+  counters.lastPersistMs = 0;
+  lastTraceAt = 0;
 };
 
-/** Attachment counts, for the tests that pin one-attach and no-listener-leak. */
-export const hubStats = (): { hubs: number; attached: number; subscribers: number } => {
+/** One warm screen's cheap footprint and persistence cost, without serializing it. */
+export type HubScreenStats = {
+  readonly key: string;
+  readonly id: string;
+  readonly incarnation: number;
+  readonly cols: number;
+  readonly rows: number;
+  readonly bufferRows: number;
+  readonly scrollbackRows: number;
+  readonly estimatedBytes: number;
+  readonly attached: boolean;
+  readonly subscribers: number;
+  /** Bytes of the last serve or persistence serialization, if either ran. */
+  readonly serializedBytes: number;
+  /** Persistence serializations and the last one's serialize time. */
+  readonly persists: number;
+  readonly lastPersistMs: number;
+};
+
+/** Attachment counts and trace counters, for the tests that pin one-attach, no-listener-leak,
+ * when a serve or gap reprint ran, and how much the warm screens cost. */
+export type HubStats = {
+  hubs: number;
+  attached: number;
+  subscribers: number;
+  serves: number;
+  reprints: number;
+  attaches: number;
+  persists: number;
+  lastServeMs: number;
+  lastReprintMs: number;
+  lastAttachMs: number;
+  lastPersistMs: number;
+  screens: HubScreenStats[];
+};
+
+export const hubStats = (): HubStats => {
   let attached = 0;
   let subscribers = 0;
+  const screens: HubScreenStats[] = [];
   for (const hub of hubs.values()) {
-    if (hub.dataListener !== undefined) attached++;
+    const isAttached = hub.dataListener !== undefined;
+    if (isAttached) attached++;
     subscribers += hub.subscribers.size;
+    screens.push({
+      key: hub.key,
+      id: hub.id,
+      incarnation: hub.incarnation,
+      cols: hub.screen.cols,
+      rows: hub.screen.rows,
+      bufferRows: hub.screen.bufferRows,
+      scrollbackRows: hub.screen.scrollbackRows,
+      estimatedBytes: estimateScreenBytes(hub),
+      attached: isAttached,
+      subscribers: hub.subscribers.size,
+      serializedBytes: hub.serializedBytes,
+      persists: hub.persists,
+      lastPersistMs: hub.lastPersistMs,
+    });
   }
-  return { hubs: hubs.size, attached, subscribers };
+  return {
+    hubs: hubs.size,
+    attached,
+    subscribers,
+    serves: counters.serves,
+    reprints: counters.reprints,
+    attaches: counters.attaches,
+    persists: counters.persists,
+    lastServeMs: counters.lastServeMs,
+    lastReprintMs: counters.lastReprintMs,
+    lastAttachMs: counters.lastAttachMs,
+    lastPersistMs: counters.lastPersistMs,
+    screens,
+  };
 };
 
 /** The grid a live hub's screen is at, for the tests that pin the repaint's size handling. */

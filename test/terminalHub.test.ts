@@ -19,7 +19,6 @@ import { testTempDir, waitFor } from "./helpers.ts";
 // files of a run in one process).
 const savedEnv = {
   CORVI_HOST_RUNTIME: process.env.CORVI_HOST_RUNTIME,
-  CORVI_SCREEN_IDLE_MS: process.env.CORVI_SCREEN_IDLE_MS,
 };
 const restoreEnv = (): void => {
   for (const [key, value] of Object.entries(savedEnv)) {
@@ -28,10 +27,6 @@ const restoreEnv = (): void => {
   }
 };
 process.env.CORVI_HOST_RUNTIME = "node";
-// These tests reuse one `TerminalSession` across a detach and re-attach, which production does not
-// (a returning page opens a new socket, and `openSession` recreates a released screen). Hold the
-// screen long enough that the reuse stays valid and the test measures the hub, not the grace.
-process.env.CORVI_SCREEN_IDLE_MS = "120000";
 const dir = await testTempDir("hub");
 
 type SnapshotFrame = { readonly data: string; readonly offset: number };
@@ -264,4 +259,17 @@ test("attach/detach does not leak host listeners", async () => {
   await waitFor("the probe", async () => saw(last, "LEAK_1_PROBE"), 25_000);
   await Bun.sleep(200);
   expect(live(last).split("LEAK_1_PROBE").length - 1).toBe(1);
+}, 60_000);
+
+test("a hub whose host connection closed is reaped and its page told the session ended", async () => {
+  const session = await openSession("HUB-HOST-LOST", dir, { cols: 80, rows: 24 });
+  const page = collector();
+  session.attach(page.send, page.snapshot, page.onStop);
+  await waitFor("the snapshot", async () => page.snapshots.length > 0, 25_000);
+
+  // The host process is gone, its socket closed. The hub cannot be fed again; the sweep must not
+  // leave it warm forever, and the page must hear that the session ended rather than hang.
+  await closeHostClient();
+  await waitFor("the hub to be reaped", async () => hubStats().hubs === 0, 15_000);
+  expect(page.stops).toEqual(["exit"]);
 }, 60_000);

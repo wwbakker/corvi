@@ -1860,8 +1860,8 @@ button.create:hover:not(:disabled) {
   border-radius: 0;
 }
 
-/* The terminal fills what is left of the window: the frame takes the space, the hint takes the
- * line it needs, and nothing is left over at the bottom. */
+/* The terminal fills what is left of the window: the frame takes the space and the screen fills
+ * it. Connection status floats over the screen rather than taking a row. */
 .terminal {
   /* The detached overlay is positioned against the frame; the screen keeps its last-good size
      underneath it. */
@@ -1954,6 +1954,28 @@ button.create:hover:not(:disabled) {
 
 .terminal-link-tooltip-hint {
   color: color-mix(in srgb, var(--text) 55%, transparent);
+}
+
+/* Connection status follows the socket, not the screen: it floats over the terminal rather than
+   taking a row. A hint that appears and disappears with the connection must not change the grid,
+   or a reload connects at one size and its snapshot lands at another. The chip keeps it readable
+   over live output; the find bar and menu sit above it and it never takes input. */
+.terminal-status {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 10;
+  transform: translate(-50%, -50%);
+  min-width: 0;
+  margin: 0;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow: 0 1px 4px color-mix(in srgb, black 20%, transparent);
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 /* The find bar floats over the top of the terminal; Escape or a click elsewhere closes it. */

@@ -320,7 +320,9 @@ const exits = "PROJ-EXIT";
 
 const startServer = async (port = 0): Promise<void> => {
   server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp, { CORVI_PORT: String(port) }),
+    // Shrink the host's replay ring for the restart test: it deliberately outruns the ring so only
+    // the server's persisted screen can bring the deep marker back.
+    env: serverEnv(tmp, { CORVI_PORT: String(port), CORVI_HOST_REPLAY_BYTES: "131072" }),
     stdout: "pipe",
     stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
   });
@@ -440,11 +442,33 @@ test.skipIf(!usable)("a terminal outlives the server that started it, deep scrol
     "yes\n",
   );
   expect(await fileText(before)).toBe("yes\n");
-  // A marker followed by more than the host ring's 256 KiB: by the time the server is killed the
-  // ring has evicted the marker, so only the screen the server persisted can bring it back.
+  // A marker followed by more than the host ring (shrunk for this test): by the time the server is
+  // killed the ring has evicted the marker, so only the screen the server persisted can bring it
+  // back.
   await typeOnceUntil(page, "echo SRV-DEEP-MARKER", "SRV-DEEP-MARKER", 15_000);
   await typeOnceUntil(page, "head -c 320000 /dev/zero | tr '\\0' X; echo SRV-FILLER-DONE", "SRV-FILLER-DONE", 60_000);
   expect(await terminalText(page)).toContain("SRV-DEEP-MARKER");
+
+  // The override must really have reached the host: otherwise the 4 MiB default ring would still
+  // hold the marker and the restart would pass by replay, not by the persisted screen. Ask the
+  // host directly whether a resume from zero is truncated.
+  const windows = (await (await fetch(`${url}/api/changes/${id}/terminal/windows`)).json()) as {
+    readonly active: boolean;
+    readonly activePane: string;
+  }[];
+  const pane = windows.find((window) => window.active)?.activePane;
+  if (pane === undefined) throw new Error("the terminal has no active pane");
+  const host = await ensureHost({
+    socket: join(tmp, "state", "corvi", "host.sock"),
+    checkout: process.cwd(),
+    buildId: process.env.CORVI_BUILD ?? "dev",
+    runtime: "node",
+  });
+  const replay = await host.client.attach(pane, 0);
+  expect(replay.truncated).toBe(true);
+  expect(replay.oldestSeq).toBeGreaterThan(0);
+  await host.client.detach(pane).catch(() => undefined);
+  host.client.close();
 
   server.kill();
   await server.exited;

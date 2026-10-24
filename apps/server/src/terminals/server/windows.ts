@@ -370,14 +370,9 @@ const openPane = async (
     metadata: { change: changeId, window: windowId, pane: paneId, ...options.metadata },
   });
   // The screen exists for the pane's whole life, not only while a page is attached: a pane opened
-  // with no page (a subagent, a command) captures its startup for the unattended grace (or while
-  // the output fits the host's ring), so a page attaching soon after misses nothing. A subagent is
-  // the exception: it reprints itself on first view, so it is not attached (or persisted) eagerly.
-  const subagentId = options.metadata?.subagentId?.trim();
-  await ensureScreen(changeId, paneId, incarnation, size, {
-    reprintable: subagentId !== undefined && subagentId !== "",
-    dead: false,
-  }).catch(() => undefined);
+  // with no page (a subagent, a command) is fed from the start, so a page attaching later gets a
+  // serialize-and-send rather than a rebuild from the ring tail.
+  await ensureScreen(changeId, paneId, incarnation, size).catch(() => undefined);
 };
 
 const listRecords = async (changeId: string): Promise<WindowRecord[]> => {

@@ -741,12 +741,14 @@ export function TerminalPane({
           windows stay listed until it recovers.
         </div>
       )}
-      {!url && !error && !unavailable && <p className="hint">starting terminal…</p>}
+      {/* These follow the socket, not the screen: an overlay keeps a hint from taking a row and
+          changing the grid between the connect and its snapshot. */}
+      {!url && !error && !unavailable && <p className="hint terminal-status">starting terminal…</p>}
       {url && !error && !ended && !detached && attached === null && socketState !== "closed" && (
-        <p className="hint">connecting…</p>
+        <p className="hint terminal-status">connecting…</p>
       )}
       {url && !error && !ended && !detached && socketState === "closed" && (
-        <p className="hint">reconnecting…</p>
+        <p className="hint terminal-status">reconnecting…</p>
       )}
       {findOpen && (
         <div className="terminal-find">

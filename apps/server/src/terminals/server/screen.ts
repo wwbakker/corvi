@@ -58,6 +58,10 @@ export type ScreenSnapshot = {
 export type Screen = {
   readonly cols: number;
   readonly rows: number;
+  /** Rows currently in the buffer, including scrollback. A cheap memory measure: no serialization. */
+  readonly bufferRows: number;
+  /** Of `bufferRows`, the rows above the viewport. */
+  readonly scrollbackRows: number;
   /** Feed host bytes at the offset they start at. Bytes must arrive in order. */
   write(bytes: Uint8Array, seq: number): void;
   /** Load a stored serialized screen and set the host offset it covers. The bytes are the store's
@@ -124,6 +128,12 @@ export const makeScreen = (size: { readonly cols: number; readonly rows: number 
     },
     get rows(): number {
       return term.rows;
+    },
+    get bufferRows(): number {
+      return term.buffer.active.length;
+    },
+    get scrollbackRows(): number {
+      return term.buffer.active.baseY;
     },
     write: (bytes, seq) => {
       // The parser is asynchronous; the callback is where the offset and the attach waits move.
