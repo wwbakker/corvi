@@ -282,13 +282,21 @@ function App(): JSX.Element {
   // change's windows, whichever change you are looking at. Pushed by the server, so this costs
   // one connection and no polling.
   const terminals = useWindows();
-  // Only once a terminal is asked for: opening a dashboard is not asking for one.
+  // The page's own intent keeps a terminal page live. The remembered flag keeps a terminal that
+  // was opened earlier attached while the same change shows a non-terminal view, so Plan and back
+  // do not clear the URL and close the socket. The OR is what makes a direct A -> B terminal
+  // switch work without giving up the hidden-pane behavior.
   const [wantsTerminal, setWantsTerminal] = useState(false);
   useEffect(() => setWantsTerminal(false), [selected]);
   useEffect(() => {
     if (onTerminal) setWantsTerminal(true);
   }, [onTerminal]);
-  const terminal = useTerminal(selectedSource, selected, Boolean(change?.completedAt), wantsTerminal);
+  const terminal = useTerminal(
+    selectedSource,
+    selected,
+    Boolean(change?.completedAt),
+    onTerminal || wantsTerminal,
+  );
 
   // Navigating pushes a history entry; Back and a reload both land on the same page. A page
   // with unsaved edits publishes a leave guard (app-root/navigation.ts); while it is dirty, the
@@ -358,7 +366,6 @@ function App(): JSX.Element {
   // window by the time it is clicked.
   const openWindow = (source: string, change: string, windowId: string): void => {
     const index = (terminals.windows[changeKey(source, change)] ?? []).find((w) => w.id === windowId)?.index;
-    setWantsTerminal(true);
     setView({ name: "change", source, id: change, page: "terminals" });
     if (index !== undefined) terminals.select(source, change, index);
   };
@@ -511,7 +518,6 @@ function App(): JSX.Element {
         }
         onSelectWindow={(c, index) => {
           terminals.select(c.source ?? "", c.id, index);
-          setWantsTerminal(true);
           setView({ name: "change", source: c.source ?? "", id: c.id, page: "terminals" });
         }}
       />
@@ -618,7 +624,6 @@ function App(): JSX.Element {
             windowError={terminals.errors[changeKey(selectedSource, view.id)]}
             onSelectWindow={(index) => {
               terminals.select(selectedSource, view.id, index);
-              setWantsTerminal(true);
               // On the dashboard the tab is the way in: selecting a window you cannot see would
               // be a click that does nothing visible.
               setView({ name: "change", source: view.source, id: view.id, page: "terminals" });
@@ -628,7 +633,6 @@ function App(): JSX.Element {
               // Subagents page has the pane beside the conversation, so selecting there must not
               // navigate.
               terminals.focus(selectedSource, view.id, windowId);
-              setWantsTerminal(true);
             }}
             onNewWindow={() => {
               // A session that has not started has nothing to add a window to: opening the
@@ -636,7 +640,6 @@ function App(): JSX.Element {
               if ((terminals.windows[changeKey(selectedSource, view.id)] ?? []).length > 0) {
                 void terminals.create(selectedSource, view.id);
               }
-              setWantsTerminal(true);
               setView({ name: "change", source: view.source, id: view.id, page: "terminals" });
             }}
             onMoveWindow={(from, to) => terminals.move(selectedSource, view.id, from, to)}

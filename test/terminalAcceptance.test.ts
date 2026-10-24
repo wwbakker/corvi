@@ -298,6 +298,67 @@ test.skipIf(!usable)("each window keeps its own shell and its own screen across 
   await page.close();
 }, budget(180_000));
 
+test.skipIf(!usable)("switching directly between two change terminal pages attaches the second", async () => {
+  const firstId = "ACC-SWITCH-A";
+  const secondId = "ACC-SWITCH-B";
+  await createChange(firstId);
+  await createChange(secondId);
+
+  const page = await openTerminal(firstId);
+  await typeUntilText(page, "echo SWITCH_A_MARK", "SWITCH_A_MARK");
+
+  // Give the second change its own terminal window without using the page we are testing for the
+  // switch. Closing this setup page only detaches it; the shell and screen stay warm in the host.
+  const setup = await openTerminal(secondId);
+  await typeUntilText(setup, "echo SWITCH_B_MARK", "SWITCH_B_MARK");
+  await setup.close();
+
+  // The page is still on A's terminal. Click B's window in the sidebar: this is a direct
+  // terminal-page to terminal-page navigation, no reload and no intermediate page.
+  const secondGroup = page.locator(".sidebar .change-entry", { hasText: secondId });
+  const secondWindow = secondGroup.locator(".entry.sub.window").first();
+  await secondWindow.waitFor({ timeout: budget(20_000) });
+  await secondWindow.click();
+  await page.waitForURL(`**/changes/${secondId}/terminals`, { timeout: budget(20_000) });
+  expect(await until(async () => (await terminalText(page)).includes("SWITCH_B_MARK"), true, budget(20_000))).toBe(true);
+  expect(await terminalText(page)).not.toContain("SWITCH_A_MARK");
+  // The pane is not stranded on the pre-URL hint after the switch.
+  expect(await page.locator(".terminal-status", { hasText: "starting terminal…" }).count()).toBe(0);
+  await page.close();
+}, budget(120_000));
+
+test.skipIf(!usable)("a hidden terminal stays attached across Plan and back", async () => {
+  const id = "ACC-HIDDEN";
+  await createChange(id);
+  const terminalRequests: string[] = [];
+  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === `/api/changes/${id}/terminal`) terminalRequests.push(request.url());
+  });
+  await page.goto(`${url}/changes/${id}/terminals`);
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await page.locator(".terminal-screen").click();
+  await awaitAttached(page);
+  await typeUntilText(page, "echo HIDDEN_MARK", "HIDDEN_MARK");
+  // The initial page settling can ask for the URL more than once (availability/owner settling);
+  // this test pins the hidden-pane property: Plan and back must add no further request.
+  const before = terminalRequests.length;
+  expect(before).toBeGreaterThanOrEqual(1);
+
+  // The same change's Plan hides the terminal pane. It must keep its socket and screen rather
+  // than clear the URL and reconnect when the terminal page comes back.
+  const group = page.locator(".sidebar .change-entry", { hasText: id });
+  await group.locator(".entry.sub.change").click();
+  await page.waitForURL(`**/changes/${id}`, { timeout: budget(20_000) });
+  await group.locator(".entry.sub.window").first().click();
+  await page.waitForURL(`**/changes/${id}/terminals`, { timeout: budget(20_000) });
+  await awaitAttached(page);
+  expect(await until(async () => (await terminalText(page)).includes("HIDDEN_MARK"), true, budget(20_000))).toBe(true);
+  await Bun.sleep(300);
+  expect(terminalRequests).toHaveLength(before);
+  await page.close();
+}, budget(120_000));
+
 test.skipIf(!usable)("a subagent window is the size the page shows", async () => {
   const id = "ACC-SUB";
   await createChange(id);
