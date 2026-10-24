@@ -2,7 +2,7 @@
  * The server-owned screen: a headless xterm per `(sessionId, incarnation)`, fed every host byte
  * and serialized to a page on attach.
  *
- * The page no longer owns the buffer. The host's 256 KiB ring holds only incremental,
+ * The page no longer owns the buffer. The host's 4 MiB replay ring still holds only incremental,
  * cursor-addressed bytes, so a continuously updating full-screen window left a reattaching page
  * redrawing its update block on a blank screen — a renderer-side snapshot cadence has nothing
  * to snapshot while output never goes idle. A second emulator on the server costs ~12 bytes a
@@ -17,9 +17,11 @@
  *
  * Boundary: the screen content is exact while the store holds it. After a server restart the hub
  * seeds the stored screen and attaches the host from its offset; if the host's ring has already
- * evicted past that offset there is a gap (see `./session.ts` for the policy). The serialize addon
- * restores the text and the modes it knows, not every parser state, and the offset can fall
- * mid-escape, so "exact" is screen-content exact rather than byte-exact.
+ * evicted past that offset there is a gap (see `./session.ts` for the policy). A gap reprint is
+ * issued after the snapshot and is best-effort: a program that does not repaint on `SIGWINCH`
+ * leaves the torn view until its next full paint. The serialize addon restores the text and the
+ * modes it knows, not every parser state, and the offset can fall mid-escape, so "exact" is
+ * screen-content exact rather than byte-exact.
  */
 import { createRequire } from "node:module";
 import { SerializeAddon } from "@xterm/addon-serialize";

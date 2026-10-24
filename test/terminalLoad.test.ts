@@ -8,9 +8,8 @@ import { checkoutsOf, runSh, serverEnv, testRun, testTempDir, waitForUrl } from 
 /**
  * What a flood costs the rest of the server. A terminal screen is parsed and serialized on the
  * server; a window that never stops painting must not make the read routes — the ones the page
- * polls for its window strip and navigation — wait behind it. The screens with no page attached are
- * released after their grace, which is what keeps several agents affordable; the attended one is
- * the case here, and its flood still must not stall the API.
+ * polls for its window strip and navigation — wait behind it. Unattended screens stay warm too, so
+ * the attended one is the case here: its flood still must not stall the API.
  *
  * The server runs in its own process, as the app's does. The host outlives the server by design;
  * the test stops it with the rest.

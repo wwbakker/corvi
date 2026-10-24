@@ -5,7 +5,7 @@
  * whether a later view ran it again.
  *
  * `REPRINT_DELAY_MS` delays each redraw, widening the window in which a test can attach, resize or
- * leave during the first view.
+ * leave during a gap view; `REPRINT_PAINT_MS` adds a continuous painter for the busy-gap test.
  */
 const delay = Number(process.env.REPRINT_DELAY_MS ?? "0") || 0;
 const paintMs = Number(process.env.REPRINT_PAINT_MS ?? "0") || 0;
