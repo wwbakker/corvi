@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
-import { lstatSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { closeSync, constants, lstatSync, mkdirSync, openSync, readFileSync, readSync, symlinkSync, writeFileSync } from "node:fs";
 import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -157,6 +158,27 @@ test("a run's pid-file is claimed only when its pid is dead, and never written t
     mkdirSync(blocked);
     claimRunPidFile(dir, "dir.4", process.pid);
     expect(lstatSync(blocked).isDirectory()).toBe(true);
+
+    // A fifo at the path: the claim returns without blocking (a plain O_RDONLY open would wait for
+    // a writer), the fifo stays a fifo, and nothing was written into it.
+    const fifo = runPidPath(dir, "fifo.5");
+    execFileSync("mkfifo", [fifo]);
+    claimRunPidFile(dir, "fifo.5", process.pid);
+    expect(lstatSync(fifo).isFIFO()).toBe(true);
+    const probe = openSync(fifo, constants.O_RDONLY | constants.O_NONBLOCK);
+    try {
+      const chunk = Buffer.alloc(32);
+      let read = 0;
+      try {
+        read = readSync(probe, chunk);
+      } catch (error) {
+        // No writer yet: a non-blocking read with nothing to give.
+        expect((error as NodeJS.ErrnoException).code).toBe("EAGAIN");
+      }
+      expect(read).toBe(0);
+    } finally {
+      closeSync(probe);
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

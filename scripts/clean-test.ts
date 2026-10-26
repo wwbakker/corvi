@@ -132,10 +132,11 @@ export const claimRunPidFile = (base: string, token: string, pid: number): void 
 
   let fd: number | undefined;
   try {
-    // The lstat check refuses a link, a fifo or a directory without following it; O_NOFOLLOW
-    // then closes the window between that check and the read.
+    // The lstat check refuses a link, a fifo or a directory without following it. O_NOFOLLOW
+    // closes the symlink window that opens before the read; O_NONBLOCK keeps a fifo swapped in
+    // between from blocking this O_RDONLY open — it returns at once and fstat rejects it.
     if (!lstatSync(path).isFile()) return;
-    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     if (!fstatSync(fd).isFile()) return;
     const existing = Number(readFileSync(fd, "utf8").trim());
     if (pidAlive(existing)) return;
