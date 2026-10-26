@@ -72,7 +72,10 @@ frame. Check the live DOM before distrusting it.
 - Never stop processes by name, port, or resemblance to a test process. Never use `pkill` or
   an unqualified `tmux kill-server`. Only explicitly owned resources may be stopped.
 - Inspect leftovers with `bun run test:clean`. Scope cleanup to the known run; see the testing guide.
-- Do not invent paths with the reserved `$TMPDIR/corvi-` prefix; use the test fixtures.
+- Do not invent paths with the reserved `corvi-` prefix under the test temp base (`/tmp` on macOS,
+  `tmpdir()` elsewhere) or `tmpdir()`: `scripts/clean-test.ts` sweeps both, so a `corvi-` name
+  there reads as a run. New harness paths take `testTempBase()` (`scripts/test-temp.ts`) rather
+  than `tmpdir()`.
 - Do not restart, reinstall, or automate the installed Corvi app to verify a change. Use an
   isolated development/test instance. The installed app may be running from another checkout.
 - Never commit unless explicitly asked.

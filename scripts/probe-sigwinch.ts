@@ -18,11 +18,11 @@
  */
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { ensureHost, type HostClient } from "../apps/server/src/terminals/host/client.ts";
 import { makeScreen, type Screen } from "../apps/server/src/terminals/server/screen.ts";
+import { testTempBase } from "./test-temp.ts";
 
 const COLS = 120;
 const ROWS = 40;
@@ -181,7 +181,9 @@ const main = async (): Promise<void> => {
     return;
   }
 
-  const tmp = await mkdtemp(join(tmpdir(), "corvi-sigwinch-probe-"));
+  // Under the test temp base: the probe starts host sessions, whose unix socket must fit a
+  // `sun_path` (scripts/test-temp.ts).
+  const tmp = await mkdtemp(join(testTempBase(), "corvi-sigwinch-probe-"));
   const home = join(tmp, "home");
   await mkdir(join(home, ".config"), { recursive: true });
   await mkdir(join(home, ".local", "share"), { recursive: true });
