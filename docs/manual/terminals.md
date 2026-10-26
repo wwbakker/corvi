@@ -70,6 +70,15 @@ The terminal owns the screen: drag to select, the wheel or the scrollbar scrolls
 right-click menu holds Copy, Paste, Select all, Clear, Find and Open link. A dot indicates output
 that arrived while you were looking elsewhere.
 
+A window's name can be changed from its tab: right-click the tab and pick **Rename**. The name
+replaces the default label everywhere the label is shown — the strip, the navigation column and
+notifications — and it wins over the name an action or an agent reports. A split window still says
+how many panes it holds, after the name. The tab's tooltip still says where the window is and what
+runs in it. An empty field restores the default. The name belongs to the window rather than to the
+shell in it, so a reload, a server restart and a Corvi restart keep it, while closing the window's
+last pane takes it with the window. The tab's menu follows the `contextMenu` setting: with
+right-click menus turned off it does not open, and neither does the terminal's own menu.
+
 ## Agent status and the reporter protocol
 
 An agent can say what it is doing in its session: **working** or **waiting** for you (a subagent

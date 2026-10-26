@@ -129,3 +129,27 @@ test("switching between windows stays responsive while their screens paint", asy
   expect(switches).toHaveLength(4);
   expect(Math.max(...switches)).toBeLessThan(2000);
 }, 60_000);
+
+test("a rename is refused without its window or its title, and keeps a title when it has both", async () => {
+  const listed = (await (await fetch(`${baseUrl}/api/changes/${CHANGE}/terminal/windows`)).json()) as { id: string }[];
+  const window = listed[0]!.id;
+  const post = (body: unknown): Promise<Response> =>
+    fetch(`${baseUrl}/api/changes/${CHANGE}/terminal/windows`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  // An absent title is a refusal, not a silent clear: only an explicit empty string clears.
+  const noTitle = await post({ action: "rename", window });
+  expect(noTitle.status).toBe(400);
+  expect(await noTitle.text()).toContain("rename needs a title");
+  const noWindow = await post({ action: "rename", title: "x" });
+  expect(noWindow.status).toBe(400);
+  expect(await noWindow.text()).toContain("rename needs a window id");
+
+  const named = await post({ action: "rename", window, title: "Load window" });
+  expect(named.status).toBe(200);
+  const after = (await named.json()) as { id: string; label: string; title?: string }[];
+  expect(after.find((entry) => entry.id === window)).toMatchObject({ label: "Load window", title: "Load window" });
+});

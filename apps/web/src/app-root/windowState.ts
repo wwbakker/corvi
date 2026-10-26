@@ -76,6 +76,8 @@ export type WindowsStore = {
   readonly select: (sourceId: string, changeId: string, index: number) => Promise<void>;
   readonly create: (sourceId: string, changeId: string) => Promise<void>;
   readonly move: (sourceId: string, changeId: string, from: number, to: number) => Promise<void>;
+  /** Name a window from its tab, or clear the name (blank) back to the default. */
+  readonly rename: (sourceId: string, changeId: string, windowId: string, title: string) => Promise<void>;
   /** Bring a window to the front by stable identity — the window id, not a cached index. */
   readonly focus: (sourceId: string, changeId: string, windowId: string) => Promise<void>;
 };
@@ -389,6 +391,9 @@ export const makeWindowsStore = (transport: WindowsTransport): WindowsStore => {
       enqueue(sourceId, changeId, { action: "new" }),
     move: (sourceId: string, changeId: string, from: number, to: number): Promise<void> =>
       enqueue(sourceId, changeId, { action: "move", from, to }),
+    rename: (sourceId: string, changeId: string, windowId: string, title: string): Promise<void> =>
+      // The answer is the fresh list, so the strip and the column update without a re-read.
+      enqueue(sourceId, changeId, { action: "rename", window: windowId, title }),
     focus: (sourceId: string, changeId: string, windowId: string): Promise<void> =>
       // The server selects by id under the registry lock; no positional index crosses a read.
       enqueue(sourceId, changeId, { action: "select", window: windowId }),

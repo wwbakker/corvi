@@ -105,7 +105,8 @@ interactive controls must remain clickable. On macOS the traffic lights occupy r
 Renaming a change belongs in that change's action row, not in the window's general title area.
 
 The context-menu setting controls the browser/desktop right-click menu, including the terminal's
-own menu. See [terminals](terminals.md) for keyboard and clipboard shortcuts.
+own menu and a window tab's menu. See [terminals](terminals.md) for keyboard and clipboard
+shortcuts.
 
 ## Checking the interface
 

@@ -13,6 +13,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { stateDir } from "@corvi/configuration/node";
+import { WINDOW_TITLE_MAX } from "@corvi/contracts/terminal";
 
 /** Which substrate owns a window. Every window is a host session now; the field remains in the
  * persisted record so older files still read. */
@@ -39,6 +40,10 @@ export type WindowRecord = {
   /** The focused pane's session id. */
   readonly activePane: string;
   readonly label?: string;
+  /** The name the user gave the window from its tab. Separate from `label`, which means "this is
+   * an action run": a named shell is still idle. Outlives the shell in the window; blank means
+   * no name at all. */
+  readonly title?: string;
   readonly command?: string;
   /** A command window that stays after it ends (`keepOpen` or `notify`), so its frozen last
    * output and exit state are shown rather than the window vanishing. */
@@ -88,7 +93,8 @@ export const read = (): Persisted => {
 
 /** One persisted record, parsed from the current shape. A record without an id, or without a
  * non-empty list of string `panes`, is dropped: a file this parser cannot describe loses the
- * entries, rather than inventing a window for them. */
+ * entries, rather than inventing a window for them. A title is read the way the writer stores it
+ * (trimmed) and capped, so a hand-edited file cannot carry a name the UI does not offer. */
 export const parseRecords = (records: unknown): WindowRecord[] => {
   if (!Array.isArray(records)) return [];
   const out: WindowRecord[] = [];
@@ -103,6 +109,7 @@ export const parseRecords = (records: unknown): WindowRecord[] => {
     )
       continue;
     const panes = [...record.panes];
+    const title = typeof record.title === "string" ? record.title.trim().slice(0, WINDOW_TITLE_MAX) : "";
     const activePane =
       typeof record.activePane === "string" && panes.includes(record.activePane) ? record.activePane : panes[0]!;
     out.push({
@@ -111,6 +118,7 @@ export const parseRecords = (records: unknown): WindowRecord[] => {
       panes,
       activePane,
       ...(typeof record.label === "string" ? { label: record.label } : {}),
+      ...(title === "" ? {} : { title }),
       ...(typeof record.command === "string" ? { command: record.command } : {}),
       ...(record.keepOpen === true ? { keepOpen: true } : {}),
       ...(record.notify === true ? { notify: true } : {}),
@@ -163,13 +171,13 @@ export const withRegistryLock = <T>(work: () => Promise<T>): Promise<T> => {
   return run;
 };
 
-/** Merge the persisted records with the live windows: keep a record's position, pane order, label
- * and active flags while its panes live, drop records whose panes are all gone, and append new
- * windows. The registry is authoritative for a window's **identity**, but a live pane whose
- * metadata names an existing window is adopted even when the record does not list it yet (a split
- * that crashed between opening its session and saving): otherwise that shell would be invisible
- * and immortal. A pane the user closed never reaches here — `hostLive` tombstones it, so it
- * cannot be re-adopted while its pty lingers. Pure. */
+/** Merge the persisted records with the live windows: keep a record's position, pane order, label,
+ * user-given name and active flags while its panes live, drop records whose panes are all gone, and
+ * append new windows. The registry is authoritative for a window's **identity**, but a live pane
+ * whose metadata names an existing window is adopted even when the record does not list it yet (a
+ * split that crashed between opening its session and saving): otherwise that shell would be
+ * invisible and immortal. A pane the user closed never reaches here — `hostLive` tombstones it,
+ * so it cannot be re-adopted while its pty lingers. Pure. */
 export const mergeRecords = (previous: readonly WindowRecord[], live: readonly LiveWindow[]): WindowRecord[] => {
   const remaining = new Map(live.map((window) => [window.id, window]));
   const ordered: WindowRecord[] = [];

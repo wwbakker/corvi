@@ -4,6 +4,7 @@ import { Schema } from "effect"
 import { BranchPlan, Change, ChangePhase, CheckoutLocation, DirectoryName, RepositoryId } from "./changes.ts"
 import { ConfigFile, Resolved, Workspace } from "./config.ts"
 import { DeviceViewSchema, PairingCodeSchema } from "./devices.ts"
+import { WINDOW_TITLE_MAX } from "./terminal.ts"
 
 export const RepositoryViewSchema = Schema.Struct({
   repositoryId: RepositoryId,
@@ -314,6 +315,8 @@ export const TerminalWindowSchema = Schema.Struct({
   index: Schema.Number,
   id: Schema.String,
   label: Schema.String,
+  /** The name you gave the window, when you gave one; `label` is what is shown. */
+  title: Schema.optional(Schema.String),
   detail: Schema.String,
   icon: Schema.optional(Schema.String),
   state: Schema.optional(Schema.Literals(["ok", "idle"])),
@@ -433,16 +436,19 @@ export type ReposBodyDto = typeof ReposBodySchema.Type
 export const ForceBodySchema = Schema.Struct({ force: Schema.optional(Schema.Boolean) })
 export type ForceBodyDto = typeof ForceBodySchema.Type
 
-/** The window actions the terminal bar offers. `split`/`close-pane`/`focus-pane` name the window
- * and, where it matters, the pane session; `select`/`move` keep their index. */
+/** The window actions the terminal bar offers. `split`/`close-pane`/`focus-pane`/`rename` name
+ * the window and, where it matters, the pane session; `select`/`move` keep their index. */
 export const WindowActionBodySchema = Schema.Struct({
-  action: Schema.Literals(["new", "select", "move", "split", "close-pane", "focus-pane"]),
+  action: Schema.Literals(["new", "select", "move", "split", "close-pane", "focus-pane", "rename"]),
   index: Schema.optional(Schema.Number),
   from: Schema.optional(Schema.Number),
   to: Schema.optional(Schema.Number),
   direction: Schema.optional(Schema.Literals(["right", "down"])),
   window: Schema.optional(Schema.String),
   pane: Schema.optional(Schema.String),
+  /** A window's new name. Required for `rename`; an empty string clears the name back to the
+   * default. */
+  title: Schema.optional(Schema.String.pipe(Schema.check(Schema.isMaxLength(WINDOW_TITLE_MAX)))),
 })
 export type WindowActionBodyDto = typeof WindowActionBodySchema.Type
 

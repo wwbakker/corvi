@@ -1,7 +1,7 @@
-import { type JSX, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { type JSX, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { AgentIcon, TerminalIcon } from "../../app-root/icons.tsx";
 import type { Platform } from "@corvi/terminals/model";
-import type { TerminalWindow } from "../../domain/terminal.ts";
+import { WINDOW_TITLE_MAX, type TerminalWindow } from "../../domain/terminal.ts";
 import type { Page } from "../../app-root/Sidebar.tsx";
 
 /** The change's windows as tabs, with the way back to the dashboard first. The dashboard and
@@ -16,6 +16,8 @@ export function WindowTabs({
   onSelectWindow,
   onNewWindow,
   onMoveWindow,
+  onRenameWindow,
+  onRenameClosed,
   onOpenOverview,
 }: {
   /** Which surface of the change is on screen: its own views — the dashboard, or one of the tabs it
@@ -37,6 +39,10 @@ export function WindowTabs({
   onNewWindow: () => void;
   /** A dragged tab landed: the window at `from` takes the place of the one at `to`. */
   onMoveWindow: (from: number, to: number) => void;
+  /** Name a window from its tab's menu, or clear the name (blank) back to the default. */
+  onRenameWindow: (windowId: string, title: string) => void;
+  /** The rename dialog has closed (committed or not): the keyboard belongs to the page again. */
+  onRenameClosed: () => void;
   /** The way back to the change's own views, wherever in them you left off (remember.ts): from
    * a terminal this is the way out, and while a view is showing the tab is already current. */
   onOpenOverview: () => void;
@@ -45,6 +51,70 @@ export function WindowTabs({
   // — overview and "new" — take no part in either.
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+  // The tab's own menu: where it was opened, and for which window. The Overview and "new" tabs
+  // are not windows, so they never get one.
+  const [menu, setMenu] = useState<{ x: number; y: number; window: TerminalWindow } | null>(null);
+  // The window whose name is being edited, and the name as it is typed. Null closes the dialog.
+  const [renaming, setRenaming] = useState<TerminalWindow | null>(null);
+  const [draft, setDraft] = useState("");
+  const renameDialog = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dialog = renameDialog.current;
+    if (!dialog) return;
+    if (renaming !== null && !dialog.open) dialog.showModal();
+    if (renaming === null && dialog.open) dialog.close();
+  }, [renaming]);
+
+  // Anywhere else dismisses the menu. The menu stops its own pointerdown, so a click on an item
+  // runs before this sees it. Escape is taken in the capture phase: focus is still in the terminal
+  // when the tab was right-clicked, and xterm's own key handler would consume Escape first, send
+  // the shell a ^[ and stop it from ever reaching this listener.
+  useEffect(() => {
+    if (!menu) return;
+    const close = (): void => setMenu(null);
+    const escape = (e: KeyboardEvent): void => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+    };
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("blur", close);
+    window.addEventListener("keydown", escape, true);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("blur", close);
+      window.removeEventListener("keydown", escape, true);
+    };
+  }, [menu]);
+
+  const openMenu = (e: ReactMouseEvent, target: TerminalWindow): void => {
+    e.preventDefault();
+    setMenu({ x: e.clientX, y: e.clientY, window: target });
+  };
+
+  const startRename = (target: TerminalWindow): void => {
+    setMenu(null);
+    setDraft(target.title ?? "");
+    setRenaming(target);
+  };
+
+  // The form submits on OK and on Enter; `method="dialog"` closes it, and the close is where the
+  // commit happens: focus is back outside the dialog by then, so the page can hand it to the
+  // terminal after the rename. Escape and Cancel reach the same close without committing.
+  const commitOnClose = useRef(false);
+  const commitRename = (): void => {
+    commitOnClose.current = true;
+  };
+  const closeRename = (): void => {
+    const target = renaming;
+    const commit = commitOnClose.current;
+    commitOnClose.current = false;
+    setRenaming(null);
+    if (commit && target !== null) onRenameWindow(target.id, draft);
+    onRenameClosed();
+  };
 
   const startDrag = (e: ReactMouseEvent<HTMLButtonElement>, from: number): void => {
     // The drag needs the mousedown that keeps the keyboard in the terminal after a plain click,
@@ -118,6 +188,7 @@ export function WindowTabs({
             // a tab is useless; the drag rides the same mousedown (see startDrag).
             onMouseDown={(e) => startDrag(e, w.index)}
             onClick={() => onSelectWindow(w.index)}
+            onContextMenu={(e) => openMenu(e, w)}
           >
             <span className={w.state === "ok" ? "state-ok" : "state-idle"}>
               {w.icon === "agent" ? <AgentIcon title={w.label} /> : <TerminalIcon title={w.label} />}
@@ -146,6 +217,44 @@ export function WindowTabs({
         <TerminalIcon title="new terminal" />
         <span className="label">new</span>
       </button>
+      {menu && (
+        <div
+          className="window-menu"
+          role="menu"
+          style={{ left: menu.x, top: menu.y }}
+          onContextMenu={(e) => e.preventDefault()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <button role="menuitem" onClick={() => startRename(menu.window)}>
+            Rename
+          </button>
+        </div>
+      )}
+      {/* The name a window is given belongs to the window, not to the shell in it, so the field
+          starts from the user's name (empty when there is none) rather than the composed label. */}
+      <dialog ref={renameDialog} className="window-rename" onClose={closeRename}>
+        <form method="dialog" onSubmit={commitRename}>
+          <h3>Rename window</h3>
+          <label>
+            Name
+            <input
+              value={draft}
+              maxLength={WINDOW_TITLE_MAX}
+              placeholder={renaming?.label ?? ""}
+              onChange={(e) => setDraft(e.target.value)}
+            />
+          </label>
+          <p className="hint">Leave empty to use the default name.</p>
+          <div className="dialog-actions">
+            <button type="button" onClick={() => setRenaming(null)}>
+              Cancel
+            </button>
+            <button type="submit" className="primary">
+              OK
+            </button>
+          </div>
+        </form>
+      </dialog>
     </nav>
   );
 }

@@ -17,6 +17,7 @@ export {
   selectWindow,
   selectWindowById,
   moveWindow,
+  renameWindow,
   splitPane,
   closePane,
   focusPane,

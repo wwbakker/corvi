@@ -552,6 +552,150 @@ test.skipIf(!usable)("the window strip is the server's registry: a new tab is it
   await page.close();
 }, budget(90_000));
 
+test.skipIf(!usable)("a window can be named from its tab, and the name survives a reload", async () => {
+  const { page } = await openTerminal(id);
+  const tab = page.locator(".window-tab:not(.new):not(.overview)").first();
+  await tab.waitFor({ timeout: 20_000 });
+  const windowId = await tab.getAttribute("data-window-id");
+  expect(windowId).toBeTruthy();
+  const defaultLabel = (await tab.locator(".label").innerText()).trim();
+  const sidebarLabel = page.locator(`.sidebar .entry.window[data-window-id="${windowId}"] .label`);
+  expect((await sidebarLabel.innerText()).trim()).toBe(defaultLabel);
+
+  // Right-click the tab: the strip's own menu, drawn by the page.
+  await tab.click({ button: "right" });
+  const menu = page.locator(".window-menu");
+  await menu.waitFor({ timeout: 5_000 });
+  expect(await menu.locator("button").allInnerTexts()).toEqual(["Rename"]);
+  await menu.locator("button", { hasText: "Rename" }).click();
+
+  // No name was given yet, so the field is empty and the default is the placeholder.
+  const dialog = page.locator("dialog.window-rename");
+  await dialog.waitFor({ state: "visible", timeout: 5_000 });
+  const field = dialog.locator("input");
+  expect(await field.inputValue()).toBe("");
+  expect(await field.getAttribute("placeholder")).toBe(defaultLabel);
+  await field.fill("Build logs");
+  await dialog.locator("button", { hasText: "OK" }).click();
+
+  // The tab and the navigation column name the window the same way, and the tooltip still says
+  // where it is and what runs in it.
+  expect(
+    await until(async () => (await tab.locator(".label").innerText()).trim(), "Build logs", budget(10_000)),
+  ).toBe("Build logs");
+  expect(
+    await until(async () => (await sidebarLabel.innerText()).trim(), "Build logs", budget(10_000)),
+  ).toBe("Build logs");
+  expect(await tab.getAttribute("title")).toContain(defaultLabel);
+
+  // A reload reads the registry, which is where the name lives.
+  await page.reload();
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  const reloaded = page.locator(`.window-tab[data-window-id="${windowId}"] .label`);
+  expect(await until(async () => (await reloaded.innerText()).trim(), "Build logs", budget(15_000))).toBe(
+    "Build logs",
+  );
+
+  // Opening it again starts from the name you gave; an empty field clears it back to the default.
+  await page.locator(`.window-tab[data-window-id="${windowId}"]`).click({ button: "right" });
+  await page.locator(".window-menu button", { hasText: "Rename" }).click();
+  const again = page.locator("dialog.window-rename");
+  await again.waitFor({ state: "visible", timeout: 5_000 });
+  expect(await again.locator("input").inputValue()).toBe("Build logs");
+  await again.locator("input").fill("");
+  await again.locator("button", { hasText: "OK" }).click();
+  expect(
+    await until(
+      async () => (await page.locator(`.window-tab[data-window-id="${windowId}"] .label`).innerText()).trim(),
+      defaultLabel,
+      budget(10_000),
+    ),
+  ).toBe(defaultLabel);
+  await page.close();
+}, budget(90_000));
+
+test.skipIf(!usable)("the tab menu closes on Escape and on a click elsewhere, and never opens on the fixed tabs", async () => {
+  const { page } = await openTerminal(id);
+  const tab = page.locator(".window-tab:not(.new):not(.overview)").first();
+  await tab.waitFor({ timeout: 20_000 });
+  const menu = page.locator(".window-menu");
+  const before = (await tab.locator(".label").innerText()).trim();
+
+  // Focus is still in the terminal after the right-click, and the Escape the menu swallows never
+  // reaches the pty: `cat` echoes a raw ^[ back onto the screen when it does. This is what makes
+  // the capture-phase stopPropagation observable rather than incidental.
+  await awaitAttached(page);
+  await page.keyboard.type("cat\n");
+  await tab.click({ button: "right" });
+  await menu.waitFor({ timeout: 5_000 });
+  expect(
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.className ?? ""),
+  ).toBe("xterm-helper-textarea");
+  await page.keyboard.press("Escape");
+  expect(await until(() => menu.count(), 0, budget(5_000))).toBe(0);
+  await page.keyboard.type("ESC_MARKER\n");
+  expect(
+    await until(async () => (await terminalText(page)).includes("ESC_MARKER"), true, budget(10_000)),
+  ).toBe(true);
+  expect(await terminalText(page)).not.toContain("^[");
+  // Leave cat before the rest of the test types at a prompt.
+  await page.keyboard.press("Control+C");
+  await Bun.sleep(300);
+
+  // The name is untouched.
+  expect((await tab.locator(".label").innerText()).trim()).toBe(before);
+
+  // A click anywhere else dismisses it too.
+  await tab.click({ button: "right" });
+  await menu.waitFor({ timeout: 5_000 });
+  await page.locator(".terminal-screen").click();
+  expect(await until(() => menu.count(), 0, budget(5_000))).toBe(0);
+
+  // Overview and "new" are the strip's fixed ends, not windows: neither has a menu.
+  await page.locator(".window-tab.overview").click({ button: "right" });
+  await page.locator(".window-tab.new").click({ button: "right" });
+  await Bun.sleep(300);
+  expect(await menu.count()).toBe(0);
+  await page.close();
+}, budget(90_000));
+
+test.skipIf(!usable)("cancelling or escaping a rename keeps the name and gives the terminal the keyboard", async () => {
+  const { page } = await openTerminal(id);
+  const tab = page.locator(".window-tab:not(.new):not(.overview)").first();
+  await tab.waitFor({ timeout: 20_000 });
+  const defaultLabel = (await tab.locator(".label").innerText()).trim();
+  const dialog = page.locator("dialog.window-rename");
+  const openRename = async (): Promise<void> => {
+    await tab.click({ button: "right" });
+    await page.locator(".window-menu button", { hasText: "Rename" }).click();
+    await dialog.waitFor({ state: "visible", timeout: 5_000 });
+  };
+  // What has the keyboard once the dialog is gone. The dialog's menu button is unmounted before
+  // `showModal`, so the browser has nothing to restore to: the page has to hand it back.
+  const focusedClass = (): Promise<string> =>
+    page.evaluate(() => (document.activeElement as HTMLElement | null)?.className ?? "");
+
+  // Escape cancels: nothing is stored, and the terminal can be typed in again.
+  await openRename();
+  await dialog.locator("input").fill("Never saved");
+  await page.keyboard.press("Escape");
+  expect(await until(() => page.locator("dialog.window-rename[open]").count(), 0, budget(5_000))).toBe(0);
+  expect((await tab.locator(".label").innerText()).trim()).toBe(defaultLabel);
+  expect(await until(focusedClass, "xterm-helper-textarea", budget(5_000))).toBe("xterm-helper-textarea");
+
+  // Cancel does the same, and the next Rename still starts from the default: nothing was stored.
+  await openRename();
+  await dialog.locator("input").fill("Never saved either");
+  await dialog.locator("button", { hasText: "Cancel" }).click();
+  expect(await until(() => page.locator("dialog.window-rename[open]").count(), 0, budget(5_000))).toBe(0);
+  expect((await tab.locator(".label").innerText()).trim()).toBe(defaultLabel);
+  expect(await until(focusedClass, "xterm-helper-textarea", budget(5_000))).toBe("xterm-helper-textarea");
+  await openRename();
+  expect(await dialog.locator("input").inputValue()).toBe("");
+  await page.keyboard.press("Escape");
+  await page.close();
+}, budget(90_000));
+
 test.skipIf(!usable)("rapid window switching keeps the screen the tab names", async () => {
   const { page } = await openTerminal(rapid);
   const tabs = page.locator(".window-tab:not(.new):not(.overview)");
@@ -1140,6 +1284,12 @@ test.skipIf(!usable)("the context-menu setting also silences the terminal's own 
     await Bun.sleep(300);
     // The terminal's menu is the page's, and the page swallows the click before the handler runs.
     expect(await page.locator(".terminal-menu").count()).toBe(0);
+    // The window tab's own menu follows the same setting, from the same capture-phase stopper.
+    const tab = page.locator(".window-tab:not(.new):not(.overview)").first();
+    await tab.waitFor({ timeout: 20_000 });
+    await tab.click({ button: "right" });
+    await Bun.sleep(300);
+    expect(await page.locator(".window-menu").count()).toBe(0);
     await page.close();
   } finally {
     await write(true);

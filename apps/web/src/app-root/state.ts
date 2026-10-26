@@ -61,6 +61,8 @@ export function useWindows(): {
   select: (source: string, id: string, index: number) => void;
   create: (source: string, id: string) => Promise<void>;
   move: (source: string, id: string, from: number, to: number) => void;
+  /** Name a window from its tab, or clear the name (blank) back to the default. */
+  rename: (source: string, id: string, windowId: string, title: string) => void;
   /** Bring a window to the front by stable identity, for the subagent pane's explicit click. */
   focus: (source: string, id: string, windowId: string) => void;
   refresh: () => void;
@@ -128,6 +130,10 @@ export function useWindows(): {
     ),
     focus: useCallback(
       (source: string, id: string, windowId: string) => void current.focus(source, id, windowId),
+      [current],
+    ),
+    rename: useCallback(
+      (source: string, id: string, windowId: string, title: string) => void current.rename(source, id, windowId, title),
       [current],
     ),
     refresh: reload,
