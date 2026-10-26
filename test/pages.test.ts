@@ -411,6 +411,165 @@ test.skipIf(!usable)("the documents sit left of the status cards", async () => {
   await page.close();
 }, 30_000);
 
+test.skipIf(!usable)("a long ticket title wraps inside its card, and an identity label stays whole", async () => {
+  // A ticket row's label is prose — Jira's `PROJ-123 <summary>`, GitHub's `#123 <title>` — in a row
+  // whose label was styled for an identifier. It must wrap rather than widen the card. Beside it,
+  // a shipped identity row (a repository name beside its long status and path) must keep its label
+  // on one line: the detail may never take the label's line away. The card comes from the
+  // dashboard's own routes, so no integration and no network are involved. Every width the
+  // dashboard lays out at is measured: two columns from 1280px, one below it.
+  const cardTitle = "Long ticket";
+  const longLabel =
+    "PROJ-123 When the deployment fails because the configuration file references a secret that is " +
+    "missing from the environment the error message repeats the whole path and the token " +
+    "unbreakabletokenwithoutanyspacesatallthatcannotfitonasinglelineanywhere";
+  const identityLabel = "corvi-shot-src";
+  // A shipped identity row: the repository name beside its state and path. The path is long
+  // enough to wrap, which is what the detail is for.
+  const identityDetail =
+    "clean, no upstream · /Users/wessel/.corvi/changes/PROJ-123/checkouts/corvi-shot-src";
+  type LabelLayout = {
+    readonly scrollWidth: number;
+    readonly clientWidth: number;
+    readonly height: number;
+    readonly lineHeight: number;
+    readonly lines: number;
+    readonly text: string;
+    readonly textOverflow: string;
+  };
+  type Layout = {
+    readonly prose: LabelLayout;
+    readonly identity: LabelLayout;
+    readonly cardStaysInPage: boolean;
+    readonly pageScrollWidth: number;
+    /** The layout viewport: narrower than `window.innerWidth` when a classic scrollbar is drawn,
+     * so it is the width a page must not overflow. */
+    readonly layoutWidth: number;
+  };
+
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  // The listed cards gain one the page draws like any other; its widget is the stub below. Every
+  // other card answers empty, so the page's width is decided by the rows under test and not by an
+  // unrelated card's prose (the fixture's checkout path, for one).
+  await page.route("**/api/changes/*/cards", async (route) => {
+    const response = await route.fetch();
+    const cards = (await response.json()) as Record<string, unknown>[];
+    await route.fulfill({
+      response,
+      json: [...cards, { name: "long-ticket", title: cardTitle, perRepo: false, column: "right" }],
+    });
+  });
+  await page.route("**/api/changes/*/cards/*", (route) =>
+    route.fulfill({
+      json: { integration: "stub", title: "Stubbed", state: "none", summary: "", items: [] },
+    }),
+  );
+  // The per-repository cards load their rows separately; without this the fixture's own checkout
+  // path — much longer than a real change directory — would decide the page's width.
+  await page.route("**/api/changes/*/cards/*/items*", (route) =>
+    route.fulfill({ json: { items: [] } }),
+  );
+  await page.route("**/api/changes/*/cards/long-ticket", (route) =>
+    route.fulfill({
+      json: {
+        integration: "jira",
+        title: cardTitle,
+        state: "ok",
+        summary: "",
+        items: [
+          { label: longLabel, detail: "Open" },
+          { label: identityLabel, detail: identityDetail },
+        ],
+      },
+    }),
+  );
+
+  const measure = (): Promise<Layout | null> =>
+    page.evaluate(
+      ({ title, identity }: { title: string; identity: string }) => {
+        const card = [...document.querySelectorAll<HTMLElement>(".widget")].find((widget) =>
+          (widget.querySelector("h3")?.textContent ?? "").includes(title),
+        );
+        const rowOf = (prefix: string): HTMLElement | null =>
+          [...(card?.querySelectorAll<HTMLElement>(".item .label") ?? [])].find((label) =>
+            (label.textContent ?? "").startsWith(prefix),
+          ) ?? null;
+        const prose = rowOf("PROJ-123");
+        const identityLabel = rowOf(identity);
+        if (!card || !prose || !identityLabel) return null;
+        const layout = (label: HTMLElement): LabelLayout => {
+          const box = label.getBoundingClientRect();
+          const style = getComputedStyle(label);
+          // A range over the label's own contents reports one rect per line box, which a block's
+          // own rect cannot.
+          const range = document.createRange();
+          range.selectNodeContents(label);
+          const lines = new Set([...range.getClientRects()].map((rect) => Math.round(rect.top)));
+          return {
+            scrollWidth: label.scrollWidth,
+            clientWidth: label.clientWidth,
+            height: box.height,
+            lineHeight: Number.parseFloat(style.lineHeight),
+            lines: lines.size,
+            text: label.textContent ?? "",
+            textOverflow: style.textOverflow,
+          };
+        };
+        return {
+          prose: layout(prose),
+          identity: layout(identityLabel),
+          cardStaysInPage: card.getBoundingClientRect().right <= document.documentElement.clientWidth,
+          pageScrollWidth: document.documentElement.scrollWidth,
+          layoutWidth: document.documentElement.clientWidth,
+        };
+      },
+      { title: cardTitle, identity: identityLabel },
+    );
+
+  /** The two-column grid starts when both sides have content and the window is at least 1280px
+   * wide. Waited for rather than slept through: the reflow is what the measurement depends on. */
+  const waitForColumns = (columns: "two" | "one"): Promise<unknown> =>
+    page.waitForFunction((want: boolean) => {
+      const documents = document.querySelector(".column.documents");
+      const status = document.querySelector(".column.status");
+      if (!documents || !status) return false;
+      const sideBySide = status.getBoundingClientRect().left >= documents.getBoundingClientRect().right - 1;
+      return sideBySide === want;
+    }, columns === "two");
+
+  const check = async (width: number, columns: "two" | "one"): Promise<void> => {
+    await page.setViewportSize({ width, height: 900 });
+    await waitForColumns(columns);
+    const layout = await measure();
+    if (!layout) throw new Error(`the stubbed ticket card did not render at ${width}px`);
+    // The prose label wraps: it fits its own box, is all there, and is more than one line.
+    expect(layout.prose.scrollWidth).toBeLessThanOrEqual(layout.prose.clientWidth);
+    expect(layout.prose.text).toBe(longLabel);
+    expect(layout.prose.textOverflow).not.toBe("ellipsis");
+    expect(layout.prose.lines).toBeGreaterThan(1);
+    expect(layout.prose.height).toBeGreaterThan(layout.prose.lineHeight);
+
+    // The identity label is whole: one line, its own height, not squeezed into the detail.
+    expect(layout.identity.text).toBe(identityLabel);
+    expect(layout.identity.lines).toBe(1);
+    expect(layout.identity.height).toBeLessThanOrEqual(layout.identity.lineHeight + 0.5);
+    expect(layout.identity.scrollWidth).toBeLessThanOrEqual(layout.identity.clientWidth);
+
+    // Neither the card nor the page reaches past the layout viewport.
+    expect(layout.cardStaysInPage).toBe(true);
+    expect(layout.pageScrollWidth).toBeLessThanOrEqual(layout.layoutWidth);
+  };
+
+  await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
+  await page.locator(".widget", { hasText: cardTitle }).first().waitFor({ timeout: 15_000 });
+  await page.locator(".column.documents .md-editor").waitFor({ timeout: 15_000 });
+  await check(1440, "two");
+  // 1280 is the narrowest two-column width: the squeeze on each column is at its worst there.
+  await check(1280, "two");
+  await check(1100, "one");
+  await page.close();
+}, 60_000);
+
 test.skipIf(!usable)("the checkouts card reads the change's repositories through the typed client", async () => {
   // The first browser consumer of the new slice: the card fetches the typed operation, decodes
   // the DTO, and shows the projected state and the branch the worktree actually holds.

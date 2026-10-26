@@ -1040,15 +1040,20 @@ button.primary:not(:disabled) {
   border-top: 1px solid var(--line);
 }
 
-/* The row's identity — a repository, a branch, a window — reads whole; the detail beside it is
-   prose and wraps around it. Without this a long detail squeezes `corvi-shot-src` into
-   `corvi-\nshot-\nsrc`. */
+/* The row's identity — a repository, a branch, a window — is short and fits one line; the long
+   detail beside it absorbs the row's squeeze and wraps as it always did. A label that is prose,
+   though — a ticket or issue row's `KEY summary` — may shrink and break anywhere rather than
+   overflow the card and widen the page. */
 .item .label {
-  flex: none;
-  white-space: nowrap;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
+/* Its zero basis is what keeps a short identity label whole: the detail starts at nothing, grows
+   into the spare space and takes the shrinking, instead of sharing a deficit with the label. */
 .item .detail {
+  flex: 1 1 0;
   color: var(--muted);
 }
 
