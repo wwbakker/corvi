@@ -6,10 +6,10 @@
  * the host does not read it. In a browser the page can only take the menu away, which is what "no"
  * means there.
  *
- * The terminal draws its own menu (copy, paste, find, links), so the setting has to reach it too:
- * while the setting is off the page swallows the right-click in the capture phase, before the
- * terminal's own handler (or the host) ever sees it. That is the one place a page menu would
- * otherwise survive the setting.
+ * The terminal and the window tabs draw their own menus (copy, paste, find, links; rename), so the
+ * setting has to reach them too: while the setting is off the page swallows the right-click in the
+ * capture phase, before either page handler (or the host) ever sees it. Those are the places a page
+ * menu would otherwise survive the setting.
  */
 import { useEffect } from "react";
 import { hostOf } from "./host.ts";

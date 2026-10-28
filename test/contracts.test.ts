@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 import { Schema } from "effect";
 
 import { SubagentAwaitResponseSchema, SubagentMessageSchema, SubagentRecordSchema, SubagentTurnRequestSchema } from "@corvi/contracts/subagents";
+import { WindowActionBodySchema } from "@corvi/contracts/api";
+import { WINDOW_TITLE_MAX } from "@corvi/contracts/terminal";
 
 import { runSh, testTempDir } from "./helpers.ts";
 
@@ -103,4 +105,18 @@ test("the await response is per-target outcomes with no bare identity", () => {
       decode({ status: "ready", outcomes: [{ id: "s1", status: "ready", reason: "replied", turn: invalid }] }),
     ).toThrow();
   }
+});
+
+test("a window title is capped at the shared maximum, and rename is a known action", () => {
+  const decode = Schema.decodeUnknownSync(WindowActionBodySchema);
+  const atCap = "x".repeat(WINDOW_TITLE_MAX);
+  // The rename body carries the name and the window it names; an empty string is a clear.
+  expect(decode({ action: "rename", window: "w-1", title: atCap })).toEqual({
+    action: "rename",
+    window: "w-1",
+    title: atCap,
+  });
+  expect(decode({ action: "rename", window: "w-1", title: "" }).title).toBe("");
+  // One character over the cap is refused at the boundary, not silently truncated.
+  expect(() => decode({ action: "rename", window: "w-1", title: `${atCap}x` })).toThrow();
 });

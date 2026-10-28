@@ -460,6 +460,57 @@ test("an agent's own account of itself is read from the @agent_status pane optio
   expect(presented({ "@agent_status": "busy" })).toMatchObject({ label: "example-api - (node)", icon: "terminal", state: "idle" });
 });
 
+test("a name you gave replaces every label the presenters compose, and the presenter still says the rest", async () => {
+  const { presentWindow } = await import("../apps/server/src/terminals/server/index.ts");
+  const raw = (over: Partial<RawWindow>): RawWindow => ({
+    index: 0,
+    id: "@1",
+    name: "example-api",
+    command: "node",
+    active: true,
+    activity: false,
+    directory: "example-api",
+    named: true,
+    options: {},
+    panes: ["@1"],
+    activePane: "@1",
+    title: "Build logs",
+    ...over,
+  });
+
+  // The name wins over everything the presentation would otherwise compose — an agent's own
+  // session name included — and is not extended with what is running.
+  const agent = presentWindow(
+    raw({
+      panes: ["@1", "@2"],
+      options: {
+        "@agent_status": "working",
+        "@agent_name": "pi",
+        "@agent_session_name": "fix the failing test",
+      },
+    }),
+  );
+  // The pane count is a structural fact about the window, not part of the name, so it stays.
+  expect(agent.label).toBe("Build logs (2 panes)");
+  // The presenters still answer the icon, the state and the facts the overview counts, and
+  // `detail` still says what runs and where.
+  expect(agent).toMatchObject({ icon: "agent", state: "ok", busy: true, agent: true, working: true });
+  expect(agent.detail).toBe("example-api (node) in example-api");
+
+  // A named plain shell stays an idle shell: a name is not an action label.
+  expect(presentWindow(raw({ command: "zsh" }))).toMatchObject({
+    label: "Build logs",
+    state: "idle",
+    busy: false,
+    icon: "terminal",
+  });
+
+  // The note beside the name is still the agent's own words.
+  expect(
+    presentWindow(raw({ options: { "@agent_status": "waiting", "@agent_last_message": "All green." } })).note,
+  ).toBe("All green.");
+});
+
 test("a change may be blocked, which is active but not workable", async () => {
   const { CHANGE_STATES, isFinished } = await import("@corvi/changes/record");
   const { stateClass } = await import("../apps/web/src/app-root/stateClass.ts");

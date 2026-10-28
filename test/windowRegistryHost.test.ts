@@ -6,7 +6,9 @@ import { Effect } from "effect";
 
 import { closeHostClient, hostClient } from "../apps/server/src/terminals/server/host.ts";
 import * as registry from "../apps/server/src/terminals/server/registry.ts";
-import { closePaneAsync, focusPaneAsync, isKeptOpen, listWindowsAsync, moveWindowAsync, newWindowAsync, newWindowRunningAsync, selectWindowAsync, selectWindowByIdAsync, splitPaneAsync, stopHostTerminals } from "../apps/server/src/terminals/server/windows.ts";
+import { closePaneAsync, focusPaneAsync, isKeptOpen, listWindowsAsync, moveWindowAsync, newWindowAsync, newWindowRunningAsync, renameWindowAsync, selectWindowAsync, selectWindowByIdAsync, splitPaneAsync, stopHostTerminals } from "../apps/server/src/terminals/server/windows.ts";
+import { stateDir } from "@corvi/configuration/node";
+import { WINDOW_TITLE_MAX } from "@corvi/contracts/terminal";
 import { TerminalSessions, terminalSessionsLayer } from "../apps/server/src/change/lifecycle-layer.ts";
 import { testTempDir, waitFor } from "./helpers.ts";
 
@@ -59,6 +61,58 @@ test("new windows persist in order with one active; select and move mutate them"
   // A fresh read sees the same list: what a restart's rebuild starts from.
   expect(registry.read().changes[changeId]?.map((record) => record.id)).toEqual([second.id, first.id]);
 }, 30_000);
+
+test("a window can be named from its record: trimmed, persisted, cleared, and only while it exists", async () => {
+  const namedChange = "REG-RENAME";
+  const window = await newWindowAsync(namedChange, dir);
+  const stored = (): registry.WindowRecord | undefined =>
+    registry.records(namedChange).find((record) => record.id === window.id);
+
+  await renameWindowAsync(namedChange, window.id, "  build logs  ");
+  expect(stored()).toBeDefined();
+  expect(stored()?.title).toBe("build logs");
+  // A fresh read (what a restart's rebuild starts from) and the presented list both keep it: the
+  // name belongs to the window, so the shell need not know it.
+  const windows = await listWindowsAsync(namedChange);
+  expect(windows.find((entry) => entry.id === window.id)).toMatchObject({
+    label: "build logs",
+    title: "build logs",
+  });
+  expect(stored()?.title).toBe("build logs");
+
+  // Blank means "use the default again": the record carries no title and the file keeps no key.
+  await renameWindowAsync(namedChange, window.id, "   ");
+  expect(stored()).toBeDefined();
+  expect(stored()?.title).toBeUndefined();
+  const file = JSON.parse(await Bun.file(join(stateDir(), "terminal-windows.json")).text()) as {
+    readonly changes: Record<string, { readonly id: string; readonly title?: string }[]>;
+  };
+  expect(file.changes[namedChange]?.find((entry) => entry.id === window.id)).not.toHaveProperty("title");
+  expect((await listWindowsAsync(namedChange)).find((entry) => entry.id === window.id)?.title).toBeUndefined();
+
+  // The writer caps as the reader does: a caller that skips the route cannot store a name the
+  // next read would silently shrink.
+  await renameWindowAsync(namedChange, window.id, "y".repeat(WINDOW_TITLE_MAX + 10));
+  expect(stored()?.title).toBe("y".repeat(WINDOW_TITLE_MAX));
+
+
+  // A window that is not there is an error, exactly as selecting one by id is.
+  await expect(renameWindowAsync(namedChange, "w-missing", "x")).rejects.toThrow(/no window w-missing/);
+  await stopHostTerminals(namedChange);
+}, 60_000);
+
+test("naming an action window leaves its action label alone", async () => {
+  // `label` is what makes a window an action run (`@corvi_action`); a name is a separate fact, so
+  // renaming one must not stop it being presented as a command window.
+  const namedChange = "REG-RENAME-ACTION";
+  const action = await newWindowRunningAsync(namedChange, dir, "sleep 30", { announce: { label: "Build", notify: false } });
+  await renameWindowAsync(namedChange, action, "Release build");
+  const record = registry.records(namedChange).find((entry) => entry.id === action)!;
+  expect(record.label).toBe("Build");
+  expect(record.title).toBe("Release build");
+  expect((await listWindowsAsync(namedChange)).find((entry) => entry.id === action)?.label).toBe("Release build");
+  await stopHostTerminals(namedChange);
+}, 60_000);
 
 test("a background window does not take the active one; explicit creation does", async () => {
   const backgroundChange = "REG-INTENT";

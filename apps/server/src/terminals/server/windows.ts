@@ -16,6 +16,7 @@ import { Effect } from "effect";
 
 import type { CommandFailure, NewWindowOptions } from "@corvi/terminals/model";
 import type { RawWindow } from "../../integrations/types.ts";
+import { WINDOW_TITLE_MAX } from "@corvi/contracts/terminal";
 import { env, stateDir } from "@corvi/configuration/node";
 import { childEnv } from "../../capabilities/env.ts";
 import { changeDir, listChanges, readChange } from "../../change/server/index.ts";
@@ -183,11 +184,13 @@ const commandOptions = (record: WindowRecord, session: SessionInfo | undefined):
 };
 
 /** The raw window a host session presents as. A labelled one (an action run) uses the label as
- * its name and lets the presenter speak; a plain shell uses its directory. */
+ * its name and lets the presenter speak; a plain shell uses its directory. `title` is the name the
+ * user gave it, which the presenter shows in place of either. */
 const hostRaw = (record: WindowRecord, dir: string, session: SessionInfo | undefined, status: AgentStatus | undefined): RawWindow => ({
   index: 0,
   id: record.id,
   name: record.label ?? basename(dir),
+  ...(record.title !== undefined ? { title: record.title } : {}),
   command: record.label !== undefined ? "sh" : (record.command ?? "sh"),
   active: record.active,
   activity: record.activity,
@@ -557,6 +560,27 @@ export const moveWindowAsync = (changeId: string, from: number, to: number): Pro
     save(changeId, records);
   });
 
+/** Name a window, or clear the name back to the default. The name belongs to the window (the
+ * registry's record), not to the shell backing it; a blank name is "use the default again". The
+ * writer caps as the reader does, so a caller that skips the route cannot store a name the next
+ * read would silently shrink. */
+export const renameWindowAsync = (changeId: string, windowId: string, title: string): Promise<void> =>
+  withRegistryLock(async () => {
+    const records = await listRecords(changeId);
+    if (!records.some((record) => record.id === windowId)) {
+      throw new Error(`no window ${windowId} in change ${changeId}`);
+    }
+    const trimmed = title.trim().slice(0, WINDOW_TITLE_MAX);
+    save(
+      changeId,
+      records.map((record) => {
+        if (record.id !== windowId) return record;
+        // `undefined` is dropped by the JSON writer, so a clear leaves no dead key in the file.
+        return { ...record, title: trimmed === "" ? undefined : trimmed };
+      }),
+    );
+  });
+
 /** Split the window: a new pane in the active pane's directory, focused. `direction` is the
  * page's to compose (5b); the server records the pane and focuses it. Caller holds the lock. */
 export const splitPaneAsync = (changeId: string, windowId: string, direction: "right" | "down"): Promise<void> =>
@@ -694,6 +718,9 @@ export const selectWindowById = (changeId: string, windowId: string): Effect.Eff
 
 export const moveWindow = (changeId: string, from: number, to: number): Effect.Effect<void, CommandFailure> =>
   Effect.tryPromise({ try: () => moveWindowAsync(changeId, from, to), catch: asFailure });
+
+export const renameWindow = (changeId: string, windowId: string, title: string): Effect.Effect<void, CommandFailure> =>
+  Effect.tryPromise({ try: () => renameWindowAsync(changeId, windowId, title), catch: asFailure });
 
 export const splitPane = (
   changeId: string,

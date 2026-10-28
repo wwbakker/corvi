@@ -1,9 +1,10 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
-import { cpus, loadavg, tmpdir } from "node:os";
+import { cpus, loadavg } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
-import { isRunToken, runPidPath } from "../scripts/clean-test.ts";
+import { claimRunPidFile, isRunToken, pidAlive } from "../scripts/clean-test.ts";
+import { testTempBase } from "../scripts/test-temp.ts";
 import { Effect, Layer, Result, Schema } from "effect";
 import { TestClock, TestConsole } from "effect/testing";
 import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
@@ -35,8 +36,10 @@ let announced = false;
 
 /** The token that names this run. The suite's own script sets `CORVI_TEST_RUN`; a lone
  * `bun test test/foo.test.ts` gets one from its pid and the clock. It is written into every temp
- * dir's name and into `<tmpdir>/corvi-<token>.pid`, which is what lets scripts/clean-test.ts tell
- * one run's resources from another's, and a live run from a crashed one. */
+ * dir's name and into `<test temp base>/corvi-<token>.pid`, which is what lets
+ * scripts/clean-test.ts tell one run's resources from another's, and a live run from a crashed
+ * one. The base is `/tmp` on macOS, `tmpdir()` elsewhere (`scripts/test-temp.ts`: the host's unix
+ * socket must fit a `sun_path`). */
 export const testRun = (): string => {
   const fromEnv = process.env.CORVI_TEST_RUN;
   // A hand-set token the cleaner cannot read would leave this run's servers and hosts behind as
@@ -53,32 +56,20 @@ export const testRun = (): string => {
       ? fromEnv
       : `${Date.now().toString(36)}.${process.pid.toString(36)}`;
   process.env.CORVI_TEST_RUN = token;
-  // The run's script writes this with the wrapper shell's pid, which lives for the whole run;
-  // "wx" leaves that in place. A lone `bun test` has no wrapper, so its own pid stands in —
-  // under `--parallel`, the first *worker's* pid, and that worker is gone before the run is. A
-  // pid-file naming a dead pid reads to scripts/clean-test.ts as a crashed run while its files
-  // are still going, so a later claimant takes the file over when the pid in it is dead.
+  // Claimed through the shared helper (scripts/clean-test.ts): the wrapper's pid is left in place
+  // while it lives, a file naming a dead pid is taken over, and a symlink planted in the shared
+  // temp base is never written through. A lone `bun test` has no wrapper, so its own pid stands in
+  // — under `--parallel`, the first *worker's* pid, and that worker is gone before the run is.
   if (!announced) {
     announced = true;
-    const path = runPidPath(tmpdir(), token);
-    try {
-      writeFileSync(path, String(process.pid), { flag: "wx" });
-    } catch {
-      try {
-        if (!processAlive(Number(readFileSync(path, "utf8").trim()))) {
-          writeFileSync(path, String(process.pid));
-        }
-      } catch {
-        // a temp dir we cannot read or write: --all remains
-      }
-    }
+    claimRunPidFile(testTempBase(), token, process.pid);
   }
   return token;
 };
 
 /** A temp dir whose name carries the run token, so the cleaner can tell whose it is. */
 const tempDirName = (label: string): string =>
-  join(tmpdir(), `corvi-${testRun()}-${label}-`);
+  join(testTempBase(), `corvi-${testRun()}-${label}-`);
 
 export const testTempDir = (label: string): Promise<string> => mkdtemp(tempDirName(label));
 
@@ -307,17 +298,6 @@ export const requireFreshWebBundle = (
   }
 };
 
-/** Whether an id names a process that is there. A pid of nothing is a pid of no one. */
-const processAlive = (pid: number): boolean => {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 /** A machine-wide lock for the one piece of state every suite on the computer shares: the system
  * clipboard. The clipboard test's whole subject is that a copy reaches it and a paste comes back
  * out — and with two suites running at once (several agents on one machine routinely run this
@@ -327,11 +307,13 @@ const processAlive = (pid: number): boolean => {
  *
  * `mkdir` is the lock, because creating a directory is atomic; the owner's pid is kept inside
  * it, and a lock whose owner is gone is taken over — or one old enough that its owner died
- * between making it and naming itself. The directory is dot-prefixed on purpose:
- * scripts/clean-test.ts sweeps `$TMPDIR/corvi-*`, and sweeping a lock another suite is holding
- * is exactly what it must never do. */
+ * between making it and naming itself. The name carries the uid: the lock lives under the shared
+ * test temp base and is dot-prefixed, so a foreign user's lock is distinct and the
+ * scripts/clean-test.ts sweep of `corvi-*` never touches either. It sits under that base, not one
+ * suite's own root, so concurrent suites on the machine share it. */
 export const withMachineLock = async <T>(what: string, body: () => Promise<T>): Promise<T> => {
-  const dir = join(tmpdir(), `.corvi-test-${what}.lock`);
+  const uid = process.getuid?.() ?? "me";
+  const dir = join(testTempBase(), `.corvi-test-${uid}-${what}.lock`);
   const deadline = Date.now() + budget(90_000);
   for (;;) {
     try {
@@ -346,9 +328,10 @@ export const withMachineLock = async <T>(what: string, body: () => Promise<T>): 
         // no owner named yet, or unreadable: treated as no owner
       }
       const ageMs = Date.now() - ((await stat(dir).catch(() => undefined))?.mtimeMs ?? Date.now());
-      if (!processAlive(owner) && ageMs > 5_000) {
+      if (!pidAlive(owner) && ageMs > 5_000) {
+        // A stale lock of ours, or one the sticky bit will not let us remove: either way the
+        // deadline below is what ends the wait, so every pass sleeps.
         await rm(dir, { recursive: true, force: true }).catch(() => undefined);
-        continue;
       }
     }
     if (Date.now() > deadline) {

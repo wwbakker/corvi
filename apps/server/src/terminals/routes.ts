@@ -1,5 +1,6 @@
 import { Effect, Schema } from "effect";
 import { TerminalStatusSchema } from "@corvi/contracts/api";
+import { WINDOW_TITLE_MAX } from "@corvi/contracts/terminal";
 import { changeDir, readChange } from "../change/server/index.ts";
 import { BadRequestError, InternalError } from "@corvi/contracts/errors";
 import { runRoute } from "../capabilities/effect/run.ts";
@@ -11,6 +12,7 @@ import {
   listWindows,
   moveWindow,
   newWindow,
+  renameWindow,
   selectWindow,
   selectWindowById,
   splitPane,
@@ -29,6 +31,8 @@ const WindowBody = Schema.Struct({
   direction: Schema.optional(Schema.Literals(["right", "down"])),
   window: Schema.optional(Schema.String),
   pane: Schema.optional(Schema.String),
+  /** A window's new name; an empty string clears it back to the default. */
+  title: Schema.optional(Schema.String.pipe(Schema.check(Schema.isMaxLength(WINDOW_TITLE_MAX)))),
 });
 
 /** The change's directory, or undefined when it cannot have a terminal: it does not exist, or
@@ -156,6 +160,18 @@ export const terminalsRoutes = guard({
           }
           else if (body.action === "move") {
             yield* moveWindow(c.id, body.from ?? 0, body.to ?? 0);
+          } else if (body.action === "rename") {
+            if (windowId === undefined) {
+              return yield* new BadRequestError({ message: "rename needs a window id" });
+            }
+            if (body.title === undefined) {
+              return yield* new BadRequestError({
+                message: "rename needs a title: send one, or an empty string to clear the name",
+              });
+            }
+            yield* renameWindow(c.id, windowId, body.title).pipe(
+              Effect.mapError((failure) => new BadRequestError({ message: failure.message })),
+            );
           } else if (body.action === "split" && windowId !== undefined) {
             yield* splitPane(c.id, windowId, body.direction ?? "right");
           } else if (body.action === "close-pane" && windowId !== undefined && body.pane !== undefined) {

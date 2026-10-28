@@ -16,19 +16,21 @@
  * apps/server/src/server.ts ignores. The app's server (`electron apps/server/src/server.ts`) and
  * a dev server (`node apps/server/src/server.ts`) carry no marker.
  *
- * The prefix is the whole rule: an entry under `$TMPDIR` named `corvi-*` belongs to whoever it
- * names. Only explicit intent removes paths: `--run=<token>` removes exactly that run's entries,
- * `--all` removes every entry including unnamed ones, and the default leaks rather than guess
- * whose anything is. Do not name your own scratch files `corvi-…` there — a
- * `/tmp/corvi-notes.log` reads as a run named `notes.log`.
+ * The prefix is the whole rule: an entry under the test temp base (`/tmp` on macOS, `tmpdir()`
+ * elsewhere — scripts/test-temp.ts) or under `tmpdir()` named `corvi-*` belongs to whoever it
+ * names; both bases are swept (testRoots), so leftovers from either are found. Only explicit
+ * intent removes paths: `--run=<token>` removes exactly that run's entries, `--all` removes every
+ * entry including unnamed ones, and the default leaks rather than guess whose anything is. Do not
+ * name your own scratch files `corvi-…` there — a `/tmp/corvi-notes.log` reads as a run named
+ * `notes.log`.
  *
  * Which run, and whether that run is still alive, is the second question — the one that lets two
  * suites run at once. A run is named by a token, a `<base36>.<base36>` pair the dot keeps apart
  * from the human labels a temp dir also carries. Its resources carry the token too:
  *
  *   - the server in `--corvi-test-run=<token>`;
- *   - and the run itself in `<tmpdir>/corvi-<token>.pid`, written by `testRun()` (test/helpers.ts)
- *     and holding its pid for as long as it lives.
+ *   - and the run itself in `<test temp base>/corvi-<token>.pid`, written by `testRun()`
+ *     (test/helpers.ts) and holding its pid for as long as it lives.
  *
  * So the default `--kill` trusts one pid-file per run and ends the processes of runs it reads as
  * gone — including a run whose file names a worker that finished before `--parallel` did. That
@@ -42,23 +44,29 @@
  * leaks them. Getting a misread run's processes ended stays a residual risk; deleting a live
  * run's directories does not.
  */
-import { readFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sh } from "./sh.ts";
+import { testTempBase } from "./test-temp.ts";
 
-/** The roots a test directory can hide under: `tmpdir()` as written and as resolved. On macOS
- * `/var/folders/...` is a symlink into `/private/var/folders/...`, and both spellings turn up in
- * command lines depending on who built the path. */
+/** The roots a test directory can hide under: the test temp base (`/tmp` on macOS, `tmpdir()`
+ * elsewhere — scripts/test-temp.ts, so a host's unix socket fits a `sun_path`) and `tmpdir()`
+ * itself, each as written and as resolved. Both are scanned, so leftovers from before the base
+ * changed are still found. On macOS `/var/folders/…` and `/tmp` are symlinks into `/private/…`,
+ * and both spellings turn up in command lines depending on who built the path. */
 export const testRoots = async (): Promise<string[]> => {
-  const written = tmpdir();
-  const resolved = await realpath(written).catch(() => written);
-  return [...new Set([written, resolved])];
+  const bases = [testTempBase(), tmpdir()];
+  const roots = await Promise.all(
+    bases.map(async (base) => [base, await realpath(base).catch(() => base)]),
+  );
+  return [...new Set(roots.flat())];
 };
 
-/** Collapse duplicate slashes before comparing: macOS's TMPDIR ends in a slash, so a shell-built
- * `$TMPDIR/corvi-x` is `/var/folders/.../T//corvi-x` and would not match the `T/corvi-` prefix. */
+/** Collapse duplicate slashes before comparing: macOS's `$TMPDIR` ends in a slash, so a
+ * shell-built `<tmpdir>/corvi-x` is `/var/folders/.../T//corvi-x` and would not match the
+ * `T/corvi-` prefix (one of the bases testRoots scans). */
 const normalize = (path: string): string => path.replace(/\/{2,}/g, "/");
 
 /** Whether a command line belongs to a test run: only the marker every test server carries.
@@ -96,9 +104,55 @@ export const tokenFromPath = (path: string): string | undefined =>
 export const tokenFromPidFile = (name: string): string | undefined =>
   new RegExp(`^corvi-(${TOKEN})\\.pid$`).exec(name)?.[1];
 
-/** Where a run writes its liveness: `<tmpdir>/corvi-<token>.pid`. The token names all of a run's
- * temp dirs, so one file answers for all of them. */
+/** Where a run writes its liveness: `<test temp base>/corvi-<token>.pid`. The token names all of
+ * a run's temp dirs, so one file answers for all of them. */
 export const runPidPath = (root: string, token: string): string => join(root, `corvi-${token}.pid`);
+
+/** Make `<base>/corvi-<token>.pid` name this run, or leave the file when it already names a live
+ * one. The file lives in a shared temp base and the token is not unique — a caller may export a
+ * token a crashed run used — so a stale file naming a dead pid is claimed, or the default purge
+ * would read this live run as gone and end its servers.
+ *
+ * Only ever created with "wx": a symlink planted at the path is never written through. An existing
+ * entry that is not a regular file is left untouched; a regular file is read without following a
+ * link (`O_NOFOLLOW`), left alone when its pid is alive, and removed before a fresh "wx" claim
+ * when it is dead (the sticky bit lets us remove only a file of our own — exactly that case).
+ * Anything that fails leaves the file as it was: a stale liveness guess, never a lost one. */
+export const claimRunPidFile = (base: string, token: string, pid: number): void => {
+  const path = runPidPath(base, token);
+  const write = (): boolean => {
+    try {
+      writeFileSync(path, String(pid), { flag: "wx" });
+      return true;
+    } catch {
+      return false; // someone else's file, or a directory in the way
+    }
+  };
+  if (write()) return;
+
+  let fd: number | undefined;
+  try {
+    // The lstat check refuses a link, a fifo or a directory without following it. O_NOFOLLOW
+    // closes the symlink window that opens before the read; O_NONBLOCK keeps a fifo swapped in
+    // between from blocking this O_RDONLY open — it returns at once and fstat rejects it.
+    if (!lstatSync(path).isFile()) return;
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    if (!fstatSync(fd).isFile()) return;
+    const existing = Number(readFileSync(fd, "utf8").trim());
+    if (pidAlive(existing)) return;
+  } catch {
+    return; // unreadable or unclaimable: leave it
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+
+  try {
+    unlinkSync(path);
+  } catch {
+    return; // the sticky bit says someone else owns it: leave it
+  }
+  write();
+};
 
 type Proc = { pid: number; command: string };
 
@@ -117,7 +171,7 @@ const liveToken = (token: string, roots: readonly string[]): boolean => {
   for (const root of roots) {
     try {
       const pid = Number(readFileSync(runPidPath(root, token), "utf8").trim());
-      if (Number.isInteger(pid) && pid > 0 && alive(pid)) return true;
+      if (Number.isInteger(pid) && pid > 0 && pidAlive(pid)) return true;
     } catch {
       // no pid-file under this spelling of the root
     }
@@ -134,12 +188,18 @@ const isKillable = (command: string): boolean =>
 const looksLikeApp = (command: string): boolean =>
   /(?:^|\/)(?:bun|node)(?: |$).*src\/server\.ts/.test(command);
 
-const alive = (pid: number): boolean => {
+/** Whether a run's pid is still running. `process.kill(pid, 0)` throws `ESRCH` when the process
+ * is gone and `EPERM` when it exists but belongs to another user — so anything but `ESRCH` is
+ * alive. Reading a foreign run as gone would put its servers in the "chosen" verdict; the kill
+ * then fails, but the report would be wrong. Exported so the test harness's machine lock asks the
+ * same question the cleaner does. */
+export const pidAlive = (pid: number): boolean => {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
   }
 };
 
@@ -268,7 +328,7 @@ const main = async (): Promise<void> => {
   }
   await Bun.sleep(500);
   for (const p of chosenProcs) {
-    if (!alive(p.pid)) continue;
+    if (!pidAlive(p.pid)) continue;
     try {
       process.kill(p.pid, "SIGKILL");
     } catch {

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { WINDOW_TITLE_MAX } from "@corvi/contracts/terminal";
 import { mergeRecords, parseRecords, type LiveWindow, type WindowRecord } from "../apps/server/src/terminals/server/registry.ts";
 
 /**
@@ -61,6 +62,18 @@ describe("window registry merge", () => {
     expect(again.find((entry) => entry.id === "a")?.active).toBe(false);
   });
 
+  test("keeps a user-given title across a rebuild and a live relabel", () => {
+    const previous = [record({ id: "a", label: "Action", title: "Build logs" })];
+    // The live backing speaks again (a relabelled action run); the name you gave is untouched.
+    const rebuilt = mergeRecords(previous, [
+      { id: "a", kind: "host", panes: ["a"], label: "Action (retry)", command: "gradle build" },
+    ]);
+    expect(rebuilt[0]?.title).toBe("Build logs");
+    expect(rebuilt[0]?.label).toBe("Action (retry)");
+    // A plain rebuild keeps it too: the registry, not the shell, remembers it.
+    expect(mergeRecords(rebuilt, [host("a")])[0]?.title).toBe("Build logs");
+  });
+
   test("an empty live set empties the registry", () => {
     expect(mergeRecords([record({ id: "a", active: true })], [])).toEqual([]);
   });
@@ -88,5 +101,16 @@ describe("registry records", () => {
       [],
     );
     expect(parseRecords("not an array")).toEqual([]);
+  });
+
+  test("keeps a title the way the writer stores it — trimmed and capped — and drops a blank one", () => {
+    const parse = (title: unknown): string | undefined =>
+      parseRecords([{ id: "a", panes: ["a"], title }])[0]?.title;
+    expect(parse("  Build logs  ")).toBe("Build logs");
+    // A hand-edited file cannot smuggle in a name the field does not offer.
+    expect(parse("x".repeat(WINDOW_TITLE_MAX + 10))).toBe("x".repeat(WINDOW_TITLE_MAX));
+    expect(parse("   ")).toBeUndefined();
+    expect(parse(7)).toBeUndefined();
+    expect(parse(undefined)).toBeUndefined();
   });
 });

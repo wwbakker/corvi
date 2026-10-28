@@ -135,9 +135,12 @@ Current fixtures live in `test/helpers.ts`:
 - Spawn a test server as Node plus `apps/server/src/server.ts` and `--corvi-test-run=${testRun()}`; preserve
   the ownership marker when the entrypoint moves. Normal app/dev servers have no test marker.
 
-Do not invent unrelated paths under the reserved `$TMPDIR/corvi-` prefix: only
-`bun run test:clean --prune --all` treats unowned entries there as leftovers; the default leaks
-them rather than guess whose they are.
+Do not invent unrelated paths under the reserved `corvi-` prefix in the test temp base (`/tmp` on
+macOS, `tmpdir()` elsewhere) or under `tmpdir()`: `scripts/clean-test.ts` sweeps both, so only
+`bun run test:clean --prune --all` treats unowned entries there as leftovers and the default leaks
+them rather than guess whose they are. New harness paths — anything that becomes a run directory,
+pid-file or lock — take `testTempBase()` from `scripts/test-temp.ts` rather than `tmpdir()`; the
+shorter base keeps the terminal host's unix socket inside `sun_path`.
 
 Inspect first, then clean only the known run:
 

@@ -666,6 +666,14 @@ body.drawer-open {
   -webkit-app-region: no-drag;
 }
 
+/* The chrome the strip's own popups add: a menu item is a button and escapes the drag area through
+   the header's rule already, but the menu's padding and the dialog's own surface would still drag
+   the window. */
+.hosted .window-menu,
+.hosted dialog.window-rename {
+  -webkit-app-region: no-drag;
+}
+
 .page h2 {
   margin: 0;
   font-size: 20px;
@@ -1032,15 +1040,20 @@ button.primary:not(:disabled) {
   border-top: 1px solid var(--line);
 }
 
-/* The row's identity — a repository, a branch, a window — reads whole; the detail beside it is
-   prose and wraps around it. Without this a long detail squeezes `corvi-shot-src` into
-   `corvi-\nshot-\nsrc`. */
+/* The row's identity — a repository, a branch, a window — is short and fits one line; the long
+   detail beside it absorbs the row's squeeze and wraps as it always did. A label that is prose,
+   though — a ticket or issue row's `KEY summary` — may shrink and break anywhere rather than
+   overflow the card and widen the page. */
 .item .label {
-  flex: none;
-  white-space: nowrap;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
+/* Its zero basis is what keeps a short identity label whole: the detail starts at nothing, grows
+   into the spare space and takes the shrinking, instead of sharing a deficit with the label. */
 .item .detail {
+  flex: 1 1 0;
   color: var(--muted);
 }
 
@@ -1890,8 +1903,11 @@ button.create:hover:not(:disabled) {
   height: 100%;
 }
 
-/* The page's own menu: positioned at the click, above xterm's layers. */
-.terminal-menu {
+/* The page's own menu: positioned at the click, above xterm's layers. The window tab's menu is the
+   same shape at the same layer; the strip scrolls, so that one is fixed to the viewport rather
+   than placed inside a tab. */
+.terminal-menu,
+.window-menu {
   position: fixed;
   z-index: 40;
   min-width: 160px;
@@ -1904,7 +1920,8 @@ button.create:hover:not(:disabled) {
   flex-direction: column;
 }
 
-.terminal-menu button {
+.terminal-menu button,
+.window-menu button {
   text-align: left;
   padding: 6px 10px;
   border: 0;
@@ -1915,12 +1932,19 @@ button.create:hover:not(:disabled) {
   cursor: default;
 }
 
-.terminal-menu button:hover:not(:disabled) {
+.terminal-menu button:hover:not(:disabled),
+.window-menu button:hover:not(:disabled) {
   background: var(--hover);
 }
 
-.terminal-menu button:disabled {
+.terminal-menu button:disabled,
+.window-menu button:disabled {
   color: color-mix(in srgb, var(--text) 40%, transparent);
+}
+
+/* Naming a window is one field: not the width of a commit or an override dialog. */
+dialog.window-rename {
+  width: min(360px, 90vw);
 }
 
 /* A hovered link's URL and the chord that opens it, in the sheet's surface language. The

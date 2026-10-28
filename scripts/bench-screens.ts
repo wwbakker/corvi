@@ -20,17 +20,19 @@
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RawData } from "ws";
+import { testTempBase } from "./test-temp.ts";
 
 const require = createRequire(import.meta.url);
 // `ws` is the server's own dependency; the benchmark speaks the same WebSocket to it and to the
 // inspector, so it uses the same client.
 const WebSocket = require("../apps/server/node_modules/ws/index.js") as typeof import("ws").default;
 
-/** A temp dir whose name says it is this benchmark's, so `clean-test` can sweep what it leaves. */
-const benchTempDir = (label: string): Promise<string> => mkdtemp(join(tmpdir(), `corvi-${label}-`));
+/** A temp dir whose name says it is this benchmark's, so `clean-test` can sweep what it leaves.
+ * Under the test temp base: its state holds the terminal host's unix socket, which must fit a
+ * `sun_path` (scripts/test-temp.ts). */
+const benchTempDir = (label: string): Promise<string> => mkdtemp(join(testTempBase(), `corvi-${label}-`));
 
 /** The environment a spawned server gets: isolated roots in the temp dir, a random port. */
 const serverEnv = (tmp: string, extra: Record<string, string> = {}): Record<string, string | undefined> => ({

@@ -1,8 +1,16 @@
+/** The longest name a window can be given. The wire schema, the registry's writer and reader, and
+ * the page's field all cap at it. */
+export const WINDOW_TITLE_MAX = 120;
+
 /** The raw facts about one window — synthesized from the host session that backs it — before
  * anyone says what to call it. */
 export type RawWindow = {
   index: number;
   name: string;
+  /** A name you gave the window from its tab. It replaces the label the presenters compose; the
+   * pane count of a split window still follows it. It belongs to the window, not to the shell in
+   * it. */
+  title?: string;
   /** What is running in the active pane: zsh, nvim, gradle, ... */
   command: string;
   active: boolean;
@@ -77,6 +85,9 @@ export type TerminalWindow = {
   id: string;
   /** What the navigation calls it. */
   label: string;
+  /** The name you gave it, when you gave one: the user's own name, without the pane count `label`
+   * may carry, and what a rename field starts from rather than the composed `label`. */
+  title?: string;
   /** The long form: what is running, and where. A tooltip or status bar reads this. */
   detail: string;
   /** Which glyph to draw; a name the page knows, unknown names fall back to the terminal. */

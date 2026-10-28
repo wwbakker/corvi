@@ -643,6 +643,7 @@ function App(): JSX.Element {
               setView({ name: "change", source: view.source, id: view.id, page: "terminals" });
             }}
             onMoveWindow={(from, to) => terminals.move(selectedSource, view.id, from, to)}
+            onRenameWindow={(windowId, title) => terminals.rename(selectedSource, view.id, windowId, title)}
             onChanged={reload}
           />
           </SourceContext.Provider>

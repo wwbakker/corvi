@@ -52,10 +52,12 @@ const merged = (raw: RawWindow): WindowPresentation =>
  * The first presenter that answers a field wins (registration order within an extension, load
  * order across them); what nobody answered, the core says:
  *
- * - the base name is the name you gave the window, or where it is; what runs in it says less
- *   than the directory does;
- * - the composed name appends what is running, unless it is a plain shell or already the
- *   whole label — so a prompt reads as a place, not a program;
+ * - the base name is where the window is, or the label an action gave it; what runs in it says
+ *   less than the directory does;
+ * - a name you gave replaces both and is not extended with what is running; a split window's pane
+ *   count still follows it;
+ * - the composed name appends what is running, unless it is a plain shell or already says it —
+ *   so a prompt reads as a place, not a program;
  * - busy is "not a shell" — the heuristic the overview's terminals fact uses, with an agent
  *   believed over its process name (an agent at its prompt is `node`).
  *
@@ -65,12 +67,16 @@ export const presentWindow = (raw: RawWindow): PresentedWindow => {
   const said = merged(raw);
   const base = raw.named ? raw.name : raw.directory || raw.name;
   const what = said.running ?? raw.command;
-  const label = said.label ?? (what && !SHELLS.includes(what) && what !== base ? `${base} - (${what})` : base);
+  const composed =
+    raw.title ?? said.label ?? (what && !SHELLS.includes(what) && what !== base ? `${base} - (${what})` : base);
   return {
     index: raw.index,
     id: raw.id,
-    // A split window is still one tab; the count says it holds more than one pane.
-    label: raw.panes.length > 1 ? `${label} (${raw.panes.length} panes)` : label,
+    // A name you gave replaces the presenters' label and the composed default; the pane count is
+    // a structural fact about the window, so it stays on either. `detail` still says what runs and
+    // where, and the presenters still answer the icon, state and note.
+    label: raw.panes.length > 1 ? `${composed} (${raw.panes.length} panes)` : composed,
+    ...(raw.title !== undefined ? { title: raw.title } : {}),
     detail: said.detail ?? `${raw.name} (${raw.command}) in ${raw.directory}`,
     icon: said.icon ?? "terminal",
     state: said.state ?? "idle",

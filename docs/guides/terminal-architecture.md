@@ -68,13 +68,15 @@ opaque to it and is how the server re-associates windows after a restart.
   offset, `seed(data, offset)` for a stored screen, and a 1 MiB serialization trim.
 - `registry.ts` + `windows.ts` — the persisted registry (`stateDir()/terminal-windows.json`): a
   **window** is an opaque id holding an ordered list of **panes** (host session ids) and an active
-  pane, plus a label, the active flag, order and activity. `rebuild` merges the live host sessions
-  into the saved records — it adopts a live pane whose metadata names an existing window (a split
-  that crashed before its record was saved), and a pane the user closed is tombstoned so a pty that
-  outlives the kill cannot resurrect the window. A restart keeps labels and order;
-  `new`/`select`/`move` and `split`/`close-pane`/`focus-pane` mutate it, and opening a pane creates
-  its screen. This is what the tab strip and navigation read; the page still renders one pane per
-  window until 5b composes the grid.
+  pane, plus a label, a user-given title, the active flag, order and activity. `label` marks a window
+  as an action run (`@corvi_action` publishes it); `title` is the name the user gave from the tab,
+  deliberately separate so a named shell is still an idle shell. `rebuild` merges the live host
+  sessions into the saved records — it adopts a live pane whose metadata names an existing window (a
+  split that crashed before its record was saved), and a pane the user closed is tombstoned so a pty
+  that outlives the kill cannot resurrect the window. A restart keeps labels, titles and order;
+  `new`/`select`/`move`/`rename` and `split`/`close-pane`/`focus-pane` mutate it, and opening a pane
+  creates its screen. This is what the tab strip and navigation read; the page still renders one
+  pane per window until 5b composes the grid.
 - `snapshots.ts` — the persisted server screens, keyed by `(sessionId, incarnation)`, 1 MiB each,
   loaded on start and pruned to live + kept incarnations.
 - `status.ts` — the agent-status store: `working`/`waiting`/`clear`, validated, incarnation-keyed,
@@ -82,7 +84,7 @@ opaque to it and is how the server re-associates windows after a restart.
 - `action-sessions.ts` — host-backed action delivery (open a window running a command, bracketed
   paste, submit).
 - `presenter.ts` — merges registry windows + status into the `PresentedWindow` shape, using the
-  real agent/command presenters.
+  real agent/command presenters; a user-given title is the label those presenters do not override.
 
 ## Routes — `apps/server/src/terminals/routes.ts`
 
@@ -90,7 +92,7 @@ opaque to it and is how the server re-associates windows after a restart.
   the pane session to attach; absent means the active window's active pane.
 - `GET /api/changes/:id/terminal` — the socket URL and why a terminal cannot start.
 - `GET /api/changes/:id/terminal/windows`, `POST` actions `new`/`select`/`move`/`split`/`close-pane`/
-  `focus-pane`, `GET /api/terminals`.
+  `focus-pane`/`rename`, `GET /api/terminals`.
 - `POST /api/terminals/status` — the agent-status channel.
 
 ## The page — `apps/web/src/terminals/client/`

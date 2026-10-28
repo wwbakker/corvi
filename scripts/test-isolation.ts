@@ -19,8 +19,8 @@
  * in a production or dev start-up loads this file.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { testTempBase } from "./test-temp.ts";
 
 /** The names whose "else" case is a real directory in someone's home — exactly what the
  * `bun run test` wrapper exports, and nothing more: tests pin behaviour that depends on the
@@ -40,7 +40,7 @@ if (missing) {
   // the same one. A token from the wrapper means this block did not run at all.
   process.env.CORVI_TEST_RUN ??= `${Date.now().toString(36)}.${process.pid.toString(36)}`;
   const token: string = process.env.CORVI_TEST_RUN;
-  const root = mkdtempSync(join(tmpdir(), `corvi-${token}-iso-`));
+  const root = mkdtempSync(join(testTempBase(), `corvi-${token}-iso-`));
   mkdirSync(join(root, "actions"), { recursive: true });
 
   const isolated = (name: string, value: string): void => {
@@ -54,8 +54,9 @@ if (missing) {
   // where every test starts.
   writeFileSync(join(root, "config.json"), "{}");
 
-  // A run that ends cleanly leaves nothing to sweep. One that dies keeps a token-named root for
-  // `test:clean --prune`, exactly like the wrapper's own temp dirs.
+  // Under `bun test` this handler does not run, so the root usually stays after a clean file too.
+  // That is fine: its name carries the run token, so `test:clean --prune --run=<token>` (or
+  // `--all`) takes it — the root is attributable, not anonymous.
   process.on("exit", () => {
     try {
       rmSync(root, { recursive: true, force: true });

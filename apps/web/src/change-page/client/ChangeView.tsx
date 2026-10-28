@@ -58,6 +58,7 @@ export function ChangeView({
   onFocusPane,
   onNewWindow,
   onMoveWindow,
+  onRenameWindow,
   onOpenPage,
   onChanged,
 }: {
@@ -94,6 +95,8 @@ export function ChangeView({
   onNewWindow: () => void;
   /** A dragged tab landed: the window at `from` takes the place of the one at `to`. */
   onMoveWindow: (from: number, to: number) => void;
+  /** Name a window from its tab's menu, or clear the name (blank) back to the default. */
+  onRenameWindow: (windowId: string, title: string) => void;
   /** Switching between the change's own pages, which are tabs rather than navigation: they are
    * views of the same change, not separate places. */
   onOpenPage: (page: Page) => void;
@@ -385,6 +388,12 @@ export function ChangeView({
         onSelectWindow={onSelectWindow}
         onNewWindow={onNewWindow}
         onMoveWindow={onMoveWindow}
+        onRenameWindow={onRenameWindow}
+        onRenameClosed={() => {
+          // The dialog held the keyboard; once it has closed the terminal takes it back. The pane's
+          // refocus only runs while it is visible, so the dashboard is unaffected.
+          setFocusRequest((n) => n + 1);
+        }}
         onOpenOverview={() => onOpenPage(lastViewOf(key))}
       />
       <span className="spacer" />

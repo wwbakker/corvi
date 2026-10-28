@@ -77,7 +77,7 @@ workspace's `settings`, where it overrides the global one key by key. The settin
   leaves new plans empty.
 - `notificationSound`: whether a notification plays the system sound. Absent means yes.
 - `contextMenu`: whether right-clicking shows the browser's own menu. Absent means yes. The
-  terminal's own menu follows this setting too.
+  terminal's own menu and a window tab's menu follow this setting too.
 - `extensions`: which of the included integrations exist in this scope. Absent means all of
   them; an empty list means none. See [integrations](integrations.md).
 - `extensionSettings`: the settings the extensions declare, under their own name.

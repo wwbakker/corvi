@@ -24,9 +24,10 @@
  * Discovery and classification are pure functions shared with test/test-run.test.ts, so the rule
  * has one home and the test pins the partition rather than restating it.
  */
-import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
+import { claimRunPidFile } from "./clean-test.ts";
+import { testTempBase } from "./test-temp.ts";
 
 export type Mode = "all" | "unit" | "e2e" | "e2e-terminal" | "e2e-rest";
 export type Group = "unit" | "e2e-terminal" | "e2e-rest";
@@ -317,8 +318,13 @@ const main = async (): Promise<number> => {
 
   const token = process.env.CORVI_TEST_RUN || `${Math.floor(Date.now() / 1000)}.${process.pid}`;
   process.env.CORVI_TEST_RUN = token;
-  const tmp = tmpdir();
-  writeFileSync(join(tmp, `corvi-${token}.pid`), String(process.pid));
+  const tmp = testTempBase();
+  // Claimed through the shared rule (scripts/clean-test.ts): a stale file naming a dead pid is
+  // taken over — a caller may export a token a crashed run used — while a live run's file and any
+  // symlink planted in the shared temp base are left alone. Left alone, the run simply has no
+  // pid-file of its own (stale or foreign), which only weakens the default purge's liveness guess;
+  // `--run=<token>` is exact and never consults it.
+  claimRunPidFile(tmp, token, process.pid);
   const root = mkdtempSync(join(tmp, `corvi-${token}-root-`));
   process.env.CORVI_ROOT = root;
   process.env.CORVI_ARCHIVE_ROOT = `${root}-archive`;

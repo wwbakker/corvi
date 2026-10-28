@@ -1,15 +1,22 @@
 import { test, expect } from "bun:test";
-import { readdir } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { closeSync, constants, lstatSync, mkdirSync, openSync, readFileSync, readSync, symlinkSync, writeFileSync } from "node:fs";
+import { readdir, rm } from "node:fs/promises";
+import { join } from "node:path";
 import {
+  claimRunPidFile,
   coversRun,
   coversUnnamed,
   isRunToken,
   isTestCommand,
   mayRemovePaths,
+  pidAlive,
+  runPidPath,
   tokenFromPath,
   tokenFromPidFile,
   tokenOf,
 } from "../scripts/clean-test.ts";
+import { testTempDir } from "./helpers.ts";
 
 /**
  * `bun run test:clean` decides by command line and path alone, because that is all a process
@@ -108,5 +115,71 @@ test("every test that starts a server marks it for the cleaner", async () => {
     const spawns = text.match(/\["(?:node|bun)", "src\/server\.ts"/g)?.length ?? 0;
     if (spawns === 0) continue;
     expect(text.match(/--corvi-test-run/g)?.length ?? 0).toBeGreaterThanOrEqual(spawns);
+  }
+});
+
+/** A pid no process holds: past the range this system assigns, and checked rather than assumed. */
+const deadPid = (): number => {
+  for (let pid = 999_999; pid > 999_000; pid--) if (!pidAlive(pid)) return pid;
+  throw new Error("no dead pid to test with");
+};
+
+test("a run's pid-file is claimed only when its pid is dead, and never written through", async () => {
+  const dir = await testTempDir("clean-pid");
+  try {
+    // A live run's file stands: the wrapper's pid is left in place for a second claimant.
+    const live = runPidPath(dir, "live.1");
+    writeFileSync(live, String(process.pid));
+    claimRunPidFile(dir, "live.1", process.pid + 1);
+    expect(readFileSync(live, "utf8")).toBe(String(process.pid));
+
+    // A crashed run's file, naming a dead pid, is taken over — otherwise the default purge reads
+    // the live run as gone and ends its servers.
+    const stale = runPidPath(dir, "stale.2");
+    writeFileSync(stale, String(deadPid()));
+    claimRunPidFile(dir, "stale.2", process.pid);
+    expect(readFileSync(stale, "utf8")).toBe(String(process.pid));
+    expect(lstatSync(stale).isFile()).toBe(true);
+
+    // A link planted in the shared temp base is never written through: the target keeps its
+    // content, and the link is left alone (or replaced by a regular file naming this run).
+    const target = join(dir, "planted.txt");
+    writeFileSync(target, "untouched");
+    const linked = runPidPath(dir, "linked.3");
+    symlinkSync(target, linked);
+    claimRunPidFile(dir, "linked.3", process.pid);
+    expect(readFileSync(target, "utf8")).toBe("untouched");
+    const after = lstatSync(linked);
+    if (after.isFile()) expect(readFileSync(linked, "utf8")).toBe(String(process.pid));
+    else expect(after.isSymbolicLink()).toBe(true);
+
+    // Anything that is not a file is left as it was rather than fought over.
+    const blocked = runPidPath(dir, "dir.4");
+    mkdirSync(blocked);
+    claimRunPidFile(dir, "dir.4", process.pid);
+    expect(lstatSync(blocked).isDirectory()).toBe(true);
+
+    // A fifo at the path: the claim returns without blocking (a plain O_RDONLY open would wait for
+    // a writer), the fifo stays a fifo, and nothing was written into it.
+    const fifo = runPidPath(dir, "fifo.5");
+    execFileSync("mkfifo", [fifo]);
+    claimRunPidFile(dir, "fifo.5", process.pid);
+    expect(lstatSync(fifo).isFIFO()).toBe(true);
+    const probe = openSync(fifo, constants.O_RDONLY | constants.O_NONBLOCK);
+    try {
+      const chunk = Buffer.alloc(32);
+      let read = 0;
+      try {
+        read = readSync(probe, chunk);
+      } catch (error) {
+        // No writer yet: a non-blocking read with nothing to give.
+        expect((error as NodeJS.ErrnoException).code).toBe("EAGAIN");
+      }
+      expect(read).toBe(0);
+    } finally {
+      closeSync(probe);
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 });
