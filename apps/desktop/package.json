@@ -12,7 +12,7 @@
     "@corvi/configuration": "workspace:*",
     "@corvi/web": "workspace:*",
     "@electron/packager": "20.3.0",
-    "electron": "44.3.0",
+    "electron": "44.9.1",
     "esbuild": "^0.28.2"
   }
 }
