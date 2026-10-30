@@ -1,4 +1,4 @@
-import { afterAll, afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
@@ -117,6 +117,13 @@ const gapWindow = async (changeId: string): Promise<{ readonly id: string; reado
   clearSnapshots();
   return opened;
 };
+
+// The counters and hub list below are process-wide: a file that ran before this one in the same
+// process (CI runs them serially) may have left a warm screen, so start from none.
+beforeAll(() => {
+  closeAttachments();
+  clearSnapshots();
+});
 
 afterEach(() => {
   closeAttachments();
