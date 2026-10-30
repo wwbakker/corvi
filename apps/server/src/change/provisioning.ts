@@ -210,9 +210,9 @@ const runCheckouts = (
 
 /**
  * Apply a new checkout list in one go: everything added gets its checkout, everything dropped
- * loses one. Nothing is destroyed without a word: uncommitted work in a worktree that would be
- * removed is the one refusal — that work would be lost — and every other removal is a question
- * the caller confirms or abandons.
+ * loses one. Nothing is destroyed without a word: changed tracked files in a worktree that would
+ * be removed are the one refusal — that work would be lost — and every other removal is a
+ * question the caller confirms or abandons.
  *
  * The list may be emptied. A change with no repositories is not much of a change, but it is a
  * step on the way to one: taking a repository out and putting it back is how you get a fresh
@@ -227,7 +227,11 @@ export type SetReposResult =
       readonly provision: readonly ProvisionResult[]
       readonly refresh: readonly RefreshOutcome[]
     }
-  | { readonly _tag: "NeedsForce"; readonly needsForce: string[] };
+  | { readonly _tag: "NeedsForce"; readonly needsForce: string[]; readonly reasons: ForceReason[] };
+
+/** One thing a removal would throw away, said about the repository it is in: what a force
+ * question shows, so the user sees the files and commits rather than only a name. */
+export type ForceReason = { readonly repository: string; readonly text: string };
 
 // Pure and synchronous: nothing for an Effect to wrap.
 const sameSpec = (a: CheckoutSpec, b: CheckoutSpec): boolean =>
@@ -285,22 +289,28 @@ export const setRepos = (
 
     // What leaving behind is worth asking about. A worktree goes, its branch stays unless its
     // work is proven landed; a checkout used where it is is left exactly as it stands. So the
-    // question is the same for both — the only refusal is destroying uncommitted work.
-    const questions: string[] = [];
+    // question is the same for both — the only refusal is destroying changes to tracked files.
+    // Untracked files are asked about: they are mostly what a local run leaves behind.
+    const questions: ForceReason[] = [];
     const lost: string[] = [];
     for (const spec of teardown) {
       const unsafe = yield* unsafeToRemove(change, spec.path);
       if (!unsafe) continue;
-      if (unsafe.kind === "dirty" && spec.location === "new") lost.push(basename(spec.path));
-      else questions.push(basename(spec.path));
+      if (unsafe.kind === "dirty" && spec.location === "new")
+        lost.push(`${basename(spec.path)}: ${unsafe.text}`);
+      else questions.push({ repository: basename(spec.path), text: unsafe.text });
     }
     if (lost.length) {
       return yield* new BadRequestError({
-        message: `${lost.join(", ")}: uncommitted changes, revert or commit them first`,
+        message: `${lost.join("; ")} — revert or commit them first`,
       });
     }
     if (questions.length && !force) {
-      return { _tag: "NeedsForce", needsForce: questions } satisfies SetReposResult;
+      return {
+        _tag: "NeedsForce",
+        needsForce: questions.map((question) => question.repository),
+        reasons: questions,
+      } satisfies SetReposResult;
     }
 
     // Teardown, record write and the checkout run are one per-change critical section: a

@@ -21,7 +21,7 @@ import { CheatSheet } from "../../terminals/client/CheatSheet.tsx";
 import type { Platform } from "@corvi/terminals/model";
 import { CompleteAnywayDialog } from "./CompleteAnywayDialog.tsx";
 import { CancelDialog } from "./CancelDialog.tsx";
-import { cancelNeedsForce, completionRefusal } from "./refusals.ts";
+import { forceQuestion, completionRefusal } from "./refusals.ts";
 import { WindowTabs } from "../../terminals/client/WindowTabs.tsx";
 import type { Page } from "../../app-root/Sidebar.tsx";
 import { changeNav, resolveChangePage, type ChangeTabInfo } from "./changeTabs.ts";
@@ -269,17 +269,16 @@ export function ChangeView({
       .finally(() => setStarting(false));
   };
 
-  // The cancel dialog's state: null when closed, otherwise the unpushed-commits warning —
-  // empty until the server names the repositories, one acknowledge like the completion
-  // dialog's per-reason ones.
+  // The cancel dialog's state: null when closed, otherwise what would be discarded — empty
+  // until the server names it, one acknowledge like the completion dialog's per-reason ones.
   const [cancelWarning, setCancelWarning] = useState<string[] | null>(null);
   const [cancelAcked, setCancelAcked] = useState(false);
 
   /**
    * Abandon the change: the worktrees and the terminal go, and everything anyone else can see —
    * branches, pull requests, the ticket — is left alone and listed back to you. The first
-   * click opens the dialog; confirming there runs it, and a 409 naming unpushed commits
-   * fills in the warning instead of a `window.confirm`.
+   * click opens the dialog; confirming there runs it, and a 409 naming untracked files or
+   * unpushed commits fills in the warning instead of a `window.confirm`.
    */
   const cancel = (force = false): void => {
     if (!force && cancelWarning === null) {
@@ -300,9 +299,9 @@ export function ChangeView({
         if (loose.length) setNotice(`Cancelled. Still open: ${loose.join("; ")}`);
       })
       .catch((e: unknown) => {
-        const needsForce = cancelNeedsForce(e);
-        // Commits nobody else has. The branch survives, so this is recoverable — by someone who
-        // knows the branch is there, which is worth one question, asked in the dialog.
+        const needsForce = forceQuestion(e);
+        // Untracked files, or commits nobody else has: worth one question, asked in the dialog,
+        // naming what goes.
         if (needsForce) {
           setCancelWarning(needsForce);
           setCancelAcked(false);
@@ -461,7 +460,7 @@ export function ChangeView({
         <CancelDialog
           changeId={id}
           idea={idea}
-          needsForce={cancelWarning}
+          reasons={cancelWarning}
           acked={cancelAcked}
           busy={cancelling}
           onAck={setCancelAcked}

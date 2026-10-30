@@ -357,7 +357,14 @@ test("a dead kept-open hub persists on exit and seeds on restore", async () => {
   const session = await openSession(change, dir, { cols: 100, rows: 30 }, id);
   const ws = fakeSocket(session);
   terminalSockets.open(ws);
-  await waitFor("the snapshot", async () => control(ws.frames).some((frame) => frame.type === "snapshot"), 15_000);
+  // Served: a snapshot, or a reset when the shell has not printed the marker yet — the window was
+  // opened a moment ago, and a slower shell start (macOS) loses that race. Either way the warm
+  // screen captures the marker, which is what the store must keep.
+  await waitFor(
+    "the first serve",
+    async () => control(ws.frames).some((frame) => frame.type === "snapshot" || frame.type === "reset"),
+    15_000,
+  );
 
   // The session exits: its final screen is written to the store even though the window is kept open.
   await waitFor(

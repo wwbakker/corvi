@@ -15,7 +15,7 @@ import { InstanceRecordSchema } from "@corvi/contracts/instance";
 import { ClientError } from "@corvi/client";
 import { Schema } from "effect";
 
-import { run, COMMANDS, GROUP_HELP, needsChange, repositoryForceRefusal, type Io } from "../apps/cli/src/main.ts";
+import { run, COMMANDS, GROUP_HELP, needsChange, forceRefusal, type Io } from "../apps/cli/src/main.ts";
 import { parseArgs } from "../apps/cli/src/args.ts";
 import { EXIT } from "../apps/cli/src/errors.ts";
 import { changeIdFromDirectory, changeIdIn, resolveChangeId } from "../apps/cli/src/change-context.ts";
@@ -404,11 +404,11 @@ test("needsChange is false for the change-less commands", () => {
   expect(needsChange(["change", "show"])).toBe(true);
 });
 
-test("a repository 409 is rewritten only when it carries a force question", () => {
+test("a 409 is rewritten only when it carries a force question", () => {
   // A too-new record's write conflict has no `needsForce`: the server's message and status must
   // pass through, not become a `--force` sentence. `undefined` is what lets `report` do that.
   expect(
-    repositoryForceRefusal(
+    forceRefusal(
       new ClientError({
         status: 409,
         message: "written by a newer version of Corvi — upgrade to edit it",
@@ -416,20 +416,38 @@ test("a repository 409 is rewritten only when it carries a force question", () =
     ),
   ).toBeUndefined();
   expect(
-    repositoryForceRefusal(
+    forceRefusal(
       new ClientError({ status: 409, message: "Conflict", body: { needsForce: [] } }),
     ),
   ).toBeUndefined();
 
   // A genuine force question names the checkouts and says `--force`; add can ask too.
-  const refusal = repositoryForceRefusal(
+  const refusal = forceRefusal(
     new ClientError({ status: 409, message: "Conflict", body: { needsForce: ["repo-two", "repo-three"] } }),
   );
   expect(refusal?.exitCode).toBe(EXIT.refused);
   expect(refusal?.message).toContain("repo-two, repo-three");
   expect(refusal?.message).toContain("--force");
   // A non-409 is not a force question either.
-  expect(repositoryForceRefusal(new ClientError({ status: 500, message: "boom" }))).toBeUndefined();
+  expect(forceRefusal(new ClientError({ status: 500, message: "boom" }))).toBeUndefined();
+});
+
+test("a force question says what would be discarded and how to go ahead", () => {
+  const refusal = forceRefusal(
+    new ClientError({
+      status: 409,
+      message: "Conflict",
+      body: {
+        needsForce: ["easy-bill-misc"],
+        reasons: [{ repository: "easy-bill-misc", text: "untracked files: tests/__pycache__/" }],
+      },
+    }),
+  );
+  expect(refusal?.exitCode).toBe(EXIT.refused);
+  expect(refusal?.message).toBe(
+    "easy-bill-misc: untracked files: tests/__pycache__/ — rerun with --force to discard it",
+  );
+  expect(forceRefusal(new ClientError({ status: 400, message: "already cancelled" }))).toBeUndefined();
 });
 
 test("change create validates before discovery: usage 2 beats an unreachable server, 3 is no server", async () => {

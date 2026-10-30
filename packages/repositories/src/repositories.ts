@@ -33,7 +33,7 @@ export class NotARepository extends Schema.TaggedError<NotARepository>()("NotARe
 
 /** One thing a removal would destroy, and the facts it was observed from. */
 export type RemovalReason = {
-  readonly code: "dirty-worktree" | "unpushed"
+  readonly code: "dirty-worktree" | "untracked" | "unpushed"
   readonly kind: "hard" | "forceable"
   readonly text: string
   readonly facts: string
@@ -136,8 +136,9 @@ export interface Interface {
     readonly worktree: AbsolutePath
     readonly force: boolean
   }) => Effect.Effect<void, NotARepository | CheckoutError>
-  /** Whether removing this checkout would destroy anything: uncommitted work refuses outright;
-   * commits the base cannot prove it has are acknowledged first. */
+  /** Whether removing this checkout would destroy anything: uncommitted changes to tracked files
+   * refuse outright; untracked files, and commits the base cannot prove it has, are acknowledged
+   * first. */
   readonly assessRemoval: (input: {
     readonly worktree: AbsolutePath
     /** The branch the change put there; absent for a detached checkout. */
@@ -175,6 +176,14 @@ export interface Interface {
 }
 
 export class Repositories extends Context.Service<Repositories, Interface>()("corvi/Repositories") {}
+
+/** A path list short enough for one line: the first few, then how many more. */
+const pathList = (paths: readonly string[]): string => {
+  const shown = paths.slice(0, 3).join(", ")
+  return paths.length > 3 ? `${shown} and ${paths.length - 3} more` : shown
+}
+
+const isClean = (tree: Git.WorkingTree): boolean => tree.tracked.length === 0 && tree.untracked.length === 0
 
 export const layer = Layer.effect(
   Repositories,
@@ -284,7 +293,7 @@ export const layer = Layer.effect(
 
     const workingTreeDirty = Effect.fn("Repositories.workingTreeDirty")(function* (directory: AbsolutePath) {
       const repository = yield* discover(directory, "inspect")
-      return yield* inspect(git.status.dirty(repository), directory)
+      return !isClean(yield* inspect(git.status.workingTree(repository), directory))
     })
 
     const pullFastForward = Effect.fn("Repositories.pullFastForward")(function* (directory: AbsolutePath) {
@@ -356,7 +365,10 @@ export const layer = Layer.effect(
           .isAncestor(repository, { ancestor: before ?? "", descendant: input.to })
           .pipe(Effect.catch(() => Effect.succeed(false)))
         const dirty = possible
-          ? yield* git.status.dirty(repository).pipe(Effect.catch(() => Effect.succeed(false)))
+          ? yield* git.status.workingTree(repository).pipe(
+              Effect.map((tree) => !isClean(tree)),
+              Effect.catch(() => Effect.succeed(false)),
+            )
           : false
         if (possible && !dirty)
           return yield* new CheckoutError({
@@ -414,41 +426,78 @@ export const layer = Layer.effect(
     }) {
       const repository = yield* discover(input.worktree, "inspect")
       const head = yield* inspect(git.history.head(repository), input.worktree)
-      const dirty = yield* inspect(git.status.dirty(repository), input.worktree)
-      if (dirty)
+      const tree = yield* inspect(git.status.workingTree(repository), input.worktree)
+      if (tree.tracked.length > 0)
         return {
           _tag: "Unsafe",
           reasons: [
             {
               code: "dirty-worktree",
               kind: "hard",
-              text: "uncommitted changes",
+              text: `uncommitted changes: ${pathList(tree.tracked)}`,
               facts: `dirty:${head ?? "unborn"}`,
             },
           ],
         } satisfies RemovalAssessment
+      // Untracked files are often what a local run leaves behind; the user may discard them, and
+      // the acknowledgement names the exact list, so a file that appears afterwards asks again.
+      const untracked: readonly RemovalReason[] =
+        tree.untracked.length > 0
+          ? [
+              {
+                code: "untracked",
+                kind: "forceable",
+                text: `untracked files: ${pathList(tree.untracked)}`,
+                facts: `untracked:${head ?? "unborn"}:${[...tree.untracked].sort().join("\0")}`,
+              },
+            ]
+          : []
+      const withUntracked = (assessment: RemovalAssessment): RemovalAssessment => {
+        if (untracked.length === 0) return assessment
+        return assessment._tag === "Safe"
+          ? { _tag: "NeedsAcknowledgement", reasons: untracked }
+          : assessment._tag === "NeedsAcknowledgement"
+            ? { _tag: "NeedsAcknowledgement", reasons: [...untracked, ...assessment.reasons] }
+            : assessment
+      }
 
-      const base = yield* inspect(git.history.defaultRemoteBranch(repository), input.worktree)
-      const proven = (branch: string): Effect.Effect<boolean, CheckoutError> =>
-        base
-          ? inspect(git.integration.proven(repository, { branch, base }), input.worktree)
-          : Effect.succeed(false)
+      const commits: Effect.Effect<RemovalAssessment, CheckoutError> = Effect.gen(function* () {
+        // Where merges land: the remote's default branch, or a local main/master without a remote.
+        const base = yield* inspect(git.history.defaultBranch(repository), input.worktree)
+        const proven = (branch: string): Effect.Effect<boolean, CheckoutError> =>
+          base
+            ? inspect(git.integration.proven(repository, { branch, base }), input.worktree)
+            : Effect.succeed(false)
 
-      if (!input.branch)
-        return {
-          _tag: "NeedsAcknowledgement",
-          reasons: [
-            {
-              code: "unpushed",
-              kind: "forceable",
-              text: "a detached checkout",
-              facts: `detached:${head ?? "unborn"}`,
-            },
-          ],
-        } satisfies RemovalAssessment
+        if (!input.branch)
+          return {
+            _tag: "NeedsAcknowledgement",
+            reasons: [
+              {
+                code: "unpushed",
+                kind: "forceable",
+                text: "a detached checkout",
+                facts: `detached:${head ?? "unborn"}`,
+              },
+            ],
+          } satisfies RemovalAssessment
 
-      const upstream = yield* inspect(git.history.upstream(repository), input.worktree)
-      if (upstream._tag === "Counted" && upstream.ahead > 0) {
+        const upstream = yield* inspect(git.history.upstream(repository), input.worktree)
+        if (upstream._tag === "Counted" && upstream.ahead > 0) {
+          if (yield* proven(input.branch)) return { _tag: "Safe" } satisfies RemovalAssessment
+          return {
+            _tag: "NeedsAcknowledgement",
+            reasons: [
+              {
+                code: "unpushed",
+                kind: "forceable",
+                text: `${upstream.ahead} unpushed commit(s)`,
+                facts: `unpushed:${head ?? "unborn"}:${upstream.ahead}`,
+              },
+            ],
+          } satisfies RemovalAssessment
+        }
+        if (upstream._tag === "Counted") return { _tag: "Safe" } satisfies RemovalAssessment
         if (yield* proven(input.branch)) return { _tag: "Safe" } satisfies RemovalAssessment
         return {
           _tag: "NeedsAcknowledgement",
@@ -456,28 +505,16 @@ export const layer = Layer.effect(
             {
               code: "unpushed",
               kind: "forceable",
-              text: `${upstream.ahead} unpushed commit(s)`,
-              facts: `unpushed:${head ?? "unborn"}:${upstream.ahead}`,
+              text:
+                upstream._tag === "Unavailable"
+                  ? "the upstream comparison is unavailable"
+                  : "commits that were never pushed",
+              facts: `unpushed:${head ?? "unborn"}:none`,
             },
           ],
         } satisfies RemovalAssessment
-      }
-      if (upstream._tag === "Counted") return { _tag: "Safe" } satisfies RemovalAssessment
-      if (yield* proven(input.branch)) return { _tag: "Safe" } satisfies RemovalAssessment
-      return {
-        _tag: "NeedsAcknowledgement",
-        reasons: [
-          {
-            code: "unpushed",
-            kind: "forceable",
-            text:
-              upstream._tag === "Unavailable"
-                ? "the upstream comparison is unavailable"
-                : "commits that were never pushed",
-            facts: `unpushed:${head ?? "unborn"}:none`,
-          },
-        ],
-      } satisfies RemovalAssessment
+      })
+      return withUntracked(yield* commits)
     })
 
     const removeBranchIfIntegrated = Effect.fn("Repositories.removeBranchIfIntegrated")(function* (input: {
@@ -487,7 +524,7 @@ export const layer = Layer.effect(
       const repository = yield* discover(input.repository, "remove-worktree")
       const exists = (): Effect.Effect<boolean, CheckoutError> =>
         inspect(git.history.branchExists(repository, input.branch), input.repository)
-      const base = yield* inspect(git.history.defaultRemoteBranch(repository), input.repository)
+      const base = yield* inspect(git.history.defaultBranch(repository), input.repository)
       const integrated = base
         ? yield* inspect(git.integration.proven(repository, { branch: input.branch, base }), input.repository)
         : false
@@ -566,7 +603,8 @@ export const layer = Layer.effect(
       const branch = selected?.branch ?? input.branch
       const current = yield* inspect(git.history.branch(repository), input.source)
       if (current === branch) return "already" as const
-      if (yield* inspect(git.status.dirty(repository), input.source)) return "skipped-dirty" as const
+      if (!isClean(yield* inspect(git.status.workingTree(repository), input.source)))
+        return "skipped-dirty" as const
       if (!input.createMissing) {
         // Attach the resolved local name; an explicit remote ref is not a switchable branch.
         const local = yield* inspect(git.history.branchExists(repository, branch), input.source)

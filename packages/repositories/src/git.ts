@@ -47,6 +47,14 @@ export type ExistingBranch = {
   readonly remote?: string
 }
 
+/** What `git status` lists, by path. `tracked` holds staged, modified, deleted, renamed, and
+ * conflicted entries; `untracked` holds new files, a wholly untracked directory as one entry
+ * ending in `/`. Ignored files are in neither. */
+export type WorkingTree = {
+  readonly tracked: readonly string[]
+  readonly untracked: readonly string[]
+}
+
 /** One commit an upstream has that the checkout does not, as a list reads it. */
 export type IncomingCommit = {
   readonly sha: string
@@ -100,12 +108,12 @@ export interface Interface {
     readonly defaultBranch: (repository: Repository) => Effect.Effect<string | undefined, OperationError>
   }
   readonly status: {
-    /** Whether the working tree holds staged, modified, untracked, or conflicted entries. */
-    readonly dirty: (repository: Repository) => Effect.Effect<boolean, OperationError>
+    readonly workingTree: (repository: Repository) => Effect.Effect<WorkingTree, OperationError>
   }
   readonly integration: {
     /** Conservative proof that `branch`'s content is in `base`: ancestry, then patch
-     * equivalence. Anything else is false; a failed lookup is not a proof. */
+     * equivalence, then a simulated merge that changes nothing (what a squash merge of several
+     * commits leaves). Anything else is false; a failed lookup is not a proof. */
     readonly proven: (
       repository: Repository,
       input: { readonly branch: string; readonly base: string },

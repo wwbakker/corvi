@@ -11,7 +11,8 @@
  * Any further arguments go to `bun test` (`--retry=2`, a file filter, …).
  *
  * A named mode whose group matched no test files exits 3 with a message on stderr; it never falls
- * through to `bun test` with an empty argument list, which would run the whole suite instead.
+ * through to `bun test` with an empty argument list, which would run the whole suite instead. A
+ * Bun older than package.json's `engines.bun` exits 4 before anything runs.
  *
  * The terminal group is a naming convention, not a semantic one: browser files that merely drive
  * terminal UI stay in the rest group.
@@ -126,6 +127,18 @@ export const filesForMode = (mode: Mode, groups: Groups): readonly string[] => {
       return groups.e2eRest;
   }
 };
+
+/** Why this Bun cannot run the suite, or undefined when it can. `engines.bun` in package.json is
+ * the oldest Bun the suite is known to pass on — CI installs the newest that satisfies it — and an
+ * older one fails tests for reasons of its own (its `ws` and `node:http` shims), which would read
+ * as Corvi's failures. */
+export const bunVersionProblem = (version: string, range: string | undefined): string | undefined =>
+  range === undefined || Bun.semver.satisfies(version, range)
+    ? undefined
+    : `bun ${version} does not satisfy package.json engines.bun (${range}): run \`bun upgrade\``;
+
+const requiredBun = (): string | undefined =>
+  (JSON.parse(readFileSync("package.json", "utf8")) as { engines?: { bun?: string } }).engines?.bun;
 
 const USAGE =
   "usage: scripts/test-run.ts [all|unit|e2e|e2e-terminal|e2e-rest] [bun test arguments...]";
@@ -311,6 +324,11 @@ const main = async (): Promise<number> => {
   if (!isMode(mode)) {
     console.error(USAGE);
     return 2;
+  }
+  const bunProblem = bunVersionProblem(Bun.version, requiredBun());
+  if (bunProblem !== undefined) {
+    console.error(`scripts/test-run.ts: ${bunProblem}`);
+    return 4;
   }
   const passthrough = args.slice(1);
 

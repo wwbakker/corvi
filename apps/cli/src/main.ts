@@ -292,7 +292,11 @@ const changeCommand = async (
     }
     case "cancel": {
       const id = requireChange(changeId);
-      const cancelled = await client.changes.cancel(id, boolFlag(args, "force") ? { force: true } : undefined);
+      const cancelled = await client.changes
+        .cancel(id, boolFlag(args, "force") ? { force: true } : undefined)
+        .catch((error: unknown) => {
+          throw forceRefusal(error) ?? error;
+        });
       emit(io, json, { value: cancelled, human: () => `cancelled ${id}` });
       return;
     }
@@ -357,9 +361,9 @@ const changeCommand = async (
         .setRepositories(id, { checkouts: specs, force: boolFlag(args, "force") })
         .catch((error: unknown) => {
           // A 409 with `needsForce` is the server asking about work an edit would discard; its
-          // body names the repositories. Without one — a version/format conflict — the server's
-          // own message is the right answer, so rethrow it untouched.
-          throw repositoryForceRefusal(error) ?? error;
+          // body names the repositories and what each holds. Without one — a version/format
+          // conflict — the server's own message is the right answer, so rethrow it untouched.
+          throw forceRefusal(error) ?? error;
         });
       emit(io, json, {
         value: result,
@@ -819,19 +823,26 @@ const repositoryLine = (state: RepoStateDto): string => {
   return [state.name, state.location, branch, state.base ?? "-", state.target ?? "-"].join("\t");
 };
 
-/** The repository edit's 409, translated when it is the server's force question. A body with a
- * non-empty `needsForce` names the checkouts an edit would tear down (an add that changes a spec
- * asks too, not only a remove), so the answer is a refusal saying `--force`. Any other 409 — a
- * record from a newer Corvi, a conflicting edit — carries no `needsForce`; `undefined` hands the
- * original error back so `report` keeps the server's own message and status. */
-export const repositoryForceRefusal = (error: unknown): CliFailure | undefined => {
+/** A 409 that is the server's force question — a repository edit's or a cancel's — translated
+ * into a refusal that says what would be discarded, per repository, and that `--force` discards
+ * it. Any other 409 — a record from a newer Corvi, a conflicting edit — carries no `needsForce`;
+ * `undefined` hands the original error back so `report` keeps the server's own message and
+ * status. */
+export const forceRefusal = (error: unknown): CliFailure | undefined => {
   if (!(error instanceof ClientError) || error.status !== 409) return undefined;
-  const needsForce = (error.body as { needsForce?: unknown } | undefined)?.needsForce;
-  if (!Array.isArray(needsForce) || needsForce.length === 0) return undefined;
-  return new CliFailure(
-    `${needsForce.join(", ")} would discard work nobody else has — rerun with --force`,
-    EXIT.refused,
-  );
+  const body = error.body as { needsForce?: unknown; reasons?: unknown } | undefined;
+  if (!Array.isArray(body?.needsForce) || body.needsForce.length === 0) return undefined;
+  const reasons = Array.isArray(body.reasons)
+    ? body.reasons.flatMap((reason: unknown) => {
+        const { repository, text } = (reason ?? {}) as { repository?: unknown; text?: unknown };
+        if (typeof text !== "string") return [];
+        return [typeof repository === "string" && repository ? `${repository}: ${text}` : text];
+      })
+    : [];
+  const what = reasons.length
+    ? reasons.join("; ")
+    : `${body.needsForce.join(", ")} would discard work nobody else has`;
+  return new CliFailure(`${what} — rerun with --force to discard it`, EXIT.refused);
 };
 
 /** The file's text: `--from <path>`, or stdin when it is piped in. */

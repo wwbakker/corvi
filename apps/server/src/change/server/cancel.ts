@@ -27,11 +27,13 @@ import type { Change } from "@corvi/changes/record";
 import type { Workspace as WorkspaceShape } from "@corvi/configuration/config";
 import { workspaceOf } from "../../workspace/server/index.ts";
 import { unlinkRepo } from "../../vendors/git.ts";
+import type { ForceReason } from "../provisioning.ts";
 import { lifecycleLayer } from "../lifecycle-layer.ts";
 import { changePairs, readChange, type ChangeRoots } from "./store.ts";
 
-/** Names of the repositories whose work would be lost, when that needs asking about first. */
-export type NeedsForce = { _tag: "NeedsForce"; needsForce: string[] };
+/** Names of the repositories whose work would be lost, when that needs asking about first, and
+ * what that work is. */
+export type NeedsForce = { _tag: "NeedsForce"; needsForce: string[]; reasons: ForceReason[] };
 export type Cancelled = {
   _tag: "Done";
   change: Change;
@@ -43,6 +45,7 @@ const isAcknowledgementCode = (
 ): code is Acknowledgement["code"] =>
   code === "review-pending" ||
   code === "unpushed" ||
+  code === "untracked" ||
   code === "ownership-unverified" ||
   code === "shared-worktree" ||
   code === "provider-veto";
@@ -56,10 +59,35 @@ const acknowledgementsFor = (readiness: Readiness): readonly Acknowledgement[] =
           : [],
       );
 
-const namesOf = (links: readonly Repository[], reasons: readonly LifecycleReason[]): string[] =>
-  reasons.map((reason) => {
-    const link = links.find((entry) => entry.repositoryId === reason.subject?.repositoryId);
-    return link?.directoryName ?? reason.text;
+const repositoryOf = (links: readonly Repository[], reason: LifecycleReason): string | undefined =>
+  links.find((entry) => entry.repositoryId === reason.subject?.repositoryId)?.directoryName;
+
+const needsForce = (links: readonly Repository[], reasons: readonly LifecycleReason[]): NeedsForce => {
+  const said = reasons.map((reason) => ({
+    repository: repositoryOf(links, reason) ?? "",
+    text: reason.text,
+  }));
+  return {
+    _tag: "NeedsForce",
+    needsForce: [...new Set(said.map((reason) => reason.repository).filter(Boolean))],
+    reasons: said,
+  };
+};
+
+/** The refusal's sentence: each hard reason in its own words, with the repository it is about. */
+const refusal = (links: readonly Repository[], reasons: readonly LifecycleReason[]): BadRequestError =>
+  new BadRequestError({
+    message: reasons
+      .filter((reason) => reason.kind === "hard")
+      .map((reason) => {
+        const repository = repositoryOf(links, reason);
+        const text =
+          reason.code === "dirty-worktree"
+            ? `${reason.text} — commit or revert them before cancelling`
+            : reason.text;
+        return repository ? `${repository}: ${text}` : text;
+      })
+      .join("; "),
   });
 
 const services = (
@@ -102,15 +130,10 @@ export const cancelChange = (
 
     // Fresh, and before anything is written: the acknowledgement question and the refusal are
     // decisions about whether to start, not a cancellation that started and stopped. Uncommitted
-    // work refuses outright, even with force.
+    // changes to tracked files refuse outright, even with force.
     const readiness = yield* lifecycle.assessCancellation(changeId);
-    if (readiness._tag === "Blocked") {
-      return yield* new BadRequestError({
-        message: `${namesOf(links, readiness.reasons).join(", ")}: uncommitted changes, commit or revert them before cancelling`,
-      });
-    }
-    if (readiness._tag === "AcknowledgementRequired" && !force)
-      return { _tag: "NeedsForce", needsForce: namesOf(links, readiness.reasons) } satisfies NeedsForce;
+    if (readiness._tag === "Blocked") return yield* refusal(links, readiness.reasons);
+    if (readiness._tag === "AcknowledgementRequired" && !force) return needsForce(links, readiness.reasons);
 
     // The change directory's browse links: an idea's symlinks are Corvi's own, so they go before
     // the checkout removal, which then finds nothing at that path rather than failing on a
@@ -130,11 +153,8 @@ export const cancelChange = (
         return yield* new InternalError({ message: "the cancelled change could not be read back" });
       return { _tag: "Done", change: updated, loose: [...outcome.loose] } satisfies Cancelled;
     }
-    if (outcome._tag === "NeedsAcknowledgement")
-      return { _tag: "NeedsForce", needsForce: namesOf(links, outcome.reasons) } satisfies NeedsForce;
-    return yield* new BadRequestError({
-      message: `${namesOf(links, outcome.reasons).join(", ")}: uncommitted changes, commit or revert them before cancelling`,
-    });
+    if (outcome._tag === "NeedsAcknowledgement") return needsForce(links, outcome.reasons);
+    return yield* refusal(links, outcome.reasons);
   }).pipe(
     Effect.mapError(asIwe),
     Effect.provide(services(workspace, roots)),

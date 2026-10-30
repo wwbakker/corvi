@@ -13,7 +13,7 @@ import type {
   WidgetStateDto as WidgetState,
 } from "@corvi/contracts/api";
 import { shOrThrow } from "../capabilities/shell.ts";
-import { existingBranch } from "../capabilities/repositories.ts";
+import { existingBranch, removalSafety } from "../capabilities/repositories.ts";
 import { changeDir } from "../change/server/store.ts";
 import { isMac, commandAvailable } from "../capabilities/os.ts";
 import { type CliError } from "@corvi/contracts/errors";
@@ -625,54 +625,33 @@ const inPlaceItem = (change: Change, repo: string, spec: CheckoutSpec): Effect.E
     };
   });
 
-/** Work a removal would throw away: uncommitted changes cannot be recovered at all, unpushed
- * commits survive in the reflog but not anywhere anyone else can see. */
-export type Unsafe = { kind: "dirty" | "unpushed"; text: string };
+/** Work a removal would throw away: changes to tracked files cannot be recovered at all;
+ * untracked files are often what a local run leaves behind, and unpushed commits survive in the
+ * reflog but not anywhere anyone else can see — both worth a question rather than a refusal. */
+export type Unsafe = { kind: "dirty" | "untracked" | "unpushed"; text: string };
 
-/** Whether the branch holds nothing the default branch lacks. Everything else — "diverged", and
- * `undefined` for a branch whose state could not be read — means commits are there to lose. */
-const inMain = (state?: string): boolean => state === "integrated";
-
-// Pure and synchronous: nothing for an Effect to wrap.
-export function unsafeIn(entry: WorktreeEntry | undefined): Unsafe | undefined {
-  if (!entry) return undefined; // nothing to lose
-  const tree = entry.working_tree ?? {};
-  if (tree.staged || tree.modified || tree.untracked) {
-    return { kind: "dirty", text: "uncommitted changes" };
-  }
-  // Commits ahead of the upstream, or commits on a branch that was never pushed at all. The
-  // branch itself survives a removal while it is unmerged, but the worktree they were made in
-  // does not, and nothing else points at them: worth a question before going ahead. Content
-  // already in main is nothing to lose, pushed or not — the removal drops a copy, but only a
-  // *proven* "integrated" counts. An unknown main_state (no origin remote, a failed lookup) is
-  // not in main, so commits ahead of an upstream still warn.
-  const ahead = entry.remote?.ahead ?? 0;
-  if (ahead > 0) {
-    return entry.main_state === "integrated"
-      ? undefined
-      : { kind: "unpushed", text: `${ahead} unpushed commit(s)` };
-  }
-  if (!entry.remote?.branch && !inMain(entry.main_state)) {
-    return { kind: "unpushed", text: "commits that were never pushed" };
-  }
-  return undefined;
-}
-
+/** What removing this change's checkout of `repo` would destroy, by the one rule every removal
+ * shares (`Repositories.assessRemoval`): the completion menu, the repository editor, and the
+ * lifecycle's own fresh check ask the same question and get the same answer. A checkout that
+ * cannot be read is treated as holding work: a removal nobody can assess does not go ahead. */
 export const unsafeToRemove = (
   change: Change,
   repo: string,
 ): Effect.Effect<Unsafe | undefined> =>
   Effect.gen(function* () {
-    const entry = yield* entryFor(change, repo);
-    const unsafe = unsafeIn(entry);
-    // Commits nobody else has is the warning that content in the default branch withdraws. Ask the
-    // simulated merge before asking the user: a squash merge leaves commits no cheap check can
-    // prove landed, and being made to acknowledge work that is already in main is noise.
-    if (unsafe?.kind !== "unpushed") return unsafe;
-    const base = yield* defaultBranch(repo);
+    const path = yield* checkoutFor(change, repo);
+    if (!path) return undefined; // nothing to lose
     const branch = yield* branchNameOf(change, repo);
-    if (base && branch && (yield* integrated(repo, branch, base))) return undefined;
-    return unsafe;
+    const assessed = yield* removalSafety(path, branch).pipe(Effect.result);
+    if (assessed._tag === "Failure") return { kind: "dirty", text: assessed.failure.message } satisfies Unsafe;
+    const assessment = assessed.success;
+    if (assessment._tag === "Safe") return undefined;
+    const text = assessment.reasons.map((reason) => reason.text).join("; ");
+    if (assessment._tag === "Unsafe") return { kind: "dirty", text } satisfies Unsafe;
+    return {
+      kind: assessment.reasons.some((reason) => reason.code === "untracked") ? "untracked" : "unpushed",
+      text,
+    } satisfies Unsafe;
   });
 
 /** The repositories of a change, with what a removal would destroy: the edit dialog needs both. */

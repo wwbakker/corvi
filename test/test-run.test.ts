@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  bunVersionProblem,
   classify,
   discoverGroups,
   discoverTestFiles,
@@ -103,4 +104,14 @@ test("a temp fixture: a single-line import is e2e, multi-line and type-only are 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("a Bun older than engines.bun is refused, naming the fix", () => {
+  expect(bunVersionProblem("1.4.4", ">=1.4.4")).toBeUndefined();
+  expect(bunVersionProblem("1.5.0", ">=1.4.4")).toBeUndefined();
+  expect(bunVersionProblem("1.3.14", ">=1.4.4")).toBe(
+    "bun 1.3.14 does not satisfy package.json engines.bun (>=1.4.4): run `bun upgrade`",
+  );
+  // No requirement declared: any Bun runs.
+  expect(bunVersionProblem("1.3.14", undefined)).toBeUndefined();
 });

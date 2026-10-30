@@ -14,6 +14,8 @@ export class CommandError extends Schema.TaggedError<CommandError>()("CommandErr
 
 export interface CommandResult {
   readonly exitCode: number
+  /** May arrive trimmed: a host's runner (the app's Shell) strips surrounding whitespace, so a
+   * parser must not depend on a leading space. */
   readonly stdout: string
   readonly stderr: string
 }

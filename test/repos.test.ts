@@ -129,13 +129,44 @@ test("uncommitted work refuses the removal outright, forced or not", async () =>
   await runEffect(provisionRepositories(change));
 
   const worktree = (await runEffect(checkoutFor(change, repo)))!;
-  await Bun.write(join(worktree, "half-done.txt"), "not finished\n");
-  expect((await runEffect(unsafeToRemove(change, repo)))?.kind).toBe("dirty");
+  await Bun.write(join(worktree, "README.md"), "not finished\n");
+  expect(await runEffect(unsafeToRemove(change, repo))).toEqual({
+    kind: "dirty",
+    text: "uncommitted changes: README.md",
+  });
 
-  // Force is for commits that can be recovered from the reflog; this cannot be recovered at all.
-  expect(runSetRepos(change, checkoutsOf([keep]))).rejects.toThrow(/uncommitted changes/);
-  expect(runSetRepos(change, checkoutsOf([keep]), true)).rejects.toThrow(/uncommitted changes/);
-  expect(await Bun.file(join(worktree, "half-done.txt")).exists()).toBe(true);
+  // Force is for what can be recovered or was asked about; this cannot be recovered at all.
+  await expect(runSetRepos(change, checkoutsOf([keep]))).rejects.toThrow(
+    "dirty: uncommitted changes: README.md — revert or commit them first",
+  );
+  await expect(runSetRepos(change, checkoutsOf([keep]), true)).rejects.toThrow(/uncommitted changes/);
+  expect(await Bun.file(join(worktree, "README.md")).text()).toBe("not finished\n");
+});
+
+test("untracked files ask first, naming them, and go when forced", async () => {
+  const repo = await clonedRepo("untracked");
+  const keep = await clonedRepo("untracked-keep");
+  const change = await changeFor("PROJ-UNTRACKED", [repo, keep]);
+  await runEffect(provisionRepositories(change));
+
+  const worktree = (await runEffect(checkoutFor(change, repo)))!;
+  await Bun.write(join(worktree, "__pycache__", "test.pyc"), "x\n");
+  expect(await runEffect(unsafeToRemove(change, repo))).toEqual({
+    kind: "untracked",
+    text: "untracked files: __pycache__/",
+  });
+
+  // The question carries what each repository holds, so the dialog and the CLI can name it.
+  expect(await runEffect(setRepos(change, checkoutsOf([keep])))).toEqual({
+    _tag: "NeedsForce",
+    needsForce: ["untracked"],
+    reasons: [{ repository: "untracked", text: "untracked files: __pycache__/" }],
+  });
+  expect(await runEffect(checkoutFor(change, repo))).toBe(worktree);
+
+  const forced = await runSetRepos(change, checkoutsOf([keep]), true);
+  expect("change" in forced).toBe(true);
+  expect(await runEffect(checkoutFor(change, repo))).toBeUndefined();
 });
 
 test("dropping a checkout used in place asks about uncommitted work instead of refusing", async () => {
@@ -196,9 +227,9 @@ test("a change may be emptied and filled again, which is how a worktree is repla
 
   // Emptying is still a removal, and a removal still refuses to throw work away: the way out of
   // a worktree you have made a mess of is to commit or revert first, not to drop it silently.
-  await Bun.write(join(before, "junk.txt"), "uncommitted\n");
-  expect(runSetRepos(change, checkoutsOf([]))).rejects.toThrow(/uncommitted changes/);
-  await rm(join(before, "junk.txt"));
+  await Bun.write(join(before, "README.md"), "uncommitted\n");
+  await expect(runSetRepos(change, checkoutsOf([]))).rejects.toThrow(/uncommitted changes/);
+  await runSh(["git", "checkout", "--", "README.md"], before);
 
   const emptied = await runSetRepos(change, checkoutsOf([]));
   expect("change" in emptied).toBe(true);
