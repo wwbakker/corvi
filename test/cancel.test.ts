@@ -101,6 +101,8 @@ test("cancelling takes back the worktree and leaves the branch", async () => {
   expect(cancelled.state).toBe("Cancelled");
   expect(cancelled.completedAt).toBeDefined();
   expect(isFinished(cancelled)).toBe(true);
+  // Once is all: a second cancel says why in its own words, not as somebody's uncommitted work.
+  await expect(runCancel(cancelled)).rejects.toThrow(/^already cancelled$/);
   expect(await runEffect(checkoutFor(cancelled, repo))).toBeUndefined();
   // Archived, and still readable: what was abandoned is worth being able to look up.
   expect(await Bun.file(join(changeDir({ id: "PROJ-CANCEL" }), "change.json")).exists()).toBe(false);
@@ -119,18 +121,33 @@ test("what would be lost stops it, and what is recoverable asks first", async ()
   await Effect.runPromise(provisionRepositories(change));
   const worktree = (await runEffect(checkoutFor(change, repo)))!;
 
-  // Uncommitted: nowhere else, and no question makes it recoverable.
-  await Bun.write(join(worktree, "wip.txt"), "not committed\n");
-  expect(runCancel(change)).rejects.toThrow(/uncommitted changes/);
+  // A changed tracked file: nowhere else, and no question makes it recoverable. The refusal
+  // names the file, so the user can see what is in the way.
+  await Bun.write(join(worktree, "README.md"), "edited, not committed\n");
+  await expect(runCancel(change)).rejects.toThrow("cancel-work: uncommitted changes: README.md");
   expect(runCancel(change, true)).rejects.toThrow(/uncommitted changes/);
   expect(await runEffect(checkoutFor(change, repo))).toBeDefined();
+  await runSh(["git", "checkout", "--", "README.md"], worktree);
+
+  // Untracked files only — what a local test run leaves behind — are a question, naming them.
+  await Bun.write(join(worktree, "cache", "result.pyc"), "x\n");
+  expect(await runCancel(change)).toEqual({
+    needsForce: ["cancel-work"],
+    reasons: [{ repository: "cancel-work", text: "untracked files: cache/" }],
+  });
+  expect(await runEffect(checkoutFor(change, repo))).toBeDefined();
+  await rm(join(worktree, "cache"), { recursive: true });
 
   // Committed but never pushed: recoverable from the branch, which cancelling keeps — so this
   // is a question rather than a refusal.
+  await Bun.write(join(worktree, "wip.txt"), "work\n");
   await runSh(["git", "add", "."], worktree);
   await commit(worktree, "work nobody else has");
   const asked = await runCancel(change);
-  expect(asked).toEqual({ needsForce: ["cancel-work"] });
+  expect(asked).toEqual({
+    needsForce: ["cancel-work"],
+    reasons: [{ repository: "cancel-work", text: "commits that were never pushed" }],
+  });
   expect(await runEffect(checkoutFor(change, repo))).toBeDefined();
 
   const forced = await runCancel(change, true);

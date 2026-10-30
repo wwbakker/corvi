@@ -46,6 +46,10 @@ so a lone `bun test test/foo.test.ts` cannot write `~/.config/corvi/config.json`
 (`test/isolation.test.ts` is the tripwire). What a bare run still lacks is the wrapper's shared
 per-run root and its cleanup trap.
 
+The runner refuses a Bun older than `engines.bun` in `package.json` (exit 4): older Bun ships
+`ws` and `node:http` shims that fail the gateway, socket and pairing tests for reasons of their
+own. CI installs the newest Bun that satisfies the range; locally, `bun upgrade`.
+
 Install dependencies with `bun install --frozen-lockfile`. Browser tests need
 `bunx playwright install chromium`. Report skipped browser/native/platform checks separately from
 passes. Do not claim macOS coverage from a Linux run.

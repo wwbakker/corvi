@@ -16,6 +16,8 @@ const repository = new Git.Repository({
  * `Git.Interface` return types exact. */
 const absent = (): Effect.Effect<undefined> => Effect.sync(() => undefined)
 
+const clean: Git.WorkingTree = { tracked: [], untracked: [] }
+
 interface GitScript {
   readonly discover?: Git.Interface["repo"]["discover"]
   readonly hasRemote?: Git.Interface["repo"]["hasRemote"]
@@ -31,7 +33,7 @@ interface GitScript {
   readonly defaultBranch?: Git.Interface["history"]["defaultBranch"]
   readonly upstreamTip?: Git.Interface["history"]["upstreamTip"]
   readonly upstreamCommits?: Git.Interface["history"]["upstreamCommits"]
-  readonly status?: Git.Interface["status"]["dirty"]
+  readonly status?: Git.Interface["status"]["workingTree"]
   readonly integration?: Git.Interface["integration"]["proven"]
   readonly deleteBranch?: Git.Interface["sync"]["deleteBranch"]
   readonly fetchRemote?: Git.Interface["sync"]["fetchRemote"]
@@ -64,7 +66,7 @@ const layerFor = (script: GitScript): Layer.Layer<Repositories> =>
           upstreamTip: script.upstreamTip ?? absent,
           upstreamCommits: script.upstreamCommits ?? (() => Effect.succeed([])),
         },
-        status: { dirty: script.status ?? (() => Effect.succeed(false)) },
+        status: { workingTree: script.status ?? (() => Effect.succeed(clean)) },
         integration: { proven: script.integration ?? (() => Effect.succeed(false)) },
         sync: {
           deleteBranch: script.deleteBranch ?? (() => Effect.void),
@@ -196,7 +198,7 @@ test("a dirty tree git refuses to clobber is left alone, not an error", async ()
     {
       discover: () => Effect.succeed(repository),
       head: () => Effect.succeed("mine"),
-      status: () => Effect.succeed(true),
+      status: () => Effect.succeed({ tracked: ["a.txt"], untracked: [] }),
       mergeFastForwardOnly: () =>
         Effect.fail(
           new Git.OperationError({
@@ -265,17 +267,81 @@ const assess = (script: GitScript): Promise<Result.Result<RemovalAssessment, unk
     script,
   )
 
-test("assessRemoval refuses a dirty worktree", async () => {
-  const result = await assess({ discover: () => Effect.succeed(repository), status: () => Effect.succeed(true) })
+test("assessRemoval refuses tracked changes, naming them, even beside untracked files", async () => {
+  const result = await assess({
+    discover: () => Effect.succeed(repository),
+    status: () => Effect.succeed({ tracked: ["a.txt", "b.txt", "c.txt", "d.txt"], untracked: ["new.txt"] }),
+  })
   expect(Result.isSuccess(result)).toBe(true)
-  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Unsafe")
+  if (Result.isSuccess(result)) {
+    expect(result.success._tag).toBe("Unsafe")
+    if (result.success._tag === "Unsafe")
+      expect(result.success.reasons).toEqual([
+        expect.objectContaining({
+          code: "dirty-worktree",
+          kind: "hard",
+          text: "uncommitted changes: a.txt, b.txt, c.txt and 1 more",
+        }),
+      ])
+  }
+})
+
+test("assessRemoval acknowledges untracked files, naming them", async () => {
+  const result = await assess({
+    discover: () => Effect.succeed(repository),
+    head: () => Effect.succeed("abc"),
+    upstream: () => Effect.succeed({ _tag: "Counted", ahead: 0, behind: 0 } as const),
+    status: () => Effect.succeed({ tracked: [], untracked: ["tests/__pycache__/"] }),
+  })
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result))
+    expect(result.success).toEqual({
+      _tag: "NeedsAcknowledgement",
+      reasons: [
+        {
+          code: "untracked",
+          kind: "forceable",
+          text: "untracked files: tests/__pycache__/",
+          facts: "untracked:abc:tests/__pycache__/",
+        },
+      ],
+    })
+})
+
+test("assessRemoval asks about untracked files and unpushed commits together", async () => {
+  const result = await assess({
+    discover: () => Effect.succeed(repository),
+    upstream: () => Effect.succeed({ _tag: "Counted", ahead: 1, behind: 0 } as const),
+    status: () => Effect.succeed({ tracked: [], untracked: ["x"] }),
+  })
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result) && result.success._tag === "NeedsAcknowledgement")
+    expect(result.success.reasons.map((reason) => reason.code)).toEqual(["untracked", "unpushed"])
+  else throw new Error("expected NeedsAcknowledgement")
+})
+
+test("assessRemoval's untracked facts change when another file appears", async () => {
+  const factsFor = async (untracked: readonly string[]): Promise<string | undefined> => {
+    const result = await assess({
+      discover: () => Effect.succeed(repository),
+      upstream: () => Effect.succeed({ _tag: "Counted", ahead: 0, behind: 0 } as const),
+      status: () => Effect.succeed({ tracked: [], untracked }),
+    })
+    return Result.isSuccess(result) && result.success._tag === "NeedsAcknowledgement"
+      ? result.success.reasons[0]?.facts
+      : undefined
+  }
+  const before = await factsFor(["a"])
+  expect(before).toBeDefined()
+  expect(await factsFor(["a", "b"])).not.toBe(before)
+  expect(await factsFor(["b", "a"])).toBe(await factsFor(["a", "b"]))
 })
 
 test("assessRemoval acknowledges unpushed commits when the base cannot prove them", async () => {
   const result = await assess({
     discover: () => Effect.succeed(repository),
     upstream: () => Effect.succeed({ _tag: "Counted", ahead: 2, behind: 0 } as const),
-    defaultRemoteBranch: () => Effect.succeed("main"),
+    defaultBranch: () => Effect.succeed("origin/main"),
     integration: () => Effect.succeed(false),
   })
   expect(Result.isSuccess(result)).toBe(true)
@@ -290,7 +356,7 @@ test("assessRemoval is safe when the base proves the branch landed", async () =>
   const result = await assess({
     discover: () => Effect.succeed(repository),
     upstream: () => Effect.succeed({ _tag: "Counted", ahead: 2, behind: 0 } as const),
-    defaultRemoteBranch: () => Effect.succeed("main"),
+    defaultBranch: () => Effect.succeed("origin/main"),
     integration: () => Effect.succeed(true),
   })
   expect(Result.isSuccess(result)).toBe(true)
@@ -310,7 +376,7 @@ test("assessRemoval acknowledges branches that were never pushed when unproven",
 test("assessRemoval is safe for an unpushed branch the base proves landed", async () => {
   const result = await assess({
     discover: () => Effect.succeed(repository),
-    defaultRemoteBranch: () => Effect.succeed("main"),
+    defaultBranch: () => Effect.succeed("origin/main"),
     integration: () => Effect.succeed(true),
   })
   expect(Result.isSuccess(result)).toBe(true)
@@ -321,7 +387,7 @@ test("assessRemoval treats an unreadable upstream comparison as not proven", asy
   const result = await assess({
     discover: () => Effect.succeed(repository),
     upstream: () => Effect.succeed({ _tag: "Unavailable" } as const),
-    defaultRemoteBranch: () => Effect.succeed("main"),
+    defaultBranch: () => Effect.succeed("origin/main"),
   })
   expect(Result.isSuccess(result)).toBe(true)
   if (Result.isSuccess(result)) {
@@ -350,7 +416,7 @@ test("removeBranchIfIntegrated deletes a branch the base proves landed", async (
     {
       discover: () => Effect.succeed(repository),
       branchExists: () => Effect.succeed(true),
-      defaultRemoteBranch: () => Effect.succeed("main"),
+      defaultBranch: () => Effect.succeed("origin/main"),
       integration: () => Effect.succeed(true),
       deleteBranch: (_repository, branch) => {
         deleted.push(branch)
@@ -375,7 +441,7 @@ test("removeBranchIfIntegrated keeps a branch the base cannot prove landed", asy
     {
       discover: () => Effect.succeed(repository),
       branchExists: () => Effect.succeed(true),
-      defaultRemoteBranch: () => Effect.succeed("main"),
+      defaultBranch: () => Effect.succeed("origin/main"),
       integration: () => Effect.succeed(false),
     },
   )
@@ -410,7 +476,7 @@ test("a branch that refuses deletion is reported kept, not failed", async () => 
     {
       discover: () => Effect.succeed(repository),
       branchExists: () => Effect.succeed(true),
-      defaultRemoteBranch: () => Effect.succeed("main"),
+      defaultBranch: () => Effect.succeed("origin/main"),
       integration: () => Effect.succeed(true),
       deleteBranch: () => Effect.fail(new Git.OperationError({ operation: "remove", message: "checked out" })),
     },
@@ -557,7 +623,7 @@ test("provisionInPlace reports already, dirty, switched and created", async () =
   const dirty = await run({
     discover: () => Effect.succeed(repository),
     branch: () => Effect.succeed("main"),
-    status: () => Effect.succeed(true),
+    status: () => Effect.succeed({ tracked: [], untracked: ["new.txt"] }),
   })
   if (Result.isSuccess(dirty)) expect(dirty.success).toBe("skipped-dirty")
   else expect(true).toBe(false)

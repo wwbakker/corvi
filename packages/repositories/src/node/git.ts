@@ -294,15 +294,32 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
       return undefined
     })
 
-    const statusDirty = Effect.fn("Git.status.dirty")(function* (repository: Git.Repository) {
-      const result = yield* run("status", repository.worktree, ["status", "--porcelain"])
+    const statusWorkingTree = Effect.fn("Git.status.workingTree")(function* (repository: Git.Repository) {
+      // Porcelain v2: every entry starts with its kind, so output trimmed by a shell still parses.
+      // NUL-separated so a path is never quoted or split; a rename or copy carries its origin as
+      // the next field, which is skipped.
+      const result = yield* run("status", repository.worktree, ["status", "--porcelain=v2", "-z"])
       if (result.exitCode !== 0)
         return yield* new Git.OperationError({
           operation: "status",
           directory: repository.worktree,
           message: result.stderr.trim() || "git status failed",
         })
-      return result.stdout.trim().length > 0
+      // The path follows a fixed number of space-separated fields, and may itself hold spaces.
+      const pathAfter = (entry: string, fields: number): string => entry.split(" ").slice(fields).join(" ")
+      const tracked: string[] = []
+      const untracked: string[] = []
+      const entries = result.stdout.split("\0")
+      for (let index = 0; index < entries.length; index++) {
+        const entry = entries[index] ?? ""
+        if (entry.startsWith("? ")) untracked.push(entry.slice(2))
+        else if (entry.startsWith("1 ")) tracked.push(pathAfter(entry, 8))
+        else if (entry.startsWith("2 ")) {
+          tracked.push(pathAfter(entry, 9))
+          index++
+        } else if (entry.startsWith("u ")) tracked.push(pathAfter(entry, 10))
+      }
+      return { tracked, untracked } satisfies Git.WorkingTree
     })
 
     const integrationProven = Effect.fn("Git.integration.proven")(function* (
@@ -350,7 +367,15 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         .split("\n")
         .map((line) => line.trim())
         .filter(Boolean)
-      return lines.length > 0 && lines.every((line) => line.startsWith("-"))
+      if (lines.length > 0 && lines.every((line) => line.startsWith("-"))) return true
+      // A simulated merge: a squash merge of several commits matches no single patch, but merging
+      // the branch into the base then changes nothing. A conflict, or a git without
+      // `merge-tree --write-tree`, is not a proof.
+      const merged = yield* run("integration", repository.worktree, ["merge-tree", "--write-tree", input.base, input.branch])
+      if (merged.exitCode !== 0) return false
+      const tree = merged.stdout.split("\n")[0]?.trim()
+      const target = yield* run("integration", repository.worktree, ["rev-parse", `${input.base}^{tree}`])
+      return target.exitCode === 0 && tree !== undefined && tree !== "" && tree === target.stdout.trim()
     })
 
     const deleteBranch = Effect.fn("Git.sync.deleteBranch")(function* (
@@ -508,7 +533,7 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         upstreamTip,
         upstreamCommits,
       },
-      status: { dirty: statusDirty },
+      status: { workingTree: statusWorkingTree },
       integration: { proven: integrationProven },
       sync: { deleteBranch, fetchRemote, pullFastForward, mergeFastForwardOnly, switchToBranch },
       worktree: { remove, add: addWorktree },

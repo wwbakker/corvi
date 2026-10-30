@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { existsSync } from "node:fs"
-import { writeFile } from "node:fs/promises"
+import { mkdir, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { Effect, Layer } from "effect"
 
@@ -13,7 +13,7 @@ import {
   type BranchCleanup,
   layer as repositoriesLayer,
 } from "../src/repositories.ts"
-import { layer as commandLayer } from "../src/node/command.ts"
+import { Command, layer as commandLayer, nodeCommand } from "../src/node/command.ts"
 import { layer as gitLayer } from "../src/node/git.ts"
 import { Fixture, git, runScoped, sandboxLayer } from "./sandbox.ts"
 
@@ -210,7 +210,7 @@ test(
 )
 
 test(
-  "status.dirty reports a modified or untracked working tree",
+  "status.workingTree separates tracked changes from untracked paths and skips ignored ones",
   () =>
     withGit(
       Effect.gen(function* () {
@@ -219,12 +219,50 @@ test(
         const dir = yield* Effect.promise(() => makeRepo("status-repo"))
         const repository = yield* service.repo.discover(AbsolutePath.make(dir))
         if (!repository) throw new Error("repository not found")
-        const clean = yield* service.status.dirty(repository)
-        expect(clean).toBe(false)
+        expect(yield* service.status.workingTree(repository)).toEqual({ tracked: [], untracked: [] })
 
-        yield* Effect.promise(() => writeFile(join(dir, "untracked.txt"), "x\n"))
-        const dirty = yield* service.status.dirty(repository)
-        expect(dirty).toBe(true)
+        yield* Effect.promise(async () => {
+          await writeFile(join(dir, ".gitignore"), "*.log\n")
+          await writeFile(join(dir, "ignored.log"), "x\n")
+          await mkdir(join(dir, "cache"))
+          await writeFile(join(dir, "cache", "a b.pyc"), "x\n")
+        })
+        expect(yield* service.status.workingTree(repository)).toEqual({
+          tracked: [],
+          untracked: [".gitignore", "cache/"],
+        })
+
+        git(dir, "add", ".gitignore")
+        git(dir, "mv", "a.txt", "renamed.txt")
+        expect(yield* service.status.workingTree(repository)).toEqual({
+          tracked: [".gitignore", "renamed.txt"],
+          untracked: ["cache/"],
+        })
+      }),
+    ),
+  TEST_TIMEOUT_MS,
+)
+
+test(
+  "status.workingTree reads the same through a host Command that trims its output",
+  () =>
+    withGit(
+      Effect.gen(function* () {
+        const { makeRepo } = yield* Fixture
+        const dir = yield* Effect.promise(() => makeRepo("trimmed-status-repo"))
+        // An unstaged change is the entry whose porcelain v1 form starts with a space.
+        yield* Effect.promise(() => writeFile(join(dir, "a.txt"), "changed\n"))
+        const trimming: Layer.Layer<Command> = Layer.succeed(Command, {
+          run: (input) =>
+            nodeCommand.run(input).pipe(Effect.map((result) => ({ ...result, stdout: result.stdout.trim() }))),
+        })
+        const tree = yield* Effect.gen(function* () {
+          const service = yield* Git.Service
+          const repository = yield* service.repo.discover(AbsolutePath.make(dir))
+          if (!repository) throw new Error("repository not found")
+          return yield* service.status.workingTree(repository)
+        }).pipe(Effect.provide(gitLayer.pipe(Layer.provide(trimming))))
+        expect(tree).toEqual({ tracked: ["a.txt"], untracked: [] })
       }),
     ),
   TEST_TIMEOUT_MS,
@@ -371,6 +409,8 @@ test(
         git(dir, "commit", "-m", "feature work")
         git(dir, "checkout", "main")
         git(dir, "merge", "--ff-only", "feature")
+        // Landed where merges land: the remote's default branch.
+        git(dir, "update-ref", "refs/remotes/origin/main", "main")
 
         const cleanup = (branch: string): Effect.Effect<BranchCleanup, NotARepository | CheckoutError> =>
           repositories.removeBranchIfIntegrated({ repository: AbsolutePath.make(dir), branch })
@@ -390,6 +430,21 @@ test(
 
         const absent = yield* cleanup("never-existed")
         expect(absent).toBe("absent")
+
+        // A squash merge of several commits: no commit is an ancestor and no single patch matches,
+        // so only the simulated merge proves the content landed.
+        git(dir, "checkout", "-b", "squashed")
+        yield* Effect.promise(() => writeFile(join(dir, "d.txt"), "d\n"))
+        git(dir, "add", ".")
+        git(dir, "commit", "-m", "first")
+        yield* Effect.promise(() => writeFile(join(dir, "e.txt"), "e\n"))
+        git(dir, "add", ".")
+        git(dir, "commit", "-m", "second")
+        git(dir, "checkout", "main")
+        git(dir, "merge", "--squash", "squashed")
+        git(dir, "commit", "-m", "squash")
+        git(dir, "update-ref", "refs/remotes/origin/main", "main")
+        expect(yield* cleanup("squashed")).toBe("deleted")
       }),
     ),
   TEST_TIMEOUT_MS,

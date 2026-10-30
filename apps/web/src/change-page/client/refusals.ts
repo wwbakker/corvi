@@ -21,12 +21,20 @@ export function completionRefusal(e: unknown): CompletionRefusal | undefined {
   return { reasons: refusal.reasons, toMerge: refusal.toMerge ?? [] };
 }
 
-/** What a failed cancel means: a 409 naming unpushed commits opens the dialog with one
- * acknowledge. Anything else is news for the error banner. */
-export function cancelNeedsForce(e: unknown): string[] | undefined {
+/** What a failed cancel or repository edit means: a 409 naming what would be discarded is the
+ * server's force question, one line per reason ("orders: untracked files: build/"), which the
+ * dialog asks with one acknowledge. Anything else is news for the error banner. */
+export function forceQuestion(e: unknown): string[] | undefined {
   if (typeof e !== "object" || e === null) return undefined;
   const { status, body } = e as { status?: number; body?: unknown };
   if (status !== 409) return undefined;
-  const repos = (body as { needsForce?: string[] } | undefined)?.needsForce;
-  return repos?.length ? repos : undefined;
+  const { needsForce, reasons } = (body ?? {}) as {
+    needsForce?: string[];
+    reasons?: { repository?: string; text?: string }[];
+  };
+  if (!needsForce?.length) return undefined;
+  const lines = (reasons ?? []).flatMap((reason) =>
+    reason.text ? [reason.repository ? `${reason.repository}: ${reason.text}` : reason.text] : [],
+  );
+  return lines.length ? lines : needsForce;
 }

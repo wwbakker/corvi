@@ -1,7 +1,13 @@
 /** Repository reads for the legacy server callers, over their existing Shell seam. */
 import { Effect, Layer } from "effect"
 import { AbsolutePath } from "@corvi/contracts/paths"
-import { Repositories, layer as repositoriesLayer, type ExistingBranch } from "@corvi/repositories"
+import {
+  Repositories,
+  layer as repositoriesLayer,
+  type CheckoutError,
+  type ExistingBranch,
+  type RemovalAssessment,
+} from "@corvi/repositories"
 import { Command, gitLayer } from "@corvi/repositories/node"
 import { shSoft } from "./effect/support.ts"
 
@@ -21,3 +27,19 @@ export const existingBranch = (repo: string, name: string): Effect.Effect<Existi
   Effect.flatMap(Repositories, (repositories) =>
     repositories.resolveExistingBranch(AbsolutePath.make(repo), name),
   ).pipe(Effect.provide(repositoryReads), Effect.orElseSucceed(() => undefined))
+
+/** What removing the checkout at `path` would destroy (`Repositories.assessRemoval`). A location
+ * that is no longer a repository holds nothing to lose. */
+export const removalSafety = (
+  path: string,
+  branch: string | undefined,
+): Effect.Effect<RemovalAssessment, CheckoutError> =>
+  Effect.flatMap(Repositories, (repositories) =>
+    repositories.assessRemoval({
+      worktree: AbsolutePath.make(path),
+      ...(branch === undefined ? {} : { branch }),
+    }),
+  ).pipe(
+    Effect.catchTag("NotARepository", () => Effect.succeed({ _tag: "Safe" } satisfies RemovalAssessment)),
+    Effect.provide(repositoryReads),
+  )

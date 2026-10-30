@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { readFile, stat } from "node:fs/promises";
 import { Effect } from "effect";
 import { TestClock } from "effect/testing";
@@ -59,6 +59,10 @@ const writeConfig = async (value: unknown): Promise<void> => {
   await Bun.write(configPath(), JSON.stringify(value));
   reloadConfigSync();
 };
+
+// The config file and its snapshot are shared with the files that run after this one in the same
+// process (CI runs them serially): leave them as every test starts, with nothing configured.
+afterAll(() => writeConfig({}));
 
 test("a pairing code is single-use", async () => {
   const created = await newCode();

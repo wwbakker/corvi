@@ -198,7 +198,7 @@ export const changeRoutes = guard({
           // Otherwise the answer is the same shape a create or a start gives: the change, and
           // what its checkouts reported.
           return result._tag === "NeedsForce"
-            ? json({ needsForce: result.needsForce }, 409)
+            ? json({ needsForce: result.needsForce, reasons: result.reasons }, 409)
             : json({ change: result.change, provision: result.provision, refresh: result.refresh });
         }),
       ),
@@ -223,9 +223,10 @@ export const changeRoutes = guard({
         Effect.gen(function* () {
           const body = yield* bodyAs(req, ForceBodySchema);
           const result = yield* cancelChange(c, body.force === true);
-          // The same protocol a repository removal uses: ask once, then repeat with force.
+          // The same protocol a repository removal uses: ask once, then repeat with force. The
+          // reasons say what would be thrown away, so the question can name it.
           return result._tag === "NeedsForce"
-            ? json({ needsForce: result.needsForce }, 409)
+            ? json({ needsForce: result.needsForce, reasons: result.reasons }, 409)
             : json({ change: result.change, loose: result.loose });
         }),
       ),

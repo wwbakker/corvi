@@ -1172,7 +1172,9 @@ dialog textarea {
   gap: 8px;
 }
 
-.override-reasons label {
+/* An acknowledge, in the override dialog's list or on its own: one line, checkbox first. */
+.override-reasons label,
+dialog label.ack {
   display: flex;
   gap: 8px;
   align-items: baseline;

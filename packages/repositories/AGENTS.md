@@ -26,11 +26,16 @@ entrypoint stays platform-free.
 ## Invariants
 
 - Absence is a value (`{ _tag: "Missing" }`); a failed read is an error, never absence.
-- Commands run through the `Command` port without a shell; exit codes are data.
+- Commands run through the `Command` port without a shell; exit codes are data. A host's
+  `Command` may trim output (the app's Shell does), so parsers never depend on leading whitespace.
+- "The base" is the default branch (`origin/<default>`, else a local `main`/`master`), and a proof
+  is ancestry, patch equivalence, or a simulated merge that changes nothing. The app's removal
+  checks (completion menu, repository editor) read `assessRemoval` too, so there is one rule.
 - The adapter never deletes a checkout; `removeWorktree` exists for completion workflows, and the
   lifecycle workflow calls it only for Corvi-created checkouts after a fresh `assessRemoval`.
-- `assessRemoval` refuses uncommitted work outright and acknowledges commits the base cannot prove
-  landed; an unreadable upstream comparison is not zero ahead.
+- `assessRemoval` refuses uncommitted changes to tracked files outright, acknowledges untracked
+  files (their facts fingerprint the path list) and commits the base cannot prove landed, and names
+  the paths it found; an unreadable upstream comparison is not zero ahead.
 - `removeBranchIfIntegrated` deletes a branch only when the base proves its content landed, reports
   it kept otherwise (including a refused deletion), and never fails after the removal happened.
 - Provisioning an in-place checkout leaves a dirty one exactly as it is (`skipped-dirty`); a missing

@@ -6,7 +6,6 @@ import { Effect } from "effect";
 import {
   describe,
   findWorktree,
-  unsafeIn,
   openers,
   parseWorktrees,
   parseStatus,
@@ -120,40 +119,6 @@ test("a pull request says what it is waiting for", () => {
     text: "conflicts",
     tone: "error",
   });
-});
-
-test("what a worktree removal would destroy", () => {
-  const entry = (over: Partial<WorktreeEntry>): WorktreeEntry => ({
-    branch: "b",
-    path: "/p",
-    remote: { name: "origin", branch: "b", ahead: 0, behind: 0 },
-    main_state: "integrated",
-    ...over,
-  });
-
-  expect(unsafeIn(entry({}))).toBeUndefined();
-  expect(unsafeIn(undefined)).toBeUndefined();
-  expect(unsafeIn(entry({ working_tree: { modified: true } }))?.kind).toBe("dirty");
-  expect(unsafeIn(entry({ working_tree: { untracked: true } }))?.kind).toBe("dirty");
-  expect(unsafeIn(entry({ remote: { branch: "b", ahead: 2 }, main_state: "diverged" }))?.kind).toBe(
-    "unpushed",
-  );
-  // Ahead of the upstream but main_state is unknown (no origin remote, a failed lookup): unknown
-  // is not "in main", so the commits still warn. Failing open here would drop a removal warning.
-  expect(
-    unsafeIn(entry({ remote: { branch: "b", ahead: 2 }, main_state: undefined }))?.kind,
-  ).toBe("unpushed");
-  // Never pushed at all: no upstream to be ahead of, but the commits vanish with the branch.
-  expect(unsafeIn(entry({ remote: null, main_state: "ahead" }))?.kind).toBe("unpushed");
-  // Never pushed, and no default branch to measure against — a repository with no remote at all.
-  // Unknown is not "in main": the commits exist only on that branch, so they still warn.
-  expect(unsafeIn(entry({ remote: null, main_state: undefined }))?.kind).toBe("unpushed");
-  // Never pushed, but main already has the work: nothing to lose.
-  expect(unsafeIn(entry({ remote: null, main_state: "integrated" }))).toBeUndefined();
-  // Ahead of the upstream, but main already has the content: removing drops a copy.
-  expect(
-    unsafeIn(entry({ remote: { branch: "b", ahead: 2 }, main_state: "integrated" })),
-  ).toBeUndefined();
 });
 
 test("blank entries are not repositories, and a repository is not listed twice", async () => {

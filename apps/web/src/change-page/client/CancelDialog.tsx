@@ -2,13 +2,14 @@ import { type JSX, useEffect, useRef } from "react";
 
 /**
  * What cancelling throws away, said before it happens: the worktrees and the terminal go,
- * everything anyone else can see stays. Commits nobody else has get one acknowledge — the
- * branch survives, so they are recoverable, but only by someone who knows it is there.
+ * everything anyone else can see stays. Untracked files and commits nobody else has get one
+ * acknowledge, naming them: the files go with the worktree, and the commits survive on the
+ * branch — recoverable, but only by someone who knows it is there.
  */
 export function CancelDialog({
   changeId,
   idea,
-  needsForce,
+  reasons,
   acked,
   busy,
   onAck,
@@ -17,8 +18,9 @@ export function CancelDialog({
 }: {
   changeId: string;
   idea: boolean;
-  /** Repositories with unpushed commits, once the server has named them; empty beforehand. */
-  needsForce: string[];
+  /** What would be discarded, one line per reason, once the server has named it; empty
+   * beforehand. */
+  reasons: string[];
   acked: boolean;
   busy: boolean;
   onAck: (acked: boolean) => void;
@@ -35,7 +37,7 @@ export function CancelDialog({
 
   // The warning arrives after the first confirm attempt: until then the button cannot know
   // whether there is anything to acknowledge, so it waits for the acknowledge instead.
-  const ready = needsForce.length === 0 || acked;
+  const ready = reasons.length === 0 || acked;
 
   return (
     <dialog ref={ref} className="wide" onCancel={onClose} onClose={onClose}>
@@ -48,19 +50,25 @@ export function CancelDialog({
           : "The worktrees and the terminal go. The branches, pull requests and the ticket " +
             "are left alone — you will be told what is left."}
       </p>
-      {needsForce.length > 0 && (
-        <p>
-          <label>
-            <input
-              type="checkbox"
-              checked={acked}
-              disabled={busy}
-              onChange={(e) => onAck(e.target.checked)}
-            />
-            {needsForce.join(", ")}: commits that were never pushed. The worktree goes, the
-            branch is kept.
-          </label>
-        </p>
+      {reasons.length > 0 && (
+        <>
+          <ul>
+            {reasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+          <p>
+            <label className="ack">
+              <input
+                type="checkbox"
+                checked={acked}
+                disabled={busy}
+                onChange={(e) => onAck(e.target.checked)}
+              />
+              Discard this: untracked files go with the worktree; commits stay on the branch.
+            </label>
+          </p>
+        </>
       )}
       <div className="dialog-actions">
         <button type="button" onClick={onClose} disabled={busy}>

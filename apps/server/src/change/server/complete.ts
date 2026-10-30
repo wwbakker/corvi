@@ -230,6 +230,7 @@ const isAcknowledgementCode = (
 ): code is Acknowledgement["code"] =>
   code === "review-pending" ||
   code === "unpushed" ||
+  code === "untracked" ||
   code === "ownership-unverified" ||
   code === "shared-worktree" ||
   code === "provider-veto"

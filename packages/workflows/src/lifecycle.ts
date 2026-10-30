@@ -54,6 +54,7 @@ export class TerminalError extends Schema.TaggedError<TerminalError>()("Terminal
 export type AcknowledgementCode =
   | "review-pending"
   | "unpushed"
+  | "untracked"
   | "ownership-unverified"
   | "shared-worktree"
   | "provider-veto"

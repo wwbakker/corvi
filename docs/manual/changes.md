@@ -102,9 +102,10 @@ Repositories with the same directory basename cannot share a change directory.
 
 Removal safety is enforced on the server:
 
-- Removing a worktree with uncommitted work refuses outright, even with force: that work would
-  be lost.
-- Anything else that leaves work behind — a worktree with unpushed commits, a checkout used in
+- Removing a worktree with uncommitted changes to tracked files refuses outright, even with
+  force: that work would be lost. The refusal names the files.
+- Anything else that leaves work behind — a worktree with untracked files (named in the question)
+  or unpushed commits, a checkout used in
   place with uncommitted or unpushed work — asks first and goes ahead when confirmed. A checkout
   used in place is left exactly as it stands: only the link goes.
 - Unpushed commits require acknowledgement; the branch remains unless its contents are proven
@@ -184,8 +185,8 @@ a change a newer version has written.
 ## Completing a change
 
 **Complete change** evaluates readiness against fresh relevant state. A blocked operation explains
-its reasons. Forceable reasons can be acknowledged individually; uncommitted work and an idea
-cannot be overridden.
+its reasons. Forceable reasons can be acknowledged individually — untracked files among them;
+uncommitted changes to tracked files and an idea cannot be overridden.
 
 Normal completion merges eligible outstanding pull requests, performs required issue/completion
 steps, removes worktrees safely, closes the change's terminal, and archives the record and documents.
@@ -215,9 +216,10 @@ that would revive an archived checkout. Browsing a finished change does not star
 **Cancel change** removes local worktrees/links, closes the terminal, and archives the change as
 `Cancelled`. It does not close pull requests or move tickets. The result lists what remains open.
 
-The same removal protections apply: dirty work blocks cancellation — an idea's worktree is a
-real checkout and no exception; unpushed work requires
-acknowledgement and remains recoverable on a retained branch. Branch retention is reported from
+The same removal protections apply: uncommitted changes to tracked files block cancellation — an
+idea's worktree is a real checkout and no exception. Untracked files and unpushed work require
+acknowledgement, and the question names them: untracked files go with the worktree, while unpushed
+work remains recoverable on a retained branch. Branch retention is reported from
 the actual removal result, not assumed before checking.
 
 ## Left behind

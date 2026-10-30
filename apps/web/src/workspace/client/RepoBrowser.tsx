@@ -108,7 +108,7 @@ export function RepoBrowser({
                 <li key={path} className="selection">
                   <div className="row">
                     <span className="path">{path}</span>
-                    <button type="button" title="Remove" onClick={() => onRemove(path)}>
+                    <button type="button" title="Remove" aria-label="Remove" onClick={() => onRemove(path)}>
                       ✕
                     </button>
                   </div>

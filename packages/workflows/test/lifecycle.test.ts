@@ -21,6 +21,7 @@ import {
   TerminalSessions,
   layer as lifecycleLayer,
   type Acknowledgement,
+  type LifecycleOutcome,
   type PullRequestState,
   type Readiness,
 } from "../src/lifecycle.ts"
@@ -664,6 +665,40 @@ test("cancelling with an acknowledgement removes the checkout and lists the loos
     }
   }
   expect(state.calls).toEqual(["remove /workspace/demo/created", "stop terminal", "transition Cancelled"])
+})
+
+test("untracked files need an acknowledgement, then the checkout goes", async () => {
+  const untracked: RemovalAssessment = {
+    _tag: "NeedsAcknowledgement",
+    reasons: [
+      {
+        code: "untracked",
+        kind: "forceable",
+        text: "untracked files: tests/__pycache__/",
+        facts: "untracked:abc:tests/__pycache__/",
+      },
+    ],
+  }
+  const cancel = (
+    acknowledgements: readonly Acknowledgement[],
+  ): Effect.Effect<LifecycleOutcome, unknown, ChangeLifecycle> =>
+    Effect.gen(function* () {
+      const service = yield* lifecycle
+      return yield* service.cancelChange({ changeId: ChangeId.make("demo"), acknowledgements })
+    })
+
+  const asked = script({ removal: untracked })
+  const unacknowledged = await run(asked, cancel([]))
+  expect(Result.isSuccess(unacknowledged) && unacknowledged.success._tag).toBe("NeedsAcknowledgement")
+  expect(asked.calls).toEqual([])
+
+  const acknowledged = script({ removal: untracked })
+  const done = await run(
+    acknowledged,
+    cancel([{ code: "untracked", subject: ref("created"), facts: "untracked:abc:tests/__pycache__/" }]),
+  )
+  expect(Result.isSuccess(done) && done.success._tag).toBe("Done")
+  expect(acknowledged.calls).toContain("remove /workspace/demo/created")
 })
 
 test("a failed loose-end lookup is a note, not a failure", async () => {

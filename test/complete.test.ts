@@ -252,9 +252,12 @@ type CompletionShellOptions = {
 const completionShell = (opts: CompletionShellOptions): FakeShell =>
   fakeShell((cmd) => {
     const line = cmd.join(" ");
-    if (line === "git status --porcelain") {
-      // The new capability reads plain porcelain; the legacy options describe a v2 record.
-      return opts.status && !opts.status.startsWith("#") ? " M changed\n" : "";
+    if (line === "git status --porcelain=v2 -z") {
+      // The capability reads the same entries NUL-separated, without the branch headers.
+      return (opts.status ?? "")
+        .split("\n")
+        .filter((entry) => entry && !entry.startsWith("#"))
+        .join("\0");
     }
     if (line === "git symbolic-ref refs/remotes/origin/HEAD") return "refs/remotes/origin/main";
     if (line === "git worktree list --porcelain") {
@@ -561,17 +564,36 @@ test("completionOf: no worktree and no pull request each block, and say which", 
 test("completionOf: work the remote never saw blocks an otherwise approved change", async () => {
   const repo = join(tmp, "dirty-repo");
   const change = changeWith({ checkouts: checkoutsOf([repo]), branch: "PROJ-dirty" });
+  // The removal check reads the checkout through the scripted shell, but only once the directory
+  // is there: a location that is gone holds nothing to lose.
+  await mkdir(join(tmp, "wt-dirty"), { recursive: true });
   const shell = completionShell({
     worktree: join(tmp, "wt-dirty"),
     branch: change.branch,
     pr: approved(7),
-    status: "? half-done.txt\n",
+    status: "1 .M N... 100644 100644 100644 aaa bbb half-done.txt\n? notes.txt\n",
   });
   const result = await runWithShell(shell, completionOf(change));
   expect(result.ready).toBe(false);
-  expect(result.reasons).toEqual([`${basename(repo)}: uncommitted changes`]);
+  expect(result.tagged).toEqual([
+    { text: `${basename(repo)}: uncommitted changes: half-done.txt`, kind: "hard" },
+  ]);
   // The merge is still queued: it is the unsafe work, not readiness, that stops it.
   expect(result.toMerge).toEqual([{ repo, number: 7 }]);
+
+  // Untracked files alone are a question, named, rather than a refusal.
+  const untracked = await runWithShell(
+    completionShell({
+      worktree: join(tmp, "wt-dirty"),
+      branch: change.branch,
+      pr: approved(7),
+      status: `# branch.upstream origin/${change.branch}\n# branch.ab +0 -0\n? notes.txt\n`,
+    }),
+    completionOf(change),
+  );
+  expect(untracked.tagged).toEqual([
+    { text: `${basename(repo)}: untracked files: notes.txt`, kind: "forceable" },
+  ]);
 });
 
 test("completeChange: a step that fails stops where it stands and journals it", async () => {
@@ -893,10 +915,10 @@ test("completeChange: force still refuses uncommitted work", async () => {
     worktree: join(tmp, "wt-dirtyforce"),
     branch: change.branch,
     pr: approved(7),
-    status: "? half-done.txt\n",
+    status: "1 .M N... 100644 100644 100644 aaa bbb half-done.txt\n",
   });
   await expect(runWithShell(shell, completeChange(change, true))).rejects.toThrow(
-    /uncommitted changes/,
+    /uncommitted changes: half-done.txt/,
   );
   expect((await runEffect(readChange(change.id)))?.state).toBe("Implementation");
 });
@@ -994,7 +1016,7 @@ test("CancelDialog: the confirm waits for the acknowledge the server names", asy
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { CancelDialog } = await import("../apps/web/src/change-page/client/CancelDialog.tsx");
   const render = (props: {
-    needsForce: string[];
+    reasons: string[];
     acked: boolean;
     idea?: boolean;
   }): string =>
@@ -1002,7 +1024,7 @@ test("CancelDialog: the confirm waits for the acknowledge the server names", asy
       createElement(CancelDialog, {
         changeId: "PROJ-x",
         idea: props.idea ?? false,
-        needsForce: props.needsForce,
+        reasons: props.reasons,
         acked: props.acked,
         busy: false,
         onAck: () => {},
@@ -1011,16 +1033,18 @@ test("CancelDialog: the confirm waits for the acknowledge the server names", asy
       }),
     );
 
-  // Unpushed commits named and not acknowledged: the only disabled control is the confirm.
-  const warned = render({ needsForce: ["orders"], acked: false });
-  expect(warned).toContain("orders: commits that were never pushed");
+  // What goes, named and not acknowledged: the only disabled control is the confirm.
+  const reasons = ["orders: untracked files: build/", "orders: commits that were never pushed"];
+  const warned = render({ reasons, acked: false });
+  expect(warned).toContain("<li>orders: untracked files: build/</li>");
+  expect(warned).toContain("<li>orders: commits that were never pushed</li>");
   expect(warned.match(/disabled=""/g)?.length).toBe(1);
   // Acknowledged: nothing is disabled, so confirming can go ahead.
-  expect(render({ needsForce: ["orders"], acked: true })).not.toContain("disabled");
+  expect(render({ reasons, acked: true })).not.toContain("disabled");
   // Nothing to warn about: the confirm is available without an acknowledge.
-  expect(render({ needsForce: [], acked: false })).not.toContain("disabled");
+  expect(render({ reasons: [], acked: false })).not.toContain("disabled");
   // An idea is discarded, not cancelled.
-  expect(render({ needsForce: [], acked: false, idea: true })).toContain("Discard");
+  expect(render({ reasons: [], acked: false, idea: true })).toContain("Discard");
 });
 
 test("overrideNote: only a finished forced completion says it completed with overrides", async () => {
@@ -1056,8 +1080,8 @@ test("overrideNote: only a finished forced completion says it completed with ove
   ).toBeUndefined();
 });
 
-test("completionRefusal/cancelNeedsForce: only a structured 409 opens a dialog", async () => {
-  const { completionRefusal, cancelNeedsForce } = await import(
+test("completionRefusal/forceQuestion: only a structured 409 opens a dialog", async () => {
+  const { completionRefusal, forceQuestion } = await import(
     "../apps/web/src/change-page/client/refusals.ts"
   );
   const failure = (status: number, body: unknown): { status: number; body: unknown } => ({
@@ -1087,9 +1111,17 @@ test("completionRefusal/cancelNeedsForce: only a structured 409 opens a dialog",
     completionRefusal(failure(400, { reasons: [{ text: "x", kind: "hard" }] })),
   ).toBeUndefined();
 
-  expect(cancelNeedsForce(failure(409, { needsForce: ["orders"] }))).toEqual(["orders"]);
-  expect(cancelNeedsForce(failure(409, { needsForce: [] }))).toBeUndefined();
-  expect(cancelNeedsForce(failure(400, { needsForce: ["orders"] }))).toBeUndefined();
+  expect(forceQuestion(failure(409, { needsForce: ["orders"] }))).toEqual(["orders"]);
+  expect(
+    forceQuestion(
+      failure(409, {
+        needsForce: ["orders"],
+        reasons: [{ repository: "orders", text: "untracked files: build/" }],
+      }),
+    ),
+  ).toEqual(["orders: untracked files: build/"]);
+  expect(forceQuestion(failure(409, { needsForce: [] }))).toBeUndefined();
+  expect(forceQuestion(failure(400, { needsForce: ["orders"] }))).toBeUndefined();
 });
 
 test("retryBody: a retry keeps the forced mode the journal recorded", async () => {

@@ -161,9 +161,9 @@ test("cancelling an idea takes its worktree away — but never uncommitted work"
     createChange({ id: "idea-scribbled", state: "Ideation", checkouts: checkoutsOf([repo]) }),
   );
   await runEffect(provisionRepositories(scribbled));
-  await Bun.write(join(changeDir(scribbled), basename(repo), "wip.txt"), "half a thought\n");
-  expect(runCancel(scribbled)).rejects.toThrow(/uncommitted changes/);
-  expect(runCancel(scribbled, true)).rejects.toThrow(/uncommitted changes/);
+  await Bun.write(join(changeDir(scribbled), basename(repo), "README.md"), "half a thought\n");
+  await expect(runCancel(scribbled)).rejects.toThrow(/uncommitted changes/);
+  await expect(runCancel(scribbled, true)).rejects.toThrow(/uncommitted changes/);
 });
 
 test("adding a repository to an idea cuts its worktree and branch", async () => {

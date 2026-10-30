@@ -135,7 +135,9 @@ export const withRuntimeConfig = async <T>(
 
 /** Environment for a spawned test server: the OS picks the port (`CORVI_PORT=0`), and every
  * path is the file's own tmp dir, so parallel workers share nothing — not the changes, the
- * config, the built page, or the cache file. */
+ * config, the built page, or the cache file. `ZDOTDIR` points zsh at startup files that do not
+ * exist, so the terminals a test drives have the system's plain prompt, not the prompt and
+ * plugins of whoever runs the suite — those move the cursor the terminal tests measure. */
 export const serverEnv = (
   tmp: string,
   extra: Record<string, string> = {},
@@ -147,6 +149,7 @@ export const serverEnv = (
   XDG_STATE_HOME: join(tmp, "state"),
   CORVI_CACHE: join(tmp, "cache.json"),
   CORVI_PORT: "0",
+  ZDOTDIR: join(tmp, "zdotdir"),
   ...extra,
 });
 
@@ -591,11 +594,14 @@ export const checkoutsOf = (
  * `{ needsForce }`. */
 export const runCancel = async (
   ...args: Parameters<typeof cancelChange>
-): Promise<{ change: Change; loose: string[] } | { needsForce: string[] }> => {
+): Promise<
+  | { change: Change; loose: string[] }
+  | { needsForce: string[]; reasons: { repository: string; text: string }[] }
+> => {
   const result = await runEffect(cancelChange(...args));
   return result._tag === "Done"
     ? { change: result.change, loose: result.loose }
-    : { needsForce: result.needsForce };
+    : { needsForce: result.needsForce, reasons: result.reasons };
 };
 
 /** What is uncommitted in one repository, Promise-shaped for the tests. */

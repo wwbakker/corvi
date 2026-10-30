@@ -381,8 +381,9 @@ export class CheckoutError extends Schema.TaggedError<CheckoutError>()("Checkout
 export interface Interface {
   /** Reads the recorded location; absence is a value, unreadable is an error. */
   readonly inspectCheckout: (directory: AbsolutePath) => Effect.Effect<CheckoutInspection, CheckoutError>
-  /** Whether removing this checkout would destroy anything: uncommitted work refuses outright;
-   * commits the base cannot prove it has are acknowledged first. */
+  /** Whether removing this checkout would destroy anything: uncommitted changes to tracked files
+   * refuse outright; untracked files, and commits the base cannot prove it has, are acknowledged
+   * first. */
   readonly assessRemoval: (input: {
     readonly worktree: AbsolutePath
     readonly branch?: string
@@ -724,12 +725,13 @@ state. The implementation is `@corvi/workflows/lifecycle`.
 export type AcknowledgementCode =
   | "review-pending"
   | "unpushed"
+  | "untracked"
   | "ownership-unverified"
   | "shared-worktree"
   | "provider-veto"
 
 export type LifecycleReason = {
-  readonly code: AcknowledgementCode | "idea" | "dirty-worktree"
+  readonly code: AcknowledgementCode | "idea" | "dirty-worktree" | "finished"
   readonly subject?: RepositoryRef
   readonly kind: "forceable" | "hard"
   readonly text: string
@@ -824,7 +826,7 @@ The ports are declared by the workflow and supplied by server composition; `chan
 `repositories` never import a provider. `outstanding` and `current` feed a cancellation's
 loose-end list, and a failed lookup is a note there, never a blocker. The removal facts the
 operations consume come from
-`repositories`: dirty and unpushed state, ownership (created, borrowed, unverified), and whether
+`repositories`: dirty, untracked, and unpushed state, ownership (created, borrowed, unverified), and whether
 another active change references the same checkout. That needs Git status, upstream comparison,
 and integration proof; those additions arrive with the mutation slice, not the read slice.
 
@@ -886,7 +888,8 @@ export class ChangeLifecycle extends Context.Service<ChangeLifecycle, Interface>
    in parallel, fresh at the click. The app hands that fresh assessment to `completeChange`, so
    one click makes one readiness check.
 2. Every forceable reason must be acknowledged with matching facts; changed facts invalidate the
-   acknowledgement. Hard reasons — an idea, uncommitted work — block regardless.
+   acknowledgement. Hard reasons — an idea, uncommitted changes to tracked files — block
+   regardless.
 3. Journal the plan first — each merge, the issue step, the worktrees, the terminal, the archive,
    recorded as `waiting` — then run it, updating each step as it starts and finishes.
 4. Merge eligible pull requests sequentially; a failure stops later steps and journals where.
@@ -898,7 +901,8 @@ export class ChangeLifecycle extends Context.Service<ChangeLifecycle, Interface>
 **Cancel** — an idea is allowed; external systems are left alone:
 
 1. Read the change and its links; assess removal safety per checkout.
-2. Uncommitted work blocks; unpushed commits need acknowledgement.
+2. Uncommitted changes to tracked files block; untracked files and unpushed commits need
+   acknowledgement, each naming what it found.
 3. Collect loose ends from providers before removal; a failed lookup is a note, not a blocker.
    The plan (loose ends, worktrees, terminal, archive) is journaled as `waiting` before anything
    runs.

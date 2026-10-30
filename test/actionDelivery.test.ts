@@ -22,12 +22,14 @@ import { testTempDir, waitFor } from "./helpers.ts";
  * but a test leaves no process behind.
  */
 const own = await testTempDir("action-host");
-process.env.CORVI_CONFIG = join(own, "config.json");
 // The env this file mutates, saved so a co-located test file does not inherit it (bun runs the
-// files of a run in one process).
+// files of a run in one process) — a config path into this file's own directory, deleted
+// afterwards, would leave later files writing into nothing.
 const savedEnv = {
   CORVI_HOST_RUNTIME: process.env.CORVI_HOST_RUNTIME,
+  CORVI_CONFIG: process.env.CORVI_CONFIG,
 };
+process.env.CORVI_CONFIG = join(own, "config.json");
 const restoreEnv = (): void => {
   for (const [key, value] of Object.entries(savedEnv)) {
     if (value === undefined) delete process.env[key];
