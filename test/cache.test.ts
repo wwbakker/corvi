@@ -2,7 +2,7 @@ import { test, expect, beforeEach, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Effect } from "effect";
+import { Effect, Deferred, Exit, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 import {
   clearCache,
@@ -32,6 +32,13 @@ function gate<T>(value: T): { promise: Promise<T>; release: (v?: T) => void; } {
   let release: (v: T) => void;
   const promise = new Promise<T>((resolve) => (release = resolve));
   return { promise, release: (v: T = value) => release(v) };
+}
+
+/** Work that says when it has started, and then waits for the gate. Awaiting `started` is what
+ * makes "the refresh got to run" a fact rather than a scheduling guess, which `yield* Effect.yieldNow`
+ * followed by a call count would be under load. */
+function staged<T, E>(started: Deferred.Deferred<void>, finish: Effect.Effect<T, E>): Effect.Effect<T, E> {
+  return Effect.andThen(Deferred.succeed(started, undefined), finish);
 }
 
 test("the first caller waits, everyone after that is instant", async () => {
@@ -96,6 +103,238 @@ test("a stale answer is handed over at once, and replaced when the refresh lands
       slow.release();
       yield* TestClock.adjust(0);
       expect(yield* swr("k", 60_000, Effect.succeed("never asked"))).toBe("answer 2");
+    }),
+  );
+});
+
+test("an invalidate during a refresh leaves the newer answer, not the one it replaced", async () => {
+  const slow = gate("old answer");
+
+  await runEffectWithTestClock(
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>();
+
+      yield* swr("k", 1000, Effect.succeed("first"));
+      // Past the ttl: the old answer is served now, and the refresh runs behind it.
+      yield* TestClock.adjust(1001);
+      expect(yield* swr("k", 1000, staged(started, Effect.promise(() => slow.promise)))).toBe(
+        "first",
+      );
+      yield* Deferred.await(started);
+
+      // An action makes the key wrong while that refresh is still blocked, and the read that
+      // follows it produces a newer answer — the one every later read must see.
+      invalidate("k");
+      expect(yield* swr("k", 120_000, Effect.succeed("newer"))).toBe("newer");
+      const newerAge = defaultCache.ageOf("k")!;
+
+      // The old refresh lands a minute of test time later, long after it stopped being the
+      // entry's own.
+      yield* TestClock.adjust(60_000);
+      slow.release("old answer");
+      yield* TestClock.adjust(0);
+
+      // It writes nothing back: the newer answer stays, and is not restamped with the moment the
+      // stale refresh happened to finish either.
+      expect(yield* swr("k", 120_000, Effect.succeed("never asked"))).toBe("newer");
+      // The helper seeds the TestClock at `Date.now()`, so an entry left alone can only get older;
+      // a restamp a minute of test time later would make it look younger than it was.
+      expect(defaultCache.ageOf("k")!).toBeGreaterThanOrEqual(newerAge);
+    }),
+  );
+});
+
+test("a refresh that fails after an invalidate leaves the newer answer alone too", async () => {
+  const slow = gate("unused");
+
+  await runEffectWithTestClock(
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>();
+      // A typed failure, not a defect thrown inside the promise: this is the failure branch the
+      // refresh has to keep honest.
+      const failing: Effect.Effect<string, TestError> = staged(
+        started,
+        Effect.andThen(
+          Effect.promise(() => slow.promise),
+          Effect.fail(new TestError({ message: "gh: not logged in" })),
+        ),
+      );
+
+      yield* swr("k", 1000, Effect.succeed("first"));
+      yield* TestClock.adjust(1001);
+      expect(yield* swr("k", 1000, failing)).toBe("first");
+      yield* Deferred.await(started);
+
+      invalidate("k");
+      expect(yield* swr("k", 120_000, Effect.succeed("newer"))).toBe("newer");
+
+      // "Keep the last good value" is about the entry the refresh started against: this one no
+      // longer exists, so there is nothing here to put back.
+      slow.release("unused");
+      yield* TestClock.adjust(0);
+      expect(yield* swr("k", 120_000, Effect.succeed("never asked"))).toBe("newer");
+    }),
+  );
+});
+
+test("an invalidate with no read behind it drops the in-flight outcome", async () => {
+  const slow = gate("superseded");
+  let calls = 0;
+
+  await runEffectWithTestClock(
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>();
+      // Counted when the work starts, not when it finishes: the question is how many runs this
+      // key paid for.
+      const work = (): Effect.Effect<string> =>
+        Effect.gen(function* () {
+          calls++;
+          return yield* staged(started, Effect.promise(() => slow.promise));
+        });
+
+      yield* swr("k", 1000, Effect.succeed("first"));
+      yield* TestClock.adjust(1001);
+      expect(yield* swr("k", 1000, work())).toBe("first");
+      yield* Deferred.await(started);
+      expect(calls).toBe(1);
+
+      // Nothing takes the key while that refresh is in flight, so when it lands there is nowhere
+      // for its superseded outcome to go.
+      invalidate("k");
+      slow.release("superseded");
+      yield* TestClock.adjust(0);
+
+      // The next reader pays for a run of its own rather than being handed the dropped answer.
+      expect(yield* swr("k", 120_000, Effect.sync(() => `answer ${++calls}`))).toBe("answer 2");
+      expect(calls).toBe(2);
+    }),
+  );
+});
+
+test("an old refresh landing during a newer in-flight read does not drop that read's placeholder", async () => {
+  const oldGate = gate("old answer");
+  const newGate = gate("newer answer");
+  let oldCalls = 0;
+  let newCalls = 0;
+  let thirdCalls = 0;
+
+  await runEffectWithTestClock(
+    Effect.gen(function* () {
+      const oldStarted = yield* Deferred.make<void>();
+      const newStarted = yield* Deferred.make<void>();
+
+      const oldWork = (): Effect.Effect<string> =>
+        Effect.gen(function* () {
+          oldCalls++;
+          return yield* staged(oldStarted, Effect.promise(() => oldGate.promise));
+        });
+      const newerWork = (): Effect.Effect<string> =>
+        Effect.gen(function* () {
+          newCalls++;
+          return yield* staged(newStarted, Effect.promise(() => newGate.promise));
+        });
+      const thirdWork = (): Effect.Effect<string> =>
+        Effect.gen(function* () {
+          thirdCalls++;
+          return yield* Effect.promise(() => newGate.promise);
+        });
+
+      // A stale read forks an old refresh, and the gate holds it in flight.
+      yield* swr("k", 1000, Effect.succeed("first"));
+      yield* TestClock.adjust(1000);
+      expect(yield* swr("k", 1000, oldWork())).toBe("first");
+      yield* Deferred.await(oldStarted);
+      expect(oldCalls).toBe(1);
+
+      // An action invalidates while it runs, and the next read starts a refresh of its own. That
+      // one is still in flight when the old refresh lands.
+      invalidate("k");
+      const second = yield* Effect.forkChild(swr("k", 120_000, newerWork()));
+      yield* Deferred.await(newStarted);
+      expect(newCalls).toBe(1);
+
+      // The stale refresh must leave the entry alone: it holds the newer read's placeholder, and
+      // the deferred everyone joining that read waits on.
+      oldGate.release("old answer");
+      yield* TestClock.adjust(0);
+
+      // A third reader arrives while the newer refresh is still running: it joins that one
+      // rather than starting a third run.
+      const third = yield* Effect.forkChild(swr("k", 120_000, thirdWork()));
+      yield* TestClock.adjust(0);
+      expect(thirdCalls).toBe(0);
+      expect(newCalls).toBe(1);
+
+      newGate.release("newer answer");
+      yield* TestClock.adjust(0);
+      expect(yield* Fiber.join(third)).toBe("newer answer");
+      expect(yield* Fiber.join(second)).toBe("newer answer");
+      expect(newCalls).toBe(1);
+      expect(thirdCalls).toBe(0);
+    }),
+  );
+});
+
+test("a failing refresh whose entry is gone deletes nothing", async () => {
+  const slow = gate("unused");
+  const newGate = gate("newer answer");
+  let secondCalls = 0;
+  let thirdCalls = 0;
+
+  await runEffectWithTestClock(
+    Effect.gen(function* () {
+      const firstStarted = yield* Deferred.make<void>();
+      const newStarted = yield* Deferred.make<void>();
+
+      const failing: Effect.Effect<string, TestError> = staged(
+        firstStarted,
+        Effect.andThen(
+          Effect.promise(() => slow.promise),
+          Effect.fail(new TestError({ message: "gh: not logged in" })),
+        ),
+      );
+      const newerWork = (): Effect.Effect<string> =>
+        Effect.gen(function* () {
+          secondCalls++;
+          return yield* staged(newStarted, Effect.promise(() => newGate.promise));
+        });
+      const thirdWork = (): Effect.Effect<string> =>
+        Effect.gen(function* () {
+          thirdCalls++;
+          return yield* Effect.promise(() => newGate.promise);
+        });
+
+      // A cold key: this refresh started with nothing to fall back on, so its failure path is the
+      // one that deletes rather than the one that restores.
+      const first = yield* Effect.forkChild(Effect.exit(swr("k", 1000, failing)));
+      yield* Deferred.await(firstStarted);
+
+      // Nothing of that refresh's own is in the store any more, and the next read has put a
+      // placeholder of its own there.
+      invalidate("k");
+      const second = yield* Effect.forkChild(swr("k", 120_000, newerWork()));
+      yield* Deferred.await(newStarted);
+      expect(secondCalls).toBe(1);
+
+      // The first refresh's failure lands now. Guarded, it leaves the entry alone; unguarded it
+      // deletes the newer read's placeholder, having no value of its own to put back.
+      slow.release("unused");
+      yield* TestClock.adjust(0);
+      expect(Exit.isFailure(yield* Fiber.join(first))).toBe(true);
+
+      // A third reader arrives while the newer refresh is still running: it joins that one
+      // rather than paying for a run of its own.
+      const third = yield* Effect.forkChild(swr("k", 120_000, thirdWork()));
+      yield* TestClock.adjust(0);
+      expect(thirdCalls).toBe(0);
+      expect(secondCalls).toBe(1);
+
+      newGate.release("newer answer");
+      yield* TestClock.adjust(0);
+      expect(yield* Fiber.join(third)).toBe("newer answer");
+      expect(yield* Fiber.join(second)).toBe("newer answer");
+      expect(secondCalls).toBe(1);
+      expect(thirdCalls).toBe(0);
     }),
   );
 });

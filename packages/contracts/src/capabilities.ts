@@ -36,8 +36,10 @@ export interface ShellShape {
 export class Shell extends Context.Service<Shell, ShellShape>()("corvi/Shell") {}
 
 /** The answer cache: read-through with a TTL, one shared refresh per key, and prefix
- * invalidation for when an action has just made an answer wrong. The work's requirements
- * pass through untouched — the cache stores outcomes, not contexts. */
+ * invalidation for when an action has just made an answer wrong. A refresh whose answer an
+ * invalidate superseded while it ran is not written back, so a newer answer produced after the
+ * invalidate is neither overwritten nor restamped as fresh. The work's requirements pass through
+ * untouched — the cache stores outcomes, not contexts. */
 export class Cache extends Context.Service<Cache, {
   swr<A, E, R>(key: string, ttlMs: number, work: Effect.Effect<A, E, R>): Effect.Effect<A, E, R>;
   invalidate(prefix: string): Effect.Effect<void>;
