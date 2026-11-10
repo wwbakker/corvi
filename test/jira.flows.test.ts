@@ -20,6 +20,8 @@ import type { Change } from "@corvi/changes/record";
 import jiraExtension from "@corvi/jira";
 import {
   boardIssues,
+  chooseFilteredBoard,
+  chooseLocatedBoard,
   createIssue,
   globalOf,
   issueByKey,
@@ -553,8 +555,164 @@ test("the board is found from the project when Board is not set", async () => {
 
   expect(await runEffect(listSprints({ server: SITE.server, email: SITE.email, project: "PROJ" }))).toEqual([]);
   expect(fetchCalls[0]!.url.pathname).toBe("/rest/agile/1.0/board");
-  expect(fetchCalls[0]!.url.searchParams.get("projectKeyOrId")).toBe("PROJ");
+  expect(fetchCalls[0]!.url.searchParams.get("projectLocation")).toBe("PROJ");
   expect(fetchCalls[1]!.url.pathname).toBe("/rest/agile/1.0/board/169/sprint");
+});
+
+/** A board list that answers each of the two questions its own way, as a real site does. */
+const boardLists =
+  (answers: { located: unknown[]; filtered: unknown[] }) =>
+  (url: URL): Response => {
+    if (url.pathname === "/rest/agile/1.0/board") {
+      if (url.searchParams.has("projectLocation")) return json({ values: answers.located, isLast: true });
+      if (url.searchParams.has("projectKeyOrId")) return json({ values: answers.filtered, isLast: true });
+    }
+    if (/^\/rest\/agile\/1\.0\/board\/\d+\/sprint$/.test(url.pathname)) return json({ values: [] });
+    return text("unexpected", 500);
+  };
+
+const lookedUp = (): string[] =>
+  fetchCalls
+    .filter((c) => c.url.pathname === "/rest/agile/1.0/board")
+    .map((c) => [...c.url.searchParams.keys()].filter((k) => k !== "startAt").join());
+
+test("the board located in the project wins, and the filter is not asked", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  stubFetch(
+    boardLists({
+      located: [{ id: 4169, name: "PDH bord", location: { projectKey: "PDH" } }],
+      filtered: [{ id: 288, name: "OSDB", location: { projectKey: "OSDB" } }],
+    }),
+  );
+
+  await runEffect(listSprints({ server: SITE.server, email: SITE.email, project: "PDH" }));
+
+  expect(lookedUp()).toEqual(["projectLocation"]);
+  expect(fetchCalls.at(-1)!.url.pathname).toBe("/rest/agile/1.0/board/4169/sprint");
+});
+
+test("with no located board, the filter's personal board is picked", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  stubFetch(
+    boardLists({ located: [], filtered: [{ id: 12, name: "CM personal", location: { name: "Someone" } }] }),
+  );
+
+  await runEffect(listSprints({ server: SITE.server, email: SITE.email, project: "CM" }));
+
+  expect(lookedUp()).toEqual(["projectLocation", "projectKeyOrId"]);
+  expect(fetchCalls.at(-1)!.url.pathname).toBe("/rest/agile/1.0/board/12/sprint");
+});
+
+test("a filter board located in another project is named, not picked", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  stubFetch(
+    boardLists({
+      located: [],
+      filtered: [{ id: 836, name: "Overview BCM risks", location: { projectKey: "BCM" } }],
+    }),
+  );
+
+  const result = await runEither(listSprints({ server: SITE.server, email: SITE.email, project: "X" }));
+
+  if (Result.isFailure(result)) {
+    expect(result.failure.message).toBe(
+      "no board in project X; its filter names Overview BCM risks (836) in BCM — set Board in Settings",
+    );
+  } else {
+    throw new Error("expected another project's board to be refused");
+  }
+  expect(fetchCalls.some((c) => c.url.pathname.endsWith("/sprint"))).toBe(false);
+});
+
+test("several located boards are named, even when the filter would answer one", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  stubFetch(
+    boardLists({
+      located: [
+        { id: 1, name: "Alpha", location: { projectKey: "FF" } },
+        { id: 2, name: "Beta", location: { projectKey: "FF" } },
+      ],
+      filtered: [{ id: 1, name: "Alpha", location: { projectKey: "FF" } }],
+    }),
+  );
+
+  const result = await runEither(listSprints({ server: SITE.server, email: SITE.email, project: "FF" }));
+
+  if (Result.isFailure(result)) {
+    expect(result.failure.message).toBe("project FF has 2 boards: Alpha (1), Beta (2) — set Board in Settings");
+  } else {
+    throw new Error("expected an ambiguous project to be refused");
+  }
+  expect(lookedUp()).toEqual(["projectLocation"]);
+});
+
+test("the board list is paged while Jira says there is more", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  stubFetch((url) => {
+    if (url.pathname === "/rest/agile/1.0/board") {
+      return url.searchParams.get("startAt") === "0"
+        ? json({ values: [{ id: 1, name: "Alpha" }], isLast: false })
+        : json({ values: [{ id: 2, name: "Beta" }], isLast: true });
+    }
+    return text("unexpected", 500);
+  });
+
+  const result = await runEither(listSprints({ server: SITE.server, email: SITE.email, project: "PROJ" }));
+
+  // The second page is what makes it ambiguous: one page alone would have picked Alpha.
+  if (Result.isFailure(result)) {
+    expect(result.failure.message).toBe("project PROJ has 2 boards: Alpha (1), Beta (2) — set Board in Settings");
+  } else {
+    throw new Error("expected the second page to be read");
+  }
+  expect(fetchCalls.map((c) => c.url.searchParams.get("startAt"))).toEqual(["0", "1"]);
+});
+
+test("the board choice: located boards are trusted as answered, the filter's are not", () => {
+  // A project configured by numeric id still takes its located board: it is not re-matched by key.
+  expect(chooseLocatedBoard("15686", [{ id: 4210, name: "SBS", location: { projectKey: "SBS" } }])).toEqual({
+    id: "4210",
+  });
+  expect(chooseLocatedBoard("SBS", [])).toBeUndefined();
+
+  // The filter's board in the project itself, by key or id, counts as its own.
+  expect(chooseFilteredBoard("SBS", [{ id: 1, name: "A", location: { projectKey: "SBS" } }])).toEqual({ id: "1" });
+  expect(
+    chooseFilteredBoard("15686", [{ id: 1, name: "A", location: { projectKey: "SBS", projectId: 15686 } }]),
+  ).toEqual({ id: "1" });
+  // A board located nowhere is kept; another project's is set aside rather than counted.
+  expect(
+    chooseFilteredBoard("SBS", [
+      { id: 1, name: "A" },
+      { id: 2, name: "B", location: { projectKey: "OTHER" } },
+    ]),
+  ).toEqual({ id: "1" });
+  expect(chooseFilteredBoard("SBS", [])).toEqual({ problem: "no board in project SBS — set Board in Settings" });
+});
+
+test("a lowercase, padded project is sent as its key everywhere", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  runtimeConfig().workspaces = [jiraWorkspace("case-ws", { project: " proj ", board: "" })];
+  stubFetch((url, init) => {
+    if (url.pathname === "/rest/agile/1.0/board") return json({ values: [{ id: 7, name: "PROJ" }], isLast: true });
+    if (url.pathname === "/rest/agile/1.0/board/7/sprint") return json({ values: [] });
+    if (url.pathname === "/rest/api/3/search/jql") return json({ issues: [] });
+    if (url.pathname === "/rest/api/3/issue" && init?.method === "POST") return json({ key: "PROJ-1" });
+    return text("unexpected", 500);
+  });
+
+  const board = await runEffect(boardIssues("case-ws", true));
+  await runEffect(createIssue({ summary: "Cased", assignToMe: false, workspace: "case-ws" }));
+
+  expect(board.error).toBeUndefined();
+  const call = (path: string): FetchCall => fetchCalls.find((c) => c.url.pathname === path)!;
+  expect(call("/rest/agile/1.0/board").url.searchParams.get("projectLocation")).toBe("PROJ");
+  expect(call("/rest/api/3/search/jql").url.searchParams.get("jql")).toBe(
+    "project = PROJ AND sprint is EMPTY AND statusCategory != Done ORDER BY rank",
+  );
+  const fields = (JSON.parse(call("/rest/api/3/issue").init?.body as string) as { fields: Record<string, unknown> })
+    .fields;
+  expect(fields["project"]).toEqual({ key: "PROJ" });
 });
 
 test("a project with several boards is asked about rather than guessed, and none is said plainly", async () => {

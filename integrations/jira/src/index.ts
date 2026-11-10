@@ -126,7 +126,7 @@ const siteFields = {
     key: "board",
     label: "Board",
     placeholder: "169",
-    hint: "The board the issue table comes from, by id — only needed when the project has more than one, and the error then names them.",
+    hint: "The board the issue table comes from, by id — only needed when Corvi cannot pick one, and the error then says why.",
   },
   token: {
     key: "token",

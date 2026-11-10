@@ -62,6 +62,9 @@ export type Site = {
  * that names its own `tokenEnv` has said where its credential comes from, so it does not also
  * inherit the default site's stored token — which is what would send one client's token to
  * another, with no way for the workspace to say otherwise.
+ *
+ * The project is trimmed and upper-cased here, once, because every reader sends it to Jira as typed:
+ * keys are upper case there, and `projectLocation=sbs` or `SBS ` is a 400 rather than a match.
  */
 export function siteOfWorkspace(settings: ResolvedDto, workspace: WorkspaceSource): Site {
   const own = workspace.settings?.extensionSettings?.jira;
@@ -71,8 +74,8 @@ export function siteOfWorkspace(settings: ResolvedDto, workspace: WorkspaceSourc
   return {
     server: bagString(own, "server") ?? bagString(global, "server"),
     email: bagString(own, "email") ?? bagString(global, "email"),
-    project: bagString(own, "project") ?? bagString(global, "project"),
-    board: bagString(own, "board") ?? bagString(global, "board"),
+    project: (bagString(own, "project") ?? bagString(global, "project"))?.trim().toUpperCase(),
+    board: (bagString(own, "board") ?? bagString(global, "board"))?.trim(),
     tokenEnv: bagString(own, "tokenEnv") ?? bagString(global, "tokenEnv"),
     token: stored ?? (namesOwnVariable ? undefined : bagString(global, "token")),
   };
@@ -207,12 +210,97 @@ const search = (jql: string, site: Site, limit = 100): Effect.Effect<Issue[], Ba
     return issues;
   });
 
+/** A board as Jira's board list answers it. `location` is where the board lives: a project
+ * (`projectKey`, `projectId`), a user (a personal board, no project), or absent. */
+export type BoardJson = {
+  id: number;
+  name: string;
+  location?: { projectKey?: string; projectId?: number };
+};
+
+/** Which board, or why none: a chosen id, or the message that asks the person to set Board. */
+export type BoardChoice = { readonly id: string } | { readonly problem: string };
+
+const named = (boards: readonly BoardJson[]): string =>
+  boards.map((board) => `${board.name} (${board.id})`).join(", ");
+
+/** Exactly one is the only case that needs no one's opinion; the first of several is not a
+ * choice this can make. `undefined` is none at all. */
+const onlyOne = (project: string, boards: readonly BoardJson[]): BoardChoice | undefined => {
+  const [first, second] = boards;
+  if (!first) return undefined;
+  if (!second) return { id: String(first.id) };
+  return {
+    problem: `project ${project} has ${boards.length} boards: ${named(boards)} — set Board in Settings`,
+  };
+};
+
+/** The project's own boards, as `projectLocation` answers them. `undefined` when it has none, which
+ * is when the filter is asked. Not re-filtered by `location`: Jira already answered that question,
+ * and a project configured by numeric id would match no `projectKey`. */
+// Pure and synchronous: nothing for an Effect to wrap.
+export const chooseLocatedBoard = (
+  project: string,
+  located: readonly BoardJson[],
+): BoardChoice | undefined => onlyOne(project, located);
+
+/** The boards whose filter mentions the project, as `projectKeyOrId` answers them. A board located
+ * in another project is never picked: on a real site the filter names other projects' boards as
+ * readily as its own, and picking one would show that project's sprints with no error. Boards
+ * located on a user, or nowhere, remain — the personal and filter boards a project may live on. */
+// Pure and synchronous: nothing for an Effect to wrap.
+export const chooseFilteredBoard = (project: string, filtered: readonly BoardJson[]): BoardChoice => {
+  const elsewhere = (board: BoardJson): boolean => {
+    const location = board.location;
+    if (location?.projectKey === undefined) return false;
+    return (
+      location.projectKey.toUpperCase() !== project && String(location.projectId) !== project
+    );
+  };
+  const own = filtered.filter((board) => !elsewhere(board));
+  const chosen = onlyOne(project, own);
+  if (chosen) return chosen;
+  const others = filtered.filter(elsewhere);
+  if (others.length > 0) {
+    const where = others
+      .map((board) => `${board.name} (${board.id}) in ${board.location?.projectKey}`)
+      .join(", ");
+    return {
+      problem: `no board in project ${project}; its filter names ${where} — set Board in Settings`,
+    };
+  }
+  return { problem: `no board in project ${project} — set Board in Settings` };
+};
+
+/** Every board one query answers, paged while Jira says there is more. */
+const boardsWhere = (
+  site: Site,
+  query: Record<string, string>,
+): Effect.Effect<BoardJson[], BadRequestError> =>
+  Effect.gen(function* () {
+    const boards: BoardJson[] = [];
+    for (;;) {
+      const page = yield* jiraFetch<{ values?: BoardJson[]; isLast?: boolean }>(
+        "/rest/agile/1.0/board",
+        { site, query: { ...query, startAt: String(boards.length) } },
+      );
+      const values = page.values ?? [];
+      boards.push(...values);
+      // An empty page that claims there is more would otherwise ask forever.
+      if (page.isLast !== false || values.length === 0) return boards;
+    }
+  });
+
 /**
  * The board's id: the configured one, or the project's when it has exactly one.
  *
  * A board id is the least knowable thing in the set, and a project key is what people have in
  * hand, so a project with one board never asks for the id. A project with several names them all
  * and asks, which is also what leaves the choice to the person who knows it.
+ *
+ * The project's board is the one Jira says is located in it (`projectLocation`). Only when none
+ * is does the filter answer (`projectKeyOrId`): it finds the personal boards a project's work may
+ * live on, but on its own it misses located boards and names other projects' boards.
  *
  * Cached, because the board view asks once per sprint: an uncached lookup would be one extra
  * request per sprint on every visit. The failure is a `BadRequestError`, which `swr` carries
@@ -237,24 +325,15 @@ const boardId = (site: Site): Effect.Effect<string, BadRequestError, Cache> =>
       `jira:${siteKey(site)}:board-id`,
       ISSUE_TTL,
       Effect.gen(function* () {
-        const json = yield* jiraFetch<{ values?: { id: number; name: string }[] }>(
-          "/rest/agile/1.0/board",
-          { site, query: { projectKeyOrId: project } },
+        const located = chooseLocatedBoard(
+          project,
+          yield* boardsWhere(site, { projectLocation: project }),
         );
-        const boards = json.values ?? [];
-        const [first, second] = boards;
-        // Exactly one is the only case that needs no one's opinion; the first of several is not
-        // a choice this can make.
-        if (first && !second) return String(first.id);
-        if (!first) {
-          return yield* new BadRequestError({
-            message: `no board in project ${project} — set Board in Settings`,
-          });
-        }
-        const named = boards.map((board) => `${board.name} (${board.id})`).join(", ");
-        return yield* new BadRequestError({
-          message: `project ${project} has ${boards.length} boards: ${named} — set Board in Settings`,
-        });
+        const choice =
+          located ??
+          chooseFilteredBoard(project, yield* boardsWhere(site, { projectKeyOrId: project }));
+        if ("problem" in choice) return yield* new BadRequestError({ message: choice.problem });
+        return choice.id;
       }),
     );
   });
