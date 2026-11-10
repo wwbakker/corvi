@@ -193,7 +193,7 @@ test.skipIf(!usable)("the azure-devops page reads live on arrival, and a deployi
   let hold = false;
   await page.route("**/api/ext/azure-devops/services*", async (route) => {
     asked.push({ search: new URL(route.request().url()).search, beforeFirstAnswer: !answered });
-    if (hold) await new Promise((resolve) => setTimeout(resolve, 500));
+    if (hold) await new Promise((resolve) => setTimeout(resolve, 1500));
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -268,6 +268,12 @@ test.skipIf(!usable)("the azure-devops page reads live on arrival, and a deployi
   expect(await refresh.locator("svg").evaluate((svg) => getComputedStyle(svg).animationName)).toBe(
     "none",
   );
+  // And the converse, against the same flight: with the preference off the arrow does turn, so the
+  // rule itself is pinned and not only its absence. Deleting the spin fails here.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  expect(await refresh.locator("svg").evaluate((svg) => getComputedStyle(svg).animationName)).toBe(
+    "refresh-spin",
+  );
   // Let the held read finish, so the page is quiet before it closes.
   hold = false;
   await page.waitForFunction(
@@ -278,6 +284,238 @@ test.skipIf(!usable)("the azure-devops page reads live on arrival, and a deployi
     { timeout: 20_000 },
   );
   await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.close();
+}, 60_000);
+
+/** The deployments page's answer, as the server would give it: one service, settled on accept. */
+const settledService = {
+  services: [
+    {
+      name: "example-api",
+      pipeline: { id: 1, name: "deploy-example-api" },
+      build: { id: 2, name: "build-example-api" },
+      environments: [
+        {
+          environment: "accept",
+          version: "20261109.4",
+          at: "2026-11-09T08:10:00Z",
+          state: "ok",
+          detail: "3h ago",
+        },
+      ],
+    },
+  ],
+};
+
+/** What the dialog is offered: a build still running, and one that finished. */
+const offeredBuilds = (options: { building: boolean }): unknown[] => [
+  {
+    runId: 2,
+    buildNumber: "b2",
+    branch: "main",
+    deployedTo: [],
+    ...(options.building
+      ? {
+          running: true,
+          startedAt: "2026-11-09T09:00:00Z",
+          expectedMs: 10 * 60_000,
+        }
+      : { version: "20261109.5", finishedAt: "2026-11-09T09:04:00Z" }),
+  },
+  {
+    runId: 1,
+    buildNumber: "b1",
+    version: "20261109.4",
+    branch: "main",
+    finishedAt: "2026-11-09T08:10:00Z",
+    deployedTo: ["accept"],
+  },
+];
+
+/** Open the deploy dialog against the stubbed routes, and record every versions read it makes.
+ * The clock is Playwright's, so the ten-second watch can be walked forward instead of waited for. */
+async function openDeployDialog(options: { building: boolean }): Promise<{
+  page: Page;
+  asked: () => string[];
+  setBuilding: (building: boolean) => void;
+  /** Fail the versions reads that come next, so a tick's failure can be seen and recovered from. */
+  setFailing: (failing: boolean) => void;
+  /** Hold the next versions answer until the returned function is called, so a read can be caught
+   * in flight. */
+  holdNext: () => () => void;
+}> {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.clock.install();
+  let building = options.building;
+  let failing = false;
+  let held: { promise: Promise<void>; release: () => void } | null = null;
+  const reads: string[] = [];
+  await page.route("**/api/ext/azure-devops/**", async (route) => {
+    const requested = new URL(route.request().url());
+    const versions = requested.pathname.endsWith("/versions");
+    if (versions) reads.push(requested.search);
+    if (held) await held.promise;
+    // Fulfilling a request the dialog has already cancelled is not an error worth failing on.
+    await route
+      .fulfill(
+        versions && failing
+          ? {
+            status: 500,
+            contentType: "application/json",
+            body: JSON.stringify({ error: "azure is down" }),
+          }
+          : {
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify(versions ? offeredBuilds({ building }) : settledService),
+          },
+      )
+      .catch(() => undefined);
+  });
+  await page.goto(`${url}/azure-devops`, { waitUntil: "domcontentloaded" });
+  // The page's first read is deferred by a task, which a fake clock only runs when walked forward.
+  await page.clock.runFor(100);
+  await page.waitForSelector(".table.deployments");
+  await page.getByRole("button", { name: "Deploy…" }).click();
+  await page.waitForSelector("dialog[open] .versions");
+  const holdNext = (): (() => void) => {
+    let release!: () => void;
+    const promise = new Promise<void>((resolve) => (release = resolve));
+    held = {
+      promise,
+      release: () => {
+        held = null;
+        release();
+      },
+    };
+    return () => held?.release();
+  };
+  return {
+    page,
+    asked: () => reads,
+    setBuilding: (next) => (building = next),
+    setFailing: (next) => (failing = next),
+    holdNext,
+  };
+}
+
+/** Wait (in test time, which the page's fake clock does not touch) until a read has left the page. */
+async function untilReads(get: () => string[], count: number): Promise<void> {
+  for (let i = 0; i < 100 && get().length < count; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  expect(get()).toHaveLength(count);
+}
+
+/** Give a read that should not happen room to arrive, and then say that it did not: a request the
+ * page fires is on the wire a moment after the clock has moved, not in the same tick. */
+async function noMoreReads(get: () => string[], count: number): Promise<void> {
+  for (let i = 0; i < 20 && get().length === count; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  expect(get()).toHaveLength(count);
+}
+
+test.skipIf(!usable)("the deploy dialog reads live when it opens, and watches a running build", async () => {
+  const { page, asked, setBuilding } = await openDeployDialog({ building: true });
+
+  // The open is live: the row you clicked is old, and this is the decision. One read, and it is
+  // the live one.
+  expect(asked()).toEqual(["?refresh=1"]);
+  // The running build is shown with its progress bar, and cannot be picked yet — there is no
+  // version to pick. The one that finished can be.
+  const building = page.locator("dialog[open] .versions .pick.building");
+  expect(await building.count()).toBe(1);
+  expect(await building.locator(".progress").count()).toBe(1);
+  expect(await building.locator('input[name="version"]').isDisabled()).toBe(true);
+  const finished = page.locator('dialog[open] .versions .pick').filter({ hasText: "20261109.4" });
+  expect(await finished.locator('input[name="version"]').isDisabled()).toBe(false);
+  expect(await page.locator('dialog[open] input[name="version"]:checked').count()).toBe(1);
+
+  // The watch is ten seconds, not sooner: nine seconds on, nothing has been asked.
+  setBuilding(false);
+  await page.clock.fastForward(9_000);
+  await noMoreReads(asked, 1);
+
+  // The tenth second asks again, live, and the build that finished gains its version.
+  await page.clock.fastForward(1_000);
+  await page.getByText("20261109.5").waitFor();
+  expect(asked()).toEqual(["?refresh=1", "?refresh=1"]);
+  // A tick replaces the rows and nothing else: what was picked is still picked.
+  const picked = page.locator('dialog[open] input[name="version"]:checked');
+  expect(await picked.count()).toBe(1);
+  expect(await picked.evaluate((input) => input.parentElement?.textContent ?? "")).toContain(
+    "20261109.4",
+  );
+
+  // Nothing is running any more, so the watch has stopped: closing and waiting changes nothing.
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await page.waitForSelector("dialog[open]", { state: "hidden" });
+  await page.clock.fastForward(30_000);
+  await noMoreReads(asked, 2);
+  await page.close();
+}, 60_000);
+
+test.skipIf(!usable)("closing the dialog while a build is running stops the watching", async () => {
+  const { page, asked } = await openDeployDialog({ building: true });
+  expect(asked()).toEqual(["?refresh=1"]);
+
+  // Cancel before any tick: the watch must go with the dialog, not keep reading behind it.
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await page.waitForSelector("dialog[open]", { state: "hidden" });
+  await page.clock.fastForward(30_000);
+  await noMoreReads(asked, 1);
+  await page.close();
+}, 60_000);
+
+test.skipIf(!usable)("a read in flight when the dialog closes is dropped, and reopening reads again", async () => {
+  const { page, asked, holdNext } = await openDeployDialog({ building: true });
+  expect(asked()).toEqual(["?refresh=1"]);
+
+  // A tick, caught in the route before it answers, and the dialog closed while it is out.
+  const release = holdNext();
+  await page.clock.fastForward(10_000);
+  await untilReads(asked, 2);
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await page.waitForSelector("dialog[open]", { state: "hidden" });
+  release();
+  await page.clock.fastForward(30_000);
+  // The abandoned answer lands on nothing, and the stopped watch asks nothing more.
+  await noMoreReads(asked, 2);
+
+  // Reopening is a fresh decision, so it reads again — live.
+  await page.getByRole("button", { name: "Deploy…" }).click();
+  await page.waitForSelector("dialog[open] .versions");
+  await untilReads(asked, 3);
+  expect(asked()[2]).toBe("?refresh=1");
+  await page.close();
+}, 60_000);
+
+test.skipIf(!usable)("a failed tick says so, and the next good one takes it back", async () => {
+  const { page, asked, setFailing } = await openDeployDialog({ building: true });
+
+  setFailing(true);
+  await page.clock.fastForward(10_000);
+  await untilReads(asked, 2);
+  await page.getByText("azure is down").waitFor();
+
+  // The list recovers, and the banner belongs to the read that failed: it goes with it, or the
+  // dialog keeps accusing a list that is fine.
+  setFailing(false);
+  await page.clock.fastForward(10_000);
+  await untilReads(asked, 3);
+  await page.locator("dialog[open] .error-banner").waitFor({ state: "hidden" });
+  await page.close();
+}, 60_000);
+
+test.skipIf(!usable)("a deploy dialog with nothing running reads once", async () => {
+  const { page, asked } = await openDeployDialog({ building: false });
+  expect(asked()).toEqual(["?refresh=1"]);
+
+  // The open is the only read: a list of finished builds cannot change while you look at it.
+  await page.clock.fastForward(10_000);
+  await page.clock.fastForward(10_000);
+  await noMoreReads(asked, 1);
   await page.close();
 }, 60_000);
 

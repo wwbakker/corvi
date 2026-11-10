@@ -1,8 +1,9 @@
-import { type JSX, useEffect, useRef, useState } from "react";
+import { type JSX, useCallback, useEffect, useRef, useState } from "react";
 import { Schema } from "effect";
 import { useWorkspaceWireClient } from "../../app-root/sources.ts";
 import { moment } from "../../app-root/moment.ts";
 import { Progress } from "../../app-root/Progress.tsx";
+import { aborted } from "../../app-root/api.ts";
 import { BuildableSchema, type Buildable } from "@corvi/contracts/integrations/azure-devops";
 
 export type { Buildable };
@@ -19,6 +20,11 @@ const buildablesSchema = Schema.mutable(Schema.Array(BuildableSchema));
  * Versions come from the service's own builds, newest first, with where each already is. The
  * server refuses to put a version on a later environment before an earlier one has it and
  * succeeded; the dialog says so before you click rather than after.
+ *
+ * Opening reads live: a row is up to half a minute old and this is the decision, not the display.
+ * While a build is still running it keeps reading — the version appears on the tick that sees the
+ * build finish — and stops as soon as nothing is running. A tick replaces the rows and nothing
+ * else: the list updates in place under your pointer, and what you had picked stays picked.
  */
 export function DeployDialog({
   workspace,
@@ -46,6 +52,47 @@ export function DeployDialog({
   const [environment, setEnvironment] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The versions read in flight, so a newer one — or closing the dialog — can cancel it. An answer
+  // to a question nobody is asking any more must not replace the rows on screen.
+  const reading = useRef<AbortController | null>(null);
+
+  /** What this service built, and where each version already is. `live` asks the server for that
+   * answer now rather than the one it cached: the open is a decision, and a tick exists to see a
+   * build finish. */
+  const read = useCallback(
+    (live: boolean): Promise<void> => {
+      if (!service) return Promise.resolve();
+      reading.current?.abort();
+      const ac = new AbortController();
+      reading.current = ac;
+      const query = new URLSearchParams({
+        ...(workspace ? { workspace } : {}),
+        ...(live ? { refresh: "1" } : {}),
+      });
+      return wire
+        .request(
+          "GET",
+          `/ext/azure-devops/services/${encodeURIComponent(service)}/versions?${query}`,
+          buildablesSchema,
+          { signal: ac.signal },
+        )
+        .then((found) => {
+          if (ac.signal.aborted) return;
+          // A read that answered is news the last transient failure is over: the banner belongs to
+          // the read that failed, not to the dialog.
+          setError(null);
+          setVersions(found);
+          // The first one with a version, not the first row: a build still in progress is shown
+          // but has nothing to select yet.
+          setVersion((current) => current || (found.find((v) => v.version)?.version ?? ""));
+        })
+        .catch((e: Error) => {
+          if (aborted(e) || ac.signal.aborted) return;
+          setError(e.message);
+        });
+    },
+    [service, wire, workspace],
+  );
 
   useEffect(() => {
     const dialog = ref.current;
@@ -60,20 +107,25 @@ export function DeployDialog({
     setEnvironment(preset?.environment ?? environments[0] ?? "");
     // Read at the moment it opens, not from the row: a row is up to half a minute old, and this
     // is the decision, not the display.
-    wire
-      .request(
-        "GET",
-        `/ext/azure-devops/services/${encodeURIComponent(service)}/versions${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
-        buildablesSchema,
-      )
-      .then((found) => {
-        setVersions(found);
-        // The first one with a version, not the first row: a build still in progress is shown
-        // but has nothing to select yet.
-        setVersion((current) => current || (found.find((v) => v.version)?.version ?? ""));
-      })
-      .catch((e: Error) => setError(e.message));
-  }, [open, service, wire, workspace]);
+    void read(true);
+    return () => {
+      reading.current?.abort();
+      reading.current = null;
+    };
+    // `preset` and `environments` are deliberately absent: both are fixed for one open, and the
+    // parent rebuilds them on every render, so depending on them would re-read and reset the
+    // dialog under the pointer. They are read once, when the open below picks the defaults.
+  }, [open, service, wire, workspace, read]);
+
+  // A build still running is the one thing that changes while the dialog is open, and it has no
+  // version until it finishes. Nothing else is worth asking twice: the rows that are done are done.
+  // `versions` is null until the opening read settles, so no tick can start before it.
+  const running = (versions ?? []).some((v) => v.running === true);
+  useEffect(() => {
+    if (!open || !running) return;
+    const timer = setInterval(() => void read(true), 10_000);
+    return () => clearInterval(timer);
+  }, [open, running, read]);
 
   // What is offered: the builds, plus whatever the row was already pointing at. A service whose
   // build pipeline is named differently — or has none — still has versions running somewhere,
