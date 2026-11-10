@@ -597,6 +597,52 @@ body.drawer-open {
   border-bottom: 1px solid var(--line);
 }
 
+/* The page header's refresh control: a small square beside the title, no taller than the heading,
+   so the row keeps its height. It reads what the page shows again, and its tooltip says how old
+   that is. */
+.page header .refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--muted);
+  background: none;
+  border: 1px solid transparent;
+}
+
+.page header .refresh:hover:not([aria-disabled="true"]) {
+  background: none;
+  border-color: var(--line);
+  color: var(--text);
+}
+
+/* Reading. `aria-disabled` rather than `disabled`, so the tooltip and the focus stay: the spin is
+   the feedback, and it keeps its colour for that. A click meanwhile does nothing — and a control
+   that ignores clicks must not light up either, so the global button hover does not apply here. */
+.page header .refresh[aria-disabled="true"] {
+  cursor: default;
+  color: var(--text);
+  background: none;
+  border-color: transparent;
+}
+
+@keyframes refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Only while a read is in flight, and only for somebody who has not asked for less motion. At the
+   ten-second cadence that is a fraction of the time, so the arrow says "reading now" rather than
+   turning into a permanent spinner. */
+@media (prefers-reduced-motion: no-preference) {
+  .page header .refresh.refreshing svg {
+    animation: refresh-spin 900ms linear infinite;
+  }
+}
+
 /* A header stays put only when it is the page's own first row (`.page > header`) or the wizard's
    own (`.wizard header`). On a change's page the window's row and the change's own row are wrapped
    in `.change-chrome`, and the wrapper is what sticks, so the change-bar itself is ordinary flow. */
@@ -2673,6 +2719,23 @@ dialog .hint.error {
   margin-left: 8px;
   color: var(--muted);
   font-size: 11px;
+}
+
+/* A deploying environment's bar, in the cell rather than under it: inline, so it shares the line
+   with the version and the footnote instead of adding a row height, and narrow, because the cell
+   is. Its elapsed and typical times are its own tooltip — there is no room for the numbers. */
+.table.deployments td .progress {
+  display: inline-flex;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.table.deployments td .progress .bar {
+  width: 64px;
+}
+
+.table.deployments td .progress .elapsed {
+  display: none;
 }
 
 @media (max-width: 1250px) {

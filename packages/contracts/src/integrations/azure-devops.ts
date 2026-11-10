@@ -17,6 +17,9 @@ export const DeployedSchema = Schema.Struct({
   state: WidgetStateSchema,
   detail: Schema.String,
   url: Schema.optional(Schema.String),
+  /** Only a deploying environment has one: the recent typical duration of the pipeline deploying
+   * it, the same number the deploy dialog's progress bar draws. */
+  expectedMs: Schema.optional(Schema.Number),
 });
 export type Deployed = typeof DeployedSchema.Type;
 
@@ -54,7 +57,8 @@ export const BuildableSchema = Schema.Struct({
    * not something you can pick — there is no version yet to deploy. */
   running: Schema.optional(Schema.Boolean),
   startedAt: Schema.optional(Schema.String),
-  /** The recent average for this pipeline, for the same progress bar the GitHub card draws. */
+  /** The recent typical duration for this pipeline, for the same progress bar the GitHub card
+   * draws. */
   expectedMs: Schema.optional(Schema.Number),
 });
 export type Buildable = typeof BuildableSchema.Type;

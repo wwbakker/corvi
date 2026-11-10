@@ -61,7 +61,11 @@ export const createCache = (): CacheStore => {
 
   /** The single-flight refresh: whoever asks first runs the work, everyone who arrives while it
    * runs awaits the same Deferred. A failure puts back what was there before — a CLI that fails
-   * is news about the CLI, not about the work. */
+   * is news about the CLI, not about the work. The outcome is written back only while the stored
+   * entry is still this refresh's own: an `invalidate` during the work means the answer it
+   * produced has been superseded, and writing it back would serve that older answer again until
+   * the ttl expired. If nothing took the key in the meantime the outcome is dropped entirely, and
+   * the next caller pays for a run of its own. */
   const refresh = <T, E, R>(key: string, work: Effect.Effect<T, E, R>): Effect.Effect<T, E, R> =>
     Effect.gen(function* () {
       const found = store.get(key);
@@ -77,16 +81,23 @@ export const createCache = (): CacheStore => {
         work: inFlight as unknown as Deferred.Deferred<unknown, unknown>,
       });
       const outcome = yield* Effect.exit(work);
+      // Still ours: nothing invalidated, replaced or forgot the entry while the work ran.
+      const ours = (): boolean => store.get(key)?.work === inFlight;
       if (Exit.isSuccess(outcome)) {
-        store.set(key, { at: yield* Clock.currentTimeMillis, value: outcome.value });
+        // The timestamp is read before the check, so no reschedule can slip between deciding the
+        // entry is ours and writing it — there is no yield after `ours()`.
+        const at = yield* Clock.currentTimeMillis;
+        if (ours()) store.set(key, { at, value: outcome.value });
         // Everyone who joined mid-flight gets the same answer.
         yield* Deferred.done(inFlight, outcome);
         return outcome.value;
       }
       // Keep what we had; with nothing to fall back on, the entry is gone and the failure is the
-      // answer.
-      if (found) store.set(key, { at: found.at, value: found.value });
-      else store.delete(key);
+      // answer. A replaced entry is left alone for the same reason as above.
+      if (ours()) {
+        if (found) store.set(key, { at: found.at, value: found.value });
+        else store.delete(key);
+      }
       // Everyone who joined mid-flight gets the same failure.
       yield* Deferred.done(inFlight, outcome);
       return yield* Effect.failCause(outcome.cause);

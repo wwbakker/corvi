@@ -1,13 +1,13 @@
 import { beforeEach, expect, test } from "bun:test";
 import {
   activeRuns,
-  averageDuration,
   buildUrl,
   expectedDuration,
   folderFor,
   pipelineItems,
   refsFor,
   runState,
+  typicalDuration,
   versionInLines,
   versionOf,
   type Run,
@@ -83,33 +83,86 @@ test("folderFor names the pipeline folder after the repository itself", () => {
   expect(folderFor("/repos/acme/example-api/")).toBe("\\example-api");
 });
 
-test("averageDuration averages the finished runs and ignores everything else", () => {
+test("typicalDuration takes the median of the successful runs and ignores everything else", () => {
   const finished = (id: number, start: string, finish: string): Run =>
     runRow(id, "completed", "succeeded", undefined, { startTime: start, finishTime: finish });
 
-  expect(averageDuration([])).toBeUndefined();
+  expect(typicalDuration([])).toBeUndefined();
   // No times at all, and a zero-length run, contribute nothing.
-  expect(averageDuration([runRow(1, "inProgress")])).toBeUndefined();
+  expect(typicalDuration([runRow(1, "inProgress")])).toBeUndefined();
   expect(
-    averageDuration([finished(1, "2026-01-01T10:00:00Z", "2026-01-01T10:00:00Z")]),
+    typicalDuration([finished(1, "2026-01-01T10:00:00Z", "2026-01-01T10:00:00Z")]),
   ).toBeUndefined();
   // A finish before the start is not a duration.
   expect(
-    averageDuration([finished(1, "2026-01-01T10:00:00Z", "2026-01-01T09:00:00Z")]),
+    typicalDuration([finished(1, "2026-01-01T10:00:00Z", "2026-01-01T09:00:00Z")]),
   ).toBeUndefined();
 
+  // An even count: the two middle values, 10m and 20m, average to 15m. A run still in flight is
+  // not one of them.
   expect(
-    averageDuration([
+    typicalDuration([
       finished(1, "2026-01-01T10:00:00Z", "2026-01-01T10:10:00Z"), // 10m
       finished(2, "2026-01-01T09:00:00Z", "2026-01-01T09:20:00Z"), // 20m
       runRow(3, "inProgress"), // still running, no contribution
     ]),
   ).toBe(15 * 60_000);
 
-  // Fractional milliseconds round to the nearest whole one.
+  // An odd count: the middle value itself, not an average of anything.
+  expect(
+    typicalDuration([
+      finished(1, "2026-01-01T08:00:00Z", "2026-01-01T08:10:00Z"), // 10m
+      finished(2, "2026-01-01T09:00:00Z", "2026-01-01T09:20:00Z"), // 20m
+      finished(3, "2026-01-01T10:00:00Z", "2026-01-01T10:30:00Z"), // 30m
+    ]),
+  ).toBe(20 * 60_000);
+
+  // Only a midpoint can land between two whole milliseconds — the durations themselves are
+  // milliseconds — so this is the one path that rounds: 1000 and 1001 midpoint to 1000.5.
   const ms = (id: number, duration: number): Run =>
     finished(id, "2026-01-01T10:00:00.000Z", new Date(Date.parse("2026-01-01T10:00:00.000Z") + duration).toISOString());
-  expect(averageDuration([ms(1, 1000), ms(2, 1000), ms(3, 1002)])).toBe(1001);
+  expect(typicalDuration([ms(1, 1000), ms(2, 1000), ms(3, 1002)])).toBe(1000);
+  expect(typicalDuration([ms(1, 1000), ms(2, 1002)])).toBe(1001);
+  expect(typicalDuration([ms(1, 1000), ms(2, 1001)])).toBe(1001);
+});
+
+test("typicalDuration counts only successful runs", () => {
+  const finished = (
+    id: number,
+    result: string | null,
+    mins: number,
+  ): Run =>
+    runRow(id, "completed", result, undefined, {
+      startTime: "2026-01-01T10:00:00Z",
+      finishTime: new Date(Date.parse("2026-01-01T10:00:00Z") + mins * 60_000).toISOString(),
+    });
+
+  // The rule is the clean one: successful runs only. A failed or canceled run stops early and
+  // would read as a fast pipeline; a partially-succeeded run does finish, but the bar should say
+  // how long the pipeline takes when it works, not how long it takes on average including the
+  // times it did not.
+  expect(
+    typicalDuration([
+      finished(1, "succeeded", 10),
+      finished(2, "failed", 1),
+      finished(3, "canceled", 1),
+      finished(4, "partiallySucceeded", 2),
+    ]),
+  ).toBe(10 * 60_000);
+
+  // A pipeline that has never succeeded has no honest estimate rather than an optimistic one.
+  expect(typicalDuration([finished(1, "failed", 1), finished(2, "canceled", 2)])).toBeUndefined();
+
+  // One slow outlier among five ordinary runs: a mean would say 12m, the median says 10m.
+  expect(
+    typicalDuration([
+      finished(1, "succeeded", 10),
+      finished(2, "succeeded", 10),
+      finished(3, "succeeded", 10),
+      finished(4, "succeeded", 10),
+      finished(5, "succeeded", 20),
+    ]),
+  ).toBe(10 * 60_000);
 });
 
 test("versionInLines reads the version out of the line a pipeline prints it on", () => {
@@ -242,7 +295,7 @@ test("azFor falls back to what az devops configure holds", async () => {
   ]);
 });
 
-test("expectedDuration averages the completed runs az reports for a pipeline", async () => {
+test("expectedDuration estimates from the completed runs az reports for a pipeline", async () => {
   const shell = fakeShell((cmd) => {
     const line = cmd.join(" ");
     if (line.startsWith("az pipelines runs list --pipeline-ids 501")) {
@@ -255,11 +308,37 @@ test("expectedDuration averages the completed runs az reports for a pipeline", a
           startTime: "2026-01-01T09:00:00Z",
           finishTime: "2026-01-01T09:20:00Z",
         }),
+        // Azure answers `--status completed` with failures too; they are not how long it takes.
+        runRow(3, "completed", "failed", 501, {
+          startTime: "2026-01-01T08:00:00Z",
+          finishTime: "2026-01-01T08:00:20Z",
+        }),
       ]);
     }
     return undefined;
   });
   expect(await runWithShell(shell, expectedDuration(az(), 501))).toBe(15 * 60_000);
+});
+
+test("a pipeline whose recent runs all failed has no estimate either", async () => {
+  // Azure answers `--status completed` with failures, canceled and partially-succeeded runs too;
+  // the bar reads this caller, so its answer has to be "unknown" rather than a fast guess.
+  const shell = fakeShell((cmd) => {
+    const line = cmd.join(" ");
+    return line.startsWith("az pipelines runs list --pipeline-ids 505")
+      ? JSON.stringify([
+        runRow(1, "completed", "failed", 505, {
+          startTime: "2026-01-01T10:00:00Z",
+          finishTime: "2026-01-01T10:00:20Z",
+        }),
+        runRow(2, "completed", "canceled", 505, {
+          startTime: "2026-01-01T09:00:00Z",
+          finishTime: "2026-01-01T09:00:10Z",
+        }),
+      ])
+      : undefined;
+  });
+  expect(await runWithShell(shell, expectedDuration(az(), 505))).toBeUndefined();
 });
 
 test("a failed or unreadable duration query has no estimate, not an error", async () => {

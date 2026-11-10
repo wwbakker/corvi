@@ -150,3 +150,27 @@ export function UpdateIcon({ title }: { title: string }): JSX.Element {
     </svg>
   );
 }
+
+/** Refreshing a page's own data: a full circle closing on its arrowhead, which is the same idea as
+ * the update arrow and has to read differently — this one re-reads what the page already shows,
+ * it does not fetch a new version of the app. Two arcs with their own heads, drawn as one turn. */
+export function RefreshIcon({ title }: { title: string }): JSX.Element {
+  return (
+    <svg
+      {...size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role="img"
+      aria-label={title}
+    >
+      <title>{title}</title>
+      <path d="M2.8 6.2A5.3 5.3 0 0 1 13 5.4" />
+      <path d="M13.2 9.8A5.3 5.3 0 0 1 3 10.6" />
+      <path d="M12.4 2.2l.6 3.4-3.3-.7" />
+      <path d="M3.6 13.8L3 10.4l3.3.7" />
+    </svg>
+  );
+}

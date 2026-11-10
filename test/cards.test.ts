@@ -15,6 +15,7 @@ import { createChange } from "../apps/server/src/change/server/index.ts";
 import githubExtension, { githubSummaryContributor, prLooseEnds } from "@corvi/github";
 import { mergeReadiness } from "@corvi/github/client";
 import azureDevopsExtension, { azureDevopsSummaryContributor } from "@corvi/azure-devops";
+import type { Deployed, Service } from "@corvi/contracts/integrations/azure-devops";
 import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
@@ -617,6 +618,440 @@ test("the versions route reads the deploy runs of a *-app service", async () => 
   expect(await jsonOf(result)).toEqual([
     expect.objectContaining({ runId: 1, version: "v9", deployedTo: ["accept"] }),
   ]);
+});
+
+// --- azure-devops: the deployments page's read semantics -----------------------------------
+
+/** One deploy run as `az pipelines runs list` reports it: a version given to one environment, in
+ * the parameters, which is where `latestFor` reads it from. */
+const deployRun = (
+  id: number,
+  status: string,
+  version: string,
+  environment: string,
+): Record<string, unknown> => ({
+  id,
+  buildNumber: `run-${id}`,
+  status,
+  result: status === "completed" ? "succeeded" : null,
+  sourceBranch: "refs/heads/main",
+  startTime: "2026-01-01T09:00:00Z",
+  finishTime: status === "completed" ? "2026-01-01T09:10:00Z" : null,
+  templateParameters: { environment, imageTag: version },
+});
+
+type ServicesBody = { services: Service[]; error?: string };
+
+/** One service's row, and one environment of it, in a `/services` answer. */
+const serviceOn = (body: ServicesBody, service: string): Service | undefined =>
+  body.services.find((s) => s.name === service);
+
+const environmentOn = (
+  body: ServicesBody,
+  service: string,
+  environment = "accept",
+): Deployed | undefined =>
+  serviceOn(body, service)?.environments.find((e) => e.environment === environment);
+
+const versionOn = (
+  body: ServicesBody,
+  service: string,
+  environment = "accept",
+): string | undefined => environmentOn(body, service, environment)?.version;
+
+/** How often one pipeline's runs were listed, split by which question was asked: the deploy runs
+ * themselves, or the completed history behind the duration estimate. */
+const runsAsks = (shell: FakeShell, pipelineId: number, status = ""): number =>
+  shell.calls.filter((c) =>
+    c.cmd.join(" ").startsWith(`az pipelines runs list --pipeline-ids ${pipelineId} ${status}--top`)
+  ).length;
+
+const pipelinesAsks = (shell: FakeShell): number =>
+  shell.calls.filter((c) => c.cmd.join(" ").startsWith("az pipelines list ")).length;
+
+const configuredShell = (
+  respond: (line: string) => string | Partial<ShellResult> | undefined,
+): FakeShell =>
+  fakeShell((cmd) => {
+    const line = cmd.join(" ");
+    if (line === "az devops configure -l") {
+      return "organization = https://dev.azure.com/org\nproject = proj";
+    }
+    return respond(line);
+  });
+
+const readServices = async (shell: FakeShell, query = ""): Promise<ServicesBody> =>
+  await jsonOf(await runRoute(shell, servicesRoute.handler(
+    new Request(`http://localhost/api/ext/azure-devops/services${query}`),
+    {},
+  ))) as ServicesBody;
+
+const readVersions = async (
+  shell: FakeShell,
+  service: string,
+  query = "",
+): Promise<{ runId: number; version?: string; deployedTo: string[] }[]> =>
+  await jsonOf(await runRoute(shell, versionsRoute.handler(
+    new Request(`http://localhost/api/ext/azure-devops/services/${service}/versions${query}`),
+    { service },
+  ))) as { runId: number; version?: string; deployedTo: string[] }[];
+
+test("a poll reads again only the pipeline that is deploying", async () => {
+  // What the deploys look like, driven by this test rather than by how often it has been asked.
+  let alpha = deployRun(5, "inProgress", "v1", "accept");
+  const shell = configuredShell((line) => {
+    if (line.startsWith("az pipelines list ")) {
+      return JSON.stringify([
+        { id: 101, name: "deploy-alpha", path: "\\alpha" },
+        { id: 102, name: "deploy-beta", path: "\\beta" },
+      ]);
+    }
+    if (line.startsWith("az pipelines runs list --pipeline-ids 101 --top 50")) {
+      return JSON.stringify([alpha]);
+    }
+    if (line.startsWith("az pipelines runs list --pipeline-ids 102 --top 50")) {
+      return JSON.stringify([deployRun(7, "completed", "v7", "accept")]);
+    }
+    if (line.startsWith("az pipelines runs list --pipeline-ids 101 --status completed")) {
+      // Two ten-minute runs: the typical duration behind the bar.
+      return JSON.stringify([
+        deployRun(1, "completed", "v1", "accept"),
+        deployRun(2, "completed", "v1", "accept"),
+      ]);
+    }
+    return undefined;
+  });
+
+  const first = await readServices(shell);
+  expect(environmentOn(first, "alpha")).toMatchObject({
+    state: "pending",
+    version: "v1",
+    // The history question behind the bar, and its answer on the row.
+    expectedMs: 10 * 60_000,
+  });
+  expect(runsAsks(shell, 101, "--status completed ")).toBe(1);
+
+  // A settled environment has no bar, so nothing asks how long that pipeline takes.
+  expect(environmentOn(first, "beta")).toMatchObject({ state: "ok", version: "v7" });
+  expect(environmentOn(first, "beta")!.expectedMs).toBeUndefined();
+  expect(runsAsks(shell, 102, "--status completed ")).toBe(0);
+
+  // The deploy lands between polls. The next poll reads the pipeline that was moving once more,
+  // and the settled one not at all — a delta, so how cold the first poll's cache was cannot
+  // flatter or spoil the claim.
+  const before = [runsAsks(shell, 101), runsAsks(shell, 102)];
+  alpha = deployRun(6, "completed", "v2", "accept");
+  const second = await readServices(shell);
+  expect([
+    runsAsks(shell, 101) - before[0]!,
+    runsAsks(shell, 102) - before[1]!,
+  ]).toEqual([1, 0]);
+  // And the watch is what moved the row.
+  expect(environmentOn(second, "alpha")).toMatchObject({ state: "ok", version: "v2" });
+
+  // What the watch read is what the cache now holds: a third poll costs nothing at all, and still
+  // serves the finished deploy rather than reading it again.
+  const settled = [runsAsks(shell, 101), runsAsks(shell, 102)];
+  const third = await readServices(shell);
+  expect([
+    runsAsks(shell, 101) - settled[0]!,
+    runsAsks(shell, 102) - settled[1]!,
+  ]).toEqual([0, 0]);
+  expect(environmentOn(third, "alpha")).toMatchObject({ state: "ok", version: "v2" });
+
+  // Names are not deployments: the pipeline list was read once for every poll.
+  expect(pipelinesAsks(shell)).toBe(1);
+});
+
+test("after the first, a poll of a deploying pipeline costs one call", async () => {
+  // The pipeline never stops deploying, so every poll watches it. The first poll pays for a cold
+  // read and its own watch; every later one is served from what the previous watch left in the
+  // cache and pays for its own watch alone. An implementation that emptied the cache on a watch
+  // would pay for both, which is the whole difference here.
+  const shell = configuredShell((line) => {
+    if (line.startsWith("az pipelines list ")) {
+      return JSON.stringify([{ id: 161, name: "deploy-alpha", path: "\\alpha" }]);
+    }
+    if (line.startsWith("az pipelines runs list --pipeline-ids 161 --top 50")) {
+      return JSON.stringify([deployRun(5, "inProgress", "v1", "accept")]);
+    }
+    return undefined;
+  });
+
+  for (let poll = 0; poll < 3; poll++) {
+    expect(environmentOn(await readServices(shell), "alpha")).toMatchObject({
+      state: "pending",
+      version: "v1",
+    });
+  }
+  // Three polls: the cold read, and one watch each.
+  expect(runsAsks(shell, 161)).toBe(4);
+});
+
+test("only the environment that is deploying carries a duration", async () => {
+  const shell = configuredShell((line) => {
+    if (line.startsWith("az pipelines list ")) {
+      return JSON.stringify([{ id: 121, name: "deploy-mixed", path: "\\mixed" }]);
+    }
+    if (line.startsWith("az pipelines runs list --pipeline-ids 121 --top 50")) {
+      return JSON.stringify([
+        deployRun(3, "completed", "v1", "accept"),
+        deployRun(4, "inProgress", "v2", "production"),
+      ]);
+    }
+    if (line.startsWith("az pipelines runs list --pipeline-ids 121 --status completed")) {
+      return JSON.stringify([
+        deployRun(1, "completed", "v1", "accept"),
+        deployRun(2, "completed", "v1", "accept"),
+      ]);
+    }
+    return undefined;
+  });
+
+  const body = await readServices(shell);
+  expect(environmentOn(body, "mixed", "accept")).toMatchObject({ state: "ok", version: "v1" });
+  expect(environmentOn(body, "mixed", "accept")!.expectedMs).toBeUndefined();
+  expect(environmentOn(body, "mixed", "production")).toMatchObject({
+    state: "pending",
+    version: "v2",
+    expectedMs: 10 * 60_000,
+  });
+  // One history query serves both environments of the pipeline, and only the pending one uses it.
+  expect(runsAsks(shell, 121, "--status completed ")).toBe(1);
+});
+
+test("a failed live read leaves a deploying environment where it was", async () => {
+  let answer: string | Partial<ShellResult> = JSON.stringify([
+    deployRun(5, "inProgress", "v1", "accept"),
+  ]);
+  const shell = configuredShell((line) => {
+    if (line.startsWith("az pipelines list ")) {
+      return JSON.stringify([{ id: 131, name: "deploy-alpha", path: "\\alpha" }]);
+    }
+    if (line.startsWith("az pipelines runs list --pipeline-ids 131 --top 50")) return answer;
+    if (line.startsWith("az pipelines runs list --pipeline-ids 131 --status completed")) {
+      return JSON.stringify([
+        deployRun(1, "completed", "v1", "accept"),
+        deployRun(2, "completed", "v1", "accept"),
+      ]);
+    }
+    return undefined;
+  });
+
+  expect(environmentOn(await readServices(shell), "alpha")).toMatchObject({ state: "pending" });
+
+  // The watch's own CLI call fails. A failure is not "this pipeline has no runs": the row keeps
+  // what was last known about it, version and detail (`deploying v1`, not `never deployed`).
+  answer = { code: 1, stderr: "az: connection reset" };
+  const second = await readServices(shell);
+  expect(environmentOn(second, "alpha")).toMatchObject({
+    environment: "accept",
+    state: "pending",
+    version: "v1",
+    detail: "deploying v1",
+    expectedMs: 10 * 60_000,
+  });
+
+  // And when the CLI answers again the deploy that finished in the meantime shows, rather than
+  // being hidden behind a cached empty answer.
+  answer = JSON.stringify([deployRun(6, "completed", "v2", "accept")]);
+  expect(environmentOn(await readServices(shell), "alpha")).toMatchObject({
+    state: "ok",
+    version: "v2",
+  });
+});
+
+test("refresh=1 reads every deploy pipeline again, and the answer it finds is served", async () => {
+  let alphaVersion = "v1";
+  let betaVersion = "v7";
+  const shell = configuredShell((line) => {
+    if (line.startsWith("az pipelines list ")) {
+      return JSON.stringify([
+        { id: 111, name: "deploy-alpha", path: "\\alpha" },
+        { id: 112, name: "deploy-beta", path: "\\beta" },
+      ]);
+    }
+    if (line.startsWith("az pipelines runs list --pipeline-ids 111 --top 50")) {
+      return JSON.stringify([deployRun(9, "completed", alphaVersion, "accept")]);
+    }
+    if (line.startsWith("az pipelines runs list --pipeline-ids 112 --top 50")) {
+      return JSON.stringify([deployRun(10, "completed", betaVersion, "accept")]);
+    }
+    return undefined;
+  });
+
+  const cached = await readServices(shell);
+  expect([versionOn(cached, "alpha"), versionOn(cached, "beta")]).toEqual(["v1", "v7"]);
+  expect([runsAsks(shell, 111), runsAsks(shell, 112)]).toEqual([1, 1]);
+  // A poll right after serves the same answer without asking again.
+  expect(versionOn(await readServices(shell), "alpha")).toBe("v1");
+  expect([runsAsks(shell, 111), runsAsks(shell, 112)]).toEqual([1, 1]);
+
+  // Deploys nobody on this page started landed in the meantime; only a refresh asks about them.
+  alphaVersion = "v2";
+  betaVersion = "v8";
+  const refreshed = await readServices(shell, "?refresh=1");
+  expect([versionOn(refreshed, "alpha"), versionOn(refreshed, "beta")]).toEqual(["v2", "v8"]);
+  expect([runsAsks(shell, 111), runsAsks(shell, 112)]).toEqual([2, 2]);
+  // The pipeline list is not a deployment: it stays cached, refresh or not.
+  expect(pipelinesAsks(shell)).toBe(1);
+});
+
+test("a failed refresh leaves the rows as they were", async () => {
+  let failing = false;
+  const shell = configuredShell((line) => {
+    if (line.startsWith("az pipelines list ")) {
+      return JSON.stringify([{ id: 141, name: "deploy-alpha", path: "\\alpha" }]);
+    }
+    if (line.startsWith("az pipelines runs list --pipeline-ids 141 --top 50")) {
+      return failing
+        ? { code: 1, stderr: "az: connection reset" }
+        : JSON.stringify([deployRun(5, "completed", "v1", "accept")]);
+    }
+    return undefined;
+  });
+
+  expect(versionOn(await readServices(shell), "alpha")).toBe("v1");
+  const before = runsAsks(shell, 141);
+
+  // A refresh is a live read; this one failed, so the answer it cannot give must not replace the
+  // one we have.
+  failing = true;
+  const refreshed = await readServices(shell, "?refresh=1");
+  expect(runsAsks(shell, 141) - before).toBe(1);
+  expect(environmentOn(refreshed, "alpha")).toMatchObject({ state: "ok", version: "v1" });
+
+  // And nothing was cached as "no runs": the next poll serves v1 without asking.
+  const afterFailure = runsAsks(shell, 141);
+  expect(versionOn(await readServices(shell), "alpha")).toBe("v1");
+  expect(runsAsks(shell, 141) - afterFailure).toBe(0);
+});
+
+test("a refresh reads a deploying pipeline once, and asks for its duration once", async () => {
+  const shell = configuredShell((line) => {
+    if (line.startsWith("az pipelines list ")) {
+      return JSON.stringify([{ id: 151, name: "deploy-alpha", path: "\\alpha" }]);
+    }
+    if (line.startsWith("az pipelines runs list --pipeline-ids 151 --top 50")) {
+      return JSON.stringify([deployRun(5, "inProgress", "v1", "accept")]);
+    }
+    if (line.startsWith("az pipelines runs list --pipeline-ids 151 --status completed")) {
+      return JSON.stringify([
+        deployRun(1, "completed", "v1", "accept"),
+        deployRun(2, "completed", "v1", "accept"),
+      ]);
+    }
+    return undefined;
+  });
+
+  const first = await readServices(shell, "?refresh=1");
+  // One live read: not a cached shot followed by a live one.
+  expect(runsAsks(shell, 151)).toBe(1);
+  expect(environmentOn(first, "alpha")).toMatchObject({
+    state: "pending",
+    expectedMs: 10 * 60_000,
+  });
+  expect(runsAsks(shell, 151, "--status completed ")).toBe(1);
+
+  // One live read per refresh; the duration behind the bar is cached for five minutes.
+  const again = await readServices(shell, "?refresh=1");
+  expect(runsAsks(shell, 151)).toBe(2);
+  expect(runsAsks(shell, 151, "--status completed ")).toBe(1);
+  expect(environmentOn(again, "alpha")!.expectedMs).toBe(10 * 60_000);
+});
+
+test("the versions route reads the runs again only when the dialog asks it to", async () => {
+  let newerBuild = false;
+  let deployVersion = "v31";
+  const shell = configuredShell((line) => {
+    if (line.startsWith("az pipelines list ")) {
+      return JSON.stringify([
+        { id: 21, name: "build-example-api", path: "\\example-api" },
+        { id: 22, name: "deploy-example-api", path: "\\example-api" },
+      ]);
+    }
+    if (line.startsWith("az pipelines runs list --pipeline-ids 21 --top 50")) {
+      const older = {
+        id: 31,
+        buildNumber: "b31",
+        status: "completed",
+        result: "succeeded",
+        sourceBranch: "refs/heads/main",
+        startTime: "2026-01-01T09:00:00Z",
+        finishTime: "2026-01-01T09:10:00Z",
+        // The version comes from this pipeline's logs, so the run has to name it.
+        definition: { id: 21 },
+      };
+      return newerBuild
+        ? JSON.stringify([{ ...older, id: 32, buildNumber: "b32" }, older])
+        : JSON.stringify([older]);
+    }
+    if (line.startsWith("az pipelines runs list --pipeline-ids 22 --top 50")) {
+      return JSON.stringify([deployRun(41, "completed", deployVersion, "accept")]);
+    }
+    if (line.includes("--area pipelines --resource logs")) {
+      return JSON.stringify({ logs: [{ id: 1 }] });
+    }
+    if (line.includes("--area build --resource logs")) {
+      return JSON.stringify({
+        value: [line.includes("buildId=32") ? "Version is: 'v32'" : "Version is: 'v31'"],
+      });
+    }
+    return undefined;
+  });
+
+  expect(
+    (await readVersions(shell, "example-api")).map((v) => [v.runId, v.version, v.deployedTo]),
+  ).toEqual([[31, "v31", ["accept"]]]);
+  expect([runsAsks(shell, 21), runsAsks(shell, 22)]).toEqual([1, 1]);
+
+  // A second open without the flag is the same question: the cache answers without reading `az`.
+  expect((await readVersions(shell, "example-api")).map((v) => v.runId)).toEqual([31]);
+  expect([runsAsks(shell, 21), runsAsks(shell, 22)]).toEqual([1, 1]);
+
+  // The dialog opening asks live instead. A build that finished a moment ago is offered now, and
+  // where it already is comes from the deploy runs just as freshly: accept has moved on to v32.
+  newerBuild = true;
+  deployVersion = "v32";
+  expect(
+    (await readVersions(shell, "example-api", "?refresh=1")).map((v) => [
+      v.runId,
+      v.version,
+      v.deployedTo,
+    ]),
+  ).toEqual([[32, "v32", ["accept"]], [31, "v31", []]]);
+  expect([runsAsks(shell, 21), runsAsks(shell, 22)]).toEqual([2, 2]);
+  // The pipeline list is not a run: it stays cached.
+  expect(pipelinesAsks(shell)).toBe(1);
+});
+
+test("the versions route reads a *-app service's deploy runs again when asked", async () => {
+  let newer = false;
+  const shell = configuredShell((line) => {
+    if (line.startsWith("az pipelines list ")) {
+      return JSON.stringify([{ id: 7, name: "deploy-example-app", path: "\\example-app" }]);
+    }
+    if (line.startsWith("az pipelines runs list --pipeline-ids 7 --top 50")) {
+      return JSON.stringify([
+        ...(newer ? [deployRun(2, "completed", "v10", "accept")] : []),
+        deployRun(1, "completed", "v9", "accept"),
+      ]);
+    }
+    return undefined;
+  });
+
+  expect((await readVersions(shell, "example-app")).map((v) => [v.runId, v.version])).toEqual([
+    [1, "v9"],
+  ]);
+  // A second open without the flag answers from the cache.
+  expect((await readVersions(shell, "example-app")).map((v) => v.runId)).toEqual([1]);
+  expect(runsAsks(shell, 7)).toBe(1);
+
+  newer = true;
+  expect(
+    (await readVersions(shell, "example-app", "?refresh=1")).map((v) => [v.runId, v.version]),
+  ).toEqual([[2, "v10"], [1, "v9"]]);
+  expect(runsAsks(shell, 7)).toBe(2);
 });
 
 test("the deploy route refuses a body that is not JSON", async () => {

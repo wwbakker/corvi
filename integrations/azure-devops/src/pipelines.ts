@@ -42,8 +42,8 @@ const RunsSchema = Schema.Array(
   }),
 );
 
-/** How many finished runs the duration estimate averages over. Branches differ, but the same
- * pipeline on the same agents is the best predictor available. */
+/** How many finished runs the duration estimate takes its window from. Branches differ, but the
+ * same pipeline on the same agents is the best predictor available. */
 const historySize = (): string => process.env[env("AZURE_HISTORY")] ?? "10";
 
 /** Runs shown per pipeline. The newest is what you look at; the rest are history. */
@@ -198,18 +198,29 @@ export const activeRuns = (
     }).length;
   });
 
-/** Mean duration of the last finished runs of a pipeline, across branches. */
+/** Typical duration of a pipeline's finished runs, across branches: the median of the successful
+ * ones. A failed or canceled run stops early, so counting it would read as speed; a mean lets one
+ * slow run — a cold agent, a re-run — speak for all of them, while the median moves once the slow
+ * ones reach half the window. */
 // Pure and synchronous: nothing for an Effect to wrap.
-export function averageDuration(runs: Run[]): number | undefined {
+export function typicalDuration(runs: Run[]): number | undefined {
   const durations = runs
+    .filter((r) => r.status === "completed" && r.result === "succeeded")
     .map((r) =>
       r.startTime && r.finishTime
         ? new Date(r.finishTime).getTime() - new Date(r.startTime).getTime()
         : 0
     )
-    .filter((ms) => ms > 0);
+    .filter((ms) => ms > 0)
+    .sort((a, b) => a - b);
   if (durations.length === 0) return undefined;
-  return Math.round(durations.reduce((a, b) => a + b, 0) / durations.length);
+  // The middle value, or both middles when the count is even. `slice` is bounds-checked, so no
+  // unchecked index assertion is needed even for a window of one.
+  const middle = Math.floor(durations.length / 2);
+  const middles = durations.length % 2 === 0
+    ? durations.slice(middle - 1, middle + 1)
+    : durations.slice(middle, middle + 1);
+  return Math.round(middles.reduce((a, b) => a + b, 0) / middles.length);
 }
 
 export const expectedDuration = (
@@ -235,7 +246,7 @@ export const expectedDuration = (
         "json",
       ]);
       return r.code === 0
-        ? averageDuration(yield* cliJson(RunsSchema, [] as Run[])(r.stdout))
+        ? typicalDuration(yield* cliJson(RunsSchema, [] as Run[])(r.stdout))
         : undefined;
     }),
   );

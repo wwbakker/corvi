@@ -160,14 +160,20 @@ export default {
       // from the request's `workspace` parameter, so the handlers name no workspace themselves.
       method: "GET",
       path: "/services",
-      handler: () => Effect.map(deployments(), Response.json),
+      // `refresh=1` is the page's Refresh control: read the deploys now instead of as cached.
+      handler: (req) =>
+        Effect.map(deployments(new URL(req.url).searchParams.has("refresh")), Response.json),
     },
     {
       // The versions a service has built and could be given, newest first.
       method: "GET",
       path: "/services/:service/versions",
-      handler: (_req, params) =>
-        Effect.map(versionsFor(params.service!), Response.json),
+      // `refresh=1` is the dialog opening: it is about to act on the answer.
+      handler: (req, params) =>
+        Effect.map(
+          versionsFor(params.service!, new URL(req.url).searchParams.has("refresh")),
+          Response.json,
+        ),
     },
     {
       // The one irreversible thing on that page: start a deploy. The promotion guard — a later
