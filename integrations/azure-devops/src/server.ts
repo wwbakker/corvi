@@ -96,29 +96,72 @@ const allPipelines = (az: Az): Effect.Effect<Definition[], never, Capabilities> 
     }),
   );
 
-/** Runs of one pipeline, with the parameters they were given. Short-lived: a deploy you just
- * triggered should appear on the next look. */
+/** One pipeline's runs key, deploy or build: the reads, the live re-reads and the invalidation
+ * after a deploy all go through it, so they cannot drift apart. */
+const runsKey = (az: Az, pipelineId: number): string => `az:${az.key}:deploys:${pipelineId}`;
+
+/** How long a pipeline's runs are trusted. A deploy you just triggered should appear on the next
+ * look, and anything that is deploying is read again on every poll regardless. */
+const RUNS_TTL = 15_000;
+
+/** One pipeline's runs as az answers them now, or `undefined` when the CLI could not answer —
+ * which is unavailable, a different thing from "no runs". */
+const readRuns = (
+  az: Az,
+  pipelineId: number,
+): Effect.Effect<Run[] | undefined, never, Shell | Workspace> =>
+  Effect.gen(function* () {
+    const r = yield* shResult([
+      "az",
+      "pipelines",
+      "runs",
+      "list",
+      "--pipeline-ids",
+      String(pipelineId),
+      "--top",
+      "50",
+      ...az.args,
+      "-o",
+      "json",
+    ]);
+    return r.code === 0 ? yield* cliJson(RunsSchema, [] as Run[])(r.stdout) : undefined;
+  });
+
+/** Runs of one pipeline, with the parameters they were given, served from the cache while it has
+ * them. A failed read is cached as no runs — which is why a caller about to act on the answer
+ * reads live instead: `rereadRuns`. */
 const runsOf = (az: Az, pipelineId: number): Effect.Effect<Run[], never, Capabilities> =>
   swr(
-    `az:${az.key}:deploys:${pipelineId}`,
-    15_000,
-    Effect.gen(function* () {
-      const r = yield* shResult([
-        "az",
-        "pipelines",
-        "runs",
-        "list",
-        "--pipeline-ids",
-        String(pipelineId),
-        "--top",
-        "50",
-        ...az.args,
-        "-o",
-        "json",
-      ]);
-      return r.code === 0 ? yield* cliJson(RunsSchema, [] as Run[])(r.stdout) : [];
-    }),
+    runsKey(az, pipelineId),
+    RUNS_TTL,
+    Effect.map(readRuns(az, pipelineId), (runs) => runs ?? []),
   );
+
+/** Read one pipeline's runs now and make that the cached answer. A failed read leaves the cache
+ * alone and answers with what it holds, so one bad CLI call cannot turn a deploying environment
+ * into "never deployed", and cannot hide a finished deploy behind that answer for a ttl. Seeding
+ * the cache with the answer we already have is `swr` over a constant: there is no separate set,
+ * and a second CLI call here would make every watch cost two. That seed is best-effort — a reader
+ * that reached the key first may win the refresh — so this caller always returns the answer it
+ * read, not whichever one the cache ended up holding. With nothing cached for the key there is
+ * nothing to keep on failure, and the fallback below pays for a second CLI call. */
+const rereadRuns = (az: Az, pipelineId: number): Effect.Effect<Run[], never, Capabilities> =>
+  Effect.gen(function* () {
+    const live = yield* readRuns(az, pipelineId);
+    if (live === undefined) return yield* runsOf(az, pipelineId);
+    yield* invalidate(runsKey(az, pipelineId));
+    yield* swr(runsKey(az, pipelineId), RUNS_TTL, Effect.succeed(live));
+    return live;
+  });
+
+/** One pipeline's runs: live when the caller is about to act on the answer (`refresh`), from the
+ * cache otherwise. */
+const runsNow = (
+  az: Az,
+  pipelineId: number,
+  refresh: boolean,
+): Effect.Effect<Run[], never, Capabilities> =>
+  refresh ? rereadRuns(az, pipelineId) : runsOf(az, pipelineId);
 
 /** `build-example-service` → `deploy-example-service`, and the service name in between. */
 export const serviceName = (
@@ -194,8 +237,18 @@ export function latestFor(
 
 /** Every service that has a deploy pipeline, and what each of its environments holds. The
  * workspace arrives through the `Workspace` capability — the dispatcher provides it from the
- * request's `workspace` parameter. */
-export const deployments = (): Effect.Effect<
+ * request's `workspace` parameter.
+ *
+ * `refresh` is the page's Refresh control, and it means "read the deploys now": every deploy
+ * pipeline's runs are read live, and only replace the cached answer when the read succeeded.
+ * Without it, rows come from the cache as usual and only what is moving is read again — an
+ * environment that is deploying is the one state that must not be up to a cache lifetime old,
+ * and it costs one `az` call per deploying service rather than one per pipeline. Pipeline names
+ * and duration estimates are facts about pipelines, not about deployments, so both stay cached
+ * either way. */
+export const deployments = (
+  refresh: boolean,
+): Effect.Effect<
   { services: Service[]; error?: string },
   never,
   Capabilities
@@ -217,19 +270,48 @@ export const deployments = (): Effect.Effect<
       .filter((p) => p.name.startsWith(deployPrefix))
       .sort((a, b) => a.name.localeCompare(b.name));
 
+    /** One row, built from one pipeline's runs. `latestFor` stays the only judge of what an
+     * environment holds. */
+    const rowFor = (pipeline: Definition, runs: Run[]): Service => {
+      const name = serviceName(pipeline.name, settings);
+      const build = byName.get(buildPipelineName(name, settings));
+      return {
+        name,
+        pipeline: { id: pipeline.id, name: pipeline.name },
+        build: build && { id: build.id, name: build.name },
+        environments: settings.environments.map((e) => latestFor(runs, e, settings, az)),
+      } satisfies Service;
+    };
+
+    /** A deploying environment says how long this pipeline usually takes, for the page's bar. A
+     * settled one says nothing: there is no bar to draw. */
+    const withPendingDuration = (row: Service): Effect.Effect<Service, never, Capabilities> =>
+      Effect.gen(function* () {
+        if (!row.environments.some((e) => e.state === "pending")) return row;
+        const expectedMs = yield* expectedDuration(az, row.pipeline.id);
+        return expectedMs === undefined
+          ? row
+          : {
+            ...row,
+            environments: row.environments.map((e) =>
+              e.state === "pending" ? { ...e, expectedMs } : e
+            ),
+          };
+      });
+
     const services = yield* Effect.forEach(
       deployPipelines,
       (pipeline) =>
         Effect.gen(function* () {
-          const name = serviceName(pipeline.name, settings);
-          const build = byName.get(buildPipelineName(name, settings));
-          const runs = yield* runsOf(az, pipeline.id);
-          return {
-            name,
-            pipeline: { id: pipeline.id, name: pipeline.name },
-            build: build && { id: build.id, name: build.name },
-            environments: settings.environments.map((e) => latestFor(runs, e, settings, az)),
-          } satisfies Service;
+          // The button that decides reads every deploy pipeline live. A poll builds the row from
+          // the cache and reads again only what is deploying, which is the one state that must
+          // not be a ttl old. Neither touches a settled pipeline's runs.
+          if (refresh) {
+            return yield* withPendingDuration(rowFor(pipeline, yield* rereadRuns(az, pipeline.id)));
+          }
+          const cached = rowFor(pipeline, yield* runsOf(az, pipeline.id));
+          if (!cached.environments.some((e) => e.state === "pending")) return cached;
+          return yield* withPendingDuration(rowFor(pipeline, yield* rereadRuns(az, pipeline.id)));
         }),
       // Unbounded on purpose: one query per deploy pipeline, all independent.
       { concurrency: "unbounded" },
@@ -248,9 +330,15 @@ export const deployments = (): Effect.Effect<
  * pipeline that builds and deploys straight to the first environment. What it deployed there is
  * read from that run's own parameters instead — the same place `latestFor` reads it from — so
  * promoting one never depends on a log line existing.
+ *
+ * `refresh` is the dialog opening: the runs that say what this service built, and where those
+ * builds already are, are read live. The pipeline list, the duration estimate and the per-run
+ * log lookups are not re-read — the first is a fact about pipelines, and a finished run's logs
+ * never change.
  */
 export const versionsFor = (
   service: string,
+  refresh: boolean,
   howMany = 5,
 ): Effect.Effect<Buildable[], never, Capabilities> =>
   Effect.gen(function* () {
@@ -263,7 +351,7 @@ export const versionsFor = (
 
     if (autoDeployedApp(service)) {
       if (!deploy) return [];
-      const runs = yield* runsOf(az, deploy.id);
+      const runs = yield* runsNow(az, deploy.id, refresh);
       const [accept] = settings.environments;
       const stillDeploying = runs.some(
         (r) =>
@@ -277,9 +365,10 @@ export const versionsFor = (
     const build = pipelines.find((p) => p.name === buildPipelineName(service, settings));
     if (!build || !project) return [];
 
+    // Both answers are about runs: what was built, and where each version already is.
     const [runs, deployRuns] = yield* Effect.all([
-      runsOf(az, build.id),
-      deploy ? runsOf(az, deploy.id) : Effect.succeed([] as Run[]),
+      runsNow(az, build.id, refresh),
+      deploy ? runsNow(az, deploy.id, refresh) : Effect.succeed([] as Run[]),
     ]);
 
     // In flight right now: not deployable — nothing has printed a version yet — but dropping them
@@ -474,6 +563,6 @@ export const deploy = (
       });
     }
     // The page asks Azure again on its next tick; forget what we knew a moment ago.
-    yield* invalidate(`az:${az.key}:deploys:${pipeline.id}`);
+    yield* invalidate(runsKey(az, pipeline.id));
     return { runId: run.id, url: buildUrl(run.id, az) };
   });

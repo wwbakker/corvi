@@ -111,5 +111,5 @@ test("an *-app service with no deploy pipeline at all returns nothing to offer, 
   // No CLI in reach makes this the same call the dashboard makes for a service nobody has heard
   // of: `deployPipelineName` will not match a real pipeline whatever `az` says, so this stays a
   // behavioural check rather than one that depends on the local machine's Azure DevOps login.
-  await expect(runVersionsFor("definitely-not-a-real-service-app")).resolves.toEqual([]);
+  await expect(runVersionsFor("definitely-not-a-real-service-app", false)).resolves.toEqual([]);
 });

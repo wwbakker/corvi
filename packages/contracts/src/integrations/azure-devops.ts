@@ -17,6 +17,9 @@ export const DeployedSchema = Schema.Struct({
   state: WidgetStateSchema,
   detail: Schema.String,
   url: Schema.optional(Schema.String),
+  /** Only a deploying environment has one: the recent typical duration of the pipeline deploying
+   * it, the same number the deploy dialog's progress bar draws. */
+  expectedMs: Schema.optional(Schema.Number),
 });
 export type Deployed = typeof DeployedSchema.Type;
 
