@@ -214,7 +214,8 @@ owner-only permissions (`0600`). Never share this file or an unredacted log as a
 The root `extensionSettings.jira` is the default site. Workspace settings override it field by
 field: `server`, `email`, `project`, `board`, `token`, and `tokenEnv`. A workspace with its own
 `tokenEnv` uses that variable instead of inheriting the default site's stored token. The board is
-automatically selected for a project with one board; otherwise Corvi asks you to choose.
+automatically selected for a project with one board — the board located in the project, or failing
+that, the one whose filter names it; otherwise Corvi asks you to choose.
 
 Azure DevOps settings likewise support a workspace-specific organization/project. Empty values
 can fall back to `az devops configure`.
