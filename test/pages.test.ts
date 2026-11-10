@@ -143,6 +143,144 @@ test.skipIf(!usable)("every page renders without the engine complaining", async 
   expect(complaints).toEqual([]);
 }, 120_000);
 
+test.skipIf(!usable)("the azure-devops page reads live on arrival, and a deploying cell shows its progress", async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const started = new Date(Date.now() - 3 * 60_000).toISOString();
+  // One service deploying on accept with a known typical duration, one settled: the two cells the
+  // page has to tell apart. Answered here rather than by the server, so the test needs no Azure
+  // DevOps login.
+  const fixture = {
+    services: [
+      {
+        name: "example-api",
+        pipeline: { id: 1, name: "deploy-example-api" },
+        build: { id: 2, name: "build-example-api" },
+        environments: [
+          {
+            environment: "accept",
+            version: "20261109.4",
+            at: started,
+            state: "pending",
+            detail: "deploying 20261109.4",
+            url: "https://dev.azure.com/example/proj/_build/results?buildId=9",
+            expectedMs: 10 * 60_000,
+          },
+        ],
+      },
+      {
+        name: "example-service",
+        pipeline: { id: 3, name: "deploy-example-service" },
+        build: { id: 4, name: "build-example-service" },
+        environments: [
+          {
+            environment: "accept",
+            version: "20261109.1",
+            at: "2026-11-09T08:10:00Z",
+            state: "ok",
+            detail: "3h ago",
+            url: "https://dev.azure.com/example/proj/_build/results?buildId=7",
+          },
+        ],
+      },
+    ],
+  };
+
+  // Every read the page asks for, and whether the first answer had already landed when it was
+  // asked: everything asked before that is the arrival, and has to be the live read.
+  const asked: { search: string; beforeFirstAnswer: boolean }[] = [];
+  let answered = false;
+  // Set when a read has to still be in flight a moment later, so its state can be read.
+  let hold = false;
+  await page.route("**/api/ext/azure-devops/services*", async (route) => {
+    asked.push({ search: new URL(route.request().url()).search, beforeFirstAnswer: !answered });
+    if (hold) await new Promise((resolve) => setTimeout(resolve, 500));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(fixture),
+    });
+    answered = true;
+  });
+
+  await page.goto(`${url}/azure-devops`, { waitUntil: "domcontentloaded" });
+  const refresh = page.locator('button[aria-label="Refresh"]');
+  await refresh.waitFor();
+
+  // The control is named, so it is reachable without seeing it — the icon is the only label. It
+  // says a read is in flight with `aria-disabled`, which keeps the focus and the tooltip.
+  // Waiting on the tooltip, not on `aria-disabled`: that reads "false" from first paint, because
+  // the first load never marks, so it would race the answer.
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('button[aria-label="Refresh"]')
+        ?.getAttribute("title")
+        ?.startsWith("updated ") ?? false,
+    undefined,
+    { timeout: 20_000 },
+  );
+  expect(await refresh.getAttribute("title")).toMatch(/^updated (\d+s|\d+m\d+s) ago · refreshing every /);
+  expect(await refresh.getAttribute("aria-disabled")).toBe("false");
+
+  // Arriving is the moment you want the truth: every read asked for before the first answer
+  // landed is the live one. (StrictMode puts two mounts through the effect; the one that survives
+  // has to be it.)
+  expect(asked.length).toBeGreaterThan(0);
+  expect(asked.filter((a) => a.beforeFirstAnswer).every((a) => a.search.includes("refresh=1"))).toBe(
+    true,
+  );
+
+  // The answer had a deploying environment, so the cadence flipped and the effect restarted: the
+  // read that follows is a tick, and must not be live — otherwise every tick is a live read.
+  for (let i = 0; i < 50 && asked.length < 2; i++) await page.waitForTimeout(100);
+  expect(asked.length).toBeGreaterThanOrEqual(2);
+  expect(asked[1]!.search).not.toContain("refresh=1");
+
+  // The deploying environment draws the shared bar; the settled one has nothing to draw.
+  const pending = page.locator("tbody tr", { hasText: "example-api" });
+  const settled = page.locator("tbody tr", { hasText: "example-service" });
+  expect(await pending.locator(".progress").count()).toBe(1);
+  expect(await settled.locator(".progress").count()).toBe(0);
+
+  // Its numbers are the bar's accessible name — a narrow cell hides the elapsed text, and a screen
+  // reader must not lose the numbers with it.
+  const bar = pending.getByRole("img", { name: /elapsed/ });
+  expect(await bar.count()).toBe(1);
+  expect(await bar.getAttribute("aria-label")).toMatch(/^\d+m\d+s elapsed, typically 10m00s$/);
+
+  // And the bar costs no height: the two rows are the same size.
+  const heights = await page
+    .locator("tbody tr")
+    .evaluateAll((rows) => rows.map((r) => Math.round(r.getBoundingClientRect().height)));
+  expect(heights).toHaveLength(2);
+  expect(heights[0]).toBe(heights[1]);
+
+  // Reduced motion is honoured, not merely declared: a held read makes the spin visible, and with
+  // the preference set there is nothing turning while it is in flight.
+  hold = true;
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await refresh.click();
+  await page.waitForFunction(
+    () =>
+      document.querySelector('button[aria-label="Refresh"]')?.getAttribute("aria-disabled") ===
+      "true",
+  );
+  expect(await refresh.locator("svg").evaluate((svg) => getComputedStyle(svg).animationName)).toBe(
+    "none",
+  );
+  // Let the held read finish, so the page is quiet before it closes.
+  hold = false;
+  await page.waitForFunction(
+    () =>
+      document.querySelector('button[aria-label="Refresh"]')?.getAttribute("aria-disabled") ===
+      "false",
+    undefined,
+    { timeout: 20_000 },
+  );
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.close();
+}, 60_000);
+
 test.skipIf(!usable)("the cards offer their editors, and a finished change offers none", async () => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
