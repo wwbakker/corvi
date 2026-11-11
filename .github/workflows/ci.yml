@@ -35,11 +35,12 @@ jobs:
   test:
     # Everything that needs no browser: unit and integration tests.
     runs-on: ubuntu-latest
-    # The suite takes a couple of minutes; five is the budget before a hang is a failure.
-    timeout-minutes: 5
+    # The suite takes a couple of minutes, and the Electron binary it needs is downloaded first;
+    # ten is the budget before a hang is a failure.
+    timeout-minutes: 10
     env:
       # One test process: a worker whose teardown stalls has hung this job, and a hang here is the
-      # five-minute timeout, so the files run one at a time instead.
+      # job timeout, so the files run one at a time instead.
       CORVI_TEST_SERIAL: "1"
     steps:
       - uses: actions/checkout@v7
@@ -48,6 +49,7 @@ jobs:
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
+      - run: bun run electron:install
       - run: bun run test:unit
 
   e2e:

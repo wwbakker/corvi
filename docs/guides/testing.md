@@ -51,8 +51,12 @@ The runner refuses a Bun older than `engines.bun` in `package.json` (exit 4): ol
 own. CI installs the newest Bun that satisfies the range; locally, `bun upgrade`.
 
 Install dependencies with `bun install --frozen-lockfile`. Browser tests need
-`bunx playwright install chromium`. Report skipped browser/native/platform checks separately from
-passes. Do not claim macOS coverage from a Linux run.
+`bunx playwright install chromium`. The test that runs the server on Electron's Node needs the
+Electron binary, which `bun install` leaves for first use: run `bun run electron:install`. That
+test does not skip when the binary is missing or does not match the installed `electron` package;
+it fails and names the command, because a skip would hide the only proof of the app's runtime.
+Report skipped browser/native/platform checks separately from passes. Do not claim macOS coverage
+from a Linux run.
 
 One environment trap around the page tests. The bundle one no longer fails silently: page tests
 serve the built bundle, so a bare `bun test` after an edit runs `apps/web/dist` as it was — the

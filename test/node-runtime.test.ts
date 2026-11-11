@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { electronBinary } from "@corvi/desktop/binary";
+import { electronBinaryVersion, electronPackageVersion, installedElectron } from "@corvi/desktop/binary";
 import { testRun, testTempDir, waitForUrl } from "./helpers.ts";
 
 /**
@@ -19,18 +19,39 @@ import { testRun, testTempDir, waitForUrl } from "./helpers.ts";
  * then the test said only "connection refused".
  *
  * The binary is found the way the app finds it (apps/desktop/src/electron/binary.ts), not at a
- * hardcoded `dist/electron`: that path is Linux's alone, so on macOS this test — the only one
- * that runs the server on the runtime the app uses — skipped itself instead of failing.
+ * hardcoded `dist/electron`: that path is Linux's alone. The binary is required, not optional:
+ * this is the only test that runs the server on the runtime the app uses, so a missing binary —
+ * or one left behind by the previous `electron` version after an upgrade — fails here with the
+ * command that fixes it instead of skipping and hiding the gap.
  */
-const electron: string | undefined = electronBinary();
-const usable: boolean = electron !== undefined && existsSync(electron);
+const runtime: { readonly electron: string } | { readonly problem: string } = (() => {
+  const electron = installedElectron();
+  if (electron === undefined) {
+    return { problem: "the electron package is not installed — run `bun install`" };
+  }
+  if (!existsSync(electron.binary)) {
+    return {
+      problem: `the Electron binary is missing at ${electron.binary} — run \`bun run electron:install\``,
+    };
+  }
+  const binary = electronBinaryVersion(electron);
+  const expected = electronPackageVersion(electron);
+  if (binary !== expected) {
+    return {
+      problem:
+        `the Electron binary is ${binary ?? "of unknown version"} but the electron package is ` +
+        `${expected ?? "of unknown version"} — run \`bun run electron:install\``,
+    };
+  }
+  return { electron: electron.binary };
+})();
 
 let tmp: string;
 let url: string;
 let server: ReturnType<typeof Bun.spawn> | undefined;
 
 beforeAll(async () => {
-  if (!usable || electron === undefined) return;
+  if ("problem" in runtime) throw new Error(runtime.problem);
   tmp = await testTempDir("node-runtime");
   const env = {
     ...process.env,
@@ -46,7 +67,7 @@ beforeAll(async () => {
     // is what the app's window does (apps/desktop/src/electron/main.ts).
     ELECTRON_RUN_AS_NODE: "1",
   };
-  server = Bun.spawn([electron, "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
+  server = Bun.spawn([runtime.electron, "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
     env,
     stdout: "pipe",
     stderr: "pipe",
@@ -66,7 +87,7 @@ afterAll(async () => {
   if (tmp !== undefined) await rm(tmp, { recursive: true, force: true });
 });
 
-test.skipIf(!usable)(
+test(
   "the server runs on Electron's Node, page and all",
   async () => {
     const page = await fetch(url).then((r) => r.text());
