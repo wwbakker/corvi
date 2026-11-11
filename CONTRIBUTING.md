@@ -10,6 +10,7 @@ Use Node 24+, Bun, Git, and tmux. Browser tests also need Playwright's Chromium.
 ```sh
 bun install --frozen-lockfile
 bunx playwright install chromium
+bun run electron:install
 bun run dev
 ```
 

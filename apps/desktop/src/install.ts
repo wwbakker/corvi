@@ -4,6 +4,7 @@
  *   bun run app:install
  *   bun run app:uninstall
  *   bun run app:run        — the same window straight from the checkout, nothing installed
+ *   bun run electron:install — only the Electron binary the tests and the app run on
  *
  * The window is one Electron main process (apps/desktop/src/electron/main.ts) on both platforms. The
  * install builds it into a bundle: a macOS `.app` (apps/desktop/src/mac.ts) or, on Linux, a desktop
@@ -15,13 +16,28 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { isLinux, isMac } from "@corvi/configuration/node";
-import { installedElectron } from "./electron/binary.ts";
+import {
+  electronBinaryVersion,
+  electronPackageVersion,
+  installedElectron,
+  type ElectronPackage,
+} from "./electron/binary.ts";
 import { sh } from "./exec.ts";
 
 const root = resolve(".");
 
+/** Why the downloaded binary cannot serve this package, or `undefined` when it can. An upgrade
+ * can leave the previous package's binary behind, and it starts the app and the tests on the
+ * runtime that was just replaced. */
+const electronMismatch = (electron: ElectronPackage): string | undefined => {
+  const binary = electronBinaryVersion(electron);
+  const expected = electronPackageVersion(electron);
+  if (binary === expected) return undefined;
+  return `the Electron binary is ${binary ?? "not downloaded"} but the electron package is ${expected ?? "of unknown version"}`;
+};
+
 /** The Electron binary this checkout installed, in the platform's own layout
- * (apps/desktop/src/electron/binary.ts). Electron 44 downloads it lazily, so a fresh
+ * (apps/desktop/src/electron/binary.ts). Electron downloads it lazily, so a fresh
  * `bun install` can leave it missing until first use; installing is where that belongs, with the
  * error visible, rather than at the first click of the app. */
 async function ensureElectron(): Promise<void> {
@@ -30,12 +46,22 @@ async function ensureElectron(): Promise<void> {
     console.error("electron is not installed — run `bun install` first");
     process.exit(1);
   }
-  if (existsSync(electron.binary)) return;
-  console.log("downloading the Electron binary (first use of this checkout)…");
+  const mismatch = electronMismatch(electron);
+  if (existsSync(electron.binary) && mismatch === undefined) return;
+  console.log(
+    mismatch === undefined
+      ? "downloading the Electron binary (first use of this checkout)…"
+      : `${mismatch} — downloading the Electron binary again…`,
+  );
   const downloaded = await sh(["bun", electron.installer]);
   if (downloaded.code !== 0 || !existsSync(electron.binary)) {
     console.error(downloaded.stderr || downloaded.stdout);
     console.error("could not download Electron — the app cannot start");
+    process.exit(1);
+  }
+  const after = electronMismatch(electron);
+  if (after !== undefined) {
+    console.error(`${after} after downloading — the binary cannot run this package`);
     process.exit(1);
   }
 }
@@ -67,7 +93,7 @@ async function verify(): Promise<void> {
 
 const command = process.argv[2];
 const usage = (): void => {
-  console.error("usage: bun apps/desktop/src/install.ts install|uninstall|run");
+  console.error("usage: bun apps/desktop/src/install.ts install|uninstall|run|electron");
   process.exit(1);
 };
 
@@ -88,4 +114,6 @@ if (command === "install") {
   }
 } else if (command === "run") {
   await (await import("./run.ts")).run();
+} else if (command === "electron") {
+  await ensureElectron();
 } else usage();

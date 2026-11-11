@@ -66,3 +66,19 @@ export const installedElectron = (): ElectronPackage | undefined => {
 /** The Electron executable of this checkout, or `undefined` when the `electron` package is not
  * installed here. The binary itself may still be missing: `app:install` downloads it. */
 export const electronBinary = (): string | undefined => installedElectron()?.binary;
+
+/** The `electron` package's own version, from its `package.json`. */
+export const electronPackageVersion = (electron: ElectronPackage): string | undefined => {
+  const manifest: { readonly version?: unknown } = JSON.parse(
+    readFileSync(join(electron.dir, "package.json"), "utf8"),
+  );
+  return typeof manifest.version === "string" ? manifest.version : undefined;
+};
+
+/** The version of the binary in `dist`, from the `version` file Electron's download writes
+ * beside it. `undefined` before the first download; a binary left over from an earlier package
+ * keeps its old file, so an upgrade shows up here even though the package changed under it. */
+export const electronBinaryVersion = (electron: ElectronPackage): string | undefined => {
+  const file = join(electron.dir, "dist", "version");
+  return existsSync(file) ? readFileSync(file, "utf8").trim() : undefined;
+};

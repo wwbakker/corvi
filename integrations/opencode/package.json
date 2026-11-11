@@ -10,6 +10,6 @@
     "./corvi": "./src/corvi.ts"
   },
   "devDependencies": {
-    "@opencode-ai/plugin": "^1.18.32"
+    "@opencode-ai/plugin": "^1.19.5"
   }
 }
