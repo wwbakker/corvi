@@ -20,7 +20,7 @@ import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
-import { checkoutsOf, fakeShell, forgetRateLimit, runEffect, runWithShell, TestError, testTempDir, withRuntimeConfig, type FakeShell  } from "./helpers.ts";
+import { AZ_CONFIGURED, azureCheckoutAnswer, checkoutsOf, fakeShell, forgetRateLimit, runEffect, runWithShell, TestError, testTempDir, withRuntimeConfig, type FakeShell  } from "./helpers.ts";
 
 /**
  * The cards' server half: the GitHub tree and the Azure DevOps tree the dashboard draws, the
@@ -94,13 +94,8 @@ const checkedOut = (line: string): string | undefined => {
   return undefined;
 };
 
-/** What the azure-devops card needs before it asks for a repository's pipelines: a project to
- * ask in, and the GitHub repository the pipelines name. */
-const azureCheckout = (line: string): string | undefined => {
-  if (line === "az devops configure -l") return "organization = https://dev.azure.com/org\nproject = proj";
-  if (line === "git remote get-url origin") return "git@github.com:o/example-api.git";
-  return undefined;
-};
+/** What the azure-devops card needs before it asks for a repository's pipelines. */
+const azureCheckout = azureCheckoutAnswer("o/example-api");
 
 test("the github card draws repository > pull request > checks", async () => {
   const shell = fakeShell((cmd) => {
@@ -577,7 +572,7 @@ test("the services route answers for a workspace that enabled azure-devops", asy
 test("an absent workspace parameter means the first context", async () => {
   const shell = fakeShell((cmd) => {
     const line = cmd.join(" ");
-    if (line === "az devops configure -l") return "organization = https://dev.azure.com/org\nproject = proj";
+    if (line === "az devops configure -l") return AZ_CONFIGURED;
     if (line.startsWith("az pipelines list ")) return "[]";
     return undefined;
   });
@@ -692,9 +687,7 @@ const configuredShell = (
 ): FakeShell =>
   fakeShell((cmd) => {
     const line = cmd.join(" ");
-    if (line === "az devops configure -l") {
-      return "organization = https://dev.azure.com/org\nproject = proj";
-    }
+    if (line === "az devops configure -l") return AZ_CONFIGURED;
     return respond(line);
   });
 
@@ -1119,7 +1112,7 @@ test("the deploy route refuses a body missing the version or the environment, or
 test("the deploy route passes a complete body to the promotion-guarded deploy", async () => {
   const shell = fakeShell((cmd) => {
     const line = cmd.join(" ");
-    if (line === "az devops configure -l") return "organization = https://dev.azure.com/org\nproject = proj";
+    if (line === "az devops configure -l") return AZ_CONFIGURED;
     if (line.startsWith("az pipelines list ")) return "[]";
     return undefined;
   });

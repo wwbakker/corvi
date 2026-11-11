@@ -17,7 +17,7 @@ import type { WidgetItemDto, WidgetStateDto } from "@corvi/contracts/api";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
 import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import type { ShellResult } from "@corvi/contracts/capabilities";
-import { checkoutsOf, fakeShell, runWithShell, type FakeShell } from "./helpers.ts";
+import { azureCheckoutAnswer, checkoutsOf, fakeShell, runWithShell, type FakeShell } from "./helpers.ts";
 
 /** Every effect below goes through the shared cache and the contract's capabilities, and every
  * test starts from a cold one so a key one test warmed cannot answer for another. */
@@ -55,11 +55,7 @@ const repositoryShell = (
 ): FakeShell =>
   fakeShell((cmd) => {
     const line = cmd.join(" ");
-    if (line === "az devops configure -l") {
-      return "[defaults]\norganization = https://dev.azure.com/org\nproject = proj\n";
-    }
-    if (line === "git remote get-url origin") return "git@github.com:acme/repo.git\n";
-    return answer(line);
+    return azureCheckoutAnswer("acme/repo")(line) ?? answer(line);
   });
 
 const change: Change = {
