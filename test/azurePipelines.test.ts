@@ -3,7 +3,6 @@ import {
   activeRuns,
   buildUrl,
   expectedDuration,
-  folderFor,
   pipelineItems,
   refsFor,
   runState,
@@ -17,7 +16,8 @@ import type { Change } from "@corvi/changes/record";
 import type { WidgetItemDto, WidgetStateDto } from "@corvi/contracts/api";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
 import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
-import { checkoutsOf, fakeShell, runWithShell  } from "./helpers.ts";
+import type { ShellResult } from "@corvi/contracts/capabilities";
+import { checkoutsOf, fakeShell, runWithShell, type FakeShell } from "./helpers.ts";
 
 /** Every effect below goes through the shared cache and the contract's capabilities, and every
  * test starts from a cold one so a key one test warmed cannot answer for another. */
@@ -48,6 +48,20 @@ const runRow = (
   ...over,
 });
 
+/** A shell for the repository-scoped reads: `az` configured with a project, and a checkout
+ * whose origin is on GitHub, so its pipelines are asked for by that repository's name. */
+const repositoryShell = (
+  answer: (line: string) => string | Partial<ShellResult> | undefined,
+): FakeShell =>
+  fakeShell((cmd) => {
+    const line = cmd.join(" ");
+    if (line === "az devops configure -l") {
+      return "[defaults]\norganization = https://dev.azure.com/org\nproject = proj\n";
+    }
+    if (line === "git remote get-url origin") return "git@github.com:acme/repo.git\n";
+    return answer(line);
+  });
+
 const change: Change = {
   id: "PROJ-1",
   branch: "PROJ-1-thing",
@@ -75,12 +89,6 @@ test("refsFor adds the pull request merge ref only once a pull request exists", 
   ]);
   // Pull request zero is not a pull request.
   expect(refsFor("PROJ-1-thing", 0)).toEqual(["refs/heads/PROJ-1-thing"]);
-});
-
-test("folderFor names the pipeline folder after the repository itself", () => {
-  expect(folderFor("/repos/acme/example-api")).toBe("\\example-api");
-  // A trailing separator is not the repository name.
-  expect(folderFor("/repos/acme/example-api/")).toBe("\\example-api");
 });
 
 test("typicalDuration takes the median of the successful runs and ignores everything else", () => {
@@ -443,13 +451,12 @@ test("versionOf finds nothing when reading a log fails", async () => {
 });
 
 test("activeRuns counts only in-flight runs of this repository's pipelines", async () => {
-  const shell = fakeShell((cmd) => {
-    const line = cmd.join(" ");
-    if (line.startsWith("az pipelines list --folder-path")) {
-      return JSON.stringify([
+  const shell = repositoryShell((line) => {
+    if (line.includes("--resource definitions")) {
+      return JSON.stringify({ value: [
         { id: 11, name: "build-a", path: "\\repo" },
         { id: 12, name: "build-b", path: "\\repo" },
-      ]);
+      ] });
     }
     if (line.startsWith("az pipelines runs list --branch")) {
       return JSON.stringify([
@@ -467,10 +474,9 @@ test("activeRuns counts only in-flight runs of this repository's pipelines", asy
 
 test("activeRuns asks about the merge ref too once there is a pull request", async () => {
   const asked: string[] = [];
-  const shell = fakeShell((cmd) => {
-    const line = cmd.join(" ");
-    if (line.startsWith("az pipelines list --folder-path")) {
-      return JSON.stringify([{ id: 11, name: "build-a", path: "\\repo" }]);
+  const shell = repositoryShell((line) => {
+    if (line.includes("--resource definitions")) {
+      return JSON.stringify({ value: [{ id: 11, name: "build-a", path: "\\repo" }] });
     }
     if (line.startsWith("az pipelines runs list --branch")) {
       asked.push(line);
@@ -484,10 +490,9 @@ test("activeRuns asks about the merge ref too once there is a pull request", asy
 });
 
 test("activeRuns reads a failed query as no runs, not as an error", async () => {
-  const shell = fakeShell((cmd) => {
-    const line = cmd.join(" ");
-    if (line.startsWith("az pipelines list --folder-path")) {
-      return JSON.stringify([{ id: 11, name: "build-a", path: "\\repo" }]);
+  const shell = repositoryShell((line) => {
+    if (line.includes("--resource definitions")) {
+      return JSON.stringify({ value: [{ id: 11, name: "build-a", path: "\\repo" }] });
     }
     if (line.startsWith("az pipelines runs list --branch")) {
       return { code: 1, stderr: "azure is down\nextra" };
@@ -498,21 +503,20 @@ test("activeRuns reads a failed query as no runs, not as an error", async () => 
 });
 
 test("pipelineItems nests each pipeline's newest runs under it", async () => {
-  const shell = fakeShell((cmd) => {
-    const line = cmd.join(" ");
-    if (line.startsWith("az pipelines list --folder-path")) {
-      return JSON.stringify([
+  const shell = repositoryShell((line) => {
+    if (line.includes("--resource definitions")) {
+      return JSON.stringify({ value: [
         { id: 201, name: "build-a", path: "\\repo" },
         { id: 202, name: "build-b", path: "\\repo" },
         { id: 203, name: "build-c", path: "\\repo" },
-      ]);
+      ] });
     }
     if (line.startsWith("az pipelines runs list --branch")) {
       return JSON.stringify([
         runRow(406, "inProgress", null, 202, { startTime: "2026-01-01T10:00:00Z" }),
         runRow(405, "completed", "succeeded", 201),
         runRow(404, "completed", "failed", 201),
-        runRow(403, "completed", "succeeded", 999), // not one of this folder's pipelines
+        runRow(403, "completed", "succeeded", 999), // not one of this repository's pipelines
       ]);
     }
     if (line.startsWith("az pipelines runs list --pipeline-ids 202")) {
@@ -560,10 +564,9 @@ test("pipelineItems appends the version a successful build printed", async () =>
   const before = runtimeConfig().extensionSettings;
   // A project is what makes a version lookup worth attempting at all.
   runtimeConfig().extensionSettings = { "azure-devops": { project: "proj" } };
-  const shell = fakeShell((cmd) => {
-    const line = cmd.join(" ");
-    if (line.startsWith("az pipelines list --folder-path")) {
-      return JSON.stringify([{ id: 601, name: "build-a", path: "\\repo" }]);
+  const shell = repositoryShell((line) => {
+    if (line.includes("--resource definitions")) {
+      return JSON.stringify({ value: [{ id: 601, name: "build-a", path: "\\repo" }] });
     }
     if (line.startsWith("az pipelines runs list --branch")) {
       return JSON.stringify([runRow(701, "completed", "succeeded", 601)]);
@@ -592,10 +595,9 @@ test("pipelineItems appends the version a successful build printed", async () =>
 });
 
 test("pipelineItems names the pull request when there is one and no runs", async () => {
-  const shell = fakeShell((cmd) => {
-    const line = cmd.join(" ");
-    if (line.startsWith("az pipelines list --folder-path")) {
-      return JSON.stringify([{ id: 301, name: "build-a", path: "\\repo" }]);
+  const shell = repositoryShell((line) => {
+    if (line.includes("--resource definitions")) {
+      return JSON.stringify({ value: [{ id: 301, name: "build-a", path: "\\repo" }] });
     }
     if (line.startsWith("az pipelines runs list")) return JSON.stringify([]);
     return undefined;
@@ -610,8 +612,8 @@ test("pipelineItems names the pull request when there is one and no runs", async
 });
 
 test("pipelineItems answers empty when it found no pipelines", async () => {
-  const shell = fakeShell((cmd) =>
-    cmd.join(" ").startsWith("az pipelines list --folder-path") ? JSON.stringify([]) : JSON.stringify([]),
+  const shell = repositoryShell((line) =>
+    line.includes("--resource definitions") ? JSON.stringify({ value: [] }) : JSON.stringify([]),
   );
   const { items, count } = await runWithShell(shell, pipelineItems(change, "/repos/repo"));
   expect(count).toBe(0);
@@ -619,10 +621,9 @@ test("pipelineItems answers empty when it found no pipelines", async () => {
 });
 
 test("pipelineItems turns a failed runs query into one error row", async () => {
-  const shell = fakeShell((cmd) => {
-    const line = cmd.join(" ");
-    if (line.startsWith("az pipelines list --folder-path")) {
-      return JSON.stringify([{ id: 401, name: "build-a", path: "\\repo" }]);
+  const shell = repositoryShell((line) => {
+    if (line.includes("--resource definitions")) {
+      return JSON.stringify({ value: [{ id: 401, name: "build-a", path: "\\repo" }] });
     }
     if (line.startsWith("az pipelines runs list --branch")) {
       return { code: 1, stderr: "azure is down\nextra" };
@@ -632,4 +633,68 @@ test("pipelineItems turns a failed runs query into one error row", async () => {
   const { items, count } = await runWithShell(shell, pipelineItems(change, "/repos/repo"));
   expect(count).toBe(0);
   expect(items).toEqual([{ label: "pipelines", detail: "azure is down", state: "error" }]);
+});
+
+test("pipelineItems finds a repository's pipelines by the repository they build, whatever folder they sit in", async () => {
+  const shell = repositoryShell((line) => {
+    if (line.includes("--resource definitions")) {
+      // A library's pipeline kept in its sibling's folder: the folder does not name the repository.
+      return line.includes("repositoryId=acme/repo")
+        ? JSON.stringify({ value: [{ id: 801, name: "repo-build-and-publish", path: "\\sibling" }] })
+        : JSON.stringify({ value: [] });
+    }
+    if (line.startsWith("az pipelines runs list --branch")) {
+      return JSON.stringify([
+        runRow(901, "completed", "failed", 801),
+        // The sibling's pipeline, in the same folder, built on the same branch.
+        runRow(902, "completed", "succeeded", 802),
+      ]);
+    }
+    return undefined;
+  });
+
+  const { items } = await runWithShell(shell, pipelineItems(change, "/repos/repo"));
+  expect(items.map((i) => [i.label, i.children!.map((c) => c.label)])).toEqual([
+    ["repo-build-and-publish", ["901"]],
+  ]);
+
+  const asked = shell.calls.map((c) => c.cmd.join(" ")).find((l) => l.includes("--resource definitions"));
+  expect(asked).toContain("--route-parameters project=proj");
+  expect(asked).toContain("--query-parameters repositoryId=acme/repo repositoryType=GitHub");
+  expect(asked).toContain("--organization https://dev.azure.com/org");
+  // `az devops invoke` refuses --project; the project travels in the route.
+  expect(asked).not.toContain("--project");
+  expect(shell.calls.find((c) => c.cmd.join(" ") === "git remote get-url origin")?.cwd).toBe("/repos/repo");
+});
+
+test("pipelineItems has nothing for a repository that is not on GitHub", async () => {
+  const shell = fakeShell((cmd) => {
+    const line = cmd.join(" ");
+    if (line === "az devops configure -l") return "project = proj\n";
+    if (line === "git remote get-url origin") return "https://dev.azure.com/acme/proj/_git/repo\n";
+    return JSON.stringify([]);
+  });
+  const { items, count } = await runWithShell(shell, pipelineItems(change, "/repos/repo"));
+  expect(items).toEqual([]);
+  expect(count).toBe(0);
+  expect(shell.calls.some((c) => c.cmd.join(" ").includes("--resource definitions"))).toBe(false);
+});
+
+test("pipelineItems has nothing when no Azure DevOps project is known", async () => {
+  const shell = fakeShell((cmd) => {
+    const line = cmd.join(" ");
+    if (line === "git remote get-url origin") return "git@github.com:acme/repo.git\n";
+    return JSON.stringify([]);
+  });
+  const { items } = await runWithShell(shell, pipelineItems(change, "/repos/repo"));
+  expect(items).toEqual([]);
+  expect(shell.calls.some((c) => c.cmd.join(" ").includes("--resource definitions"))).toBe(false);
+});
+
+test("expectedDuration asks the workspace's own Azure DevOps", async () => {
+  const shell = fakeShell(() => JSON.stringify([]));
+  const own: Az = { ...az(), args: ["--organization", "https://dev.azure.com/own", "--project", "own-proj"] };
+  await runWithShell(shell, expectedDuration(own, 506));
+  const asked = shell.calls.map((c) => c.cmd.join(" "))[0];
+  expect(asked).toContain("--organization https://dev.azure.com/own --project own-proj");
 });

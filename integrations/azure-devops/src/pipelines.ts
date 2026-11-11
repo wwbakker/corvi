@@ -1,8 +1,8 @@
-import { baseName } from "@corvi/contracts/paths";
 import { Effect, Schema } from "effect";
 import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { Cache, Changes, Settings, Shell, Workspace, swr } from "@corvi/contracts/capabilities";
 import { cliJson } from "@corvi/shell/cli";
+import { nameWithOwner } from "@corvi/github/issues";
 import { env } from "@corvi/configuration/node";
 import type { ShellResult } from "@corvi/contracts/capabilities";
 import { azFor, type Az } from "./azure.ts";
@@ -20,7 +20,7 @@ export type Run = {
 
 export type Definition = { id: number; name: string; path: string };
 
-/** `az pipelines list -o json` output, as far as this file reads it. */
+/** Pipeline definitions as the definitions API lists them, as far as this file reads it. */
 const DefinitionsSchema = Schema.Array(
   Schema.Struct({ id: Schema.Number, name: Schema.String, path: Schema.String }),
 );
@@ -88,14 +88,6 @@ export const refsFor = (branch: string, pr?: number): string[] =>
     ? [`refs/pull/${pr}/merge`, `refs/heads/${branch}`]
     : [`refs/heads/${branch}`];
 
-// Pure and synchronous: nothing for an Effect to wrap.
-
-/** Azure DevOps pipeline folders mirror the service directories of a monorepo (`\service-x`),
- * which is how runs are attributed to a repository: `repository.name` comes back null. */
-export const folderFor = (repo: string): string => `\\${baseName(repo)}`;
-
-// Pure and synchronous: nothing for an Effect to wrap.
-
 /*
  * One call per distinct question, however many rows ask it: every repository of a change asks
  * Azure DevOps about the same branch at the same moment, and `az` costs a few hundred
@@ -103,32 +95,60 @@ export const folderFor = (repo: string): string => `\\${baseName(repo)}`;
  * sharing and the staleness both live in the contract's `Cache` capability.
  */
 
-/** Pipelines are moved between folders about never; runs happen while you watch. Both are
+/** A pipeline changes repository about never; runs happen while you watch. Both are
  * served from the cache while the refresh runs, so neither number is ever waited for twice. */
 const DEFINITIONS_TTL = 5 * 60_000;
 const RUNS_TTL = 10_000;
 
+/** `az devops invoke --area build --resource definitions` output, as far as this file reads it. */
+const DefinitionListSchema = Schema.Struct({ value: DefinitionsSchema });
+
+/**
+ * The pipelines that build this repository, asked by the GitHub repository they name. Runs come
+ * back with `repository.name` null, so the definition is the join; and pipeline folders do not
+ * reliably follow repository names (a library's pipeline in its sibling's folder), so neither is
+ * the folder. A repository without a GitHub remote, or a workspace without a project, has none.
+ */
 const listDefinitions = (
   az: Az,
   repo: string,
 ): Effect.Effect<Definition[], never, Shell | Workspace | Cache> =>
-  swr(
-    `az:${az.key}:definitions:${folderFor(repo)}`,
-    DEFINITIONS_TTL,
-    Effect.gen(function* () {
-      const r = yield* shResult([
-        "az",
-        "pipelines",
-        "list",
-        "--folder-path",
-        folderFor(repo),
-        ...az.args,
-        "-o",
-        "json",
-      ]);
-      return r.code === 0 ? yield* cliJson(DefinitionsSchema, [] as Definition[])(r.stdout) : [];
-    }),
-  );
+  Effect.gen(function* () {
+    const repository = yield* nameWithOwner(repo).pipe(
+      Effect.catch(() => Effect.succeed(undefined)),
+    );
+    const { project, organization } = az;
+    if (!repository || !project) return [];
+    return yield* swr(
+      `az:${az.key}:definitions:${repository}`,
+      DEFINITIONS_TTL,
+      Effect.gen(function* () {
+        const r = yield* shResult([
+          "az",
+          "devops",
+          "invoke",
+          "--area",
+          "build",
+          "--resource",
+          "definitions",
+          "--api-version",
+          "7.0",
+          "--route-parameters",
+          `project=${project}`,
+          "--query-parameters",
+          `repositoryId=${repository}`,
+          "repositoryType=GitHub",
+          // `invoke` has no --project: the project travels in the route above.
+          ...(organization ? ["--organization", organization] : []),
+          "-o",
+          "json",
+        ]);
+        return r.code === 0
+          ? (yield* cliJson(DefinitionListSchema, { value: [] as Definition[] })(r.stdout)).value
+          : [];
+      }),
+    );
+  });
 
 const runsFor = (
   az: Az,
@@ -242,6 +262,7 @@ export const expectedDuration = (
         "completed",
         "--top",
         historySize(),
+        ...az.args,
         "-o",
         "json",
       ]);
@@ -418,8 +439,8 @@ export const pipelineItems = (
     const { project } = az;
     const url = (id: number): string | undefined => buildUrl(id, az);
 
-    // Definitions come from this repository's folder; runs that match none of them are ignored,
-    // which is what keeps a monorepo's other services out of this widget.
+    // Definitions are the ones building this repository; runs that match none of them are
+    // ignored, which is what keeps the project's other repositories out of this widget.
     const byDefinition = new Map<number, Run[]>(definitions.map((d) => [d.id, []]));
     for (const run of runs) {
       const id = run.definition?.id;
