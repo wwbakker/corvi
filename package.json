@@ -57,6 +57,7 @@
     "app:drive": "bun scripts/drive.ts",
     "app:sandbox": "bun scripts/sandbox.ts",
     "electron:install": "bun apps/desktop/src/install.ts electron",
+    "electron:check": "bun scripts/electron-font.ts",
     "build:web": "bun apps/web/src/node/build.ts",
     "dev:web": "bun apps/web/src/node/build.ts --watch"
   },
