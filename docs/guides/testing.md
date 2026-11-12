@@ -55,6 +55,11 @@ Install dependencies with `bun install --frozen-lockfile`. Browser tests need
 Electron binary, which `bun install` leaves for first use: run `bun run electron:install`. That
 test does not skip when the binary is missing or does not match the installed `electron` package;
 it fails and names the command, because a skip would hide the only proof of the app's runtime.
+
+That version is pinned for a reason the suite cannot see
+([the Electron version](../decisions/electron-version.md)); `bun run electron:check` is what says
+whether a newer one can be used.
+
 Report skipped browser/native/platform checks separately from passes. Do not claim macOS coverage
 from a Linux run.
 

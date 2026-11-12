@@ -18,6 +18,10 @@
  *
  * Before the first download `path.txt` does not exist yet; the fallback is the platform's own
  * layout, so the check that triggers the download still looks in the right place afterwards.
+ *
+ * The version itself is pinned below the newest release on purpose, for a reason nothing in this
+ * module can see (docs/decisions/electron-version.md): `bun run electron:check` asks the binary
+ * whether it still draws xterm's glyph atlas at the right size, and says when the pin can move.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";

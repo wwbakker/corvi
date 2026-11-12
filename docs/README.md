@@ -26,7 +26,8 @@ when they exist. Historical implementation choices do not override these rules. 
 are decision records of their own: [architecture](decisions/architecture.md), [the terminal host
 and host sessions](decisions/terminal-host.md), [the agent-status
 channel](decisions/agent-status-channel.md), [server-owned screen
-state](decisions/server-owned-screen.md), and [leaving a page with unsaved
+state](decisions/server-owned-screen.md), [the Electron
+version](decisions/electron-version.md), and [leaving a page with unsaved
 edits](decisions/unsaved-changes.md).
 
 ## Repository and change contracts
