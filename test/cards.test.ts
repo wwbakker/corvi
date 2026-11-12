@@ -20,7 +20,7 @@ import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
-import { checkoutsOf, fakeShell, forgetRateLimit, runEffect, runWithShell, TestError, testTempDir, withRuntimeConfig, type FakeShell  } from "./helpers.ts";
+import { AZ_CONFIGURED, azureCheckoutAnswer, checkoutsOf, fakeShell, forgetRateLimit, runEffect, runWithShell, TestError, testTempDir, withRuntimeConfig, type FakeShell  } from "./helpers.ts";
 
 /**
  * The cards' server half: the GitHub tree and the Azure DevOps tree the dashboard draws, the
@@ -94,6 +94,9 @@ const checkedOut = (line: string): string | undefined => {
   return undefined;
 };
 
+/** What the azure-devops card needs before it asks for a repository's pipelines. */
+const azureCheckout = azureCheckoutAnswer("o/example-api");
+
 test("the github card draws repository > pull request > checks", async () => {
   const shell = fakeShell((cmd) => {
     const line = cmd.join(" ");
@@ -146,8 +149,10 @@ test("the azure-devops card draws repository > pipeline > run", async () => {
         data: { viewer: { login: "me" }, repository: { pullRequest: { reviewThreads: { nodes: [] } } } },
       });
     }
-    if (line.startsWith("az pipelines list ")) {
-      return JSON.stringify([{ id: 10, name: "build-example-api", path: "\\example-api" }]);
+    const azure = azureCheckout(line);
+    if (azure !== undefined) return azure;
+    if (line.includes("--resource definitions")) {
+      return JSON.stringify({ value: [{ id: 10, name: "build-example-api", path: "\\example-api" }] });
     }
     // Pipelines run on the pull request's merge ref once a PR exists.
     if (line.includes("--branch refs/pull/5/merge")) return JSON.stringify([run]);
@@ -186,8 +191,10 @@ test("a finished build carries the moment to read, a running one counts in its b
     const checked = checkedOut(line);
     if (checked !== undefined) return checked;
     if (line.startsWith("gh pr list --head")) return "[]";
-    if (line.startsWith("az pipelines list ")) {
-      return JSON.stringify([{ id: 10, name: "build-example-api", path: "\\example-api" }]);
+    const azure = azureCheckout(line);
+    if (azure !== undefined) return azure;
+    if (line.includes("--resource definitions")) {
+      return JSON.stringify({ value: [{ id: 10, name: "build-example-api", path: "\\example-api" }] });
     }
     if (line.includes("--branch refs/heads/")) {
       return JSON.stringify([
@@ -226,7 +233,9 @@ test("the azure-devops card answers empty when it found no pipelines", async () 
         data: { viewer: { login: "me" }, repository: { pullRequest: { reviewThreads: { nodes: [] } } } },
       });
     }
-    if (line.startsWith("az pipelines list ")) return "[]";
+    const azure = azureCheckout(line);
+    if (azure !== undefined) return azure;
+    if (line.includes("--resource definitions")) return JSON.stringify({ value: [] });
     return undefined;
   });
 
@@ -312,8 +321,12 @@ const summaryShell = (active: number, unresolved: number): FakeShell =>
         },
       });
     }
-    if (line.startsWith("az pipelines list ")) {
-      return active ? JSON.stringify([{ id: 10, name: "build-example-api", path: "\\example-api" }]) : "[]";
+    const azure = azureCheckout(line);
+    if (azure !== undefined) return azure;
+    if (line.includes("--resource definitions")) {
+      return JSON.stringify({
+        value: active ? [{ id: 10, name: "build-example-api", path: "\\example-api" }] : [],
+      });
     }
     if (line.includes("--branch refs/pull/5/merge")) {
       return JSON.stringify(
@@ -559,7 +572,7 @@ test("the services route answers for a workspace that enabled azure-devops", asy
 test("an absent workspace parameter means the first context", async () => {
   const shell = fakeShell((cmd) => {
     const line = cmd.join(" ");
-    if (line === "az devops configure -l") return "organization = https://dev.azure.com/org\nproject = proj";
+    if (line === "az devops configure -l") return AZ_CONFIGURED;
     if (line.startsWith("az pipelines list ")) return "[]";
     return undefined;
   });
@@ -674,9 +687,7 @@ const configuredShell = (
 ): FakeShell =>
   fakeShell((cmd) => {
     const line = cmd.join(" ");
-    if (line === "az devops configure -l") {
-      return "organization = https://dev.azure.com/org\nproject = proj";
-    }
+    if (line === "az devops configure -l") return AZ_CONFIGURED;
     return respond(line);
   });
 
@@ -1101,7 +1112,7 @@ test("the deploy route refuses a body missing the version or the environment, or
 test("the deploy route passes a complete body to the promotion-guarded deploy", async () => {
   const shell = fakeShell((cmd) => {
     const line = cmd.join(" ");
-    if (line === "az devops configure -l") return "organization = https://dev.azure.com/org\nproject = proj";
+    if (line === "az devops configure -l") return AZ_CONFIGURED;
     if (line.startsWith("az pipelines list ")) return "[]";
     return undefined;
   });

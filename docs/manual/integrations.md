@@ -85,7 +85,9 @@ namespaced file. Notes occupy the document column, separate from status cards.
 The change dashboard shows pipeline runs per repository. A pipeline's status follows its newest
 run; older failures remain visible without keeping the whole pipeline red. Successful runs can
 show an artifact version from their logs. Running builds show elapsed time against historical
-duration. A repository unknown to the configured pipelines does not produce a placeholder row.
+duration. A repository's pipelines are the ones that build the GitHub repository its `origin`
+remote names, in whichever folder they sit. A repository unknown to the configured pipelines,
+or not on GitHub, does not produce a placeholder row.
 
 The **Azure DevOps** page is independent of a change: rows are services, columns are environments.
 It shows deployed versions and the latest deployment attempt. A failed latest attempt is visible

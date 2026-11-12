@@ -417,6 +417,21 @@ export type FakeShell = {
   ) => Effect.Effect<ShellResult, CliError, WorkspaceTag>;
 };
 
+/** What `az devops configure -l` prints on a machine set up for organisation
+ * `https://dev.azure.com/org` and project `proj`. */
+export const AZ_CONFIGURED = "organization = https://dev.azure.com/org\nproject = proj\n";
+
+/** The answers an Azure DevOps read of a repository's pipelines takes for granted: `az` configured
+ * (`AZ_CONFIGURED`), and a checkout whose `origin` is the GitHub repository `nameWithOwner`.
+ * Undefined for any other command line, so a scripted Shell chains it with `??`. */
+export const azureCheckoutAnswer =
+  (nameWithOwner: string) =>
+  (line: string): string | undefined => {
+    if (line === "az devops configure -l") return AZ_CONFIGURED;
+    if (line === "git remote get-url origin") return `git@github.com:${nameWithOwner}.git\n`;
+    return undefined;
+  };
+
 /** Build a scripted Shell (see `FakeShell`). */
 export const fakeShell = (
   responses:
