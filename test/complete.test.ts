@@ -673,6 +673,7 @@ test("completeChange: every step is journaled as it runs and the change is archi
     [`merge:${repo}`, "done"],
     ["worktrees", "done"],
     ["terminal", "done"],
+    ["transcripts", "done"],
     ["archive", "done"],
   ]);
   expect(journal.finishedAt).toBeTruthy();

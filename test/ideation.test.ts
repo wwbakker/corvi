@@ -138,7 +138,7 @@ test("an idea gets its worktree on the change branch at creation", async () => {
   expect(await runEffect(checkoutFor(started.change, repo))).toBe(worktree);
 });
 
-test("cancelling an idea takes its worktree away — but never uncommitted work", async () => {
+test("cancelling an idea takes its worktree away — and shelves its uncommitted work", async () => {
   const repo = await clonedRepo("ideation-cancel");
   const idea = await runEffect(
     createChange({ id: "idea-cancel", state: "Ideation", checkouts: checkoutsOf([repo]) }),
@@ -155,15 +155,18 @@ test("cancelling an idea takes its worktree away — but never uncommitted work"
   );
   expect(archived).toBe(false);
 
-  // The removal safety is uniform: an idea's worktree with uncommitted work refuses to go,
-  // forced or not, exactly like a started change's.
+  // The safety is uniform: an idea's worktree with uncommitted work is shelved with it, exactly
+  // like a started change's, and nothing is asked — nothing is lost.
   const scribbled = await runEffect(
     createChange({ id: "idea-scribbled", state: "Ideation", checkouts: checkoutsOf([repo]) }),
   );
   await runEffect(provisionRepositories(scribbled));
   await Bun.write(join(changeDir(scribbled), basename(repo), "README.md"), "half a thought\n");
-  await expect(runCancel(scribbled)).rejects.toThrow(/uncommitted changes/);
-  await expect(runCancel(scribbled, true)).rejects.toThrow(/uncommitted changes/);
+  const shelved = await runCancel(scribbled);
+  expect("change" in shelved && shelved.change.state).toBe("Cancelled");
+  expect("loose" in shelved && shelved.loose).toContain(
+    `the uncommitted work in ${basename(repo)} is shelved; reopening the change applies it`,
+  );
 });
 
 test("adding a repository to an idea cuts its worktree and branch", async () => {

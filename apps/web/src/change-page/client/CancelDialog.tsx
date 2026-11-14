@@ -1,10 +1,10 @@
 import { type JSX, useEffect, useRef } from "react";
 
 /**
- * What cancelling throws away, said before it happens: the worktrees and the terminal go,
- * everything anyone else can see stays. Untracked files and commits nobody else has get one
- * acknowledge, naming them: the files go with the worktree, and the commits survive on the
- * branch — recoverable, but only by someone who knows it is there.
+ * What cancelling does, said before it happens: the worktrees and the terminal go, everything
+ * anyone else can see stays, and nothing is lost — uncommitted work is shelved in the change and
+ * reopening puts it back. Commits nobody else has get one acknowledge, naming them: they survive
+ * on the branch, which stays for a reopen.
  */
 export function CancelDialog({
   changeId,
@@ -46,9 +46,11 @@ export function CancelDialog({
       </h3>
       <p className="hint">
         {idea
-          ? "It is archived as cancelled. Nothing was created for it."
-          : "The worktrees and the terminal go. The branches, pull requests and the ticket " +
-            "are left alone — you will be told what is left."}
+          ? "It is archived as cancelled; reopen it to pick it up again. Uncommitted work in its " +
+            "worktrees is shelved with it."
+          : "The worktrees and the terminal go; uncommitted work is shelved in the change, and " +
+            "reopening it puts everything back. The branches, pull requests and the ticket are " +
+            "left alone — you will be told what is left."}
       </p>
       {reasons.length > 0 && (
         <>
@@ -65,7 +67,7 @@ export function CancelDialog({
                 disabled={busy}
                 onChange={(e) => onAck(e.target.checked)}
               />
-              Discard this: untracked files go with the worktree; commits stay on the branch.
+              Go ahead: the commits stay on the branch.
             </label>
           </p>
         </>

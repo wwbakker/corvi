@@ -5,6 +5,13 @@ import { TextSchema } from "@corvi/contracts/api";
 import type { Change } from "../../domain/change.ts";
 import { repoPathsOf } from "../../domain/change.ts";
 import { CommitDialog } from "./CommitDialog.tsx";
+import { ShelveDialog, sizeOf } from "./ShelveDialog.tsx";
+import {
+  ApplyShelfResultSchema,
+  ShelfListSchema,
+  type ApplyShelfResultDto,
+  type ShelfDto,
+} from "@corvi/contracts/shelves";
 import {
   CommitResultSchema,
   LocalStatusSchema,
@@ -100,6 +107,26 @@ function FileRow({
   );
 }
 
+/** What applying a shelf did, in a sentence. */
+const applied = (shelf: ShelfDto, outcome: ApplyShelfResultDto): { error: boolean; text: string } => {
+  switch (outcome._tag) {
+    case "Applied":
+      return { error: false, text: `${shelf.repository}: "${shelf.name}" is back` };
+    case "Conflicts":
+      return {
+        error: true,
+        text: `${shelf.repository}: "${shelf.name}" conflicts in ${outcome.files.join(", ")} — resolve them; the shelf is kept`,
+      };
+    case "NotClean":
+      return {
+        error: true,
+        text: `${shelf.repository} has uncommitted work: commit or shelve it before applying "${shelf.name}"`,
+      };
+    case "Rejected":
+      return { error: true, text: `${shelf.repository}: "${shelf.name}" did not apply: ${outcome.reason}` };
+  }
+};
+
 /** How a repository is doing: what is uncommitted in it, and what is committed but only here. */
 export const summarise = (status?: LocalStatus): { text: string; state: string } => {
   if (!status) return { text: "…", state: "none" };
@@ -148,12 +175,26 @@ export function LocalPane({
   const [pushing, setPushing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  // The work put aside, and what is being done with it: which repository the shelve dialog is
+  // for, which shelf the diff pane shows, and which one is one click from being deleted.
+  const [shelves, setShelves] = useState<readonly ShelfDto[]>([]);
+  const [shelving, setShelving] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<string | null>(null);
+  const [patch, setPatch] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [busyShelf, setBusyShelf] = useState<string | null>(null);
+  // A finished change's shelves are a record: listed, not applied or deleted.
+  const finished = Boolean(change.completedAt);
 
   useEffect(() => {
     let alive = true;
     const load = (): Promise<(false | void)[]> =>
-      Promise.all(
-        repos.map((repo) =>
+      Promise.all([
+        wire
+          .request("GET", url(`/ext/review/changes/${changeId}/shelves`, workspace), ShelfListSchema)
+          .then((next) => alive && setShelves(next))
+          .catch((e: Error) => alive && setError(e.message)),
+        ...repos.map((repo) =>
           wire
             .request(
               "GET",
@@ -163,7 +204,7 @@ export function LocalPane({
             .then((next) => alive && setStatuses((all) => ({ ...all, [repo]: next })))
             .catch((e: Error) => alive && setError(e.message)),
         ),
-      );
+      ]);
     void load();
     // You edit in the terminal or an IDE while this is open; the list has to keep up, and `git
     // status` costs about five milliseconds.
@@ -186,6 +227,57 @@ export function LocalPane({
       .then((r) => setDiff(r.text ?? ""))
       .catch((e: Error) => setError(e.message));
   }, [changeId, selected?.repo, selected?.file, selected?.staged, fingerprint, workspace]);
+
+  // The shelf the diff pane shows: its patch, read when it is picked.
+  useEffect(() => {
+    if (!viewing) return setPatch(null);
+    setPatch(null);
+    wire
+      .request(
+        "GET",
+        url(`/ext/review/changes/${changeId}/shelves/patch?shelf=${encodeURIComponent(viewing)}`, workspace),
+        TextSchema,
+      )
+      .then((r) => setPatch(r.text ?? ""))
+      .catch((e: Error) => setError(e.message));
+  }, [changeId, viewing, workspace]);
+
+  const applyShelf = (shelf: ShelfDto): void => {
+    setBusyShelf(shelf.id);
+    setError(null);
+    setNotice(null);
+    wire
+      .request("POST", url(`/ext/review/changes/${changeId}/shelves/apply`, workspace), ApplyShelfResultSchema, {
+        body: { shelf: shelf.id },
+      })
+      .then((outcome) => {
+        const said = applied(shelf, outcome);
+        if (said.error) setError(said.text);
+        else setNotice(said.text);
+        if (outcome._tag === "Applied" && viewing === shelf.id) setViewing(null);
+        setReload((n) => n + 1);
+      })
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setBusyShelf(null));
+  };
+
+  const deleteShelf = (shelf: ShelfDto): void => {
+    setBusyShelf(shelf.id);
+    setError(null);
+    wire
+      .request(
+        "DELETE",
+        url(`/ext/review/changes/${changeId}/shelves?shelf=${encodeURIComponent(shelf.id)}`, workspace),
+        Schema.Struct({}),
+      )
+      .then(() => {
+        if (viewing === shelf.id) setViewing(null);
+        setDeleting(null);
+        setReload((n) => n + 1);
+      })
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setBusyShelf(null));
+  };
 
   // Only repositories with something in them: a clean one has nothing to offer the dialog.
   const candidates = repos
@@ -260,6 +352,20 @@ export function LocalPane({
             setReload((n) => n + 1);
           }}
         />
+        <ShelveDialog
+          changeId={changeId}
+          workspace={workspace}
+          repository={shelving}
+          onClose={() => setShelving(null)}
+          onShelved={(result) => {
+            setSelected(null); // the file it was showing is shelved now
+            if (result._tag === "Shelved") {
+              const count = result.shelf.files.length;
+              setNotice(`${result.shelf.repository}: ${count} file${count === 1 ? "" : "s"} shelved as "${result.shelf.name}"`);
+            } else setNotice("nothing uncommitted to shelve");
+            setReload((n) => n + 1);
+          }}
+        />
         {repos.map((repo) => {
           const status = statuses[repo];
           const { text, state } = summarise(status);
@@ -273,7 +379,19 @@ export function LocalPane({
           ];
           return (
             <div key={repo} className="group">
-              <h4>{repo.split("/").pop()}</h4>
+              <div className="heading">
+                <h4>{repo.split("/").pop()}</h4>
+                {!finished && (status?.files.length ?? 0) > 0 && (
+                  <button
+                    type="button"
+                    className="shelve"
+                    title="put the uncommitted work aside and leave the checkout clean"
+                    onClick={() => setShelving(repo.split("/").pop() ?? repo)}
+                  >
+                    Shelve…
+                  </button>
+                )}
+              </div>
               <p className="state">
                 <span className={`dot ${state}`} />
                 {text}
@@ -288,15 +406,77 @@ export function LocalPane({
                     selected.file === file.path &&
                     selected.staged === staged
                   }
-                  onSelect={() => setSelected({ repo, file: file.path, staged })}
+                  onSelect={() => {
+                    setViewing(null);
+                    setSelected({ repo, file: file.path, staged });
+                  }}
                 />
               ))}
             </div>
           );
         })}
+        {shelves.length > 0 && (
+          <div className="group shelves">
+            <h4>Shelves</h4>
+            {shelves.map((shelf) => (
+              <div key={shelf.id} className={viewing === shelf.id ? "shelf selected" : "shelf"}>
+                <button
+                  type="button"
+                  className="shelf-name"
+                  title={shelf.files.map((file) => file.path).join("\n")}
+                  onClick={() => {
+                    setSelected(null);
+                    setViewing(shelf.id);
+                  }}
+                >
+                  {shelf.name}
+                </button>
+                <span
+                  className="shelf-meta"
+                  title={`${shelf.reason === "cancel" ? "shelved by cancelling" : "shelved by hand"}, ${sizeOf(shelf.patchBytes)}`}
+                >
+                  {shelf.repository} · {shelf.files.length} file{shelf.files.length === 1 ? "" : "s"}
+                </span>
+                {!finished && (
+                  <>
+                    <button
+                      type="button"
+                      disabled={busyShelf !== null}
+                      title="put this work back on the clean checkout"
+                      onClick={() => applyShelf(shelf)}
+                    >
+                      Apply
+                    </button>
+                    {deleting === shelf.id ? (
+                      <button
+                        type="button"
+                        className="danger"
+                        disabled={busyShelf !== null}
+                        title="the work on this shelf is gone for good"
+                        onClick={() => deleteShelf(shelf)}
+                      >
+                        Delete for good
+                      </button>
+                    ) : (
+                      <button type="button" disabled={busyShelf !== null} onClick={() => setDeleting(shelf.id)}>
+                        Delete
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       <div className="diff-pane">
-        {selected ? (
+        {viewing ? (
+          patch === null ? (
+            <p className="hint">loading…</p>
+          ) : (
+            <Diff text={patch} />
+          )
+        ) : selected ? (
           diff === null ? (
             <p className="hint">loading…</p>
           ) : (

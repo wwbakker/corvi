@@ -5,6 +5,7 @@ import { BranchPlan, Change, ChangePhase, CheckoutLocation, DirectoryName, Repos
 import { ConfigFile, Resolved, Workspace } from "./config.ts"
 import { DeviceViewSchema, PairingCodeSchema } from "./devices.ts"
 import { WINDOW_TITLE_MAX } from "./terminal.ts"
+import { ApplyShelfResultSchema } from "./shelves.ts"
 
 export const RepositoryViewSchema = Schema.Struct({
   repositoryId: RepositoryId,
@@ -81,6 +82,8 @@ export const ChangeWireSchema = Schema.Struct({
   state: Schema.optional(ChangeStateSchema),
   createdAt: Schema.String,
   completedAt: Schema.optional(Schema.String),
+  /** The phase a cancelled change was cancelled from: what reopening returns it to. */
+  cancelledFrom: Schema.optional(ChangeStateSchema),
   /** How many times the record has been written; absent on records written before revisioning,
    * which count as 0. Used for the lifecycle's optimistic concurrency check. */
   revision: Schema.optional(Schema.Number),
@@ -463,6 +466,16 @@ export const ProvisionedChangeSchema = Schema.Struct({
   changeDir: Schema.optional(Schema.String),
 })
 export type ProvisionedChangeDto = typeof ProvisionedChangeSchema.Type
+
+/** A reopened change's answer: the record back in its phase, what its checkouts reported, and
+ * what applying each repository's cancel shelf did. */
+export const ReopenedResponseSchema = Schema.Struct({
+  change: ChangeWireSchema,
+  provision: Schema.mutable(Schema.Array(ProvisionResultSchema)),
+  refresh: Schema.mutable(Schema.Array(RefreshOutcomeSchema)),
+  restored: Schema.Array(Schema.Struct({ repository: Schema.String, outcome: ApplyShelfResultSchema })),
+})
+export type ReopenedResponseDto = typeof ReopenedResponseSchema.Type
 
 /** A completed change's answer: the record and the notes its steps left. */
 

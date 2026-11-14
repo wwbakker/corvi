@@ -219,3 +219,17 @@ test("only an abort is an abort", () => {
   expect(aborted("AbortError")).toBe(false);
   expect(aborted(undefined)).toBe(false);
 });
+
+test("a finished change's nav ends with its transcripts, and only a finished change resolves them", () => {
+  expect(changeNav([{ id: "review", title: "Review changes", extension: "review" }], { finished: true })).toEqual([
+    { id: "plan", title: "Plan" },
+    { id: "dashboard", title: "Dashboard" },
+    { id: "review", title: "Review changes" },
+    { id: "transcripts", title: "Transcripts" },
+  ]);
+  expect(resolveChangePage("transcripts", [], { finished: true })).toEqual({ kind: "transcripts" });
+  // An active change has no copies yet: its URL falls back like a stale tab.
+  expect(resolveChangePage("transcripts", [])).toEqual({ kind: "plan" });
+  // And an extension cannot claim the core's id.
+  expect(changeNav([{ id: "transcripts", title: "Theirs", extension: "x" }])).toHaveLength(2);
+});

@@ -426,7 +426,6 @@ test("two repositories with the same name are refused, at creation and at an edi
 });
 
 test("uncommitted work is listed as git sees it, staged and unstaged apart", async () => {
-  const { parseStatus } = await import("../apps/server/src/integrations/review/server.ts");
   const repo = await clonedRepo("local");
   const change = await changeFor("PROJ-LOCAL", [repo]);
   await runEffect(provisionRepositories(change));
@@ -467,14 +466,4 @@ test("uncommitted work is listed as git sees it, staged and unstaged apart", asy
 
   // git knows nothing about an untracked file, so it is diffed against nothing.
   expect(await runFileDiff(change, repo, "new.txt", false)).toContain("+untracked");
-
-  // A rename carries where it came from: the new name alone loses the point. A path with a
-  // space in it survives, since the path is the last field and everything before it is counted.
-  const v2 =
-    "2 R. N... 100644 100644 100644 aaa bbb R100 new name\0old name\0" +
-    "1 .M N... 100644 100644 100644 aaa bbb other\0";
-  expect(parseStatus(v2)).toEqual([
-    { path: "new name", index: "R", worktree: ".", staged: true, unstaged: false, untracked: false, from: "old name" },
-    { path: "other", index: ".", worktree: "M", staged: false, unstaged: true, untracked: false, from: undefined },
-  ]);
 });

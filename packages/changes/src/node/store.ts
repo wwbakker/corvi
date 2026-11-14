@@ -49,6 +49,7 @@ const StoredRecord = Schema.Struct({
   workspace: Schema.optional(Schema.String),
   createdAt: Schema.optional(Schema.String),
   completedAt: Schema.optional(Schema.String),
+  cancelledFrom: Schema.optional(ChangePhase),
   revision: Schema.optional(Schema.Number),
   formatVersion: Schema.optional(Schema.Number),
   checkouts: Schema.optional(Schema.Array(CheckoutSpecSchema)),
@@ -61,6 +62,12 @@ export type RootPair = { readonly root: string; readonly archiveRoot: string }
 
 const isNotFound = (cause: unknown): boolean =>
   typeof cause === "object" && cause !== null && "code" in cause && (cause as { code?: string }).code === "ENOENT"
+
+const isNotEmpty = (cause: unknown): boolean =>
+  typeof cause === "object" &&
+  cause !== null &&
+  "code" in cause &&
+  ["ENOTEMPTY", "EEXIST"].includes(String((cause as { code?: string }).code))
 
 const storeError = (
   operation: "read" | "write",
@@ -188,6 +195,7 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
           phase: record.state ?? "Implementation",
           createdAt: record.createdAt ?? "",
           ...(record.completedAt ? { completedAt: record.completedAt } : {}),
+          ...(record.cancelledFrom ? { cancelledFrom: record.cancelledFrom } : {}),
           revision: record.revision ?? 0,
         })
 
@@ -258,6 +266,11 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
               })
             }
             yield* writable(located.record)
+            // Cancelling remembers where the change stood, which is where reopening returns it.
+            const raw: StoredRecord =
+              patch.phase === "Cancelled"
+                ? { ...located.record, cancelledFrom: located.record.state ?? "Implementation" }
+                : located.record
             const next = recordFor(
               new Change({
                 changeId,
@@ -273,7 +286,7 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
                     : {}),
               }),
               linksOf(located.record),
-              located.record,
+              raw,
             )
             yield* writeAt(located.dir, next)
             // A terminal phase moves the change into the archive of the pair it lives under —
@@ -306,8 +319,72 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
               phase: patch.phase,
               createdAt: next.createdAt ?? "",
               ...(next.completedAt ? { completedAt: next.completedAt } : {}),
+              ...(next.cancelledFrom ? { cancelledFrom: next.cancelledFrom } : {}),
               revision: next.revision ?? actual + 1,
             })
+          }),
+        )
+      })
+
+      const reopen = Effect.fn("ChangeStore.reopen")(function* (
+        changeId: ChangeId,
+        input: { readonly phase: ChangePhase; readonly expectedRevision?: number },
+      ) {
+        return yield* lock.withPermits(1)(
+          Effect.gen(function* () {
+            const located = yield* locate(changeId)
+            if (!located)
+              return yield* new ChangeNotFound({ changeId, message: `change ${changeId} was not found` })
+            const actual = located.record.revision ?? 0
+            if (input.expectedRevision !== undefined && input.expectedRevision !== actual)
+              return yield* new ChangeConflict({
+                changeId,
+                expected: input.expectedRevision,
+                actual,
+                message: `change ${changeId} moved on: expected revision ${input.expectedRevision}, found ${actual}`,
+              })
+            yield* writable(located.record)
+            const pair = options.roots.find(({ archiveRoot }) => located.dir === join(archiveRoot, changeId))
+            // Already in a changes root (a reopen that moved the directory and then failed to
+            // write): finish it where it is.
+            const destination = pair ? join(pair.root, changeId) : located.dir
+            if (pair) {
+              yield* Effect.tryPromise({
+                try: async () => {
+                  await mkdir(pair.root, { recursive: true })
+                  // rename(2) replaces an empty directory and refuses a non-empty one, so whatever
+                  // was left behind at the destination is never overwritten.
+                  await rename(located.dir, destination)
+                },
+                catch: (cause: unknown) =>
+                  storeError(
+                    "write",
+                    `could not move ${changeId} back to ${destination}: ` +
+                      (isNotEmpty(cause)
+                        ? "a directory is still there (see Left behind); move it away first"
+                        : cause instanceof Error
+                          ? cause.message
+                          : String(cause)),
+                    cause,
+                    changeId,
+                  ),
+              })
+            }
+            const { completedAt: _completedAt, cancelledFrom: _cancelledFrom, ...kept } = located.record
+            const next = recordFor(
+              new Change({
+                changeId,
+                title: located.record.title ?? changeId,
+                workspaceLocation: destination,
+                branch: located.record.branch ?? changeId,
+                phase: input.phase,
+                createdAt: located.record.createdAt ?? "",
+              }),
+              linksOf(located.record),
+              kept,
+            )
+            yield* writeAt(destination, next)
+            return changeOf(next, destination)
           }),
         )
       })
@@ -364,6 +441,6 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
         )
       })
 
-      return { read, list, create, patch, listRepositories, addRepository, removeRepository }
+      return { read, list, create, patch, reopen, listRepositories, addRepository, removeRepository }
     }),
   )

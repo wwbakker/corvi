@@ -2,7 +2,7 @@
 
 ## Owns
 
-Corvi-facing agent identity, profiles, and status.
+Corvi-facing agent identity, profiles, status, and transcripts.
 
 - `./presenter`: the status vocabulary of agent windows — the pane options an agent's reporter
   publishes (`@agent_status`, `@agent_name`, `@agent_session_name`, `@agent_last_message`; the
@@ -16,8 +16,14 @@ Corvi-facing agent identity, profiles, and status.
   an absent one means — as data the editing UI renders, compiler-pinned to `Profile`'s fields.
 - `./discovery`: scope precedence (repository > workspace > global > built-in) and keys
   (`repository:orders-api:reviewer`), pure over files already read.
-- `./node`: the filesystem half — the scopes' directories read per call, and the shipped
-  `builtins/*.md` (real files in the same format as user files).
+- `./transcripts`: where each harness keeps the sessions an agent ran and what one says — pi's
+  session directories and JSONL entries, opencode's export — read into one harness-neutral
+  conversation, and the `AgentTranscripts` port that copies a change's sessions and reads the
+  copies back.
+- `./node`: the filesystem half — the scopes' directories read per call, the shipped
+  `builtins/*.md` (real files in the same format as user files), and the transcripts' stores:
+  pi's session roots by its own environment and settings, opencode through its CLI only (never
+  its database file), and only when it has a database.
 
 ## Does not own
 
@@ -33,10 +39,22 @@ composition, not here.
 - `@corvi/agents/profile`: `Profile`, `parseProfileFile`, `splitFrontmatter`, `SUBAGENT_EFFORTS`
 - `@corvi/agents/fields`: `profileFieldDocs`, `ProfileFieldDoc`, `ProfileFieldValues`
 - `@corvi/agents/discovery`: `mergeProfileFiles`, `keyOf`, `DiscoveredProfile`
-- `@corvi/agents/node`: `discoverProfiles`, `builtinProfilesDir`, `ProfileRoots`
+- `@corvi/agents/transcripts`: the `AgentTranscripts` port, `TranscriptError`,
+  `TranscriptNotFound`, and the pure harness knowledge — pi's session directory naming and JSONL
+  entries, opencode's export — as `parsePiSession`, `parseOpencodeExport` and helpers.
+- `@corvi/agents/node`: `discoverProfiles`, `builtinProfilesDir`, `ProfileRoots`, and the
+  transcripts' file-system half: `transcriptsLayer`, `piSessionRoots`, `opencodeIfUsed`,
+  `opencodeDatabase`, `nodeOpencodeCli`.
 
 Placeholder filling for prompts lives in `@corvi/actions/render` (the actions package owns the
 one renderer).
+
+## Invariants
+
+- A session belongs to a directory by the working directory it records (pi's header, opencode's
+  export), never by its file name alone: a name prefix also matches a sibling change.
+- The harnesses' stores are only read. A copy is the raw file; the rendering shortens long tool
+  output, the copy never does.
 
 ## Dependencies
 

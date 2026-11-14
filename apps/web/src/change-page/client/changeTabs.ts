@@ -10,30 +10,42 @@
 export type ChangeTabInfo = { id: string; title: string; extension: string };
 
 /** The core's page ids. A contributed tab may not shadow one: the core addressed it first. */
-const CORE: ReadonlySet<string> = new Set(["dashboard", "plan", "terminals"]);
+const CORE: ReadonlySet<string> = new Set(["dashboard", "plan", "terminals", "transcripts"]);
 
 /** The tabs the nav shows: the change's Plan first — where a change opens — then the core's
- * Dashboard, then the extensions' tabs in load order — the review extension's "Review changes"
- * among them when it is enabled. A contributed id that would shadow a core page is dropped. */
-export const changeNav = (tabs: ChangeTabInfo[]): { id: string; title: string }[] => [
+ * Dashboard, then the extensions' tabs in load order — the review extension's
+ * "Review changes" among them when it is enabled. A finished change ends with its Transcripts: the
+ * agent sessions kept when it was archived. A contributed id that would shadow a core page is
+ * dropped. */
+export const changeNav = (
+  tabs: ChangeTabInfo[],
+  options: { readonly finished?: boolean } = {},
+): { id: string; title: string }[] => [
   { id: "plan", title: "Plan" },
   { id: "dashboard", title: "Dashboard" },
   ...tabs
     .filter((tab) => !CORE.has(tab.id))
     .map(({ id, title }) => ({ id, title })),
+  ...(options.finished ? [{ id: "transcripts", title: "Transcripts" }] : []),
 ];
 
 /** Which page of the change the URL names: a core page, an offered tab, or — anything else,
  * including a tab that has gone, such as review on a workspace that dropped the extension — the
  * plan. */
 export type ResolvedChangePage =
-  | { kind: "dashboard" | "plan" | "terminals" }
+  | { kind: "dashboard" | "plan" | "terminals" | "transcripts" }
   | { kind: "tab"; tab: ChangeTabInfo };
 
-export const resolveChangePage = (page: string, tabs: ChangeTabInfo[]): ResolvedChangePage => {
+export const resolveChangePage = (
+  page: string,
+  tabs: ChangeTabInfo[],
+  options: { readonly finished?: boolean } = {},
+): ResolvedChangePage => {
   if (page === "dashboard" || page === "plan" || page === "terminals") {
     return { kind: page };
   }
+  // Only a finished change has transcripts kept; an active one's URL falls back like a stale tab.
+  if (page === "transcripts" && options.finished) return { kind: "transcripts" };
   const tab = tabs.find((t) => t.id === page);
   return tab ? { kind: "tab", tab } : { kind: "plan" };
 };

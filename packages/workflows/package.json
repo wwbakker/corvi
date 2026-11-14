@@ -5,9 +5,11 @@
   "type": "module",
   "exports": {
     ".": "./src/change-work.ts",
-    "./lifecycle": "./src/lifecycle.ts"
+    "./lifecycle": "./src/lifecycle.ts",
+    "./shelves": "./src/shelves.ts"
   },
   "dependencies": {
+    "@corvi/agents": "workspace:*",
     "@corvi/changes": "workspace:*",
     "@corvi/contracts": "workspace:*",
     "@corvi/repositories": "workspace:*",

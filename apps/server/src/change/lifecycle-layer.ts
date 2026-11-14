@@ -9,7 +9,9 @@
  */
 import { Effect, Layer, Option } from "effect"
 
-import { layer as changesNodeLayer, progressLayer, storeLayer } from "@corvi/changes/node"
+import { layer as changesNodeLayer, progressLayer, shelvesLayer, storeLayer } from "@corvi/changes/node"
+import type { AgentTranscripts } from "@corvi/agents/transcripts"
+import { opencodeIfUsed, piSessionRoots, transcriptsLayer } from "@corvi/agents/node"
 import type { RootPair } from "@corvi/changes/node"
 import type { OperationProgress } from "@corvi/changes/progress"
 import { ChangeRepositories } from "@corvi/changes/repositories"
@@ -37,6 +39,7 @@ import {
  * without depending on the workflows package's own entry point. */
 export { TerminalSessions } from "@corvi/workflows/lifecycle"
 import { ChangeWork, layer as changeWorkCapabilityLayer } from "@corvi/workflows"
+import { ChangeShelves, layer as changeShelvesWorkflowLayer } from "@corvi/workflows/shelves"
 import type { Change as LegacyChange, CompletionStep } from "@corvi/changes/record"
 import type { Workspace as WorkspaceShape } from "@corvi/configuration/config"
 import { Shell } from "@corvi/shell"
@@ -111,7 +114,7 @@ const shellCommandLayer: Layer.Layer<Command> = Layer.effect(
 )
 
 /** The repositories capability over the real Git adapter, whose commands honour the Shell seam. */
-const repositoriesOverShell: Layer.Layer<Repositories> = repositoriesCapabilityLayer.pipe(
+export const repositoriesOverShell: Layer.Layer<Repositories> = repositoriesCapabilityLayer.pipe(
   Layer.provide(gitLayer),
   Layer.provide(shellCommandLayer),
 )
@@ -313,6 +316,27 @@ export const changeWorkLayer = (
     Layer.provide(options.progress ?? progressLayer({ roots })),
   )
 
+/** Shelving over the native store and shelf files and the real Git adapter. */
+export const changeShelvesLayer = (roots: readonly RootPair[]): Layer.Layer<ChangeShelves> =>
+  changeShelvesWorkflowLayer.pipe(
+    Layer.provide(changesNodeLayer),
+    Layer.provide(storeLayer({ roots })),
+    Layer.provide(repositoriesOverShell),
+    Layer.provide(shelvesLayer({ roots })),
+  )
+
+/** The agents' own session stores, where their own environment puts them: pi's session roots
+ * (`PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR`, its `sessionDir` setting), and opencode
+ * only when it has a database (`OPENCODE_DB`) to ask. Resolved when the layer is built, so a
+ * settings change of the agent's applies to the next archive. */
+export const agentTranscriptsLayer: Layer.Layer<AgentTranscripts> = Layer.unwrap(
+  Effect.gen(function* () {
+    const roots = yield* piSessionRoots()
+    const opencode = yield* opencodeIfUsed()
+    return transcriptsLayer({ piSessionRoots: roots, ...(opencode ? { opencode } : {}) })
+  }),
+)
+
 /** The lifecycle over the native store, the real Git adapter, and the cutover adapters. */
 export const lifecycleLayer = (
   workspace: WorkspaceShape,
@@ -323,6 +347,8 @@ export const lifecycleLayer = (
     Layer.provide(pullRequestsLayer()),
     Layer.provide(issuesLayer(workspace)),
     Layer.provide(terminalSessionsLayer),
+    Layer.provide(changeShelvesLayer(roots)),
+    Layer.provide(agentTranscriptsLayer),
     Layer.provide(changesNodeLayer),
     Layer.provide(storeLayer({ roots })),
     Layer.provide(repositoriesOverShell),

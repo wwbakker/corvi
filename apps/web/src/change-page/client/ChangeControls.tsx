@@ -30,6 +30,8 @@ export function ChangeControls({
   onOpenPage,
   onRename,
   onState,
+  reopening = false,
+  onReopen,
 }: {
   /** The change's views: the core's, then the extensions' tabs in load order. */
   nav: { id: string; title: string }[];
@@ -52,6 +54,9 @@ export function ChangeControls({
   onRename: (title: string) => void;
   /** Move the change to another state. */
   onState: (state: ChangeState) => void;
+  reopening?: boolean;
+  /** Undo a cancellation; only a cancelled change offers it. */
+  onReopen?: () => void;
 }): JSX.Element {
   return (
     <div className="change-tabs">
@@ -115,13 +120,27 @@ export function ChangeControls({
             )}
           </select>
           {isFinished(change) ? (
-            // How it ended, not only that it did: a change that was abandoned is not one that
-            // landed, and the badge is the only place that says so on this page.
-            <span
-              className={`badge ${change.state === "Cancelled" ? stateClass(change.state) : "ok"}`}
-            >
-              {(change.state ?? "Completed").toLowerCase()} {change.completedAt?.slice(0, 10)}
-            </span>
+            <>
+              {/* How it ended, not only that it did: a change that was abandoned is not one that
+                  landed, and the badge is the only place that says so on this page. */}
+              <span
+                className={`badge ${change.state === "Cancelled" ? stateClass(change.state) : "ok"}`}
+              >
+                {(change.state ?? "Completed").toLowerCase()} {change.completedAt?.slice(0, 10)}
+              </span>
+              {/* A cancelled change can come back: its worktrees are made again and the work
+                  cancelling shelved is put back. A completed one landed, and stays a record. */}
+              {change.state === "Cancelled" && onReopen && (
+                <button
+                  type="button"
+                  disabled={reopening || blocked === true}
+                  title={`Bring it back as ${change.cancelledFrom ?? "Implementation"}: the worktrees and the shelved work come back`}
+                  onClick={onReopen}
+                >
+                  {reopening ? "Reopening…" : "Reopen"}
+                </button>
+              )}
+            </>
           ) : (
             <ActionsMenu actions={actions} />
           )}

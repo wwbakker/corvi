@@ -111,6 +111,7 @@ const layerFor = (state: Script): Layer.Layer<ChangeWork> =>
             })
             return Effect.succeed(state.change)
           },
+          reopen: () => Effect.die(new Error("reopen is not scripted")),
         }),
         Layer.succeed(ChangeRepositories, {
           listRepositories: () => Effect.succeed(state.links),
@@ -147,6 +148,14 @@ const layerFor = (state: Script): Layer.Layer<ChangeWork> =>
           defaultRemoteBranch: () => Effect.die(new Error("defaultRemoteBranch is not scripted")),
           workingTreeDirty: () => Effect.die(new Error("workingTreeDirty is not scripted")),
           pullFastForward: () => Effect.die(new Error("pullFastForward is not scripted")),
+          captureWork: () => Effect.die(new Error("captureWork is not scripted")),
+          discardWork: () => Effect.die(new Error("discardWork is not scripted")),
+          applyWork: () => Effect.die(new Error("applyWork is not scripted")),
+          inspectLocalChanges: () => Effect.die(new Error("inspectLocalChanges is not scripted")),
+          countCommitsSince: () => Effect.die(new Error("countCommitsSince is not scripted")),
+          diffFile: () => Effect.die(new Error("diffFile is not scripted")),
+          commitPaths: () => Effect.die(new Error("commitPaths is not scripted")),
+          pushBranch: () => Effect.die(new Error("pushBranch is not scripted")),
           provisionLinkedWorktree: (input) => {
             state.branches.set(String(input.directory), state.selected?.branch ?? (input.branch.startsWith("origin/") ? input.branch.slice("origin/".length) : input.branch))
             state.calls.push(

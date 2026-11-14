@@ -25,6 +25,13 @@ export interface StoreInterface {
     changeId: ChangeId,
     patch: { readonly phase: ChangePhase; readonly completedAt?: string; readonly expectedRevision?: number },
   ) => Effect.Effect<Change, ChangeNotFound | ChangeConflict | ChangeFormatTooNew | ChangeStoreError>
+  /** Bring an archived change back into its changes root in `phase`: the directory moves back
+   * and the record forgets that it ended. A directory already standing at the destination is
+   * never overwritten. */
+  readonly reopen: (
+    changeId: ChangeId,
+    input: { readonly phase: ChangePhase; readonly expectedRevision?: number },
+  ) => Effect.Effect<Change, ChangeNotFound | ChangeConflict | ChangeFormatTooNew | ChangeStoreError>
   /** A missing change reads as no links; the workflow reads the change first. */
   readonly listRepositories: (changeId: ChangeId) => Effect.Effect<readonly Repository[], RepositoryStoreError>
   readonly addRepository: (

@@ -4,6 +4,7 @@
 import { Schema } from "effect"
 
 import { ChangeId, ChangePhase, DirectoryName, RepositoryId } from "@corvi/contracts/changes"
+import { ShelfId } from "@corvi/contracts/shelves"
 
 export class ChangeNotFound extends Schema.TaggedError<ChangeNotFound>()("ChangeNotFound", {
   changeId: ChangeId,
@@ -78,3 +79,9 @@ export class RepositoryStoreError extends Schema.TaggedError<RepositoryStoreErro
     cause: Schema.optional(Schema.Unknown),
   },
 ) {}
+
+export class ShelfNotFound extends Schema.TaggedError<ShelfNotFound>()("ShelfNotFound", {
+  changeId: ChangeId,
+  shelfId: ShelfId,
+  message: Schema.String,
+}) {}

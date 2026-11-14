@@ -6,12 +6,14 @@ import {
   completeChange,
   completionOf,
   createChange,
+  currentDirOf,
   listChanges,
   PLAN_FILE,
   prDescription,
   progressOf,
   readSidecar,
   refreshTitles,
+  reopenChange,
   startChangeWithWorkflow,
   writeChange,
   writeSidecar,
@@ -24,7 +26,17 @@ import {
   ReposBodySchema,
 } from "@corvi/contracts/api";
 import { runRoute } from "../capabilities/effect/run.ts";
-import { BadRequestError, ConflictError, isIweError, type IweError } from "@corvi/contracts/errors";
+import {
+  BadRequestError,
+  ConflictError,
+  InternalError,
+  NotFoundError,
+  isIweError,
+  type IweError,
+} from "@corvi/contracts/errors";
+import { AbsolutePath } from "@corvi/contracts/paths";
+import { AgentTranscripts, TRANSCRIPTS_DIRECTORY } from "@corvi/agents/transcripts";
+import { agentTranscriptsLayer } from "./lifecycle-layer.ts";
 import { ChangeFormatTooNew } from "@corvi/changes/errors";
 import { ChangeAlreadyExists, InvalidChangeDraft, InvalidChangeEdit } from "./errors.ts";
 import { messageOf } from "../capabilities/effect/support.ts";
@@ -57,6 +69,20 @@ const changeError = (error: unknown): IweError => {
   }
   return isIweError(error) ? error : new BadRequestError({ message: messageOf(error) });
 };
+
+/** A transcript that is not there is the caller's 404; one that cannot be read is ours. */
+const transcriptError = (error: { readonly _tag: string; readonly message: string }): IweError =>
+  error._tag === "TranscriptNotFound"
+    ? new NotFoundError({ message: error.message })
+    : new InternalError({ message: error.message });
+
+/** The change's copies, wherever the change is now. */
+const transcriptsDirOf = (id: string): Effect.Effect<AbsolutePath, NotFoundError> =>
+  Effect.flatMap(currentDirOf(id), (dir) =>
+    dir
+      ? Effect.succeed(AbsolutePath.make(`${dir}/${TRANSCRIPTS_DIRECTORY}`))
+      : Effect.fail(new NotFoundError({ message: `no such change: ${id}` })),
+  );
 
 const PatchBody = Schema.Struct({
   state: Schema.optional(Schema.String),
@@ -229,6 +255,45 @@ export const changeRoutes = guard({
             ? json({ needsForce: result.needsForce, reasons: result.reasons }, 409)
             : json({ change: result.change, loose: result.loose });
         }),
+      ),
+  },
+
+  // Undoing a cancellation: the change comes back from the archive in the phase it was cancelled
+  // from, its worktrees are made again on the kept branches, and the work cancelling shelved is
+  // applied to them. A completed change does not reopen.
+  "/api/changes/:id/reopen": {
+    POST: (req) =>
+      withChange(req.params.id, (c) =>
+        Effect.gen(function* () {
+          const reopened = yield* reopenChange(c);
+          yield* Effect.sync(() => announce("changes"));
+          return json(reopened);
+        }),
+      ),
+  },
+
+  // The agent sessions kept with the change when it was archived, and one of them read for
+  // display. The copies are the change's own files: listing them never asks a harness.
+  "/api/changes/:id/transcripts": {
+    GET: (req) =>
+      withChange(req.params.id, (c) =>
+        Effect.gen(function* () {
+          const transcripts = yield* AgentTranscripts;
+          const dir = yield* transcriptsDirOf(c.id);
+          return json(yield* transcripts.list(dir).pipe(Effect.mapError(transcriptError)));
+        }).pipe(Effect.provide(agentTranscriptsLayer)),
+      ),
+  },
+  "/api/changes/:id/transcript": {
+    GET: (req) =>
+      withChange(req.params.id, (c) =>
+        Effect.gen(function* () {
+          const id = new URL(req.url).searchParams.get("id");
+          if (!id) return yield* new BadRequestError({ message: "id required" });
+          const transcripts = yield* AgentTranscripts;
+          const dir = yield* transcriptsDirOf(c.id);
+          return json(yield* transcripts.read(dir, id).pipe(Effect.mapError(transcriptError)));
+        }).pipe(Effect.provide(agentTranscriptsLayer)),
       ),
   },
 

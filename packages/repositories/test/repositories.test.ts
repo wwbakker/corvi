@@ -34,6 +34,11 @@ interface GitScript {
   readonly upstreamTip?: Git.Interface["history"]["upstreamTip"]
   readonly upstreamCommits?: Git.Interface["history"]["upstreamCommits"]
   readonly status?: Git.Interface["status"]["workingTree"]
+  readonly changedPaths?: Git.Interface["status"]["changedPaths"]
+  readonly writePatch?: Git.Interface["patch"]["write"]
+  readonly patchApplies?: Git.Interface["patch"]["applies"]
+  readonly applyPatch?: Git.Interface["patch"]["apply"]
+  readonly discardChanges?: Git.Interface["worktree"]["discardChanges"]
   readonly integration?: Git.Interface["integration"]["proven"]
   readonly deleteBranch?: Git.Interface["sync"]["deleteBranch"]
   readonly fetchRemote?: Git.Interface["sync"]["fetchRemote"]
@@ -65,12 +70,25 @@ const layerFor = (script: GitScript): Layer.Layer<Repositories> =>
           defaultBranch: script.defaultBranch ?? absent,
           upstreamTip: script.upstreamTip ?? absent,
           upstreamCommits: script.upstreamCommits ?? (() => Effect.succeed([])),
+          countCommitsSince: () => Effect.die(new Error("countCommitsSince is not scripted")),
         },
-        status: { workingTree: script.status ?? (() => Effect.succeed(clean)) },
+        status: {
+          workingTree: script.status ?? (() => Effect.succeed(clean)),
+          changedPaths: script.changedPaths ?? (() => Effect.succeed([])),
+          branchStatus: () => Effect.die(new Error("branchStatus is not scripted")),
+        },
+        diff: { file: () => Effect.die(new Error("diff.file is not scripted")) },
+        commit: { paths: () => Effect.die(new Error("commit.paths is not scripted")) },
+        patch: {
+          write: script.writePatch ?? (() => Effect.die(new Error("patch.write is not scripted"))),
+          applies: script.patchApplies ?? (() => Effect.die(new Error("patch.applies is not scripted"))),
+          apply: script.applyPatch ?? (() => Effect.die(new Error("patch.apply is not scripted"))),
+        },
         integration: { proven: script.integration ?? (() => Effect.succeed(false)) },
         sync: {
           deleteBranch: script.deleteBranch ?? (() => Effect.void),
           fetchRemote: script.fetchRemote ?? (() => Effect.void),
+          push: () => Effect.die(new Error("push is not scripted")),
           pullFastForward: script.pullFastForward ?? (() => Effect.void),
           mergeFastForwardOnly: script.mergeFastForwardOnly ?? (() => Effect.void),
           switchToBranch: script.switchToBranch ?? (() => Effect.void),
@@ -78,6 +96,8 @@ const layerFor = (script: GitScript): Layer.Layer<Repositories> =>
         worktree: {
           add: script.addWorktree ?? (() => Effect.succeed(repository)),
           remove: script.remove ?? (() => Effect.void),
+          discardChanges:
+            script.discardChanges ?? (() => Effect.die(new Error("worktree.discardChanges is not scripted"))),
         },
       }),
     ),
@@ -317,6 +337,27 @@ test("assessRemoval asks about untracked files and unpushed commits together", a
   expect(Result.isSuccess(result)).toBe(true)
   if (Result.isSuccess(result) && result.success._tag === "NeedsAcknowledgement")
     expect(result.success.reasons.map((reason) => reason.code)).toEqual(["untracked", "unpushed"])
+  else throw new Error("expected NeedsAcknowledgement")
+})
+
+test("assessRemoval with the uncommitted work captured asks only about the commits", async () => {
+  const result = await runEither(
+    Effect.gen(function* () {
+      const repositories = yield* Repositories
+      return yield* repositories.assessRemoval({
+        worktree: AbsolutePath.make("/change/repo"),
+        branch: "feature",
+        uncommittedWorkCaptured: true,
+      })
+    }),
+    {
+      discover: () => Effect.succeed(repository),
+      upstream: () => Effect.succeed({ _tag: "Counted", ahead: 1, behind: 0 } as const),
+      status: () => Effect.succeed({ tracked: ["a.txt"], untracked: ["x"] }),
+    },
+  )
+  if (Result.isSuccess(result) && result.success._tag === "NeedsAcknowledgement")
+    expect(result.success.reasons.map((reason) => reason.code)).toEqual(["unpushed"])
   else throw new Error("expected NeedsAcknowledgement")
 })
 

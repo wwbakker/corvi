@@ -189,7 +189,8 @@ its reasons. Forceable reasons can be acknowledged individually — untracked fi
 uncommitted changes to tracked files and an idea cannot be overridden.
 
 Normal completion merges eligible outstanding pull requests, performs required issue/completion
-steps, removes worktrees safely, closes the change's terminal, and archives the record and documents.
+steps, removes worktrees safely, closes the change's terminal, keeps the agent transcripts (see
+[Transcripts](#transcripts)), and archives the record and documents.
 Merges run sequentially: if one fails, later merges have not happened. A provider step failure stops
 completion and is visible in the progress record.
 
@@ -213,14 +214,51 @@ that would revive an archived checkout. Browsing a finished change does not star
 
 ## Cancelling a change
 
-**Cancel change** removes local worktrees/links, closes the terminal, and archives the change as
-`Cancelled`. It does not close pull requests or move tickets. The result lists what remains open.
+**Cancel change** shelves each worktree's uncommitted work, removes local worktrees/links, closes
+the terminal, keeps the agent transcripts, and archives the change as `Cancelled`. It does not
+close pull requests or move tickets. The result lists what remains open, and which repositories'
+work was shelved.
 
-The same removal protections apply: uncommitted changes to tracked files block cancellation — an
-idea's worktree is a real checkout and no exception. Untracked files and unpushed work require
-acknowledgement, and the question names them: untracked files go with the worktree, while unpushed
-work remains recoverable on a retained branch. Branch retention is reported from
-the actual removal result, not assumed before checking.
+Nothing is lost by cancelling. Uncommitted changes to tracked files and untracked files go onto a
+shelf (see [Review changes](integrations.md#review-changes)) before the worktree is removed — an
+idea's worktree is a real checkout and no exception — so they are neither refused nor asked
+about. Ignored files (build output) are not kept. A checkout in the middle of a merge with
+unresolved conflicts is refused: resolve them first. Unpushed commits still require
+acknowledgement: they remain recoverable on the retained branch. Branch retention is reported
+from the actual removal result, not assumed before checking. Checkouts used in place are left
+exactly as they are, uncommitted work included.
+
+The record remembers the state it was cancelled from (`cancelledFrom`).
+
+## Reopening a change
+
+A cancelled change shows **Reopen** beside its badge. Reopening moves its directory back from the
+archive into its changes root, returns it to the state it was cancelled from (`Implementation`
+for a change cancelled before that was recorded), makes its worktrees again through the same
+checkout run creation and **Start work** use — the kept branch is attached, a deleted one is
+created again from its base, and nothing is rebased — and applies the shelf cancelling made in
+each repository. A shelf that does not apply cleanly keeps its conflict markers and stays in the
+**Shelves** list; one whose checkout could not be made waits there too. The page says which.
+
+A directory left behind in the changes root under the same name (see [Left behind](#left-behind))
+is never overwritten: reopening refuses until it is moved away. A completed change does not
+reopen; it landed.
+
+## Transcripts
+
+Completing or cancelling a change copies every agent session that ran in it — in the change
+directory, its worktrees and its subagents' directories — into the change's `transcripts/`, so
+the archive keeps them. The copies are the agents' own files, whole: pi's session files, and
+opencode's sessions as `opencode session export` writes them. The agents' stores are only read,
+so an agent resumes its own session as before, including after a reopen. pi's sessions are found
+where pi's own configuration puts them (`PI_CODING_AGENT_SESSION_DIR`, its `sessionDir` setting,
+`PI_CODING_AGENT_DIR`, else `~/.pi/agent/sessions`) and confirmed by the directory each session
+records; opencode is asked through its CLI, and only when it has a database (`OPENCODE_DB`, else
+its data directory). A failure to read them is noted in the progress and does not stop the archive.
+
+A finished change has a **Transcripts** tab: the sessions listed — the change's terminal, each
+subagent, each checkout — and the selected one shown as a conversation, with thinking, tool calls
+and their results folded away.
 
 ## Left behind
 

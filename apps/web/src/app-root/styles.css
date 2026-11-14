@@ -2664,6 +2664,166 @@ dialog .hint.error {
   margin-left: auto;
 }
 
+/* A finished change's agent sessions: the list on the left, the conversation on the right — the
+   review tab's shape, so the two read alike. */
+.transcripts {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) 1fr;
+  gap: 12px;
+  height: calc(100vh - var(--titlebar-height) - 120px);
+}
+
+.transcripts .sessions,
+.transcripts .conversation {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  overflow: auto;
+}
+
+.transcripts .session {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: var(--text);
+}
+
+.transcripts .session:hover {
+  background: var(--raise);
+}
+
+.transcripts .session.selected {
+  background: var(--selection);
+}
+
+.transcripts .session .title {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.transcripts .session .meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.transcripts .entry {
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+
+.transcripts .entry.message .who {
+  font-weight: 600;
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+
+.transcripts .entry.message .when {
+  font-weight: 400;
+  color: var(--muted);
+  margin-left: 8px;
+}
+
+.transcripts .entry.message .text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.transcripts .entry.message.user .text {
+  border-left: 3px solid var(--accent);
+  padding-left: 8px;
+}
+
+.transcripts details.entry summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.transcripts details.entry .tool-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text);
+}
+
+.transcripts details.entry.error summary {
+  color: var(--error);
+}
+
+.transcripts details.entry pre {
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  background: var(--raise);
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 400px;
+  overflow: auto;
+}
+
+.transcripts .entry.note {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+/* The review tab's shelves: uncommitted work put aside, under the repositories. */
+.local .shelves h4 {
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+
+.local .shelf {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.local .shelf.selected {
+  background: var(--selection);
+}
+
+.local .shelf .shelf-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  color: var(--text);
+}
+
+.local .shelf .shelf-meta {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.local .group .heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.local .group .heading .shelve {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 1px 8px;
+}
+
 .diff {
   margin: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

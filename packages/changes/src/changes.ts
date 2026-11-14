@@ -10,7 +10,7 @@ import {
   type ChangeConflict,
   type ChangeFormatTooNew,
 } from "./errors.ts"
-import { allowedTransition, isFinished, isTerminal } from "./rules.ts"
+import { allowedTransition, isFinished, isTerminal, reopenPhaseOf } from "./rules.ts"
 import { ChangeStore } from "./store.ts"
 
 export interface Interface {
@@ -20,6 +20,11 @@ export interface Interface {
   readonly transitionTo: (
     changeId: ChangeId,
     phase: ChangePhase,
+  ) => Effect.Effect<Change, ChangeNotFound | InvalidTransition | ChangeConflict | ChangeFormatTooNew | ChangeStoreError>
+  /** Undo a cancellation: the change leaves the archive in the phase it was cancelled from. Any
+   * other phase — a completed change included — is an `InvalidTransition`. */
+  readonly reopen: (
+    changeId: ChangeId,
   ) => Effect.Effect<Change, ChangeNotFound | InvalidTransition | ChangeConflict | ChangeFormatTooNew | ChangeStoreError>
 }
 
@@ -90,6 +95,22 @@ export const layer = Layer.effect(
       })
     })
 
-    return { getChange, listChanges, createChange, transitionTo }
+    const reopen = Effect.fn("Change.reopen")(function* (changeId: ChangeId) {
+      const change = yield* getChange(changeId)
+      const phase = reopenPhaseOf(change)
+      if (phase === undefined)
+        return yield* new InvalidTransition({
+          changeId,
+          from: change.phase,
+          to: "Implementation",
+          message:
+            change.phase === "Completed"
+              ? `change ${changeId} is completed: only a cancelled change can be reopened`
+              : `change ${changeId} is not cancelled (${change.phase}): there is nothing to reopen`,
+        })
+      return yield* store.reopen(changeId, { phase, expectedRevision: change.revision ?? 0 })
+    })
+
+    return { getChange, listChanges, createChange, transitionTo, reopen }
   }),
 )

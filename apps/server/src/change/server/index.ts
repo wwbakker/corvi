@@ -17,6 +17,7 @@ export {
   changeDir,
   archiveDir,
   readChange,
+  currentDirOf,
   writeChange,
   readSidecar,
   writeSidecar,
@@ -46,6 +47,8 @@ export {
 } from "./complete.ts";
 
 export { cancelChange, type Cancelled, type NeedsForce } from "./cancel.ts";
+
+export { reopenChange, type Reopened, type RestoredShelf } from "./reopen.ts";
 
 export { refreshTitles } from "./titles.ts";
 

@@ -3,13 +3,15 @@
  * Ported from `opencode/packages/core/src/git.ts` and narrowed to the slice's operations.
  * Exit codes are data; only a spawn failure is a `CommandError`.
  */
-import { statSync } from "node:fs"
-import { isAbsolute, resolve } from "node:path"
+import { lstatSync, statSync } from "node:fs"
+import { appendFile, readFile, rm, stat } from "node:fs/promises"
+import { isAbsolute, join, resolve } from "node:path"
 import { Effect, Layer } from "effect"
 
 import { AbsolutePath } from "@corvi/contracts/paths"
 import * as Git from "../git.ts"
 import { Command, type CommandResult } from "./command.ts"
+import { parseBranchStatus } from "./status.ts"
 
 const resolvePath = (cwd: string, value: string): AbsolutePath => {
   const normalized = value.replace(/[\r\n]+$/, "")
@@ -23,6 +25,39 @@ const isDirectory = (path: string): boolean => {
     return false
   }
 }
+
+/** A file's size on disk without following a symlink; 0 when it is not there. */
+const sizeOf = (path: string): number => {
+  try {
+    return lstatSync(path).size
+  } catch {
+    return 0
+  }
+}
+
+/** What porcelain v2's XY letters say happened to a tracked path, from the shelf's vocabulary. */
+const changeOf = (xy: string): Git.PathChange => {
+  if (xy.includes("D")) return "deleted"
+  if (xy.startsWith("A")) return "added"
+  return "modified"
+}
+
+/** The diff options a patch is written with: whatever the user's configuration says about
+ * colour, external diff drivers, text conversion, prefixes or relative paths, the patch is one
+ * `git apply` reads back exactly. */
+const PATCH_OPTIONS: readonly string[] = [
+  "--binary",
+  "--no-color",
+  "--no-ext-diff",
+  "--no-textconv",
+  "--no-renames",
+  "--no-relative",
+  "--src-prefix=a/",
+  "--dst-prefix=b/",
+]
+
+/** How many paths one `git clean` names, so a long list stays under the argument limit. */
+const PATHS_PER_COMMAND = 200
 
 export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
   Git.Service,
@@ -322,6 +357,219 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
       return { tracked, untracked } satisfies Git.WorkingTree
     })
 
+    const branchStatus = Effect.fn("Git.status.branchStatus")(function* (repository: Git.Repository) {
+      const result = yield* run("status", repository.worktree, [
+        "status",
+        "--porcelain=v2",
+        "--branch",
+        "-z",
+        "--untracked-files=all",
+      ])
+      if (result.exitCode !== 0)
+        return yield* new Git.OperationError({
+          operation: "status",
+          directory: repository.worktree,
+          message: result.stderr.trim() || result.stdout.trim() || "git status failed",
+        })
+      return parseBranchStatus(result.stdout)
+    })
+
+    const countCommitsSince = Effect.fn("Git.history.countCommitsSince")(function* (
+      repository: Git.Repository,
+      from: string,
+    ) {
+      const result = yield* run("upstream", repository.worktree, ["rev-list", "--count", `${from}..HEAD`])
+      return result.exitCode === 0 ? Number(result.stdout.trim()) || 0 : 0
+    })
+
+    const fileDiff = Effect.fn("Git.diff.file")(function* (
+      repository: Git.Repository,
+      input: { readonly path: string; readonly staged: boolean; readonly untracked: boolean },
+    ) {
+      const args = input.untracked
+        ? ["diff", "--no-index", "--", "/dev/null", input.path]
+        : ["diff", ...(input.staged ? ["--cached"] : []), "--", input.path]
+      const result = yield* run("diff", repository.worktree, args)
+      // Exit 1 is "there is a difference" for `--no-index`, which is the normal case.
+      if (result.exitCode > 1)
+        return yield* new Git.OperationError({
+          operation: "diff",
+          directory: repository.worktree,
+          message: result.stderr.trim() || result.stdout.trim() || "git diff failed",
+        })
+      return result.stdout
+    })
+
+    const commitPaths = Effect.fn("Git.commit.paths")(function* (
+      repository: Git.Repository,
+      input: { readonly message: string; readonly paths: readonly string[] },
+    ) {
+      const refused = (result: CommandResult): Git.OperationError =>
+        new Git.OperationError({
+          operation: "commit",
+          directory: repository.worktree,
+          message: result.stderr.trim() || result.stdout.trim() || "git commit failed",
+        })
+      // `add` with the paths records untracked files and deletions, which a plain commit would
+      // not pick up; `commit` with the paths commits only them.
+      const added = yield* run("commit", repository.worktree, ["add", "--", ...input.paths])
+      if (added.exitCode !== 0) return yield* refused(added)
+      const committed = yield* run("commit", repository.worktree, ["commit", "-m", input.message, "--", ...input.paths])
+      if (committed.exitCode !== 0) return yield* refused(committed)
+      const hash = yield* run("commit", repository.worktree, ["rev-parse", "--short", "HEAD"])
+      return hash.exitCode === 0 ? hash.stdout.trim() || undefined : undefined
+    })
+
+    const push = Effect.fn("Git.sync.push")(function* (
+      repository: Git.Repository,
+      input: { readonly remote: string; readonly branch: string },
+    ) {
+      const result = yield* run("push", repository.worktree, ["push", "-u", input.remote, input.branch])
+      // git says what it did on stderr, and the last line of it is the useful half.
+      const said = (result.stderr.trim() || result.stdout.trim()).split("\n")
+      if (result.exitCode !== 0)
+        return yield* new Git.OperationError({
+          operation: "push",
+          directory: repository.worktree,
+          message: said.join("\n") || "git push failed",
+        })
+      return said.pop() ?? ""
+    })
+
+    const changedPaths = Effect.fn("Git.status.changedPaths")(function* (repository: Git.Repository) {
+      const result = yield* run("status", repository.worktree, [
+        "status",
+        "--porcelain=v2",
+        "-z",
+        "--untracked-files=all",
+      ])
+      if (result.exitCode !== 0)
+        return yield* new Git.OperationError({
+          operation: "status",
+          directory: repository.worktree,
+          message: result.stderr.trim() || "git status failed",
+        })
+      const pathAfter = (entry: string, fields: number): string => entry.split(" ").slice(fields).join(" ")
+      const found: Git.ChangedPath[] = []
+      const add = (path: string, change: Git.PathChange): void => {
+        found.push({ path, change, bytes: change === "deleted" ? 0 : sizeOf(join(repository.worktree, path)) })
+      }
+      const entries = result.stdout.split("\0")
+      for (let index = 0; index < entries.length; index++) {
+        const entry = entries[index] ?? ""
+        if (entry.startsWith("? ")) add(entry.slice(2), "untracked")
+        else if (entry.startsWith("1 ")) add(pathAfter(entry, 8), changeOf(entry.slice(2, 4)))
+        else if (entry.startsWith("2 ")) {
+          add(pathAfter(entry, 9), "renamed")
+          index++
+        } else if (entry.startsWith("u ")) add(pathAfter(entry, 10), "conflicted")
+      }
+      return found.sort((a, b) => a.path.localeCompare(b.path))
+    })
+
+    const writePatch = Effect.fn("Git.patch.write")(function* (
+      repository: Git.Repository,
+      input: { readonly file: AbsolutePath; readonly untracked: readonly string[] },
+    ) {
+      const fail = (message: string): Git.OperationError =>
+        new Git.OperationError({ operation: "patch", directory: repository.worktree, message })
+      const fs = <A>(what: string, work: () => Promise<A>): Effect.Effect<A, Git.OperationError> =>
+        Effect.tryPromise({ try: work, catch: (cause) => new Git.OperationError({
+          operation: "patch",
+          directory: repository.worktree,
+          message: `${what}: ${cause instanceof Error ? cause.message : String(cause)}`,
+          cause,
+        }) })
+      // Written by git itself (`--output`), never through captured stdout: a runner may trim
+      // what a command prints, and a patch that lost its last newline does not apply.
+      const tracked = yield* run("patch", repository.worktree, [
+        "diff",
+        ...PATCH_OPTIONS,
+        `--output=${input.file}`,
+        "HEAD",
+        "--",
+      ])
+      if (tracked.exitCode !== 0) return yield* fail(tracked.stderr.trim() || "git diff failed")
+      const part = `${input.file}.part`
+      for (const path of input.untracked) {
+        // `--no-index` against /dev/null is how git writes a file it does not know as a new one;
+        // exit 1 means "there is a difference", which is the point.
+        const created = yield* run("patch", repository.worktree, [
+          "diff",
+          "--no-index",
+          ...PATCH_OPTIONS,
+          `--output=${part}`,
+          "--",
+          "/dev/null",
+          path,
+        ])
+        if (created.exitCode > 1) return yield* fail(created.stderr.trim() || `git diff of ${path} failed`)
+        const text = yield* fs("could not read the untracked file's patch", () => readFile(part))
+        yield* fs("could not extend the patch", () => appendFile(input.file, text))
+      }
+      yield* fs("could not remove a temporary patch", () => rm(part, { force: true }))
+      return (yield* fs("could not read the patch's size", () => stat(input.file))).size
+    })
+
+    const patchApplies = Effect.fn("Git.patch.applies")(function* (
+      repository: Git.Repository,
+      input: { readonly file: AbsolutePath; readonly reverse: boolean },
+    ) {
+      const result = yield* run("patch", repository.worktree, [
+        "apply",
+        "--check",
+        ...(input.reverse ? ["--reverse"] : []),
+        input.file,
+      ])
+      return result.exitCode === 0
+    })
+
+    const applyPatch = Effect.fn("Git.patch.apply")(function* (
+      repository: Git.Repository,
+      input: { readonly file: AbsolutePath },
+    ) {
+      const result = yield* run("patch", repository.worktree, [
+        "apply",
+        "--3way",
+        "--whitespace=nowarn",
+        input.file,
+      ])
+      if (result.exitCode !== 0)
+        return {
+          _tag: "Failed",
+          message: (result.stderr.trim() || result.stdout.trim() || "git apply failed"),
+        } satisfies Git.PatchApplication
+      // `--3way` applies through the index; the work was shelved as working-tree changes, so it
+      // comes back as working-tree changes — an untracked file untracked again.
+      const unstaged = yield* run("patch", repository.worktree, ["reset", "--quiet"])
+      if (unstaged.exitCode !== 0)
+        return yield* new Git.OperationError({
+          operation: "patch",
+          directory: repository.worktree,
+          message: unstaged.stderr.trim() || "git reset failed",
+        })
+      return { _tag: "Applied" } satisfies Git.PatchApplication
+    })
+
+    const discardChanges = Effect.fn("Git.worktree.discardChanges")(function* (
+      repository: Git.Repository,
+      input: { readonly untracked: readonly string[] },
+    ) {
+      const fail = (result: CommandResult, what: string): Git.OperationError =>
+        new Git.OperationError({
+          operation: "discard",
+          directory: repository.worktree,
+          message: result.stderr.trim() || `${what} failed`,
+        })
+      const reset = yield* run("discard", repository.worktree, ["reset", "--hard", "--quiet", "HEAD"])
+      if (reset.exitCode !== 0) return yield* fail(reset, "git reset --hard")
+      for (let start = 0; start < input.untracked.length; start += PATHS_PER_COMMAND) {
+        const paths = input.untracked.slice(start, start + PATHS_PER_COMMAND)
+        const cleaned = yield* run("discard", repository.worktree, ["clean", "--force", "--quiet", "--", ...paths])
+        if (cleaned.exitCode !== 0) return yield* fail(cleaned, "git clean")
+      }
+    })
+
     const integrationProven = Effect.fn("Git.integration.proven")(function* (
       repository: Git.Repository,
       input: { readonly branch: string; readonly base: string },
@@ -532,11 +780,15 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         defaultBranch,
         upstreamTip,
         upstreamCommits,
+        countCommitsSince,
       },
-      status: { workingTree: statusWorkingTree },
+      status: { workingTree: statusWorkingTree, branchStatus, changedPaths },
+      diff: { file: fileDiff },
+      commit: { paths: commitPaths },
+      patch: { write: writePatch, applies: patchApplies, apply: applyPatch },
       integration: { proven: integrationProven },
-      sync: { deleteBranch, fetchRemote, pullFastForward, mergeFastForwardOnly, switchToBranch },
-      worktree: { remove, add: addWorktree },
+      sync: { deleteBranch, fetchRemote, push, pullFastForward, mergeFastForwardOnly, switchToBranch },
+      worktree: { remove, add: addWorktree, discardChanges },
     }
   }),
 )

@@ -40,10 +40,11 @@ all wrapper safeguards; do not use it as the final check.
 
 Every `bun test` run is isolated from the real config and change directories either way:
 `scripts/test-isolation.ts` (wired in `bunfig.toml`) fills the changes root, archive,
-configuration and state directory with a per-run temp root whenever the wrapper has not already
-— the same four the wrapper exports, and no more (sockets and caches stay the fixtures' job) —
-so a lone `bun test test/foo.test.ts` cannot write `~/.config/corvi/config.json`
-(`test/isolation.test.ts` is the tripwire). What a bare run still lacks is the wrapper's shared
+configuration and state directory — and the agents' session stores archiving reads
+(`PI_CODING_AGENT_DIR`, `OPENCODE_DB`) — with a per-run temp root whenever the wrapper has not
+already: the same names the wrapper exports, and no more (sockets and caches stay the fixtures'
+job). So a lone `bun test test/foo.test.ts` cannot write `~/.config/corvi/config.json` or read
+someone's agent sessions (`test/isolation.test.ts` is the tripwire). What a bare run still lacks is the wrapper's shared
 per-run root and its cleanup trap.
 
 The runner refuses a Bun older than `engines.bun` in `package.json` (exit 4): older Bun ships

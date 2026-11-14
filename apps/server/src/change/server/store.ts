@@ -96,6 +96,10 @@ const existingDir = (id: string): Effect.Effect<string | null> =>
     return null;
   });
 
+/** Where a change's directory is now — its changes root, or the archive once it is over — or
+ * null when no scope holds it. */
+export const currentDirOf = (id: string): Effect.Effect<string | null> => existingDir(id);
+
 /** The downgrade fence, for the writers that do not hold the record: a change written by a
  * newer Corvi is read but never written, documents and journal included. */
 const guardFormat = (id: string): Effect.Effect<void, ChangeFormatTooNew> =>

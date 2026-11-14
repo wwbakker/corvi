@@ -30,6 +30,7 @@ import { changeActions } from "./changeActions.ts";
 import { ChangeControls } from "./ChangeControls.tsx";
 import { ChangeDashboard } from "./ChangeDashboard.tsx";
 import { PlanPage } from "./PlanPage.tsx";
+import { TranscriptsPage } from "./TranscriptsPage.tsx";
 import { RunMenu } from "../../actions/RunMenu.tsx";
 import { TabHost, type WidgetInfo } from "../../integrations/client.tsx";
 
@@ -121,6 +122,7 @@ export function ChangeView({
   const [completing, setCompleting] = useState(false);
   const [starting, setStarting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [reopening, setReopening] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   // The `change:completed`/`change:cancelled` observer failures of the operation just performed.
@@ -143,6 +145,8 @@ export function ChangeView({
   // Whether this change is still an idea: its state is set by creation and left by starting, so
   // the select shows the one word and the actions carry the transition.
   const idea = change ? isIdeation(change) : false;
+  // A finished change has a Transcripts tab: the agent sessions kept when it was archived.
+  const finished = change ? isFinished(change) : false;
 
   useEffect(() => {
     if (page === "terminals") setTerminalOpened(true);
@@ -193,9 +197,9 @@ export function ChangeView({
   // session and deliberately forgotten by a restart (remember.ts); a terminal is a window of
   // the change, not one of its views, and never claims the memory.
   useEffect(() => {
-    const shown = resolveChangePage(page, tabs ?? []);
+    const shown = resolveChangePage(page, tabs ?? [], { finished });
     if (shown.kind !== "terminals") seeView(key, shown.kind === "tab" ? shown.tab.id : shown.kind);
-  }, [id, page, tabs]);
+  }, [id, page, tabs, finished]);
 
   // A card's editor saved: the change it wrote is the response, the lists elsewhere are stale,
   // and the cards remount to re-read the world — which is also what closes the editor's dialog.
@@ -308,6 +312,37 @@ export function ChangeView({
       .finally(() => setCancelling(false));
   };
 
+  /**
+   * Undo a cancellation: the change comes back in the phase it was cancelled from, its worktrees
+   * are made again, and the work cancelling shelved is put back. What did not come back cleanly —
+   * a checkout that failed, a shelf with conflicts — is said here; the shelf itself stays.
+   */
+  const reopen = (): void => {
+    setReopening(true);
+    setError(null);
+    setNotice(null);
+    client
+      .changes.reopen(ChangeId.make(id))
+      .then(({ change: updated, provision, restored }) => {
+        setChange(updated);
+        setGeneration((g) => g + 1);
+        setAfter(provision);
+        onChanged();
+        const lines = restored.map(({ repository, outcome }) =>
+          outcome._tag === "Applied"
+            ? `${repository}: the shelved work is back`
+            : outcome._tag === "Conflicts"
+              ? `${repository}: the shelved work conflicts in ${outcome.files.join(", ")} — resolve it; the shelf is kept`
+              : outcome._tag === "NotClean"
+                ? `${repository}: the checkout has changes, so the shelf was not applied; apply it from Review changes`
+                : `${repository}: the shelf was not applied (${outcome.reason}); it is kept`,
+        );
+        setNotice(lines.length ? `Reopened. ${lines.join(" · ")}` : "Reopened.");
+      })
+      .catch((e: unknown) => setError(failureMessage(e)))
+      .finally(() => setReopening(false));
+  };
+
   /** The name field's blur: a name the ticket suggested is not a fact — renaming it stops it
    * being refreshed from Jira, and clearing it hands the name back. */
   const commitRename = (next: string): void => {
@@ -355,8 +390,8 @@ export function ChangeView({
 
   // The nav the page shows, and which of its tabs is current. A URL naming an id nobody offers
   // — a tab that has gone, a typo — resolves to the plan, so the page still renders.
-  const nav = changeNav(tabs ?? []);
-  const active = resolveChangePage(page, tabs ?? []);
+  const nav = changeNav(tabs ?? [], { finished });
+  const active = resolveChangePage(page, tabs ?? [], { finished });
   const activeId = active.kind === "tab" ? active.tab.id : active.kind;
 
   /** The pane the terminal shows: the active window's focused pane, so the socket attaches to
@@ -431,6 +466,8 @@ export function ChangeView({
             onOpenPage={onOpenPage}
             onRename={commitRename}
             onState={moveTo}
+            reopening={reopening}
+            onReopen={reopen}
           />
         )}
       </div>
@@ -506,6 +543,7 @@ export function ChangeView({
         ) : (
           <p className="hint">loading…</p>
         ))}
+      {active.kind === "transcripts" && <TranscriptsPage changeId={id} />}
       {/* An extension's own tab. It gets the change, which may still be loading: nothing to
           hand it means a hint rather than a crash. */}
       {active.kind === "tab" &&
