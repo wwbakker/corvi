@@ -396,6 +396,7 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
           operation: "diff",
           directory: repository.worktree,
           message: result.stderr.trim() || result.stdout.trim() || "git diff failed",
+          exitCode: result.exitCode,
         })
       return result.stdout
     })
@@ -409,6 +410,7 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
           operation: "commit",
           directory: repository.worktree,
           message: result.stderr.trim() || result.stdout.trim() || "git commit failed",
+          exitCode: result.exitCode,
         })
       // `add` with the paths records untracked files and deletions, which a plain commit would
       // not pick up; `commit` with the paths commits only them.
@@ -432,6 +434,7 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
           operation: "push",
           directory: repository.worktree,
           message: said.join("\n") || "git push failed",
+          exitCode: result.exitCode,
         })
       return said.pop() ?? ""
     })

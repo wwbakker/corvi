@@ -92,29 +92,38 @@ export const localChanges = (change: Change, repo: string): Effect.Effect<LocalS
 
 /**
  * The diff of one file, as `git diff` writes it: staged asks the index against HEAD, unstaged the
- * working tree against the index, and an untracked file is compared against nothing.
+ * working tree against the index, and an untracked file is compared against nothing. Whether it is
+ * untracked is the caller's to say: the page read it from the status it is showing.
  *
- * No worktree is a `BadRequestError`; a `git diff` that failed for real is a `CliError` carrying
- * git's words.
+ * No worktree, or one that is not a repository, is a `BadRequestError`; a `git diff` that failed
+ * for real is a `CliError` carrying git's words and its exit code.
  */
 export const fileDiff = (
   change: Change,
   repo: string,
-  file: string,
-  staged: boolean,
+  input: { readonly file: string; readonly staged: boolean; readonly untracked: boolean },
 ): Effect.Effect<string, BadRequestError | CliError, Changes> =>
   withRepositories((repositories) =>
     Effect.gen(function* () {
       const worktree = yield* worktreeOf(change, repo);
       // 400: a wrong request against this change, not a missing resource.
       if (!worktree) return yield* new BadRequestError({ message: `no worktree for ${change.branch} in ${repo}` });
-      return yield* repositories.diffFile({ directory: AbsolutePath.make(worktree), path: file, staged }).pipe(
-        Effect.mapError((error) => {
-          const message = messageOf(error);
-          // The capability reports git's words, not its exit code.
-          return new CliError({ message, tool: "git", command: `git diff -- ${file}`, stderr: message, exitCode: -1 });
-        }),
-      );
+      return yield* repositories
+        .diffFile({ directory: AbsolutePath.make(worktree), path: input.file, ...input })
+        .pipe(
+          Effect.mapError((error) =>
+            error._tag === "NotARepository"
+              ? new BadRequestError({ message: messageOf(error) })
+              : new CliError({
+                  message: error.message,
+                  tool: "git",
+                  command: `git diff ${input.untracked ? "--no-index /dev/null" : input.staged ? "--cached --" : "--"} ${input.file}`,
+                  stderr: error.message,
+                  // Absent when git could not be run at all, which is not an exit code.
+                  exitCode: error.exitCode ?? -1,
+                }),
+          ),
+        );
     }),
   );
 

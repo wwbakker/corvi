@@ -221,12 +221,14 @@ export function LocalPane({
   const fingerprint = files.map((f) => `${f.path}${f.index}${f.worktree}`).join("|");
   useEffect(() => {
     if (!selected) return setDiff(null);
-    const query = `path=${encodeURIComponent(selected.repo)}&file=${encodeURIComponent(selected.file)}&staged=${selected.staged ? 1 : 0}`;
+    const query =
+      `path=${encodeURIComponent(selected.repo)}&file=${encodeURIComponent(selected.file)}` +
+      `&staged=${selected.staged ? 1 : 0}&untracked=${selected.untracked ? 1 : 0}`;
     wire
       .request("GET", url(`/ext/review/changes/${changeId}/local/diff?${query}`, workspace), TextSchema)
       .then((r) => setDiff(r.text ?? ""))
       .catch((e: Error) => setError(e.message));
-  }, [changeId, selected?.repo, selected?.file, selected?.staged, fingerprint, workspace]);
+  }, [changeId, selected?.repo, selected?.file, selected?.staged, selected?.untracked, fingerprint, workspace]);
 
   // The shelf the diff pane shows: its patch, read when it is picked.
   useEffect(() => {
@@ -408,7 +410,7 @@ export function LocalPane({
                   }
                   onSelect={() => {
                     setViewing(null);
-                    setSelected({ repo, file: file.path, staged });
+                    setSelected({ repo, file: file.path, staged, untracked: file.untracked });
                   }}
                 />
               ))}

@@ -112,6 +112,8 @@ export class CheckoutError extends Schema.TaggedError<CheckoutError>()("Checkout
   ]),
   directory: Schema.String,
   message: Schema.String,
+  /** git's exit code, when the failure was git saying no; absent otherwise. */
+  exitCode: Schema.optional(Schema.Number),
   // The cause is an opaque in-process throwable that is never serialized; `Schema.Unknown`
   // preserves it exactly (on decode `Schema.Defect()` is lossy).
   cause: Schema.optional(Schema.Unknown),
@@ -229,11 +231,12 @@ export interface Interface {
     readonly from: string
   }) => Effect.Effect<number, NotARepository | CheckoutError>
   /** One file's diff: the staged half against HEAD, or the working tree against the index; an
-   * untracked file against nothing. */
+   * untracked file — the caller read the status and knows — against nothing. */
   readonly diffFile: (input: {
     readonly directory: AbsolutePath
     readonly path: string
     readonly staged: boolean
+    readonly untracked: boolean
   }) => Effect.Effect<string, NotARepository | CheckoutError>
   /** Commit exactly `paths` — new files and deletions included — and nothing else that happens to
    * be staged. A refusal is a `CheckoutError` carrying git's words. */
@@ -755,7 +758,16 @@ export const layer = Layer.effect(
       operation: CheckoutError["operation"],
     ): Effect.Effect<A, CheckoutError> =>
       effect.pipe(
-        Effect.mapError((cause) => new CheckoutError({ operation, directory, message: cause.message, cause })),
+        Effect.mapError(
+          (cause) =>
+            new CheckoutError({
+              operation,
+              directory,
+              message: cause.message,
+              ...(cause.exitCode !== undefined ? { exitCode: cause.exitCode } : {}),
+              cause,
+            }),
+        ),
       )
 
     const inspectLocalChanges = Effect.fn("Repositories.inspectLocalChanges")(function* (directory: AbsolutePath) {
@@ -780,12 +792,11 @@ export const layer = Layer.effect(
       readonly directory: AbsolutePath
       readonly path: string
       readonly staged: boolean
+      readonly untracked: boolean
     }) {
       const repository = yield* discover(input.directory, "diff")
-      const status = yield* said(git.status.branchStatus(repository), input.directory, "diff")
-      const untracked = status.entries.some((entry) => entry.path === input.path && entry.untracked)
       return yield* said(
-        git.diff.file(repository, { path: input.path, staged: input.staged, untracked }),
+        git.diff.file(repository, { path: input.path, staged: input.staged, untracked: input.untracked }),
         input.directory,
         "diff",
       )

@@ -460,10 +460,12 @@ test("uncommitted work is listed as git sees it, staged and unstaged apart", asy
   });
 
   // And the diff is of one or the other, which is why the staged flag travels with the request.
-  expect(await runFileDiff(change, repo, "README.md", true)).toContain("+edited");
-  expect(await runFileDiff(change, repo, "README.md", true)).not.toContain("+again");
-  expect(await runFileDiff(change, repo, "README.md", false)).toContain("+again");
+  const diff = (file: string, staged: boolean, untracked = false): Promise<string> =>
+    runFileDiff(change, repo, { file, staged, untracked });
+  expect(await diff("README.md", true)).toContain("+edited");
+  expect(await diff("README.md", true)).not.toContain("+again");
+  expect(await diff("README.md", false)).toContain("+again");
 
   // git knows nothing about an untracked file, so it is diffed against nothing.
-  expect(await runFileDiff(change, repo, "new.txt", false)).toContain("+untracked");
+  expect(await diff("new.txt", false, true)).toContain("+untracked");
 });

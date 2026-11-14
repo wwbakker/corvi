@@ -40,6 +40,8 @@ export class OperationError extends Schema.TaggedError<OperationError>()("Git.Op
   ]),
   message: Schema.String,
   directory: Schema.optional(Schema.String),
+  /** git's exit code, when git ran and said no; absent when it could not be run at all. */
+  exitCode: Schema.optional(Schema.Number),
   // The cause is an opaque in-process throwable that is never serialized; `Schema.Unknown`
   // preserves it exactly (on decode `Schema.Defect()` is lossy).
   cause: Schema.optional(Schema.Unknown),

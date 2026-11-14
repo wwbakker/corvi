@@ -90,7 +90,11 @@ export default {
               return yield* new BadRequestError({ message: "path and file required" });
             }
             return Response.json({
-              text: yield* fileDiff(change, repo, file, search.get("staged") === "1"),
+              text: yield* fileDiff(change, repo, {
+                file,
+                staged: search.get("staged") === "1",
+                untracked: search.get("untracked") === "1",
+              }),
             });
           }),
         ),
