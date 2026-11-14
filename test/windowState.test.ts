@@ -468,7 +468,7 @@ test("a queued write retired by a retarget does not stamp its error on the repla
   const store = makeWindowsStore(
     transport({
       act: async (_sourceId, _generation, _changeId, action) => {
-        // The store's `select` carries an index; the queued `focus` carries a window id.
+        // The store's `select` carries an index; the queued `rename` carries a window id.
         if ("index" in action) return first.promise;
         return [terminalWindow("w-focus", true)];
       },
@@ -480,7 +480,7 @@ test("a queued write retired by a retarget does not stamp its error on the repla
   // The first write reaches the transport and hangs; the second queues behind it.
   void store.select("r", "C1", 0);
   await flush();
-  const queued = store.focus("r", "C1", "w-focus");
+  const queued = store.rename("r", "C1", "w-focus", "the window's own name");
   await flush();
 
   // The same source id is now a different target: the old target's data, queues and in-flight
@@ -512,7 +512,7 @@ test("a queued write of the same target still reports that nothing was sent afte
 
   void store.select("r", "C1", 0);
   await flush();
-  const queued = store.focus("r", "C1", "w-focus");
+  const queued = store.rename("r", "C1", "w-focus", "the window's own name");
   await flush();
 
   // Same target, reachability lost: the queued write is retired without ever sending.

@@ -11,7 +11,7 @@ import { ensureHost } from "../apps/server/src/terminals/host/client.ts";
  *
  *  - the pty and the page agree on the grid, which is what makes wrapping and backspace line up;
  *  - a window is its own shell with its own screen, and that survives a reload and a restart;
- *  - a subagent's window is the one the Subagents page shows, at the page's size;
+ *  - a subagent's window is one of its change's windows, at the page's size;
  *  - an action's kept-open window freezes over its output, and the agent-status channel keeps the
  *    window strip honest.
  *
@@ -368,12 +368,14 @@ test.skipIf(!usable)("a subagent window is the size the page shows", async () =>
   });
   expect(created.status).toBe(201);
 
-  const page = await openTerminal(id, "subagents");
-  // The pane shows the selected subagent's window, so the terminal here is that window's shell.
-  await page.locator(".subagent-list .entry").first().waitFor({ timeout: 15_000 });
-  await until(async () => (await page.locator(".subagent-list .entry .summary").first().innerText()) === "attached", true, budget(20_000));
-  // The pane reconnects when the subagent's window becomes active; prove the shell under it
-  // answers before typing the long guarded command, or a mid-type reconnect could split it.
+  const page = await openTerminal(id);
+  // A subagent's window is a window of its change, labelled from the subagent: the strip selects
+  // it like any other, and the pane then attaches to that shell.
+  const subagentTab = page.locator(".window-tab:not(.new):not(.overview)", { hasText: "Reviewer" });
+  await subagentTab.first().waitFor({ timeout: 15_000 });
+  await subagentTab.first().click();
+  // Prove the shell under the pane answers before typing the long guarded command, or a mid-type
+  // reconnect could split it.
   await typeUntilText(page, "echo SUB-READY", "SUB-READY");
 
   // The guard is the subagent window's own environment: only its shell can answer.

@@ -411,6 +411,9 @@ test("a websocket upgrade bridges frames both ways with the bearer token", async
   expect(reply).toBe("echo:hello remote");
   expect(socketHeaders[0]?.authorization).toBe("Bearer remote-token");
   socket.close();
+  // Its upstream closes with it. A later test counts live sockets, and a close still in flight
+  // would land inside that test's window and read as a leak the aborted handshake did not cause.
+  await until(async () => upstreamSockets === 0, true, 2_000);
 });
 
 test("a browser-style write passes the remote's own origin guard", async () => {

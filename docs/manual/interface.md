@@ -71,16 +71,17 @@ it — and when edits are in flight it asks before either version goes away. How
 you were is remembered as you move around, within the running app. The dashboard places notes
 documents in the left column and status cards in the right; narrow windows stack the
 documents first. Status cards load independently, so one slow integration does not block the
-whole page. The **Subagents** tab shows the change's subagent sessions: each one's terminal, with its
-conversation beside it — send it a message, restart an interrupted turn, reopen a closed window.
-The selected subagent's own live terminal is shown there without moving the change's active
-terminal; a subagent with no live window shows a placeholder rather than another shell, and
-selecting one explicitly makes its window the active terminal. Returning to a view can show cached data while it refreshes.
+whole page. The dashboard's **Subagents** card lists the change's subagent sessions, attached or
+not: each row says whether its window is live and how busy it is, and carries the one action it
+needs — **Open** a closed one, **Close** a live one, **Continue** an interrupted turn. Open brings
+the recreated window to the front and takes you to the terminal page, where the subagent is an
+ordinary window of the change. A change with no subagents has no card. Returning to a view can
+show cached data while it refreshes.
 
 When the workspace a page shows is unavailable, one banner row sits above the content naming it
 and its reason, with **Retry now** and **Local settings**. Below it the retained data stays
 readable and read-only, under that banner: the overview cards and the change header carry the
-stale marker, and everything else — documents, cards, windows and subagent lists — keeps its last
+stale marker, and everything else — documents, cards, windows and the subagent card — keeps its last
 known state without a marker of its own. Nothing is emptied. A draft typed before the connection
 was lost is held (the plan and notes editors become read-only), and recovery does not itself save
 it: resuming the edit, or an explicit save, follows the normal save policy. The change's phase
