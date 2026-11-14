@@ -85,6 +85,10 @@ test(
         const { repo } = yield* Fixture
         const repositories = yield* Repositories
         const directory = AbsolutePath.make(repo)
+        // The capability runs git as the server does, with the repository's own identity; a CI
+        // machine has no global one.
+        git(repo, "config", "user.email", "t@t")
+        git(repo, "config", "user.name", "t")
         yield* Effect.promise(() => writeFile(join(repo, "keep-staged.txt"), "mine\n"))
         git(repo, "add", "keep-staged.txt")
         yield* Effect.promise(() => writeFile(join(repo, "new.txt"), "new\n"))
