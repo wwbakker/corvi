@@ -12,6 +12,7 @@ import {
   PlanDocSchema,
   PlanWriteBodySchema,
   ProvisionedChangeSchema,
+  ReopenedResponseSchema,
   RepoStateSchema,
   RepositoryViewSchema,
   TextSchema,
@@ -26,12 +27,19 @@ import {
   type PlanDocDto,
   type PlanWriteBodyDto,
   type ProvisionedChangeDto,
+  type ReopenedResponseDto,
   type RepoStateDto,
   type ReposBodyDto,
   type RepositoryViewDto,
   type TextDto,
 } from "@corvi/contracts/api"
 import type { ChangeId } from "@corvi/contracts/changes"
+import {
+  TranscriptListSchema,
+  TranscriptSchema,
+  type TranscriptDto,
+  type TranscriptSummaryDto,
+} from "@corvi/contracts/transcripts"
 
 import {
   changePath,
@@ -61,6 +69,11 @@ export interface ChangesApi {
   readonly start: (changeId: ChangeId) => Promise<ProvisionedChangeDto>
   readonly complete: (changeId: ChangeId, options?: ForceBodyDto) => Promise<CompletedResponseDto>
   readonly cancel: (changeId: ChangeId, options?: ForceBodyDto) => Promise<CancelledResponseDto>
+  /** Undo a cancellation: the change, its checkouts and its shelved work come back. */
+  readonly reopen: (changeId: ChangeId) => Promise<ReopenedResponseDto>
+  /** The agent sessions kept with the change when it was archived. */
+  readonly transcripts: (changeId: ChangeId, options?: RequestOptions) => Promise<readonly TranscriptSummaryDto[]>
+  readonly transcript: (changeId: ChangeId, id: string, options?: RequestOptions) => Promise<TranscriptDto>
   readonly rename: (
     changeId: ChangeId,
     patch: { readonly state?: string; readonly title?: string },
@@ -112,6 +125,15 @@ export const makeChangesApi = (send: Send): ChangesApi => {
       decode(
         CancelledResponseSchema,
         await send("POST", `${change(changeId)}/cancel`, { body: options ?? {} }),
+      ),
+    reopen: async (changeId) =>
+      decode(ReopenedResponseSchema, await send("POST", `${change(changeId)}/reopen`)),
+    transcripts: async (changeId, options) =>
+      decode(TranscriptListSchema, await send("GET", `${change(changeId)}/transcripts`, options)),
+    transcript: async (changeId, id, options) =>
+      decode(
+        TranscriptSchema,
+        await send("GET", `${change(changeId)}/transcript?id=${encodeURIComponent(id)}`, options),
       ),
     rename: async (changeId, patch) =>
       decode(ChangeWireSchema, await send("PATCH", change(changeId), { body: patch })),

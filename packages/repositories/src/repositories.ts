@@ -7,14 +7,51 @@ import { Context, Effect, Layer, Schema } from "effect"
 
 import { AbsolutePath } from "@corvi/contracts/paths"
 import * as Git from "./git.ts"
-import type { IncomingCommit } from "./git.ts"
+import type { ChangedPath, IncomingCommit, StatusEntry } from "./git.ts"
 
 export type CheckoutInspection =
   | { readonly _tag: "Missing" }
   | { readonly _tag: "Present"; readonly branch?: string; readonly head?: string }
 
-/** Branch-resolution and incoming-commit facts owned by the Git adapter. */
-export type { IncomingCommit, ExistingBranch } from "./git.ts"
+/** Branch-resolution, incoming-commit and changed-path facts owned by the Git adapter. */
+export type { IncomingCommit, ExistingBranch, ChangedPath, PathChange, StatusEntry } from "./git.ts"
+
+/** A checkout's uncommitted work, path by path in git's own vocabulary, and how it stands
+ * against its upstream: `ahead` is absent when there is none, which is not "0 ahead". */
+export type LocalChanges = {
+  readonly files: readonly StatusEntry[]
+  readonly upstream: boolean
+  readonly ahead?: number
+}
+
+/** What capturing a checkout's uncommitted work found. `Captured` wrote the patch: every
+ * difference from `base` (HEAD), untracked files included, ignored files never. `Conflicted` is a
+ * checkout in the middle of a merge: nothing is written until the conflicts are resolved. */
+export type CapturedWork =
+  | { readonly _tag: "Clean" }
+  | { readonly _tag: "Conflicted"; readonly files: readonly string[] }
+  | {
+      readonly _tag: "Captured"
+      readonly base: string
+      /** The branch the checkout was on; absent for a detached HEAD. */
+      readonly branch?: string
+      readonly files: readonly ChangedPath[]
+      readonly patchBytes: number
+    }
+
+/** What discarding captured work did. `Changed` means the checkout no longer holds exactly what
+ * was captured — a file was edited or added since — and nothing was discarded. */
+export type DiscardOutcome =
+  | { readonly _tag: "Discarded" }
+  | { readonly _tag: "Changed"; readonly reason: string }
+
+/** What applying captured work did. `NotClean` and `Rejected` changed nothing; `Conflicts` left
+ * conflict markers in the named files for the user to resolve. */
+export type ApplyOutcome =
+  | { readonly _tag: "Applied" }
+  | { readonly _tag: "Conflicts"; readonly files: readonly string[] }
+  | { readonly _tag: "NotClean"; readonly files: readonly string[] }
+  | { readonly _tag: "Rejected"; readonly reason: string }
 
 /** What the checkout and its upstream say about each other: how far they have drifted, where the
  * upstream's tip is, and where the remote lives — the facts an update decides on. */
@@ -66,9 +103,17 @@ export class CheckoutError extends Schema.TaggedError<CheckoutError>()("Checkout
     "fetch",
     "merge",
     "pull",
+    "capture",
+    "discard",
+    "apply",
+    "diff",
+    "commit",
+    "push",
   ]),
   directory: Schema.String,
   message: Schema.String,
+  /** git's exit code, when the failure was git saying no; absent otherwise. */
+  exitCode: Schema.optional(Schema.Number),
   // The cause is an opaque in-process throwable that is never serialized; `Schema.Unknown`
   // preserves it exactly (on decode `Schema.Defect()` is lossy).
   cause: Schema.optional(Schema.Unknown),
@@ -143,6 +188,9 @@ export interface Interface {
     readonly worktree: AbsolutePath
     /** The branch the change put there; absent for a detached checkout. */
     readonly branch?: string
+    /** The caller captures the uncommitted work (`captureWork`) before removing: only the commits
+     * are assessed, since the files are not what the removal destroys. */
+    readonly uncommittedWorkCaptured?: boolean
   }) => Effect.Effect<RemovalAssessment, NotARepository | CheckoutError>
   /** After a checkout is gone: delete the branch when the base proves its content landed,
    * report it kept when it remains, or absent when it never existed. A branch that refuses
@@ -173,6 +221,60 @@ export interface Interface {
     readonly base?: string
     readonly createMissing: boolean
   }) => Effect.Effect<InPlaceOutcome, NotARepository | CheckoutError>
+  /** What is uncommitted in the checkout, staged and unstaged apart, and its upstream standing.
+   * Read live: this is the file being edited. */
+  readonly inspectLocalChanges: (directory: AbsolutePath) => Effect.Effect<LocalChanges, NotARepository | CheckoutError>
+  /** How many commits the checkout has that `from` does not — what a branch with no upstream has
+   * that nobody else has; 0 when `from` does not resolve. */
+  readonly countCommitsSince: (input: {
+    readonly directory: AbsolutePath
+    readonly from: string
+  }) => Effect.Effect<number, NotARepository | CheckoutError>
+  /** One file's diff: the staged half against HEAD, or the working tree against the index; an
+   * untracked file — the caller read the status and knows — against nothing. */
+  readonly diffFile: (input: {
+    readonly directory: AbsolutePath
+    readonly path: string
+    readonly staged: boolean
+    readonly untracked: boolean
+  }) => Effect.Effect<string, NotARepository | CheckoutError>
+  /** Commit exactly `paths` — new files and deletions included — and nothing else that happens to
+   * be staged. A refusal is a `CheckoutError` carrying git's words. */
+  readonly commitPaths: (input: {
+    readonly directory: AbsolutePath
+    readonly message: string
+    readonly paths: readonly string[]
+  }) => Effect.Effect<{ readonly hash?: string }, NotARepository | CheckoutError>
+  /** Push the branch the checkout is on (`fallbackBranch` when it is detached) to `origin`,
+   * setting its upstream — the first push of a change's branch is where it comes to exist on the
+   * remote. A refusal is a `CheckoutError` carrying git's words. */
+  readonly pushBranch: (input: {
+    readonly directory: AbsolutePath
+    readonly fallbackBranch: string
+  }) => Effect.Effect<{ readonly summary: string }, NotARepository | CheckoutError>
+  /** Write the checkout's uncommitted work — staged, unstaged and untracked — as one patch at
+   * `patchFile`, against HEAD. The checkout itself is not touched: discarding is a separate,
+   * rechecked step, so the caller can keep the patch safe before anything goes. A checkout with
+   * no commit yet has nothing to capture against and fails. */
+  readonly captureWork: (input: {
+    readonly directory: AbsolutePath
+    readonly patchFile: AbsolutePath
+  }) => Effect.Effect<CapturedWork, NotARepository | CheckoutError>
+  /** Discard captured work, after rechecking that the checkout still holds exactly it: the same
+   * paths as `files`, and a patch that reverse-applies. Anything else is `Changed` and nothing is
+   * discarded. Tracked files go back to HEAD; only the captured untracked files are deleted, and
+   * ignored files are never touched. */
+  readonly discardWork: (input: {
+    readonly directory: AbsolutePath
+    readonly patchFile: AbsolutePath
+    readonly files: readonly ChangedPath[]
+  }) => Effect.Effect<DiscardOutcome, NotARepository | CheckoutError>
+  /** Apply captured work to a clean checkout, falling back to a three-way merge when HEAD has
+   * moved since the capture. Never applies over uncommitted work. */
+  readonly applyWork: (input: {
+    readonly directory: AbsolutePath
+    readonly patchFile: AbsolutePath
+  }) => Effect.Effect<ApplyOutcome, NotARepository | CheckoutError>
 }
 
 export class Repositories extends Context.Service<Repositories, Interface>()("corvi/Repositories") {}
@@ -423,10 +525,13 @@ export const layer = Layer.effect(
     const assessRemoval = Effect.fn("Repositories.assessRemoval")(function* (input: {
       readonly worktree: AbsolutePath
       readonly branch?: string
+      readonly uncommittedWorkCaptured?: boolean
     }) {
       const repository = yield* discover(input.worktree, "inspect")
       const head = yield* inspect(git.history.head(repository), input.worktree)
-      const tree = yield* inspect(git.status.workingTree(repository), input.worktree)
+      const tree = input.uncommittedWorkCaptured
+        ? { tracked: [], untracked: [] }
+        : yield* inspect(git.status.workingTree(repository), input.worktree)
       if (tree.tracked.length > 0)
         return {
           _tag: "Unsafe",
@@ -635,7 +740,180 @@ export const layer = Layer.effect(
       return "created" as const
     })
 
+    const operating = <A>(
+      effect: Effect.Effect<A, Git.OperationError>,
+      directory: AbsolutePath,
+      operation: "capture" | "discard" | "apply",
+    ): Effect.Effect<A, CheckoutError> =>
+      effect.pipe(
+        Effect.mapError(
+          (cause) => new CheckoutError({ operation, directory, message: cause.message, cause }),
+        ),
+      )
+
+    /** A git refusal in its own words: the operation's message is what the caller shows. */
+    const said = <A>(
+      effect: Effect.Effect<A, Git.OperationError>,
+      directory: AbsolutePath,
+      operation: CheckoutError["operation"],
+    ): Effect.Effect<A, CheckoutError> =>
+      effect.pipe(
+        Effect.mapError(
+          (cause) =>
+            new CheckoutError({
+              operation,
+              directory,
+              message: cause.message,
+              ...(cause.exitCode !== undefined ? { exitCode: cause.exitCode } : {}),
+              cause,
+            }),
+        ),
+      )
+
+    const inspectLocalChanges = Effect.fn("Repositories.inspectLocalChanges")(function* (directory: AbsolutePath) {
+      const repository = yield* discover(directory, "inspect")
+      const status = yield* said(git.status.branchStatus(repository), directory, "inspect")
+      return {
+        files: status.entries,
+        upstream: status.upstream,
+        ...(status.ahead !== undefined ? { ahead: status.ahead } : {}),
+      } satisfies LocalChanges
+    })
+
+    const countCommitsSince = Effect.fn("Repositories.countCommitsSince")(function* (input: {
+      readonly directory: AbsolutePath
+      readonly from: string
+    }) {
+      const repository = yield* discover(input.directory, "inspect")
+      return yield* inspect(git.history.countCommitsSince(repository, input.from), input.directory)
+    })
+
+    const diffFile = Effect.fn("Repositories.diffFile")(function* (input: {
+      readonly directory: AbsolutePath
+      readonly path: string
+      readonly staged: boolean
+      readonly untracked: boolean
+    }) {
+      const repository = yield* discover(input.directory, "diff")
+      return yield* said(
+        git.diff.file(repository, { path: input.path, staged: input.staged, untracked: input.untracked }),
+        input.directory,
+        "diff",
+      )
+    })
+
+    const commitPaths = Effect.fn("Repositories.commitPaths")(function* (input: {
+      readonly directory: AbsolutePath
+      readonly message: string
+      readonly paths: readonly string[]
+    }) {
+      const repository = yield* discover(input.directory, "commit")
+      const hash = yield* said(
+        git.commit.paths(repository, { message: input.message, paths: input.paths }),
+        input.directory,
+        "commit",
+      )
+      return hash ? { hash } : {}
+    })
+
+    const pushBranch = Effect.fn("Repositories.pushBranch")(function* (input: {
+      readonly directory: AbsolutePath
+      readonly fallbackBranch: string
+    }) {
+      const repository = yield* discover(input.directory, "push")
+      const branch = (yield* inspect(git.history.branch(repository), input.directory, "push")) ?? input.fallbackBranch
+      const summary = yield* said(git.sync.push(repository, { remote: "origin", branch }), input.directory, "push")
+      return { summary }
+    })
+
+    const captureWork = Effect.fn("Repositories.captureWork")(function* (input: {
+      readonly directory: AbsolutePath
+      readonly patchFile: AbsolutePath
+    }) {
+      const repository = yield* discover(input.directory, "capture")
+      const files = yield* operating(git.status.changedPaths(repository), input.directory, "capture")
+      if (files.length === 0) return { _tag: "Clean" } satisfies CapturedWork
+      const conflicted = files.filter((file) => file.change === "conflicted").map((file) => file.path)
+      if (conflicted.length > 0) return { _tag: "Conflicted", files: conflicted } satisfies CapturedWork
+      const base = yield* inspect(git.history.head(repository), input.directory, "capture")
+      if (!base)
+        return yield* new CheckoutError({
+          operation: "capture",
+          directory: input.directory,
+          message: "nothing is committed yet: there is no commit to capture the work against",
+        })
+      const branch = yield* inspect(git.history.branch(repository), input.directory, "capture")
+      const untracked = files.filter((file) => file.change === "untracked").map((file) => file.path)
+      const patchBytes = yield* operating(
+        git.patch.write(repository, { file: input.patchFile, untracked }),
+        input.directory,
+        "capture",
+      )
+      return {
+        _tag: "Captured",
+        base,
+        ...(branch ? { branch } : {}),
+        files,
+        patchBytes,
+      } satisfies CapturedWork
+    })
+
+    const discardWork = Effect.fn("Repositories.discardWork")(function* (input: {
+      readonly directory: AbsolutePath
+      readonly patchFile: AbsolutePath
+      readonly files: readonly ChangedPath[]
+    }) {
+      const repository = yield* discover(input.directory, "discard")
+      // Fresh facts, not the capture's: a file edited or added since then is not in the patch,
+      // and discarding it would lose it.
+      const now = yield* operating(git.status.changedPaths(repository), input.directory, "discard")
+      const captured = new Set(input.files.map((file) => file.path))
+      const added = now.filter((file) => !captured.has(file.path)).map((file) => file.path)
+      if (added.length > 0)
+        return { _tag: "Changed", reason: `changed since it was captured: ${pathList(added)}` } satisfies DiscardOutcome
+      const held = yield* operating(
+        git.patch.applies(repository, { file: input.patchFile, reverse: true }),
+        input.directory,
+        "discard",
+      )
+      if (!held)
+        return {
+          _tag: "Changed",
+          reason: "the checkout no longer holds exactly the captured work",
+        } satisfies DiscardOutcome
+      const untracked = now.filter((file) => file.change === "untracked").map((file) => file.path)
+      yield* operating(git.worktree.discardChanges(repository, { untracked }), input.directory, "discard")
+      return { _tag: "Discarded" } satisfies DiscardOutcome
+    })
+
+    const applyWork = Effect.fn("Repositories.applyWork")(function* (input: {
+      readonly directory: AbsolutePath
+      readonly patchFile: AbsolutePath
+    }) {
+      const repository = yield* discover(input.directory, "apply")
+      const before = yield* operating(git.status.changedPaths(repository), input.directory, "apply")
+      if (before.length > 0)
+        return { _tag: "NotClean", files: before.map((file) => file.path) } satisfies ApplyOutcome
+      const applied = yield* operating(git.patch.apply(repository, { file: input.patchFile }), input.directory, "apply")
+      if (applied._tag === "Applied") return { _tag: "Applied" } satisfies ApplyOutcome
+      // A three-way merge that could not settle a file leaves it conflicted; a patch git refused
+      // outright changed nothing.
+      const after = yield* operating(git.status.changedPaths(repository), input.directory, "apply")
+      const conflicted = after.filter((file) => file.change === "conflicted").map((file) => file.path)
+      return (conflicted.length > 0
+        ? { _tag: "Conflicts", files: conflicted }
+        : { _tag: "Rejected", reason: applied.message }) satisfies ApplyOutcome
+    })
+
     return {
+      inspectLocalChanges,
+      countCommitsSince,
+      diffFile,
+      commitPaths,
+      pushBranch,
+      captureWork,
+      discardWork,
+      applyWork,
       inspectCheckout,
       resolveExistingBranch,
       fetchRemote,

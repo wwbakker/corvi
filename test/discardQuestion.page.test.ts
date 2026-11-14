@@ -5,10 +5,11 @@ import { chromium, webkit, type Browser, type Locator, type Page } from "playwri
 import { closePages, requireFreshWebBundle, runSh, serverEnv, stopRunHost, testRun, testTempDir, waitForUrl } from "./helpers.ts";
 
 /**
- * The question asked before work is thrown away, through the page: removing a repository from a
- * change and cancelling a change both stop at a worktree holding untracked files, name them, and
- * go ahead only once that is acknowledged. The server's rules are pinned in repos.test.ts and
- * cancel.test.ts; this is what the user sees and clicks.
+ * What happens to untracked files when a worktree goes, through the page: removing a repository
+ * from a change stops at a worktree holding them, names them, and goes ahead only once that is
+ * acknowledged; cancelling a change shelves them instead, and reopening it brings them back. The
+ * server's rules are pinned in repos.test.ts and cancel.test.ts; this is what the user sees and
+ * clicks.
  */
 let browser: Browser;
 const engineName = process.env.CORVI_ENGINE === "webkit" ? "webkit" : "chromium";
@@ -114,7 +115,7 @@ test.skipIf(!usable)("removing a repository names its untracked files and asks b
   await page.close();
 }, 60_000);
 
-test.skipIf(!usable)("cancelling names the untracked files and asks before they go", async () => {
+test.skipIf(!usable)("cancelling shelves the untracked files without asking, and Reopen brings them back", async () => {
   const id = "DISCARD-CANCEL";
   const worktree = await changeWithLeftovers(id, join(tmp, "app"));
 
@@ -124,17 +125,21 @@ test.skipIf(!usable)("cancelling names the untracked files and asks before they 
   await page.getByRole("button", { name: "Cancel change" }).click();
   await confirm(page, "Cancel change").click();
 
-  const question = page.locator("dialog[open] li", { hasText: "untracked files" });
-  await question.waitFor();
-  expect(await question.innerText()).toBe("app: untracked files: __pycache__/");
-  expect(await confirm(page, "Cancel change").isDisabled()).toBe(true);
-  expect(await exists(worktree)).toBe(true);
-
-  await page.locator("dialog[open] label.ack input").check();
-  await confirm(page, "Cancel change").click();
+  // Nothing is lost, so nothing is asked: the files go onto a shelf with the change.
   await page.waitForSelector("dialog[open]", { state: "detached" });
+  await page.locator(".notice", { hasText: "is shelved" }).waitFor();
   const after = (await (await fetch(`${url}/api/changes/${id}`)).json()) as { state?: string };
   expect(after.state).toBe("Cancelled");
   expect(await exists(worktree)).toBe(false);
+  // A finished change offers its kept agent sessions.
+  expect(await page.locator(".change-tabs .tab", { hasText: "Transcripts" }).count()).toBe(1);
+
+  // Reopening: the worktree comes back, and so does the shelved file.
+  await page.getByRole("button", { name: "Reopen", exact: true }).click();
+  await page.locator(".notice", { hasText: "the shelved work is back" }).waitFor();
+  const reopened = (await (await fetch(`${url}/api/changes/${id}`)).json()) as { state?: string };
+  expect(reopened.state).toBe("Implementation");
+  expect(await exists(worktree)).toBe(true);
+  expect(await Bun.file(join(worktree, "__pycache__", "test.pyc")).text()).toBe("x");
   await page.close();
 }, 60_000);

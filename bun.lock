@@ -241,6 +241,7 @@
       "name": "@corvi/workflows",
       "version": "0.0.0",
       "dependencies": {
+        "@corvi/agents": "workspace:*",
         "@corvi/changes": "workspace:*",
         "@corvi/contracts": "workspace:*",
         "@corvi/repositories": "workspace:*",

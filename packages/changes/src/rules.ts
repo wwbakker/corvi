@@ -25,6 +25,15 @@ export const allowedTransition = (from: ChangePhase, to: ChangePhase): boolean =
   return true
 }
 
+/** Where reopening a cancelled change returns it: the phase it was cancelled from, and
+ * `Implementation` for a record cancelled before that was written down. Only a cancelled change
+ * reopens — a completed one landed, and there is nothing to go back to. */
+export const reopenPhaseOf = (change: Pick<Change, "phase" | "cancelledFrom">): ChangePhase | undefined => {
+  if (change.phase !== "Cancelled") return undefined
+  const from = change.cancelledFrom
+  return from === undefined || isTerminal(from) ? "Implementation" : from
+}
+
 /** The row's state is a projection of the change, not a stored field. */
 export const stateOf = (change: Change): RepositoryState =>
   change.phase === "Ideation"

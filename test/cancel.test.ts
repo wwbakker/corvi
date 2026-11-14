@@ -1,5 +1,5 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtemp, rm, realpath } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createChange, readChange, changeDir } from "../apps/server/src/change/server/index.ts";
@@ -7,14 +7,14 @@ import { checkoutFor } from "../apps/server/src/vendors/git.ts";
 import { provisionRepositories } from "../apps/server/src/change/provisioning.ts";
 import { Effect } from "effect";
 import { checkoutsOf, runCancel, runEffect, runSh, TestError  } from "./helpers.ts";
-import { cancelChange } from "../apps/server/src/change/server/index.ts";
+import { cancelChange, reopenChange } from "../apps/server/src/change/server/index.ts";
 import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
 import { byWorkOrder, isFinished, CHANGE_STATES, type Change } from "@corvi/changes/record";
 
 /**
- * Cancelling is the other way a change ends, and the one with no undo button on the far side: it
- * removes the worktrees. So the two things worth pinning down are that it refuses when work would
- * be lost, and that it leaves alone everything anyone else can see.
+ * Cancelling is the other way a change ends: it removes the worktrees. So the things worth pinning
+ * down are that no work is lost — uncommitted work is shelved, commits stay on their branch — that
+ * it leaves alone everything anyone else can see, and that reopening brings it all back.
  */
 let tmp: string;
 
@@ -114,41 +114,29 @@ test("cancelling takes back the worktree and leaves the branch", async () => {
   expect((result as { loose: string[] }).loose.some((l) => l.includes("branch"))).toBe(false);
 });
 
-test("what would be lost stops it, and what is recoverable asks first", async () => {
+test("cancelling shelves what is uncommitted, asks only about commits nobody else has, and reopening puts it all back", async () => {
   const repo = await clonedRepo("cancel-work");
   const change = await runEffect(createChange({ id: "PROJ-WORK", branch: "PROJ-WORK-x", checkouts: checkoutsOf([repo]) }));
   // The same checkouts the git extension's change:created hook creates.
   await Effect.runPromise(provisionRepositories(change));
   const worktree = (await runEffect(checkoutFor(change, repo)))!;
 
-  // A changed tracked file: nowhere else, and no question makes it recoverable. The refusal
-  // names the file, so the user can see what is in the way.
-  await Bun.write(join(worktree, "README.md"), "edited, not committed\n");
-  await expect(runCancel(change)).rejects.toThrow("cancel-work: uncommitted changes: README.md");
-  expect(runCancel(change, true)).rejects.toThrow(/uncommitted changes/);
-  expect(await runEffect(checkoutFor(change, repo))).toBeDefined();
-  await runSh(["git", "checkout", "--", "README.md"], worktree);
-
-  // Untracked files only — what a local test run leaves behind — are a question, naming them.
-  await Bun.write(join(worktree, "cache", "result.pyc"), "x\n");
-  expect(await runCancel(change)).toEqual({
-    needsForce: ["cancel-work"],
-    reasons: [{ repository: "cancel-work", text: "untracked files: cache/" }],
-  });
-  expect(await runEffect(checkoutFor(change, repo))).toBeDefined();
-  await rm(join(worktree, "cache"), { recursive: true });
-
-  // Committed but never pushed: recoverable from the branch, which cancelling keeps — so this
-  // is a question rather than a refusal.
+  // Every kind of work: a changed tracked file, what a local run leaves behind, and a commit
+  // nobody else has.
   await Bun.write(join(worktree, "wip.txt"), "work\n");
   await runSh(["git", "add", "."], worktree);
   await commit(worktree, "work nobody else has");
+  await Bun.write(join(worktree, "README.md"), "edited, not committed\n");
+  await Bun.write(join(worktree, "cache", "result.pyc"), "x\n");
+
+  // The files are shelved, so they are not a question; the commits survive on the kept branch,
+  // which is worth one question.
   const asked = await runCancel(change);
   expect(asked).toEqual({
     needsForce: ["cancel-work"],
     reasons: [{ repository: "cancel-work", text: "commits that were never pushed" }],
   });
-  expect(await runEffect(checkoutFor(change, repo))).toBeDefined();
+  expect(await readFile(join(worktree, "README.md"), "utf8")).toBe("edited, not committed\n");
 
   const forced = await runCancel(change, true);
   expect("change" in forced).toBe(true);
@@ -156,8 +144,26 @@ test("what would be lost stops it, and what is recoverable asks first", async ()
   expect((await runSh(["git", "log", "-1", "--format=%s", "PROJ-WORK-x"], repo)).stdout).toBe(
     "work nobody else has",
   );
-  // And that is a loose end: the commits are only on that branch now.
-  expect((forced as { loose: string[] }).loose).toContain("the branch PROJ-WORK-x is kept in cancel-work");
+  const loose = (forced as { loose: string[] }).loose;
+  expect(loose).toContain("the branch PROJ-WORK-x is kept in cancel-work");
+  expect(loose).toContain("the uncommitted work in cancel-work is shelved; reopening the change applies it");
+  const archived = (await runEffect(readChange("PROJ-WORK")))!;
+  expect(archived.state).toBe("Cancelled");
+  expect(archived.cancelledFrom).toBe(change.state ?? "Implementation");
+  expect(await readdir(join(tmp, "changes-archive", "PROJ-WORK", "shelves", "cancel-work"))).toHaveLength(1);
+
+  // Reopening: the change, its worktree on the kept branch, and the shelved work.
+  const reopened = await runEffect(reopenChange(archived));
+  expect(reopened.change.state).toBe(change.state ?? "Implementation");
+  expect(reopened.change.completedAt).toBeUndefined();
+  expect(reopened.restored).toEqual([{ repository: "cancel-work", outcome: { _tag: "Applied" } }]);
+  const back = (await runEffect(checkoutFor(reopened.change, repo)))!;
+  expect(back).toBe(worktree);
+  expect(await readFile(join(back, "README.md"), "utf8")).toBe("edited, not committed\n");
+  expect(await readFile(join(back, "cache", "result.pyc"), "utf8")).toBe("x\n");
+  expect((await runSh(["git", "log", "-1", "--format=%s"], back)).stdout).toBe("work nobody else has");
+  // A clean application removes the shelf: the work lives in the checkout again.
+  expect(await readdir(join(tmp, "changes", "PROJ-WORK", "shelves", "cancel-work"))).toHaveLength(0);
 });
 
 test("a change cannot be declared finished by hand", async () => {

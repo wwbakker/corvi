@@ -13,6 +13,9 @@ import {
   type RepositoryRef,
 } from "@corvi/contracts/changes"
 import { Repositories, type CheckoutInspection, type RemovalAssessment } from "@corvi/repositories"
+import { AgentTranscripts, TranscriptError } from "@corvi/agents/transcripts"
+import { ShelfId, type ShelveResultDto } from "@corvi/contracts/shelves"
+import { ChangeShelves } from "../src/shelves.ts"
 import {
   ChangeLifecycle,
   Issues,
@@ -43,6 +46,9 @@ interface Script {
   looseIssues?: readonly string[]
   mergeFailure?: string
   looseFailure: boolean
+  /** What shelving a worktree answers; nothing uncommitted by default. */
+  shelve?: ShelveResultDto
+  transcriptsFailure?: string
   /** Signalled by the merge port when the operation is provably in flight. */
   started?: Deferred.Deferred<void>
   hold?: Deferred.Deferred<void>
@@ -112,6 +118,11 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
             })
             return Effect.succeed(state.change)
           },
+          reopen: () => {
+            state.calls.push("reopen")
+            state.change = new Change({ ...state.change, phase: state.change.cancelledFrom ?? "Implementation" })
+            return Effect.succeed(state.change)
+          },
         }),
         Layer.succeed(ChangeRepositories, {
           listRepositories: () => Effect.succeed(state.links),
@@ -129,7 +140,13 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
           inspectCheckout: () => Effect.succeed(state.checkout ?? { _tag: "Missing" as const }),
           assessRemoval: (input) => {
             state.assessedBranches.push(input.branch)
-            return Effect.succeed(typeof state.removal === "function" ? state.removal() : state.removal)
+            const assessed = typeof state.removal === "function" ? state.removal() : state.removal
+            if (!input.uncommittedWorkCaptured || assessed._tag === "Safe") return Effect.succeed(assessed)
+            // The files are captured before the removal: only the commits are still a question.
+            const commits = assessed.reasons.filter((reason) => reason.code === "unpushed")
+            return Effect.succeed(
+              commits.length === 0 ? { _tag: "Safe" as const } : { _tag: "NeedsAcknowledgement" as const, reasons: commits },
+            )
           },
           removeBranchIfIntegrated: (input) => {
             state.deletedBranches.push(input.branch)
@@ -142,6 +159,14 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
           defaultRemoteBranch: () => Effect.die(new Error("defaultRemoteBranch is not scripted")),
           workingTreeDirty: () => Effect.die(new Error("workingTreeDirty is not scripted")),
           pullFastForward: () => Effect.die(new Error("pullFastForward is not scripted")),
+          captureWork: () => Effect.die(new Error("captureWork is not scripted")),
+          discardWork: () => Effect.die(new Error("discardWork is not scripted")),
+          applyWork: () => Effect.die(new Error("applyWork is not scripted")),
+          inspectLocalChanges: () => Effect.die(new Error("inspectLocalChanges is not scripted")),
+          countCommitsSince: () => Effect.die(new Error("countCommitsSince is not scripted")),
+          diffFile: () => Effect.die(new Error("diffFile is not scripted")),
+          commitPaths: () => Effect.die(new Error("commitPaths is not scripted")),
+          pushBranch: () => Effect.die(new Error("pushBranch is not scripted")),
           fetchRemote: () => Effect.die(new Error("fetchRemote is not scripted")),
           hasRemote: () => Effect.succeed(false),
           refExists: () => Effect.succeed(false),
@@ -207,6 +232,30 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
             state.calls.push("stop terminal")
             return Effect.void
           },
+        }),
+        Layer.succeed(ChangeShelves, {
+          shelveRepository: ({ repository, reason }) => {
+            state.calls.push(`shelve ${repository} (${reason})`)
+            const answer = state.shelve ?? { _tag: "Clean" as const }
+            // A real shelf leaves the checkout clean: the removal recheck sees no files.
+            if (answer._tag === "Shelved") state.removal = { _tag: "Safe" }
+            return Effect.succeed(answer)
+          },
+          listShelves: () => Effect.die(new Error("listShelves is not scripted")),
+          applyShelf: () => Effect.die(new Error("applyShelf is not scripted")),
+          deleteShelf: () => Effect.die(new Error("deleteShelf is not scripted")),
+          readShelfPatch: () => Effect.die(new Error("readShelfPatch is not scripted")),
+          restoreCancelShelves: () => Effect.die(new Error("restoreCancelShelves is not scripted")),
+        }),
+        Layer.succeed(AgentTranscripts, {
+          collect: ({ from, to }) => {
+            state.calls.push(`keep transcripts of ${from} in ${to}`)
+            return state.transcriptsFailure
+              ? Effect.fail(new TranscriptError({ message: state.transcriptsFailure }))
+              : Effect.succeed({ copied: 2, notes: [] })
+          },
+          list: () => Effect.die(new Error("list is not scripted")),
+          read: () => Effect.die(new Error("read is not scripted")),
         }),
       ),
     ),
@@ -408,13 +457,16 @@ test("completion merges, removes only the created checkout, stops the terminal a
     "merge #7",
     "remove /workspace/demo/created",
     "stop terminal",
+    "keep transcripts of /workspace/demo in /workspace/demo/transcripts",
     "transition Completed",
   ])
   expect(state.steps.map((step) => `${step.id}:${step.state}`)).toContain("archive:done")
+  expect(state.steps.find((step) => step.id === "transcripts" && step.state === "done")?.detail).toBe("2 sessions")
   expect(state.steps.filter((step) => step.state === "waiting").map((step) => step.id)).toEqual([
     "merge:/sources/created",
     "worktrees",
     "terminal",
+    "transcripts",
     "archive",
   ])
 })
@@ -439,6 +491,7 @@ test("planned integration steps are journaled and run in order", async () => {
     "issue jira",
     "remove /workspace/demo/created",
     "stop terminal",
+    "keep transcripts of /workspace/demo in /workspace/demo/transcripts",
     "transition Completed",
   ])
   expect(state.steps.filter((step) => step.id === "jira").map((step) => step.state)).toEqual([
@@ -618,18 +671,98 @@ test("a dirty worktree and a limited token are different facts, and both are sai
   }
 })
 
-test("cancelling a dirty checkout is refused", async () => {
-  const result = await assessment(
-    script({
-      removal: {
-        _tag: "Unsafe",
-        reasons: [{ code: "dirty-worktree", kind: "hard", text: "uncommitted changes", facts: "dirty:abc" }],
-      },
+const shelved = (repository: string): ShelveResultDto => ({
+  _tag: "Shelved",
+  shelf: {
+    id: ShelfId.make(`${repository}/20261112T100000000Z-cancelled`),
+    repository: DirectoryName.make(repository),
+    name: "Cancelled",
+    reason: "cancel",
+    createdAt: "2026-11-12T10:00:00.000Z",
+    base: "abc",
+    files: [{ path: "a.txt", change: "modified", bytes: 3 }],
+    patchBytes: 40,
+  },
+})
+
+test("cancelling a dirty checkout shelves the work instead of refusing, then removes the clean worktree", async () => {
+  const dirty: RemovalAssessment = {
+    _tag: "Unsafe",
+    reasons: [{ code: "dirty-worktree", kind: "hard", text: "uncommitted changes", facts: "dirty:abc" }],
+  }
+  const assessed = await assessment(script({ removal: dirty }), "cancellation")
+  expect(Result.isSuccess(assessed) && assessed.success._tag).toBe("Ready")
+
+  const state = script({ removal: dirty, shelve: shelved("created") })
+  const result = await run(
+    state,
+    Effect.gen(function* () {
+      const service = yield* lifecycle
+      return yield* service.cancelChange({ changeId: ChangeId.make("demo") })
     }),
-    "cancellation",
   )
-  expect(Result.isSuccess(result)).toBe(true)
-  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Blocked")
+  expect(Result.isSuccess(result) && result.success._tag).toBe("Done")
+  if (Result.isSuccess(result) && result.success._tag === "Done")
+    expect(result.success.loose).toContain(
+      "the uncommitted work in created is shelved; reopening the change applies it",
+    )
+  expect(state.calls).toEqual([
+    "shelve created (cancel)",
+    "remove /workspace/demo/created",
+    "stop terminal",
+    "keep transcripts of /workspace/demo in /workspace/demo/transcripts",
+    "transition Cancelled",
+  ])
+  expect(state.steps.find((step) => step.id === "shelve:created" && step.state === "done")?.detail).toBe(
+    "1 file shelved",
+  )
+})
+
+test("a checkout in the middle of a merge is not cancelled: nothing is removed", async () => {
+  const state = script({ shelve: { _tag: "Conflicted", files: ["a.txt"] } })
+  const result = await run(
+    state,
+    Effect.gen(function* () {
+      const service = yield* lifecycle
+      return yield* service.cancelChange({ changeId: ChangeId.make("demo") })
+    }),
+  )
+  expect(Result.isSuccess(result) && result.success._tag).toBe("Blocked")
+  if (Result.isSuccess(result) && result.success._tag === "Blocked")
+    expect(result.success.reasons[0]?.text).toBe("conflicts in a.txt: resolve them before cancelling")
+  expect(state.calls).toEqual(["shelve created (cancel)"])
+})
+
+test("transcripts that cannot be kept are journaled, and the change is archived regardless", async () => {
+  const state = script({ transcriptsFailure: "pi's sessions are unreadable" })
+  const result = await run(
+    state,
+    Effect.gen(function* () {
+      const service = yield* lifecycle
+      return yield* service.cancelChange({ changeId: ChangeId.make("demo") })
+    }),
+  )
+  expect(Result.isSuccess(result) && result.success._tag).toBe("Done")
+  expect(state.steps.find((step) => step.id === "transcripts" && step.state === "failed")?.detail).toBe(
+    "pi's sessions are unreadable",
+  )
+  expect(state.calls).toContain("transition Cancelled")
+})
+
+test("a cancelled change reopens in the phase it was cancelled from", async () => {
+  const state = script({
+    change: new Change({ ...change("Cancelled"), completedAt: "then", cancelledFrom: "Verification" }),
+  })
+  const result = await run(
+    state,
+    Effect.gen(function* () {
+      const service = yield* lifecycle
+      return yield* service.reopenChange(ChangeId.make("demo"))
+    }),
+  )
+  expect(Result.isSuccess(result) && result.success.phase).toBe("Verification")
+  expect(state.calls).toEqual(["reopen"])
+  expect(state.steps.map((step) => `${step.id}:${step.state}`)).toEqual(["reopen:done"])
 })
 
 test("cancelling with an acknowledgement removes the checkout and lists the loose ends", async () => {
@@ -664,10 +797,16 @@ test("cancelling with an acknowledgement removes the checkout and lists the loos
       ])
     }
   }
-  expect(state.calls).toEqual(["remove /workspace/demo/created", "stop terminal", "transition Cancelled"])
+  expect(state.calls).toEqual([
+    "shelve created (cancel)",
+    "remove /workspace/demo/created",
+    "stop terminal",
+    "keep transcripts of /workspace/demo in /workspace/demo/transcripts",
+    "transition Cancelled",
+  ])
 })
 
-test("untracked files need an acknowledgement, then the checkout goes", async () => {
+test("untracked files are shelved rather than asked about, and the checkout goes", async () => {
   const untracked: RemovalAssessment = {
     _tag: "NeedsAcknowledgement",
     reasons: [
@@ -687,18 +826,10 @@ test("untracked files need an acknowledgement, then the checkout goes", async ()
       return yield* service.cancelChange({ changeId: ChangeId.make("demo"), acknowledgements })
     })
 
-  const asked = script({ removal: untracked })
-  const unacknowledged = await run(asked, cancel([]))
-  expect(Result.isSuccess(unacknowledged) && unacknowledged.success._tag).toBe("NeedsAcknowledgement")
-  expect(asked.calls).toEqual([])
-
-  const acknowledged = script({ removal: untracked })
-  const done = await run(
-    acknowledged,
-    cancel([{ code: "untracked", subject: ref("created"), facts: "untracked:abc:tests/__pycache__/" }]),
-  )
+  const state = script({ removal: untracked, shelve: shelved("created") })
+  const done = await run(state, cancel([]))
   expect(Result.isSuccess(done) && done.success._tag).toBe("Done")
-  expect(acknowledged.calls).toContain("remove /workspace/demo/created")
+  expect(state.calls.slice(0, 2)).toEqual(["shelve created (cancel)", "remove /workspace/demo/created"])
 })
 
 test("a failed loose-end lookup is a note, not a failure", async () => {
@@ -726,7 +857,11 @@ test("an idea can be cancelled", async () => {
   )
   expect(Result.isSuccess(result)).toBe(true)
   if (Result.isSuccess(result)) expect(result.success._tag).toBe("Done")
-  expect(state.calls).toEqual(["stop terminal", "transition Cancelled"])
+  expect(state.calls).toEqual([
+    "stop terminal",
+    "keep transcripts of /workspace/demo in /workspace/demo/transcripts",
+    "transition Cancelled",
+  ])
 })
 
 test("one lifecycle operation per change at a time", async () => {

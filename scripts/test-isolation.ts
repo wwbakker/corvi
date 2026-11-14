@@ -8,7 +8,7 @@
  * and change directories. It once did.
  *
  * `bun run test`'s wrapper already sets all of these to a per-run root and cleans it up. This
- * preload is the same isolation — the same four names — for every other way of running tests: it
+ * preload is the same isolation — the same names — for every other way of running tests: it
  * fills in only what the wrapper (or a deliberate test) left unset, into a temp root whose name
  * carries the run token, so `scripts/clean-test.ts` can attribute it — and `--prune` sweeps it if
  * a run dies before its exit handler. The wrapper's values always win;
@@ -31,7 +31,14 @@ const ISOLATED = [
   "CORVI_ROOT",
   "CORVI_ARCHIVE_ROOT",
   "XDG_STATE_HOME",
+  // The agents' own session stores, which archiving a change reads: pi's agent directory and
+  // opencode's database, each by the harness's own variable.
+  "PI_CODING_AGENT_DIR",
+  "OPENCODE_DB",
 ] as const;
+
+// pi's session directory override names a real store, and it wins over the agent directory.
+delete process.env.PI_CODING_AGENT_SESSION_DIR;
 
 const missing = ISOLATED.some((name) => process.env[name] === undefined);
 if (missing) {
@@ -50,6 +57,8 @@ if (missing) {
   isolated("CORVI_ROOT", join(root, "changes"));
   isolated("CORVI_ARCHIVE_ROOT", join(root, "changes-archive"));
   isolated("XDG_STATE_HOME", join(root, "state"));
+  isolated("PI_CODING_AGENT_DIR", join(root, "pi-agent"));
+  isolated("OPENCODE_DB", join(root, "opencode", "opencode.db"));
   // The empty config file a machine would not have: reads as "nothing configured", which is
   // where every test starts.
   writeFileSync(join(root, "config.json"), "{}");

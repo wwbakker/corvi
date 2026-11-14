@@ -10,6 +10,7 @@ import { resolveChangePage } from "../apps/web/src/change-page/client/changeTabs
 import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "@corvi/changes/record";
 import type { CommitResult, LocalStatus } from "@corvi/contracts/integrations/review";
+import type { ShelfDto, ShelveResultDto } from "@corvi/contracts/shelves";
 import { checkoutsOf, runEffect, runSh  } from "./helpers.ts";
 import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
 
@@ -251,4 +252,47 @@ test("a repository's line says what is uncommitted and what is only here", async
   });
   // Not asked yet is not the same as clean.
   expect(summarise(undefined)).toEqual({ text: "…", state: "none" });
+});
+
+test("shelving through the tab's routes puts a repository's work aside, lists it, shows it, and applies it back", async () => {
+  const repo = await clonedRepo("review-shelf");
+  const change = await changeFor("SHELF-1", [repo]);
+  await runEffect(provisionRepositories(change));
+  const worktree = (await runEffect(checkoutFor(change, repo)))!;
+  await Bun.write(join(worktree, "README.md"), "edited\n");
+  await Bun.write(join(worktree, "scratch", "note.txt"), "new\n");
+
+  const shelved = (await (
+    await ext(`changes/SHELF-1/shelves`, "POST", { repository: "review-shelf", name: "half done" })
+  ).json()) as ShelveResultDto;
+  expect(shelved._tag).toBe("Shelved");
+  if (shelved._tag !== "Shelved") return;
+  expect(shelved.shelf.files.map((file) => file.path)).toEqual(["README.md", "scratch/note.txt"]);
+  expect((await runSh(["git", "status", "--porcelain"], worktree)).stdout).toBe("");
+
+  const listed = (await (await ext(`changes/SHELF-1/shelves`)).json()) as ShelfDto[];
+  expect(listed.map((shelf) => shelf.name)).toEqual(["half done"]);
+  const patch = (await (
+    await ext(`changes/SHELF-1/shelves/patch?shelf=${encodeURIComponent(shelved.shelf.id)}`)
+  ).json()) as { text: string };
+  expect(patch.text).toContain("+edited");
+
+  // Nothing to shelve is an answer, not a failure; an unknown repository is a 404.
+  expect(await (await ext(`changes/SHELF-1/shelves`, "POST", { repository: "review-shelf" })).json()).toEqual({
+    _tag: "Clean",
+  });
+  expect((await ext(`changes/SHELF-1/shelves`, "POST", { repository: "nope" })).status).toBe(404);
+
+  const applied = await (await ext(`changes/SHELF-1/shelves/apply`, "POST", { shelf: shelved.shelf.id })).json();
+  expect(applied).toEqual({ _tag: "Applied" });
+  expect(await Bun.file(join(worktree, "scratch", "note.txt")).text()).toBe("new\n");
+  expect(await (await ext(`changes/SHELF-1/shelves`)).json()).toEqual([]);
+
+  // Shelve again and delete it: deleting is for good.
+  const again = (await (
+    await ext(`changes/SHELF-1/shelves`, "POST", { repository: "review-shelf" })
+  ).json()) as ShelveResultDto;
+  if (again._tag !== "Shelved") throw new Error(`expected a shelf, got ${again._tag}`);
+  expect((await ext(`changes/SHELF-1/shelves?shelf=${encodeURIComponent(again.shelf.id)}`, "DELETE")).status).toBe(200);
+  expect(await (await ext(`changes/SHELF-1/shelves`)).json()).toEqual([]);
 });

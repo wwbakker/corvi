@@ -5,6 +5,8 @@ import { join, resolve } from "node:path";
 import { configPath } from "../apps/server/src/workspace/server/index.ts";
 import { root } from "../apps/server/src/change/server/store.ts";
 import { isRunToken } from "../scripts/clean-test.ts";
+import { Effect } from "effect";
+import { opencodeDatabase, piSessionRoots } from "@corvi/agents/node";
 
 /**
  * The tripwire under the isolation itself.
@@ -15,9 +17,16 @@ import { isRunToken } from "../scripts/clean-test.ts";
  * mode is a test writing someone's real config, and that is worth a loud line of its own. The
  * paths are exactly the ones whose "else" case is a directory in someone's home.
  */
-test("the suite runs against its own tree, never the user's", () => {
+test("the suite runs against its own tree, never the user's", async () => {
   expect(resolve(configPath())).not.toBe(resolve(join(homedir(), ".config", "corvi", "config.json")));
   expect(resolve(root())).not.toBe(resolve(join(homedir(), "corvi", "changes")));
+  // Archiving copies agent sessions: the stores it reads are the run's, not the user's.
+  const realPi = resolve(join(homedir(), ".pi"));
+  for (const sessions of await Effect.runPromise(piSessionRoots()))
+    expect(resolve(sessions).startsWith(realPi)).toBe(false);
+  expect(resolve(opencodeDatabase())).not.toBe(
+    resolve(join(homedir(), ".local", "share", "opencode", "opencode.db")),
+  );
   // And the run is attributable: its token is the shape scripts/clean-test.ts reads, so a
   // crashed run's resources can be swept without touching a live one's.
   expect(isRunToken(process.env.CORVI_TEST_RUN ?? "")).toBe(true);

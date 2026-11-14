@@ -37,8 +37,9 @@ export const LocalStatusSchema = Schema.Struct({
 export type LocalStatus = typeof LocalStatusSchema.Type;
 
 /** Which file is being looked at: the repository as well, since two repositories may both have
- * a README.md, and the staged half, since that is a different diff of the same path. */
-export type Selection = { repo: string; file: string; staged: boolean };
+ * a README.md, and the staged half, since that is a different diff of the same path — and whether
+ * git knows the file at all, which the status already said, so the diff need not ask again. */
+export type Selection = { repo: string; file: string; staged: boolean; untracked: boolean };
 
 /** One commit per repository, with the same message: a change is one piece of work, and its
  * repositories are an implementation detail of where the code lives. */

@@ -108,3 +108,11 @@ export const discoverProfiles = (roots: ProfileRoots): Effect.Effect<ProfileDisc
   });
 
 export * from "./instance.ts";
+export {
+  nodeOpencodeCli,
+  opencodeDatabase,
+  opencodeIfUsed,
+  piSessionRoots,
+  transcriptsLayer,
+  type OpencodeCli,
+} from "./transcripts.ts";

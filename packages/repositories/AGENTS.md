@@ -4,7 +4,9 @@
 
 Checkout work on concrete locations: inspecting a checkout, assessing whether removing it would
 destroy anything, provisioning one (a linked worktree or the source checkout in place, with base
-selection), fast-forwarding one, and removing one. The Git port and its real adapter, including the status,
+selection), fast-forwarding one, removing one, capturing, discarding and applying its
+uncommitted work as a patch, and the review tab's git work: its local changes and their diffs,
+committing exactly the chosen paths, and pushing its branch. The Git port and its real adapter, including the status,
 upstream, and integration facts the safety rules rest on.
 
 ## Does not own
@@ -41,6 +43,12 @@ entrypoint stays platform-free.
 - Provisioning an in-place checkout leaves a dirty one exactly as it is (`skipped-dirty`); a missing
   branch is created from `base` or the repository default and never tracks it. Provisioning itself
   never fetches — the checkout policy fetches first, so freshness has one implementation.
+- `captureWork` writes a binary-safe patch against HEAD — staged, unstaged and untracked files,
+  never ignored ones — with git writing the file itself, and touches neither the index nor the
+  files. `discardWork` rechecks that the checkout holds exactly that patch (same paths, reverse
+  applies) before resetting tracked files and deleting only the captured untracked files.
+  `applyWork` refuses a checkout with uncommitted work and falls back to a three-way merge; a
+  clean application comes back unstaged. Where the patch lives is the caller's business.
 - `fastForwardBranch` is the only way a checkout moves forward: fast-forward exactly, `LeftAlone`
   with git's own reason otherwise — never a reset, never a rebase. A dirty checkout git refuses
   to clobber is `LeftAlone`; a clean one that could have moved and did not is an error.

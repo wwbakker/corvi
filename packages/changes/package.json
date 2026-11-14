@@ -10,6 +10,7 @@
     "./errors": "./src/errors.ts",
     "./store": "./src/store.ts",
     "./progress": "./src/progress.ts",
+    "./shelves": "./src/shelves.ts",
     "./node": "./src/node/index.ts",
     "./record": "./src/record.ts"
   },

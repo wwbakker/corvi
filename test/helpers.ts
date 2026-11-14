@@ -90,6 +90,8 @@ process.env.CORVI_ARCHIVE_ROOT = join(ownRoot, "changes-archive");
 process.env.CORVI_CONFIG = join(ownRoot, "config.json");
 process.env.CORVI_CACHE = join(ownRoot, "cache.json");
 process.env.XDG_STATE_HOME = join(ownRoot, "state");
+process.env.PI_CODING_AGENT_DIR = join(ownRoot, "pi-agent");
+process.env.OPENCODE_DB = join(ownRoot, "opencode", "opencode.db");
 
 /** What a test may state on the config snapshot for a body: any resolved field. */
 export type RuntimeConfigPatch = Partial<Config>;
@@ -147,6 +149,8 @@ export const serverEnv = (
   CORVI_ARCHIVE_ROOT: join(tmp, "changes-archive"),
   CORVI_CONFIG: join(tmp, "config.json"),
   XDG_STATE_HOME: join(tmp, "state"),
+  PI_CODING_AGENT_DIR: join(tmp, "pi-agent"),
+  OPENCODE_DB: join(tmp, "opencode", "opencode.db"),
   CORVI_CACHE: join(tmp, "cache.json"),
   CORVI_PORT: "0",
   ZDOTDIR: join(tmp, "zdotdir"),

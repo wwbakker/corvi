@@ -54,10 +54,10 @@ unrelated issue, build, and agent operations.
 | --- | --- | --- |
 | `contracts` | Shared IDs, decoded values, request/response/event schemas and transport declarations | Services, I/O, global state, native imports, every package's internal types |
 | `configuration` | Validated configuration snapshots, workspace selection, precedence and updates | Integration execution or a mutable singleton configuration object |
-| `changes` | Change invariants, persistence, archive location, plan/notes documents and associated metadata | Git commands, terminals, provider calls, HTTP or dashboard cards |
-| `repositories` | Repository facts, branches, worktree operations, safety assessment, diffs and commits | Corvi change-directory policy, persisted changes, GitHub calls or widgets |
+| `changes` | Change invariants, persistence, archive location and reopening, plan/notes documents, shelves and associated metadata | Git commands, terminals, provider calls, HTTP or dashboard cards |
+| `repositories` | Repository facts, branches, worktree operations, safety assessment, diffs, commits and captured work (patches) | Corvi change-directory policy, persisted changes, GitHub calls or widgets |
 | `terminals` | The vocabulary shared by server and page: the new-window key, the CSI u sequences a terminal cannot encode, the command option names, and the pure window presenters | Agent conversation identity, change transitions or notifications policy |
-| `agents` | Corvi-facing session identity, supported capabilities, prompts and status | A provider's SDK types or the assumption that every agent is a terminal |
+| `agents` | Corvi-facing session identity, supported capabilities, prompts, status, and where each harness keeps its sessions (transcripts) | A provider's SDK types or the assumption that every agent is a terminal |
 | `actions` | Action files and their vocabulary, scope precedence, placeholder rendering, delivery to terminal sessions | Terminal/session mechanics, change lifecycle, HTTP handlers or JSX |
 | `workflows` | Create/start/complete/cancel, multi-repository operations, overview aggregation and action orchestration | Vendor CLI/HTTP encoding, storage primitives, JSX or HTTP responses |
 | `integrations/*` | External authentication, transport, decoding and provider-specific operations | Change lifecycle policy, HTTP handlers for Corvi, or rendering cards |

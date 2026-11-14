@@ -73,6 +73,20 @@ reports its error without preventing the others from completing.
 setting the upstream on first push. A branch without an upstream counts commits since its base,
 not zero. Unstaging and discarding are not currently provided by this view.
 
+**Shelve…**, beside a repository with uncommitted work, puts that work aside and leaves the
+checkout clean: staged and unstaged changes and untracked files go into one patch against the
+current commit, kept in the change directory (`shelves/<repository>/`), so a shelf travels into
+the archive and back with the change. Ignored files are never shelved. A name is optional. Above
+50 MB of patch the dialog names the biggest files and asks once more — that much is usually build
+output that should be ignored. Nothing is discarded until the shelf is written, and the checkout
+is checked again just before: a file that changed in between stops the shelving with nothing lost.
+
+The **Shelves** list shows every shelf of the change; selecting one shows its patch. **Apply**
+puts the work back on a clean checkout, with a three-way merge when the branch has moved since; a
+clean application removes the shelf, and conflicts leave their markers and keep the shelf. A
+checkout with uncommitted work is not applied over. **Delete** asks once more. A finished change's
+shelves are listed but not applied or deleted; reopen the change first.
+
 ## Notes
 
 The dashboard's **Notes** card saves shortly after typing stops, on blur, and when navigating

@@ -10,6 +10,8 @@ import type { Change } from "@corvi/changes/record";
 import { bodyAs } from "../../capabilities/effect/body.ts";
 import { commitChange, fileDiff, localChanges, pushChange } from "./server.ts";
 import type { CommitRequest } from "@corvi/contracts/integrations/review";
+import { ShelveBodySchema } from "@corvi/contracts/shelves";
+import { applyShelf, deleteShelf, listShelves, shelfPatch, shelveRepository } from "./shelves.ts";
 
 /**
  * The review extension: the change's local-changes tab — what is uncommitted across the change,
@@ -29,6 +31,13 @@ const CommitBody = Schema.Struct({
 const PushBody = Schema.Struct({
   repos: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
 });
+/** Which shelf an action is about: its id carries a `/`, so it travels in the body or query. */
+const ShelfBody = Schema.Struct({ shelf: Schema.String });
+
+const shelfParam = (req: Request): Effect.Effect<string, BadRequestError> => {
+  const shelf = new URL(req.url).searchParams.get("shelf");
+  return shelf ? Effect.succeed(shelf) : Effect.fail(new BadRequestError({ message: "shelf required" }));
+};
 
 /** Find the change a route is about through the `Changes` capability, or answer 404: the
  * extension never reaches the change store itself. */
@@ -81,7 +90,11 @@ export default {
               return yield* new BadRequestError({ message: "path and file required" });
             }
             return Response.json({
-              text: yield* fileDiff(change, repo, file, search.get("staged") === "1"),
+              text: yield* fileDiff(change, repo, {
+                file,
+                staged: search.get("staged") === "1",
+                untracked: search.get("untracked") === "1",
+              }),
             });
           }),
         ),
@@ -95,6 +108,60 @@ export default {
           Effect.gen(function* () {
             const body = yield* bodyAs(req, CommitBody);
             return Response.json(yield* commitChange(change, body));
+          }),
+        ),
+    },
+    {
+      // The change's shelves: uncommitted work put aside, newest first.
+      method: "GET",
+      path: "/changes/:id/shelves",
+      handler: (_req, params) =>
+        withChange(params.id!, (change) => Effect.map(listShelves(change), (shelves) => Response.json(shelves))),
+    },
+    {
+      // Put one repository's uncommitted work on a shelf. Every answer but `Shelved` left the
+      // checkout exactly as it was — the too-large one names the biggest files and waits for
+      // `allowLarge`.
+      method: "POST",
+      path: "/changes/:id/shelves",
+      handler: (req, params) =>
+        withChange(params.id!, (change) =>
+          Effect.gen(function* () {
+            const body = yield* bodyAs(req, ShelveBodySchema);
+            return Response.json(yield* shelveRepository(change, body));
+          }),
+        ),
+    },
+    {
+      method: "POST",
+      path: "/changes/:id/shelves/apply",
+      handler: (req, params) =>
+        withChange(params.id!, (change) =>
+          Effect.gen(function* () {
+            const body = yield* bodyAs(req, ShelfBody);
+            return Response.json(yield* applyShelf(change, body.shelf));
+          }),
+        ),
+    },
+    {
+      method: "DELETE",
+      path: "/changes/:id/shelves",
+      handler: (req, params) =>
+        withChange(params.id!, (change) =>
+          Effect.gen(function* () {
+            yield* deleteShelf(change, yield* shelfParam(req));
+            return Response.json({});
+          }),
+        ),
+    },
+    {
+      // What a shelf holds, as the patch it is.
+      method: "GET",
+      path: "/changes/:id/shelves/patch",
+      handler: (req, params) =>
+        withChange(params.id!, (change) =>
+          Effect.gen(function* () {
+            return Response.json({ text: yield* shelfPatch(change, yield* shelfParam(req)) });
           }),
         ),
     },

@@ -1,11 +1,13 @@
-/** Completion and cancellation over the capabilities.
+/** Completion, cancellation and reopening over the capabilities.
  *
- * These are the only writers of terminal phases. An earlier assessment is never authorization:
+ * These are the only writers of terminal phases, and reopening is the only way out of one. An earlier assessment is never authorization:
  * every destructive step rechecks the facts it acts on, and a changed fact needs a fresh
  * acknowledgement. The journal is written step by step, so a half-finished operation stays
  * legible from a page that was never open.
  */
 import { Context, Effect, Layer, Ref, Schema, type Result } from "effect"
+
+import { AgentTranscripts, TRANSCRIPTS_DIRECTORY } from "@corvi/agents/transcripts"
 
 import { ChangeService } from "@corvi/changes/changes"
 import { ChangeRepositories } from "@corvi/changes/repositories"
@@ -15,6 +17,7 @@ import type {
   ChangeNotFound,
   ChangeStoreError,
   InvalidTransition,
+  RepositoryNotFound,
   RepositoryStoreError,
 } from "@corvi/changes/errors"
 import { OperationProgress, type OperationStep } from "@corvi/changes/progress"
@@ -22,9 +25,11 @@ import { effectiveBranchOf } from "@corvi/changes/record"
 import { checkoutLocationOf, isTerminal } from "@corvi/changes/rules"
 import { ChangeId } from "@corvi/contracts/changes"
 import type { Change, Repository, RepositoryRef } from "@corvi/contracts/changes"
-import { AbsolutePath } from "@corvi/contracts/paths"
+import { AbsolutePath, trimTrailingSeparators } from "@corvi/contracts/paths"
 import type { BranchCleanup, RemovalAssessment } from "@corvi/repositories"
 import { CheckoutError, Repositories } from "@corvi/repositories"
+
+import { ChangeShelves } from "./shelves.ts"
 
 export class ChangeOperationInProgress extends Schema.TaggedError<ChangeOperationInProgress>()(
   "ChangeOperationInProgress",
@@ -198,6 +203,8 @@ export interface Interface {
   readonly assessCancellation: (
     changeId: ChangeId,
   ) => Effect.Effect<Readiness, ChangeNotFound | ChangeStoreError | RepositoryStoreError | CheckoutError>
+  /** Cancelling shelves each worktree's uncommitted work (staged, unstaged and untracked) before
+   * the worktree goes, so the files are not lost: reopening applies the shelf again. */
   readonly cancelChange: (input: {
     readonly changeId: ChangeId
     readonly acknowledgements?: readonly Acknowledgement[]
@@ -210,9 +217,23 @@ export interface Interface {
     | ChangeFormatTooNew
     | ChangeStoreError
     | RepositoryStoreError
+    | RepositoryNotFound
     | ProviderError
     | TerminalError
     | CheckoutError
+  >
+  /** Bring a cancelled change back from the archive in the phase it was cancelled from. Its
+   * checkouts and shelves are the caller's next steps: the directory is back, nothing else yet. */
+  readonly reopenChange: (
+    changeId: ChangeId,
+  ) => Effect.Effect<
+    Change,
+    | ChangeNotFound
+    | InvalidTransition
+    | ChangeConflict
+    | ChangeOperationInProgress
+    | ChangeFormatTooNew
+    | ChangeStoreError
   >
 }
 
@@ -297,6 +318,8 @@ export const layer = Layer.effect(
     const pullRequests = yield* PullRequests
     const issues = yield* Issues
     const terminals = yield* TerminalSessions
+    const shelves = yield* ChangeShelves
+    const transcripts = yield* AgentTranscripts
     const active = yield* Ref.make<ReadonlySet<string>>(new Set())
 
     const record = (
@@ -313,6 +336,7 @@ export const layer = Layer.effect(
     const removalSafety = (
       change: Change,
       link: Repository,
+      options: { readonly uncommittedWorkCaptured?: boolean } = {},
     ): Effect.Effect<RemovalOutcome, CheckoutError> =>
       Effect.gen(function* () {
         const worktree = AbsolutePath.make(checkoutLocationOf(change, link))
@@ -322,7 +346,11 @@ export const layer = Layer.effect(
         const branch = checkout
           ? (checkout._tag === "Present" ? checkout.branch : undefined)
           : branchOf(change, link)
-        return yield* repositories.assessRemoval({ worktree, branch })
+        return yield* repositories.assessRemoval({
+          worktree,
+          branch,
+          ...(options.uncommittedWorkCaptured ? { uncommittedWorkCaptured: true } : {}),
+        })
       }).pipe(
           Effect.result,
           Effect.flatMap((assessed): Effect.Effect<RemovalOutcome, CheckoutError> => {
@@ -355,6 +383,26 @@ export const layer = Layer.effect(
         .pipe(
           Effect.catchTag("NotARepository", () => Effect.succeed("absent" as const)),
         )
+
+    /** Copy the agent sessions that ran in the change into it before it moves, so the archive
+     * keeps them. Never fatal: a change is archived whether or not its transcripts could be read,
+     * and the journal says which. */
+    const keepTranscripts = (change: Change): Effect.Effect<void, ChangeFormatTooNew | ChangeStoreError> =>
+      Effect.gen(function* () {
+        const step = { id: "transcripts", label: "keep the agent transcripts" }
+        yield* record(change.changeId, { ...step, state: "running" })
+        const from = trimTrailingSeparators(change.workspaceLocation)
+        const collected = yield* transcripts
+          .collect({ from: AbsolutePath.make(from), to: AbsolutePath.make(`${from}/${TRANSCRIPTS_DIRECTORY}`) })
+          .pipe(Effect.result)
+        if (collected._tag === "Failure") {
+          yield* record(change.changeId, { ...step, state: "failed", detail: collected.failure.message })
+          return
+        }
+        const { copied, notes } = collected.success
+        const detail = [`${copied} session${copied === 1 ? "" : "s"}`, ...notes].join("; ")
+        yield* record(change.changeId, { ...step, state: "done", detail })
+      })
 
     const completionAssessment = (
       change: Change,
@@ -410,7 +458,9 @@ export const layer = Layer.effect(
         const reasons: LifecycleReason[] = []
         for (const link of worktreeLinks(sourceLinks)) {
           const subject = subjectOf(change, link)
-          const safety = yield* removalSafety(change, link)
+          // The uncommitted files are shelved before the worktree goes, so only the commits are a
+          // question here.
+          const safety = yield* removalSafety(change, link, { uncommittedWorkCaptured: true })
           if (safety._tag === "Gone" || safety._tag === "Safe") continue
           for (const reason of safety.reasons)
             reasons.push({ ...reason, subject, kind: reason.kind, text: reason.text })
@@ -569,6 +619,7 @@ export const layer = Layer.effect(
             yield* record(change.changeId, { id: step.id, label: step.label, state: "waiting" })
           yield* record(change.changeId, { id: "worktrees", label: "remove the worktrees", state: "waiting" })
           yield* record(change.changeId, { id: "terminal", label: "close the terminal", state: "waiting" })
+          yield* record(change.changeId, { id: "transcripts", label: "keep the agent transcripts", state: "waiting" })
           yield* record(change.changeId, { id: "archive", label: "archive the change", state: "waiting" })
 
           const notes: string[] = []
@@ -661,6 +712,8 @@ export const layer = Layer.effect(
             terminals.stop(change.changeId),
           )
 
+          yield* keepTranscripts(change)
+
           const completed = yield* runStep(
             change.changeId,
             "archive",
@@ -705,13 +758,20 @@ export const layer = Layer.effect(
           const loose: string[] = []
           // The plan first: a page opened mid-operation shows what is still coming.
           yield* record(change.changeId, { id: "loose", label: "collect the loose ends", state: "waiting" })
-          for (const link of worktreeLinks(sourceLinks))
+          for (const link of worktreeLinks(sourceLinks)) {
+            yield* record(change.changeId, {
+              id: `shelve:${link.directoryName}`,
+              label: `shelve ${link.directoryName}`,
+              state: "waiting",
+            })
             yield* record(change.changeId, {
               id: `worktrees:${link.directoryName}`,
               label: `remove ${link.directoryName}`,
               state: "waiting",
             })
+          }
           yield* record(change.changeId, { id: "terminal", label: "close the terminal", state: "waiting" })
+          yield* record(change.changeId, { id: "transcripts", label: "keep the agent transcripts", state: "waiting" })
           yield* record(change.changeId, { id: "archive", label: "archive the change", state: "waiting" })
           yield* record(change.changeId, { id: "loose", label: "collect the loose ends", state: "running" })
           const outstanding = yield* pullRequests.outstanding(change).pipe(Effect.result)
@@ -734,6 +794,69 @@ export const layer = Layer.effect(
           for (const link of worktreeLinks(sourceLinks)) {
             const id = `worktrees:${link.directoryName}`
             const label = `remove ${link.directoryName}`
+            const shelveId = `shelve:${link.directoryName}`
+            const shelveLabel = `shelve ${link.directoryName}`
+            const present = yield* removalSafety(change, link, { uncommittedWorkCaptured: true })
+            if (present._tag === "Gone") {
+              yield* record(change.changeId, { id: shelveId, label: shelveLabel, state: "done", detail: "nothing to shelve" })
+              yield* record(change.changeId, { id, label, state: "done", detail: "nothing to remove" })
+              continue
+            }
+            // The uncommitted work goes on a shelf first; the worktree is removed only once it is
+            // clean, which is what makes cancelling an operation that can be undone.
+            yield* record(change.changeId, { id: shelveId, label: shelveLabel, state: "running" })
+            const shelved = yield* shelves
+              .shelveRepository({
+                changeId: change.changeId,
+                repository: link.directoryName,
+                reason: "cancel",
+                allowLarge: true,
+              })
+              .pipe(
+                Effect.catchTag("NotARepository", (error) =>
+                  Effect.fail(
+                    new CheckoutError({
+                      operation: "capture",
+                      directory: error.directory,
+                      message: "the checkout is no longer a repository",
+                    }),
+                  ),
+                ),
+              )
+            if (shelved._tag === "Shelved") {
+              const count = shelved.shelf.files.length
+              yield* record(change.changeId, {
+                id: shelveId,
+                label: shelveLabel,
+                state: "done",
+                detail: `${count} file${count === 1 ? "" : "s"} shelved`,
+              })
+              loose.push(`the uncommitted work in ${link.directoryName} is shelved; reopening the change applies it`)
+            } else if (shelved._tag === "Clean") {
+              yield* record(change.changeId, { id: shelveId, label: shelveLabel, state: "done", detail: "nothing uncommitted" })
+            } else {
+              const text =
+                shelved._tag === "Conflicted"
+                  ? `conflicts in ${shelved.files.join(", ")}: resolve them before cancelling`
+                  : shelved._tag === "Changed"
+                    ? `${shelved.reason}: try again`
+                    : "the uncommitted work could not be shelved"
+              yield* record(change.changeId, { id: shelveId, label: shelveLabel, state: "failed", detail: text })
+              return {
+                _tag: "Blocked",
+                operation: "cancel",
+                reasons: [
+                  {
+                    code: "dirty-worktree",
+                    subject: subjectOf(change, link),
+                    kind: "hard",
+                    text,
+                    facts: `shelve:${shelved._tag}`,
+                  },
+                ],
+                toMerge: [],
+              } satisfies LifecycleOutcome
+            }
             yield* record(change.changeId, { id, label, state: "running" })
             const safety = yield* removalSafety(change, link)
             if (safety._tag === "Gone") {
@@ -777,6 +900,8 @@ export const layer = Layer.effect(
           yield* terminals.stop(change.changeId)
           yield* record(change.changeId, { id: "terminal", label: "close the terminal", state: "done" })
 
+          yield* keepTranscripts(change)
+
           yield* record(change.changeId, { id: "archive", label: "archive the change", state: "running" })
           const cancelled = yield* changes.transitionTo(change.changeId, "Cancelled")
           yield* record(change.changeId, { id: "archive", label: "archive the change", state: "done" })
@@ -786,6 +911,17 @@ export const layer = Layer.effect(
       )
     })
 
-    return { assessCompletion, assessCancellation, completeChange, cancelChange }
+    const reopenChange = Effect.fn("ChangeLifecycle.reopenChange")(function* (changeId: ChangeId) {
+      return yield* withOperation(
+        changeId,
+        Effect.gen(function* () {
+          const reopened = yield* changes.reopen(changeId)
+          yield* record(changeId, { id: "reopen", label: `reopen as ${reopened.phase}`, state: "done" })
+          return reopened
+        }),
+      )
+    })
+
+    return { assessCompletion, assessCancellation, completeChange, cancelChange, reopenChange }
   }),
 )

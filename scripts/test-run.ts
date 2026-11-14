@@ -57,6 +57,8 @@ const SCRUBBED = [
   "CORVI_CHANGE_ID",
   "CORVI_CHANGE_DIR",
   "CORVI_SUBAGENT_ID",
+  // pi's session directory override names a real store; the run's own agent directory is below.
+  "PI_CODING_AGENT_SESSION_DIR",
 ] as const;
 
 /** The browser end-to-end files import a Playwright browser at runtime. The test is
@@ -410,6 +412,8 @@ const main = async (): Promise<number> => {
   process.env.CORVI_ARCHIVE_ROOT = `${root}-archive`;
   process.env.CORVI_CONFIG = join(root, "config.json");
   process.env.XDG_STATE_HOME = join(root, "state");
+  process.env.PI_CODING_AGENT_DIR = join(root, "pi-agent");
+  process.env.OPENCODE_DB = join(root, "opencode", "opencode.db");
 
   installCleanup(token);
 

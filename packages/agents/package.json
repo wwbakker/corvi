@@ -10,6 +10,7 @@
     "./discovery": "./src/discovery.ts",
     "./instance": "./src/instance.ts",
     "./harness": "./src/harness.ts",
+    "./transcripts": "./src/transcripts.ts",
     "./node": "./src/node/index.ts"
   },
   "dependencies": {
