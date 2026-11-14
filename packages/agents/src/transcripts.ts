@@ -7,7 +7,7 @@
  */
 import { Context, Schema, type Effect } from "effect"
 
-import type { AbsolutePath } from "@corvi/contracts/paths"
+import { trimTrailingSeparators, type AbsolutePath } from "@corvi/contracts/paths"
 import type {
   TranscriptDto,
   TranscriptEntryDto,
@@ -71,13 +71,13 @@ export const piSessionDirectoryPrefix = (dir: string): string => piSessionDirect
 
 /** Whether `path` is `dir` or inside it, by path components. */
 export const isWithin = (dir: string, path: string): boolean => {
-  const base = dir.replace(/[/\\]+$/, "")
+  const base = trimTrailingSeparators(dir)
   return path === base || path.startsWith(`${base}/`) || path.startsWith(`${base}\\`)
 }
 
 /** `path` relative to `dir`, `/`-separated; empty for `dir` itself. */
 export const relativeWithin = (dir: string, path: string): string =>
-  path === dir ? "" : path.slice(dir.replace(/[/\\]+$/, "").length + 1).replaceAll("\\", "/")
+  path === dir ? "" : path.slice(trimTrailingSeparators(dir).length + 1).replaceAll("\\", "/")
 
 export type PiSessionHeader = {
   readonly id: string
