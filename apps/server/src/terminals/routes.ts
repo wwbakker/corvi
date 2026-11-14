@@ -149,9 +149,9 @@ export const terminalsRoutes = guard({
           const windowId = body.window;
           if (body.action === "new") yield* newWindow(c.id, changeDir(c));
           else if (body.action === "select") {
-            // A caller that names a window id (the Subagents pane's explicit click) selects by
-            // stable identity under the registry lock; the strip's ordinary select keeps its
-            // index. A named window that is gone is reported, not silently ignored.
+            // A caller that names a window id selects by stable identity under the registry lock;
+            // the strip's ordinary select keeps its index. A named window that is gone is
+            // reported, not silently ignored.
             if (windowId !== undefined) {
               yield* selectWindowById(c.id, windowId).pipe(
                 Effect.mapError((failure) => new BadRequestError({ message: failure.message })),

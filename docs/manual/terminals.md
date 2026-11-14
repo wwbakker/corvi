@@ -162,8 +162,8 @@ extensions fall back to stderr. The agent's own output is never touched.
 A transition from working to waiting can notify you when you are not actively looking at that
 window. Selecting the same change is not enough to suppress it if another view/window is active.
 A subagent never notifies: its settled turn is waiting for its orchestrator (`corvi subagent
-await`, the Subagents page), not for you, so it raises no attention edge — the window strip and the
-Subagents page still show its state. Notification sound is configurable. With no connected page,
+await`, the dashboard's subagent card), not for you, so it raises no attention edge — the window
+strip and the subagent card still show its state. Notification sound is configurable. With no connected page,
 there is no server-side OS notifier.
 Several waiting windows can notify separately; each uses a stable window identity.
 

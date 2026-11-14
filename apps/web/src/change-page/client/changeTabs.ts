@@ -10,16 +10,14 @@
 export type ChangeTabInfo = { id: string; title: string; extension: string };
 
 /** The core's page ids. A contributed tab may not shadow one: the core addressed it first. */
-const CORE: ReadonlySet<string> = new Set(["dashboard", "plan", "terminals", "subagents"]);
+const CORE: ReadonlySet<string> = new Set(["dashboard", "plan", "terminals"]);
 
 /** The tabs the nav shows: the change's Plan first — where a change opens — then the core's
- * Dashboard and Subagents, then the extensions' tabs in load order — the review extension's
- * "Review changes" among them when it is enabled. A contributed id that would shadow a core page
- * is dropped. */
+ * Dashboard, then the extensions' tabs in load order — the review extension's "Review changes"
+ * among them when it is enabled. A contributed id that would shadow a core page is dropped. */
 export const changeNav = (tabs: ChangeTabInfo[]): { id: string; title: string }[] => [
   { id: "plan", title: "Plan" },
   { id: "dashboard", title: "Dashboard" },
-  { id: "subagents", title: "Subagents" },
   ...tabs
     .filter((tab) => !CORE.has(tab.id))
     .map(({ id, title }) => ({ id, title })),
@@ -29,11 +27,11 @@ export const changeNav = (tabs: ChangeTabInfo[]): { id: string; title: string }[
  * including a tab that has gone, such as review on a workspace that dropped the extension — the
  * plan. */
 export type ResolvedChangePage =
-  | { kind: "dashboard" | "plan" | "terminals" | "subagents" }
+  | { kind: "dashboard" | "plan" | "terminals" }
   | { kind: "tab"; tab: ChangeTabInfo };
 
 export const resolveChangePage = (page: string, tabs: ChangeTabInfo[]): ResolvedChangePage => {
-  if (page === "dashboard" || page === "plan" || page === "terminals" || page === "subagents") {
+  if (page === "dashboard" || page === "plan" || page === "terminals") {
     return { kind: page };
   }
   const tab = tabs.find((t) => t.id === page);

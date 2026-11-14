@@ -23,7 +23,7 @@ The host survives the server and the app; the page reconnects to a surviving she
   renderer     ◄──── session.ts hub ◄── screen.ts (headless xterm)               incarnation + seq
                                           └────► snapshots.ts (persisted store)
   status view  ◄──── status.ts ◄── corvi status ◄── integrations/{pi,opencode}     OSC status parse
-  SubagentsPane◄──── subagents/server/instances.ts (a subagent is a host session)
+  SubagentsCard◄──── subagents/server/instances.ts (a subagent is a host session)
 ```
 
 ## The terminal host — `apps/server/src/terminals/host/`
@@ -106,8 +106,7 @@ opaque to it and is how the server re-associates windows after a restart.
 - `WindowTabs.tsx` / `CheatSheet.tsx` — the tab strip and the key reference.
 
 App state lives in `apps/web/src/app-root/state.ts` (`useWindows`, `useTerminal`); `ChangeView.tsx`
-passes the active window's focused pane id to the pane, and `SubagentsPane.tsx` passes the selected
-subagent's.
+passes the active window's focused pane id to the pane.
 
 ## Agent status
 
@@ -123,7 +122,8 @@ host-side fallback. Reporter code lives in `integrations/pi` and `integrations/o
 subagent's own directory (which, with the harness's pinned `--session-id`/`--session`, is what
 resumes the same harness session), metadata carries `subagentId`, and the env carries
 `CORVI_SUBAGENT_ID`. The relay is `corvi subagent next`/`turn`; the orchestrator drives it with
-`corvi subagent create|send|wait|result|open|close`.
+`corvi subagent create|send|wait|result|open|close`, and the dashboard's `SubagentsCard.tsx` lists a
+change's instances through `client.subagents` so a closed one can be reopened from the page.
 
 ## Power down when agents are done
 

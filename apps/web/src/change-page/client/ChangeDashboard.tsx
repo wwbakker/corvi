@@ -6,6 +6,7 @@ import { WidgetCard } from "../../dashboard/client/WidgetCard.tsx";
 import { repoPathsOf } from "../../domain/change.ts";
 import { WidgetHost, type WidgetInfo } from "../../integrations/client.tsx";
 import { CheckoutsCard } from "./CheckoutsCard.tsx";
+import { SubagentsCard } from "./SubagentsCard.tsx";
 
 /**
  * The dashboard's two regions: the change's documents on the left, the status on the right —
@@ -27,6 +28,7 @@ export function ChangeDashboard({
   completing,
   onSaved,
   onFinished,
+  onOpenPage,
 }: {
   id: string;
   change: Change | undefined;
@@ -43,6 +45,9 @@ export function ChangeDashboard({
   onSaved: (updated: Change, provision?: readonly ProvisionResult[]) => void;
   /** The completion card finished the change: the record it wrote is the change now. */
   onFinished: (updated: Change) => void;
+  /** Switching to another of the change's own pages: the subagents card reopens a window and
+   * lands on the terminal page that shows it. */
+  onOpenPage: (page: "terminals") => void;
 }): JSX.Element {
   const card = (info: CardInfo): JSX.Element =>
     info.perRepo ? (
@@ -91,6 +96,9 @@ export function ChangeDashboard({
       </div>
       <div className="column status">
         <CompletionCard changeId={id} busy={completing} onFinished={onFinished} />
+        {/* The change's subagents, whichever of them has a live window: this is where a closed one
+            is reopened. Hidden when there are none. */}
+        <SubagentsCard changeId={id} onOpenPage={onOpenPage} />
         {/* The change's own checkout facts: local changes only, because the legacy records the
             read projects are local. */}
         {change && !change.workspace && <CheckoutsCard changeId={id} />}

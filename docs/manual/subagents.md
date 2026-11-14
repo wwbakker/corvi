@@ -5,9 +5,11 @@ not a job. An orchestrating agent (or you) delegates work to it, reads its repli
 the conversation. It is a normal terminal window running pi or opencode, so you can watch it and type
 into it; the difference is that Corvi knows it as a named participant in the change.
 
-Everything a subagent can do is in the command line and the page: `corvi subagent …` and the
-change's Subagents section. Bare `corvi subagent` prints its own usage with the delegation recipe,
-and an agent running in a Corvi terminal is pointed at it automatically by the pi and opencode
+Everything a subagent can do is in the command line: `corvi subagent …`. The change's dashboard
+also carries a **Subagents** card listing the change's sessions — open a closed one, close a live
+one, continue an interrupted turn — and a live subagent is an ordinary terminal window you can
+watch and type into. Bare `corvi subagent` prints its own usage with the delegation recipe, and an
+agent running in a Corvi terminal is pointed at it automatically by the pi and opencode
 extensions — invisible outside Corvi.
 
 ## Profiles
@@ -101,8 +103,8 @@ record and travels into the archive with it. The server is the only writer.
 A subagent lives until you close it, the machine reboots, or the change is completed or cancelled.
 After a reboot, the session is gone but everything else is on disk: the subagent reads as **detached**,
 and one with a turn in flight reads as **interrupted**. `open` recreates the window and resumes the
-harness session, and does no work; **Continue** (or `corvi subagent send`) restarts the interrupted
-turn explicitly.
+harness session, and does no work; **Continue** on the dashboard's subagent card (or `corvi
+subagent send`) restarts the interrupted turn explicitly.
 Nothing is restarted behind your back.
 
 ## The relay
@@ -111,6 +113,6 @@ Corvi's extension inside the harness is what carries the conversation. It parks 
 `corvi subagent next`, submits an inbound message as a genuine user turn through the harness's own
 API, and relays the settled reply back with `corvi subagent turn`. A settled subagent turn does
 not raise a user notification; it waits for the orchestrator, which sees it through `corvi
-subagent await` and the Subagents page. The extension is a thin shim: all protocol logic lives in
+subagent await` and the dashboard's subagent card. The extension is a thin shim: all protocol logic lives in
 the CLI and server, and everything is driven through the CLI, so a harness without the extension
 still works as a plain terminal — it just cannot reply.

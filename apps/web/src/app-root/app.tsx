@@ -274,7 +274,7 @@ function App(): JSX.Element {
   const change = (everything ?? []).find(
     (c) => c.id === selected && (c.source ?? "") === selectedSource,
   );
-  const onTerminal = view.name === "change" && (view.page === "terminals" || view.page === "subagents");
+  const onTerminal = view.name === "change" && view.page === "terminals";
   // The plan is the tab's content and takes its frame, so its page gives up the padding the
   // way the terminal's does — the editor is the content area, exactly.
   const onPlan = view.name === "change" && view.page === "plan";
@@ -627,12 +627,6 @@ function App(): JSX.Element {
               // On the dashboard the tab is the way in: selecting a window you cannot see would
               // be a click that does nothing visible.
               setView({ name: "change", source: view.source, id: view.id, page: "terminals" });
-            }}
-            onFocusPane={(windowId) => {
-              // Focus the subagent's window by stable identity, without leaving the page: the
-              // Subagents page has the pane beside the conversation, so selecting there must not
-              // navigate.
-              terminals.focus(selectedSource, view.id, windowId);
             }}
             onNewWindow={() => {
               // A session that has not started has nothing to add a window to: opening the

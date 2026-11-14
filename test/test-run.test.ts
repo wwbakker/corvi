@@ -7,10 +7,12 @@ import {
   classify,
   discoverGroups,
   discoverTestFiles,
+  fileFiltersOf,
   filesForMode,
   importsBrowserAtRuntime,
   isMode,
   isTerminalGroup,
+  runPlan,
 } from "../scripts/test-run.ts";
 
 /**
@@ -104,6 +106,31 @@ test("a temp fixture: a single-line import is e2e, multi-line and type-only are 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("a positional argument is a file filter; a flag's value is not", () => {
+  expect(fileFiltersOf(["subagentsCard"])).toEqual(["subagentsCard"]);
+  expect(fileFiltersOf(["test/subagentsCard.page.test.ts"])).toEqual([
+    "test/subagentsCard.page.test.ts",
+  ]);
+  expect(fileFiltersOf(["--retry=2", "subagentsCard"])).toEqual(["subagentsCard"]);
+  // `-t` and its name are one argument pair: the name must not read as a file.
+  expect(fileFiltersOf(["-t", "a change's page id", "gateway"])).toEqual(["gateway"]);
+  expect(fileFiltersOf(["--test-name-pattern", "the card"])).toEqual([]);
+  expect(fileFiltersOf(["--timeout", "30000", "--parallel"])).toEqual([]);
+});
+
+test("a filter drops the mode's file list so Bun discovers what it names", () => {
+  const files = ["test/a.test.ts", "test/b.page.test.ts"];
+  // A list plus a positional runs every listed file and drops the filter, so the list has to go.
+  expect(runPlan("e2e-rest", files, ["subagentsCard"])).toEqual({ files: [], parallel: false });
+  expect(runPlan("e2e", files, ["test/b"])).toEqual({ files: [], parallel: false });
+  expect(runPlan("unit", files, ["gateway"])).toEqual({ files: [], parallel: true });
+
+  // Flags change how the mode's files run, not which: `-t` still filters names within them.
+  expect(runPlan("e2e-rest", files, ["--retry=2"])).toEqual({ files, parallel: false });
+  expect(runPlan("unit", files, ["-t", "the card lists"])).toEqual({ files, parallel: true });
+  expect(runPlan("unit", files, [])).toEqual({ files, parallel: true });
 });
 
 test("a Bun older than engines.bun is refused, naming the fix", () => {

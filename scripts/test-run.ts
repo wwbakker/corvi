@@ -8,7 +8,11 @@
  *   bun scripts/test-run.ts e2e-rest      # every other browser end-to-end file
  *   bun scripts/test-run.ts --list <mode> # that mode's files, one per line, without running anything
  *
- * Any further arguments go to `bun test` (`--retry=2`, a file filter, …).
+ * Any further arguments go to `bun test` (`--retry=2`, a file filter, …). A positional argument
+ * is a file filter: the mode's own list is dropped and `bun test` discovers the files the filter
+ * names, because a list and a positional together run every listed file and drop the filter. Use
+ * `-t <name>` (or `--test-name-pattern=<name>`) to filter test names within the mode's files:
+ * those arguments keep the list.
  *
  * A named mode whose group matched no test files exits 3 with a message on stderr; it never falls
  * through to `bun test` with an empty argument list, which would run the whole suite instead. A
@@ -139,6 +143,56 @@ export const bunVersionProblem = (version: string, range: string | undefined): s
 
 const requiredBun = (): string | undefined =>
   (JSON.parse(readFileSync("package.json", "utf8")) as { engines?: { bun?: string } }).engines?.bun;
+
+/** Flags whose value is the next argument, so that value is not read as a file filter. Bun's own
+ * help is the list's source: a flag not named here takes its value as `--flag=value`, which is
+ * one argument and needs no entry. */
+const VALUE_FLAGS: ReadonlySet<string> = new Set([
+  "-t",
+  "--test-name-pattern",
+  "--timeout",
+  "--retry",
+  "--max-concurrency",
+  "--seed",
+  "--reporter",
+  "--preload",
+  "--tsconfig",
+  "--config",
+  "-c",
+  "--coverage-reporter",
+  "--coverage-threshold",
+]);
+
+/** The positional arguments that name test files, ignoring flags and the values they take. */
+export const fileFiltersOf = (args: readonly string[]): readonly string[] => {
+  const filters: string[] = [];
+  let valueNext = false;
+  for (const arg of args) {
+    if (valueNext) {
+      valueNext = false;
+      continue;
+    }
+    if (arg.startsWith("-")) {
+      valueNext = !arg.includes("=") && VALUE_FLAGS.has(arg);
+      continue;
+    }
+    filters.push(arg);
+  }
+  return filters;
+};
+
+/** What one `bun test` invocation runs. A positional filter drops the file list — with both, Bun
+ * runs every listed file and the filter selects nothing — so the filter decides by discovery.
+ * Flags alone (`--retry=2`, `-t name`) keep the mode's files: they change how those run, not
+ * which. `--parallel` belongs to the unit mode; the browser files contend for one machine. */
+export const runPlan = (
+  mode: Mode,
+  files: readonly string[],
+  passthrough: readonly string[],
+): { readonly files: readonly string[]; readonly parallel: boolean } => ({
+  files: fileFiltersOf(passthrough).length > 0 ? [] : files,
+  parallel: mode === "unit",
+});
 
 const USAGE =
   "usage: scripts/test-run.ts [all|unit|e2e|e2e-terminal|e2e-rest] [bun test arguments...]";
@@ -288,14 +342,22 @@ const runMode = async (
   passthrough: readonly string[],
 ): Promise<number> => {
   switch (mode) {
-    case "unit":
-      return runTests(groups.unit, passthrough, true);
-    case "e2e":
-      return runTests(groups.e2e, passthrough, false);
-    case "e2e-terminal":
-      return runTests(groups.e2eTerminal, passthrough, false);
-    case "e2e-rest":
-      return runTests(groups.e2eRest, passthrough, false);
+    case "unit": {
+      const plan = runPlan(mode, groups.unit, passthrough);
+      return runTests(plan.files, passthrough, plan.parallel);
+    }
+    case "e2e": {
+      const plan = runPlan(mode, groups.e2e, passthrough);
+      return runTests(plan.files, passthrough, plan.parallel);
+    }
+    case "e2e-terminal": {
+      const plan = runPlan(mode, groups.e2eTerminal, passthrough);
+      return runTests(plan.files, passthrough, plan.parallel);
+    }
+    case "e2e-rest": {
+      const plan = runPlan(mode, groups.e2eRest, passthrough);
+      return runTests(plan.files, passthrough, plan.parallel);
+    }
     case "all": {
       // A pass-through argument is a filter or a flag, and the caller asked for one discovery
       // pass, so it runs unfiltered by group and with no file list (`bun test` discovers).
