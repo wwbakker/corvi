@@ -2,8 +2,9 @@ import { Effect } from "effect";
 
 import { ChangeId } from "@corvi/contracts/changes";
 import { ChangeWork, withCheckoutLock } from "@corvi/workflows";
-import { BadRequestError, ConflictError, isIweError, type IweError } from "@corvi/contracts/errors";
-import { messageOf } from "../../capabilities/effect/support.ts";
+import { ConflictError, type IweError } from "@corvi/contracts/errors";
+import { InvalidTransition } from "@corvi/changes/errors";
+import { asIwe as asIweError } from "../../capabilities/effect/http.ts";
 import { type Change, type ProvisionResult } from "@corvi/changes/record";
 import { finishCheckouts, prepareCheckouts, type RefreshOutcome } from "../provisioning.ts";
 import { startTicket } from "../tickets.ts";
@@ -20,22 +21,12 @@ export type Started = {
 
 /** The transport boundary for a workflow error: conflicts stay conflicts, everything else is the
  * taxonomy the route mapper knows. */
-const asIwe = (change: Change, error: unknown): IweError => {
-  if (isIweError(error)) return error;
-  if (typeof error === "object" && error !== null && "_tag" in error) {
-    const tag = String((error as { _tag: unknown })._tag);
-    const raw = "message" in error ? (error as { message: unknown }).message : undefined;
-    if (tag === "InvalidTransition") {
-      return new ConflictError({
+const asIwe = (change: Change, error: unknown): IweError =>
+  error instanceof InvalidTransition
+    ? new ConflictError({
         message: `${change.id} has already started (${change.state ?? "Implementation"})`,
-      });
-    }
-    // Our typed errors carry the sentence the user sees; the tag is a last resort for a
-    // foreign tagged error, never the first choice — it would show the page the type name.
-    return new BadRequestError({ message: raw ? String(raw) : tag });
-  }
-  return new BadRequestError({ message: messageOf(error) });
-};
+      })
+    : asIweError(error);
 
 /**
  * Start the work through the workflow: the phase moves first (persisted, so a start that fails

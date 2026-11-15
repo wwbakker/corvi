@@ -9,12 +9,12 @@
  */
 import { Effect } from "effect";
 
-import { BadRequestError, ConflictError, isIweError, type IweError } from "@corvi/contracts/errors";
+import { BadRequestError, ConflictError, type IweError } from "@corvi/contracts/errors";
 import { layer as repositoriesLayer } from "@corvi/repositories/node";
 import type { Repositories } from "@corvi/repositories";
 import { runRoute } from "../capabilities/effect/run.ts";
 import { guard, json } from "../capabilities/web.ts";
-import { messageOf } from "../capabilities/effect/support.ts";
+import { asIwe as asIweError } from "../capabilities/effect/http.ts";
 import {
   startUpdate,
   updateStatus,
@@ -30,8 +30,7 @@ import {
 const asIwe = (error: unknown): IweError => {
   if (error instanceof UpdateRefused) return new BadRequestError({ message: error.reason });
   if (error instanceof UpdateBusy) return new ConflictError({ message: error.reason });
-  if (isIweError(error)) return error;
-  return new BadRequestError({ message: messageOf(error) });
+  return asIweError(error);
 };
 
 const respond = <A, E>(

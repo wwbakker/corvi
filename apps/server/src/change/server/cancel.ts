@@ -15,14 +15,8 @@ import {
   type LifecycleReason,
   type Readiness,
 } from "@corvi/workflows/lifecycle";
-import {
-  BadRequestError,
-  InternalError,
-  NotFoundError,
-  isIweError,
-  type IweError,
-} from "@corvi/contracts/errors";
-import { messageOf } from "../../capabilities/effect/support.ts";
+import { BadRequestError, InternalError, type IweError } from "@corvi/contracts/errors";
+import { asIwe } from "../../capabilities/effect/http.ts";
 import type { Change } from "@corvi/changes/record";
 import type { Workspace as WorkspaceShape } from "@corvi/configuration/config";
 import { workspaceOf } from "../../workspace/server/index.ts";
@@ -96,18 +90,6 @@ const services = (
 
 /** The transport boundary for this operation: capability failures become the taxonomy the route
  * mapper knows; the workflow and capability errors stay typed behind it. */
-const asIwe = (error: unknown): IweError => {
-  if (isIweError(error)) return error;
-  if (typeof error === "object" && error !== null && "_tag" in error) {
-    const tag = String((error as { _tag: unknown })._tag);
-    const raw = "message" in error ? (error as { message: unknown }).message : undefined;
-    // Our typed errors carry the sentence the user sees; the tag is a last resort for a
-    // foreign tagged error, never the first choice — it would show the page the type name.
-    const message = raw ? String(raw) : tag;
-    return tag === "ChangeNotFound" ? new NotFoundError({ message }) : new BadRequestError({ message });
-  }
-  return new BadRequestError({ message: messageOf(error) });
-};
 
 export const cancelChange = (
   change: Change,
@@ -150,5 +132,8 @@ export const cancelChange = (
     }
     if (outcome._tag === "NeedsAcknowledgement") return needsForce(links, outcome.reasons);
     return yield* refusal(links, outcome.reasons);
-  }).pipe(Effect.mapError(asIwe), Effect.provide(services(workspace, roots)));
+  }).pipe(
+    Effect.mapError((error) => asIwe(error, { notFound: ["ChangeNotFound"] })),
+    Effect.provide(services(workspace, roots)),
+  );
 };

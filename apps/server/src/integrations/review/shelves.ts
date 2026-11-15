@@ -4,7 +4,7 @@
 import { Effect } from "effect";
 
 import { ChangeId, DirectoryName } from "@corvi/contracts/changes";
-import { BadRequestError, ConflictError, NotFoundError, type IweError } from "@corvi/contracts/errors";
+import { BadRequestError, type IweError } from "@corvi/contracts/errors";
 import {
   ShelfId,
   type ApplyShelfResultDto,
@@ -16,22 +16,16 @@ import { ChangeShelves } from "@corvi/workflows/shelves";
 import type { Change } from "@corvi/changes/record";
 import { changeShelvesLayer } from "../../change/lifecycle-layer.ts";
 import { changePairs } from "../../change/server/index.ts";
+import { asIwe as asIweError } from "../../capabilities/effect/http.ts";
 
 /** The workflow's failures in the route taxonomy. */
-const asIwe = (error: { readonly _tag: string; readonly message: string }): IweError => {
-  switch (error._tag) {
-    case "ChangeNotFound":
-    case "RepositoryNotFound":
-    case "ShelfNotFound":
-      return new NotFoundError({ message: error.message });
-    case "ChangeFormatTooNew":
-      return new ConflictError({ message: error.message });
-    case "NotARepository":
-      return new BadRequestError({ message: "the repository has no checkout to shelve" });
-    default:
-      return new BadRequestError({ message: error.message || error._tag });
-  }
-};
+const asIwe = (error: { readonly _tag: string; readonly message: string }): IweError =>
+  error._tag === "NotARepository"
+    ? new BadRequestError({ message: "the repository has no checkout to shelve" })
+    : asIweError(error, {
+        notFound: ["ChangeNotFound", "RepositoryNotFound", "ShelfNotFound"],
+        conflict: ["ChangeFormatTooNew"],
+      });
 
 const withShelves = <A>(
   work: (

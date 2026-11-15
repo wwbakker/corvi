@@ -1,5 +1,12 @@
-import { formatError, isIweError } from "@corvi/contracts/errors";
-import type { IweError } from "@corvi/contracts/errors";
+import {
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+  formatError,
+  isIweError,
+  type IweError,
+} from "@corvi/contracts/errors";
+import { messageOf } from "@corvi/shell/cli";
 
 /**
  * The only place in the effect layer that knows what a Response is: which of our errors maps
@@ -46,4 +53,25 @@ export const toResponse = (e: unknown): Response => {
     );
   }
   return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+};
+
+/** A tagged error that is not ours, mapped to the taxonomy: the tags a route knows are a 404 or
+ * a 409, and anything else is the caller's 400. A foreign tagged error's `message` wins over its
+ * tag, so the page never shows a type name where a sentence exists. */
+export type IweTags = {
+  readonly notFound?: readonly string[];
+  readonly conflict?: readonly string[];
+};
+
+export const asIwe = (error: unknown, tags: IweTags = {}): IweError => {
+  if (isIweError(error)) return error;
+  if (typeof error === "object" && error !== null && "_tag" in error) {
+    const tag = String((error as { _tag: unknown })._tag);
+    const raw = "message" in error ? (error as { message: unknown }).message : undefined;
+    const message = raw ? String(raw) : tag;
+    if (tags.notFound?.includes(tag)) return new NotFoundError({ message });
+    if (tags.conflict?.includes(tag)) return new ConflictError({ message });
+    return new BadRequestError({ message });
+  }
+  return new BadRequestError({ message: messageOf(error) });
 };

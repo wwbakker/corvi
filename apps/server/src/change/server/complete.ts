@@ -28,15 +28,13 @@ import {
 } from "@corvi/workflows/lifecycle";
 import {
   BadRequestError,
-  ConflictError,
   DecodeError,
   InternalError,
-  NotFoundError,
-  isIweError,
   type CliError,
   type IweError,
 } from "@corvi/contracts/errors";
-import { messageOf } from "../../capabilities/effect/support.ts";
+import { asIwe } from "../../capabilities/effect/http.ts";
+import { messageOf } from "@corvi/shell/cli";
 import { lifecycleLayer } from "../lifecycle-layer.ts";
 
 // The page reads the same completion types; they live in the domain so both halves agree.
@@ -253,22 +251,6 @@ const errorDetail = (error: unknown): string => {
 
 /** The transport boundary for this operation: capability failures become the taxonomy the route
  * mapper knows; the workflow and capability errors stay typed behind it. */
-const asIwe = (error: unknown): IweError => {
-  if (isIweError(error)) return error;
-  if (typeof error === "object" && error !== null && "_tag" in error) {
-    const tag = String((error as { _tag: unknown })._tag);
-    const raw = "message" in error ? (error as { message: unknown }).message : undefined;
-    // Our typed errors carry the sentence the user sees; the tag is a last resort for a
-    // foreign tagged error, never the first choice — it would show the page the type name.
-    const message = raw ? String(raw) : tag;
-    return tag === "ChangeNotFound"
-      ? new NotFoundError({ message })
-      : tag === "ChangeFormatTooNew"
-        ? new ConflictError({ message })
-        : new BadRequestError({ message });
-  }
-  return new BadRequestError({ message: messageOf(error) });
-};
 
 /**
  * Merge every outstanding pull request and close the ticket, through the lifecycle workflow.
@@ -356,8 +338,12 @@ const runCompletion = (
       lifecycle.completeChange({ changeId, acknowledgements, assessment }).pipe(
         Effect.catch((error): Effect.Effect<never, IweError | ChangeStoreError, never> =>
           Effect.gen(function* () {
-            yield* finalizeProgress(change.id, ref, errorDetail(error)).pipe(Effect.mapError(asIwe));
-            return yield* asIwe(error);
+            yield* finalizeProgress(change.id, ref, errorDetail(error)).pipe(
+              Effect.mapError((error) =>
+                asIwe(error, { notFound: ["ChangeNotFound"], conflict: ["ChangeFormatTooNew"] }),
+              ),
+            );
+            return yield* asIwe(error, { notFound: ["ChangeNotFound"], conflict: ["ChangeFormatTooNew"] });
           }),
         ),
       );
@@ -391,4 +377,8 @@ const runCompletion = (
     return yield* new BadRequestError({
       message: `cannot complete: ${outcome.reasons.map((reason) => reason.text).join("; ")}`,
     });
-  }).pipe(Effect.mapError(asIwe));
+  }).pipe(
+    Effect.mapError((error) =>
+      asIwe(error, { notFound: ["ChangeNotFound"], conflict: ["ChangeFormatTooNew"] }),
+    ),
+  );
