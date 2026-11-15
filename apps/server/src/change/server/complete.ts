@@ -34,6 +34,7 @@ import {
   type IweError,
 } from "@corvi/contracts/errors";
 import { asIwe } from "../../capabilities/effect/http.ts";
+import { errorDetail } from "../../capabilities/effect/support.ts";
 import { messageOf } from "@corvi/shell/cli";
 import { lifecycleLayer } from "../lifecycle-layer.ts";
 
@@ -241,14 +242,6 @@ const acknowledgementsFor = (reasons: readonly LifecycleReason[]): readonly Ackn
 /** The sentence a failed step records in the journal: the error's own when it has one, and
  * never empty — `finalizeProgress` drops an empty `error`, which would leave a failed
  * completion saying nothing at all. */
-const errorDetail = (error: unknown): string => {
-  const own =
-    typeof error === "object" && error !== null && "message" in error
-      ? String((error as { message: unknown }).message)
-      : "";
-  return own || String(error) || "the operation failed";
-};
-
 /** The transport boundary for this operation: capability failures become the taxonomy the route
  * mapper knows; the workflow and capability errors stay typed behind it. */
 
@@ -338,7 +331,7 @@ const runCompletion = (
       lifecycle.completeChange({ changeId, acknowledgements, assessment }).pipe(
         Effect.catch((error): Effect.Effect<never, IweError | ChangeStoreError, never> =>
           Effect.gen(function* () {
-            yield* finalizeProgress(change.id, ref, errorDetail(error)).pipe(
+            yield* finalizeProgress(change.id, ref, errorDetail(error, "the operation failed")).pipe(
               Effect.mapError((error) =>
                 asIwe(error, { notFound: ["ChangeNotFound"], conflict: ["ChangeFormatTooNew"] }),
               ),

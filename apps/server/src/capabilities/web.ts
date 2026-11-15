@@ -1,6 +1,6 @@
 import type { Serve } from "bun";
 import type { TerminalSocket } from "../terminals/server/session.ts";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import { readChange } from "../change/server/index.ts";
 import { BadRequestError, isIweError, NotFoundError, type IweError } from "@corvi/contracts/errors";
 import { messageOf } from "./effect/support.ts";
@@ -92,6 +92,17 @@ export const workspaceParam = (req: Request): string | undefined =>
 // The body readers live in ./effect/body.ts so integration modules can use them without
 // importing this module back into their graph.
 export { bodyAs, bodyOf, bodyOrEmpty } from "@corvi/contracts/body";
+
+/** A query string decoded as the route's schema. The one rule for the file routes' `?scope=…&id=…`
+ * refs: a missing or malformed field is the caller's 400 with the named sentence, never a cast. */
+export const queryAs = <S extends Schema.Constraint>(
+  req: Request,
+  schema: S,
+  message: string,
+): Effect.Effect<S["Type"], BadRequestError, S["DecodingServices"]> =>
+  Schema.decodeUnknownEffect(schema)(Object.fromEntries(new URL(req.url).searchParams)).pipe(
+    Effect.mapError(() => new BadRequestError({ message })),
+  );
 
 /** A sync call that throws typed errors (resolveDirectory) lifted into the error channel at the
  * route boundary. Anything that is not one of ours is reported like one, which is the same

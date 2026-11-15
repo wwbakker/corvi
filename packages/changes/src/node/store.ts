@@ -60,7 +60,7 @@ type StoredRecord = typeof StoredRecord.Type;
  * travels to that pair's archive when it is done. */
 export type RootPair = { readonly root: string; readonly archiveRoot: string };
 
-const isNotFound = (cause: unknown): boolean =>
+export const isNotFound = (cause: unknown): boolean =>
   typeof cause === "object" &&
   cause !== null &&
   "code" in cause &&

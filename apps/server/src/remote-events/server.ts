@@ -26,6 +26,7 @@ import type {
 import { NotFoundError } from "@corvi/contracts/errors";
 import { announceAvailability, announceFromSource } from "../capabilities/bus.ts";
 import { runtimeConfig } from "../capabilities/runtime.ts";
+import { REDIRECT_STATUSES, parseHttpUrl } from "../capabilities/url.ts";
 import {
   DEFAULT_AVAILABILITY_DEADLINES,
   type RemoteAvailabilityDeadlines,
@@ -65,20 +66,13 @@ const targetKey = (remote: RemoteWorkspaceDto): string =>
 
 /** The remote's events URL, or undefined when the url is not http(s) (the 2.1 note: never fetch a
  * scheme the config should not hold). */
-const eventsUrl = (remoteUrl: string): URL | undefined => {
-  try {
-    const base = new URL(remoteUrl);
-    if (base.protocol !== "http:" && base.protocol !== "https:") return undefined;
-    return new URL(`${remoteUrl.replace(/\/+$/, "")}/api/events`);
-  } catch {
-    return undefined;
-  }
-};
-
-/** Statuses `fetch` would follow; the subscription refuses them instead, so a remote cannot point
+const eventsUrl = (remoteUrl: string): URL | undefined =>
+  parseHttpUrl(remoteUrl) === undefined
+    ? undefined
+    : new URL(
+        `${remoteUrl.replace(/\/+$/, "")}/api/events`,
+      ); /** Statuses `fetch` would follow; the subscription refuses them instead, so a remote cannot point
  * the fan-in at another origin. */
-const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
-
 /** A frame may be this large; a remote that never sends a blank line is cut off here rather than
  * growing local memory. */
 const MAX_FRAME_BYTES = 1 << 20;

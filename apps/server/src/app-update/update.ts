@@ -13,6 +13,7 @@
  * capability (a fast-forward exactly, never a merge), and the two Bun commands through the app's
  * shell, which is also the seam a test scripts them at.
  */
+import { errorDetail } from "../capabilities/effect/support.ts";
 import { Effect, Exit, Schema } from "effect";
 
 import { AbsolutePath } from "@corvi/contracts/paths";
@@ -137,14 +138,6 @@ const withStep = (progress: OperationProgressDto, step: OperationStepDto): Opera
 /** The sentence a failed step records: the error's own when it has one, and never empty — an
  * empty error would leave a failed update saying nothing at all. */
 // Pure and synchronous: nothing for an Effect to wrap.
-const errorDetail = (error: unknown): string => {
-  const own =
-    typeof error === "object" && error !== null && "message" in error
-      ? String((error as { message: unknown }).message)
-      : "";
-  return own || String(error) || "the update failed";
-};
-
 /** What an update decides on: eligibility and what is new. The upstream tip rides along
  * internally — it is the identity one "new version" notice is announced once per. */
 type Snapshot = {
@@ -224,7 +217,7 @@ const assess = (options: AppUpdateOptions, fresh: boolean): Effect.Effect<Snapsh
       }),
     );
     return facts._tag === "Failure"
-      ? ineligible(`could not read the checkout: ${errorDetail(facts.failure)}`)
+      ? ineligible(`could not read the checkout: ${errorDetail(facts.failure, "the update failed")}`)
       : facts.success;
   });
 
@@ -347,7 +340,9 @@ export const startUpdate = (
     // The run owns the guard from here to its own end, and says so in the journal as it goes.
     yield* Effect.forkDetach(
       runSteps(options).pipe(
-        Effect.catch((error) => Effect.sync(() => console.error("the update stopped:", errorDetail(error)))),
+        Effect.catch((error) =>
+          Effect.sync(() => console.error("the update stopped:", errorDetail(error, "the update failed"))),
+        ),
         Effect.ensuring(releaseGuard()),
       ),
     );
@@ -409,7 +404,7 @@ const runSteps = (
       yield* writeJournal(progress);
       const outcome = yield* Effect.result(runStep(root, step.id));
       if (outcome._tag === "Failure") {
-        const message = errorDetail(outcome.failure);
+        const message = errorDetail(outcome.failure, "the update failed");
         progress = {
           ...withStep(progress, { ...step, state: "failed", detail: message }),
           finishedAt: new Date().toISOString(),

@@ -19,3 +19,13 @@ export { cliJson, messageOf } from "@corvi/shell/cli";
 /** Filesystem failures are defects, not domain errors — the directories we read and write are
  * ours, so the raw rejection escapes as a defect. */
 export const fs = <A>(work: () => Promise<A>): Effect.Effect<A> => Effect.orDie(Effect.tryPromise(work));
+
+/** A failure's sentence for a journal: its own message, else its string form, else the caller's
+ * fallback — never empty, because the page renders the detail as the reason. */
+export const errorDetail = (error: unknown, fallback: string): string => {
+  const own =
+    typeof error === "object" && error !== null && "message" in error
+      ? String((error as { message: unknown }).message)
+      : "";
+  return own || String(error) || fallback;
+};

@@ -12,6 +12,7 @@ import { Effect, Schema } from "effect";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { isNotFound } from "@corvi/changes/node";
 import { OperationProgressSchema, type OperationProgressDto } from "@corvi/contracts/api";
 import { stateDir } from "@corvi/configuration/node";
 
@@ -23,12 +24,6 @@ export class UpdateJournalError extends Schema.TaggedError<UpdateJournalError>()
   // preserves it exactly (on decode `Schema.Defect()` is lossy).
   cause: Schema.optional(Schema.Unknown),
 }) {}
-
-const isNotFound = (cause: unknown): boolean =>
-  typeof cause === "object" &&
-  cause !== null &&
-  "code" in cause &&
-  (cause as { code?: string }).code === "ENOENT";
 
 const path = (): string => join(stateDir(), FILE);
 

@@ -2,6 +2,7 @@ import { join, dirname, isAbsolute, relative, resolve } from "node:path";
 import type { Dirent } from "node:fs";
 import { readdir, readFile, mkdir, rename } from "node:fs/promises";
 import { Effect, Schema } from "effect";
+import { isNotFound } from "@corvi/changes/node";
 import type { Change } from "@corvi/changes/record";
 import { FORMAT_VERSION, PLAN_FILE } from "@corvi/changes/record";
 import { ChangeId } from "@corvi/contracts/changes";
@@ -340,9 +341,6 @@ export const listChanges = (): Effect.Effect<Change[]> =>
 
 /** Whether a filesystem failure is "the path is not there" — the one read error a strict read
  * treats as "nothing to read" rather than a failure. */
-const isMissing = (cause: unknown): boolean =>
-  typeof cause === "object" && cause !== null && (cause as { code?: unknown }).code === "ENOENT";
-
 const describeCause = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause));
 
 /** The directory names under one root, read strictly: a root that does not exist yet is empty,
@@ -354,7 +352,7 @@ const directoriesInStrict = (dir: string): Effect.Effect<readonly string[], Inte
         const entries = await readdir(dir, { withFileTypes: true });
         return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
       } catch (cause) {
-        if (isMissing(cause)) return [] as string[];
+        if (isNotFound(cause)) return [] as string[];
         throw cause;
       }
     },
@@ -369,7 +367,7 @@ const readChangeTextStrict = (path: string): Effect.Effect<string | undefined, I
       try {
         return await readFile(path, "utf8");
       } catch (cause) {
-        if (isMissing(cause)) return undefined;
+        if (isNotFound(cause)) return undefined;
         throw cause;
       }
     },

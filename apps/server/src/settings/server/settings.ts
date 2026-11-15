@@ -4,6 +4,7 @@ import type { Config } from "@corvi/configuration/config";
 import type { Settings, SettingsView } from "@corvi/contracts/settings-view";
 import { overriddenExtensionSettings, overriddenSettings } from "@corvi/configuration/settings";
 import { ENV_OVERRIDES } from "./legacySettings.ts";
+import { parseHttpUrl } from "../../capabilities/url.ts";
 import {
   runtimeConfig,
   configPath,
@@ -159,14 +160,7 @@ export function problems(next: Settings): string[] {
 }
 
 /** A remote URL is a real http(s) URL: what the gateway will eventually proxy to. */
-const isHttpUrl = (value: string): boolean => {
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:";
-  } catch {
-    return false;
-  }
-};
+const isHttpUrl = (value: string): boolean => parseHttpUrl(value) !== undefined;
 
 /** Values nobody set are left out, so the file stays a page of decisions rather than a dump of
  * every default. An empty string is "not set": that is what clearing a field on the page means. */

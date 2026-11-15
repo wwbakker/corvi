@@ -11,17 +11,11 @@ import { ShelfId, ShelfSchema, type ShelfDto } from "@corvi/contracts/shelves";
 import { ChangeFormatTooNew, ChangeNotFound, ChangeStoreError, ShelfNotFound } from "../errors.ts";
 import { FORMAT_VERSION } from "../record.ts";
 import { ShelfStore } from "../shelves.ts";
-import type { RootPair } from "./store.ts";
+import { isNotFound, type RootPair } from "./store.ts";
 
 const SHELVES = "shelves";
 const DESCRIPTION = "shelf.json";
 const PATCH = "changes.patch";
-
-const isNotFound = (cause: unknown): boolean =>
-  typeof cause === "object" &&
-  cause !== null &&
-  "code" in cause &&
-  (cause as { code?: string }).code === "ENOENT";
 
 const describe = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause));
 

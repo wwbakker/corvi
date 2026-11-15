@@ -12,6 +12,7 @@ import { makeCorviClient, type FetchLike } from "@corvi/client";
 import type { RemoteWorkspaceRefDto } from "@corvi/contracts/api";
 import type { DeviceViewDto } from "@corvi/contracts/devices";
 import { BadRequestError } from "@corvi/contracts/errors";
+import { REDIRECT_STATUSES, parseHttpUrl } from "../../capabilities/url.ts";
 
 /** What a successful pairing yields: the device created on the remote, the raw token (which the
  * editor writes into its draft, and which is never returned again), and the remote's workspaces,
@@ -28,8 +29,6 @@ export const PAIR_TIMEOUT_MS = 15_000;
 
 /** Statuses `fetch` would follow; the helper refuses them, exactly as the gateway does. A
  * redirect could carry the freshly minted token to an origin the user did not name. */
-const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
-
 /** A refusal the transport carries through as its message. The client's transport replaces any
  * throw out of `fetch` with "the server could not be reached", so a choice of words made here has
  * to come back as an ordinary non-ok answer, not an exception. */
@@ -72,23 +71,10 @@ const outbound = (
  * client. Only http and https are fetchable, and only those are accepted. */
 const asHttpUrl = (value: string): Effect.Effect<string, BadRequestError> => {
   const trimmed = value.trim();
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
-    return Effect.fail(
-      new BadRequestError({ message: "the remote address must be a full http or https URL" }),
-    );
-  }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    return Effect.fail(
-      new BadRequestError({ message: "the remote address must be a full http or https URL" }),
-    );
-  }
-  return Effect.succeed(trimmed.replace(/\/+$/, ""));
-};
-
-/** The one message a failure gets: the client's classified message when there is one, so an
+  return parseHttpUrl(trimmed) === undefined
+    ? Effect.fail(new BadRequestError({ message: "the remote address must be a full http or https URL" }))
+    : Effect.succeed(trimmed.replace(/\/+$/, ""));
+}; /** The one message a failure gets: the client's classified message when there is one, so an
  * unreachable host, a redirect and a timeout each say what the client saw rather than "failed". */
 const failure = (error: unknown): BadRequestError =>
   new BadRequestError({
