@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
@@ -7,8 +6,7 @@ import type { SourceEventDto } from "@corvi/contracts/events";
 import { eventsRoutes } from "../apps/server/src/capabilities/bus.ts";
 import { serve, type Serving } from "../apps/server/src/capabilities/serve.ts";
 import { makeRemoteEvents, type RemoteEvents } from "../apps/server/src/remote-events/server.ts";
-import { configPath, reloadConfigSync } from "../apps/server/src/workspace/server/index.ts";
-import { runEffect, until } from "./helpers.ts";
+import { runEffect, until, writeTestWorkspaces } from "./helpers.ts";
 
 /**
  * The remote-event fan-in, against fake remote SSE servers: a remote event lands on the local
@@ -95,11 +93,6 @@ const newController = (): RemoteEvents => {
   return controller;
 };
 
-const writeConfig = (workspaces: unknown[]): void => {
-  writeFileSync(configPath(), JSON.stringify({ workspaces }));
-  reloadConfigSync();
-};
-
 const remoteWorkspace = (id: string, url: string, token = "remote-token"): unknown => ({
   id,
   name: id,
@@ -165,7 +158,7 @@ afterAll(() => {
 
 test("a remote event is re-emitted on the local stream with its source", async () => {
   const fake = await newFake();
-  writeConfig([remoteWorkspace("remote-client", fake.url)]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", fake.url)]);
   const controller = newController();
 
   const stream = await connectLocal();
@@ -192,7 +185,7 @@ test("a remote stream that ends reconnects", async () => {
     res.write("event: changes\ndata: \n\n");
     res.end();
   });
-  writeConfig([remoteWorkspace("remote-client", fake.url)]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", fake.url)]);
   const controller = newController();
 
   await runEffect(controller.reconcile());
@@ -202,7 +195,7 @@ test("a remote stream that ends reconnects", async () => {
 
 test("a local-only config opens no remote subscriptions", async () => {
   const fake = await newFake();
-  writeConfig([{ id: "local", name: "Local" }]);
+  writeTestWorkspaces([{ id: "local", name: "Local" }]);
   const controller = newController();
 
   await runEffect(controller.reconcile());
@@ -212,17 +205,17 @@ test("a local-only config opens no remote subscriptions", async () => {
 
 test("adding and removing a remote workspace starts and stops its subscription", async () => {
   const fake = await newFake();
-  writeConfig([]);
+  writeTestWorkspaces([]);
   const controller = newController();
   await runEffect(controller.reconcile());
   expect(fake.open()).toBe(0);
 
-  writeConfig([remoteWorkspace("remote-client", fake.url)]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", fake.url)]);
   await runEffect(controller.reconcile());
   await until(async () => fake.open() === 1, true, 5000);
   expect(fake.connections()).toBeGreaterThanOrEqual(1);
 
-  writeConfig([]);
+  writeTestWorkspaces([]);
   await runEffect(controller.reconcile());
   await until(async () => fake.open() === 0, true, 5000);
   expect(fake.open()).toBe(0);
@@ -238,7 +231,7 @@ test("frames split across chunks, with CRLF and multi-line data, are assembled",
       setTimeout(() => res.write("\r\n"), 10);
     }, 20);
   });
-  writeConfig([remoteWorkspace("remote-client", fake.url)]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", fake.url)]);
   const controller = newController();
 
   const stream = await connectLocal();
@@ -259,14 +252,14 @@ test("frames split across chunks, with CRLF and multi-line data, are assembled",
 
 test("a retargeted workspace restarts its subscription", async () => {
   const fake = await newFake();
-  writeConfig([remoteWorkspace("remote-client", fake.url, "first-token")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", fake.url, "first-token")]);
   const controller = newController();
 
   await runEffect(controller.reconcile());
   await until(async () => fake.connections() === 1, true, 5000);
   expect(fake.auth()).toEqual(["Bearer first-token"]);
 
-  writeConfig([remoteWorkspace("remote-client", fake.url, "second-token")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", fake.url, "second-token")]);
   await runEffect(controller.reconcile());
   await until(async () => fake.connections() === 2, true, 5000);
   expect(fake.auth()[1]).toBe("Bearer second-token");
@@ -283,7 +276,7 @@ test("two remotes emit distinct source envelopes", async () => {
     res.writeHead(200, { "content-type": "text/event-stream" });
     res.write("event: windows\ndata: \n\n");
   });
-  writeConfig([remoteWorkspace("first", first.url), remoteWorkspace("second", second.url)]);
+  writeTestWorkspaces([remoteWorkspace("first", first.url), remoteWorkspace("second", second.url)]);
   const controller = newController();
 
   const stream = await connectLocal();
@@ -309,7 +302,7 @@ test("a redirect from the remote is refused, not followed", async () => {
     res.writeHead(302, { location: `${target.url}/api/events` });
     res.end();
   });
-  writeConfig([remoteWorkspace("remote-client", redirecting.url)]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", redirecting.url)]);
   const controller = newController();
 
   const stream = await connectLocal(1500);
@@ -334,7 +327,7 @@ test("a remote power event is forwarded, and an unknown one is ignored", async (
     res.write("event: power\ndata: \n\n");
     res.write("event: mystery\ndata: \n\n");
   });
-  writeConfig([remoteWorkspace("remote-client", fake.url)]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", fake.url)]);
   const controller = newController();
 
   const stream = await connectLocal(1500);

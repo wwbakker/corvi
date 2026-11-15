@@ -11,6 +11,7 @@ import {
   testRun,
   testTempDir,
   waitForUrl,
+  gitRepo,
 } from "./helpers.ts";
 
 /**
@@ -30,17 +31,6 @@ let url: string;
 let server: ReturnType<typeof Bun.spawn>;
 
 /** A repository with a remote, so a fresh branch has somewhere its work could land. */
-const clonedRepo = async (name: string): Promise<string> => {
-  const seed = join(tmp, `${name}-seed`);
-  await runSh(["git", "init", "-b", "main", seed]);
-  await Bun.write(join(seed, "README.md"), `${name}\n`);
-  await runSh(["git", "add", "."], seed);
-  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], seed);
-  await runSh(["git", "clone", "--bare", "--quiet", seed, join(tmp, `${name}.git`)]);
-  const repo = join(tmp, name);
-  await runSh(["git", "clone", "--quiet", join(tmp, `${name}.git`), repo]);
-  return repo;
-};
 
 /** A started change with one worktree, holding an untracked file a local run left behind. */
 const changeWithLeftovers = async (id: string, repo: string): Promise<string> => {
@@ -93,7 +83,10 @@ test.skipIf(!usable)(
   "removing a repository names its untracked files and asks before they go",
   async () => {
     const id = "DISCARD-EDIT";
-    const worktree = await changeWithLeftovers(id, await clonedRepo("app"));
+    const worktree = await changeWithLeftovers(
+      id,
+      await gitRepo(tmp, "app", { remote: true, configure: false }),
+    );
 
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });

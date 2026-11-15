@@ -1,5 +1,5 @@
-import { existsSync, mkdtempSync, readdirSync, statSync } from "node:fs";
-import { mkdir, mkdtemp } from "node:fs/promises";
+import { existsSync, mkdtempSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { mkdir, mkdtemp, realpath } from "node:fs/promises";
 import { cpus, loadavg } from "node:os";
 import { join } from "node:path";
 import { chromium, webkit, type Browser } from "playwright";
@@ -8,7 +8,12 @@ import { testTempBase } from "../scripts/test-temp.ts";
 import { Effect, Layer, Result, Schema } from "effect";
 import { TestClock, TestConsole } from "effect/testing";
 import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
-import { runtimeConfig, type Config } from "../apps/server/src/workspace/server/index.ts";
+import {
+  configPath,
+  reloadConfigSync,
+  runtimeConfig,
+  type Config,
+} from "../apps/server/src/workspace/server/index.ts";
 import { capabilitiesLayer } from "../apps/server/src/integrations/services.ts";
 import type { Capabilities } from "../apps/server/src/integrations/api/capabilities.ts";
 import { setRepos } from "../apps/server/src/change/provisioning.ts";
@@ -71,6 +76,56 @@ export const testRun = (): string => {
 const tempDirName = (label: string): string => join(testTempBase(), `corvi-${testRun()}-${label}-`);
 
 export const testTempDir = (label: string): Promise<string> => mkdtemp(tempDirName(label));
+
+/** A file's own changes roots: a token-named temp dir with `changes` and `changes-archive` under
+ * it, exported through the environment before any test in the file reads the configuration.
+ * Product code that deletes a change or an archive mutates exactly these roots, so a file cannot
+ * disturb another's state. `realpath` matters: the store compares resolved paths. */
+export const useOwnChangeRoot = async (label: string): Promise<string> => {
+  const tmp = await realpath(await testTempDir(label));
+  process.env.CORVI_ROOT = join(tmp, "changes");
+  process.env.CORVI_ARCHIVE_ROOT = join(tmp, "changes-archive");
+  return tmp;
+};
+
+/** One commit in a test repository, with a fixed identity so git never asks. */
+export const commitIn = (repo: string, message: string): Promise<ShellResult> =>
+  runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", message], repo);
+
+/** A test repository: one commit on `branch` (main by default). With `remote`, the seed is cloned
+ * into a bare origin and the returned clone tracks it, configured with the test identity unless
+ * `configure: false`. */
+export const gitRepo = async (
+  tmp: string,
+  name: string,
+  options: { readonly branch?: string; readonly remote?: boolean; readonly configure?: boolean } = {},
+): Promise<string> => {
+  const branch = options.branch ?? "main";
+  const seed = join(tmp, options.remote ? `${name}-seed` : name);
+  await runSh(["git", "init", "-b", branch, seed]);
+  await Bun.write(join(seed, "README.md"), `${name}\n`);
+  await runSh(["git", "add", "."], seed);
+  await commitIn(seed, "init");
+  if (!options.remote) return seed;
+  const origin = join(tmp, `${name}.git`);
+  await runSh(["git", "clone", "--bare", "--quiet", seed, origin]);
+  const clone = join(tmp, name);
+  await runSh(["git", "clone", "--quiet", origin, clone]);
+  if (options.configure !== false) {
+    await runSh(["git", "config", "user.email", "t@t"], clone);
+    await runSh(["git", "config", "user.name", "t"], clone);
+  }
+  return clone;
+};
+
+/** Write a test configuration file and put it into effect without a restart. */
+export const writeTestConfig = (value: unknown): void => {
+  writeFileSync(configPath(), JSON.stringify(value));
+  reloadConfigSync();
+};
+
+/** The common shape: a config holding just these workspaces. */
+export const writeTestWorkspaces = (workspaces: unknown[]): void => writeTestConfig({ workspaces });
 
 /** This file's own world, applied before any test in it reads the configuration: `CORVI_ROOT`
  * and its siblings point into a directory no other test file shares. Product code that deletes

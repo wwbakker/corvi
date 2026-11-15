@@ -19,8 +19,8 @@ import {
   type RedeemLimiter,
 } from "../apps/server/src/devices/server/index.ts";
 import { problems } from "../apps/server/src/settings/server/index.ts";
-import { configPath, reloadConfigSync, runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
-import { runEffect, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
+import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
+import { runEffect, serverEnv, testRun, testTempDir, waitForUrl, writeTestConfig } from "./helpers.ts";
 
 /**
  * The external listener and its token enforcement.
@@ -110,21 +110,16 @@ const upgrade = (
   });
 
 /** Write a config file and refill the snapshot (the device tests' helper, local to this file). */
-const writeConfig = async (value: unknown): Promise<void> => {
-  await Bun.write(configPath(), JSON.stringify(value));
-  reloadConfigSync();
-};
-
 test("remoteAccess resolves, validates the port, and defaults to off", async () => {
-  await writeConfig({ remoteAccess: { enabled: true, port: 41234 } });
+  await writeTestConfig({ remoteAccess: { enabled: true, port: 41234 } });
   expect(runtimeConfig().remoteAccess).toEqual({ enabled: true, port: 41234 });
 
   // A port outside 1..65535 is not a port: the setting falls back to the default rather than
   // emptying the whole config.
-  await writeConfig({ remoteAccess: { enabled: true, port: 70000 } });
+  await writeTestConfig({ remoteAccess: { enabled: true, port: 70000 } });
   expect(runtimeConfig().remoteAccess).toEqual({ enabled: false, port: 4110 });
 
-  await writeConfig({});
+  await writeTestConfig({});
   expect(runtimeConfig().remoteAccess).toEqual({ enabled: false, port: 4110 });
 
   // The settings write path refuses an invalid port rather than persisting it.

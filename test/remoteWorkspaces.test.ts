@@ -4,25 +4,15 @@ import { readFile } from "node:fs/promises";
 import { loaded } from "../apps/server/src/integrations/index.ts";
 import { MASK } from "../apps/server/src/settings/server/secrets.ts";
 import { problems, settingsViewSync, writeSettings } from "../apps/server/src/settings/server/index.ts";
-import {
-  configPath,
-  reloadConfigSync,
-  runtimeConfig,
-  workspaceViews,
-} from "../apps/server/src/workspace/server/index.ts";
+import { configPath, runtimeConfig, workspaceViews } from "../apps/server/src/workspace/server/index.ts";
 import { workspaceRoutes } from "../apps/server/src/workspace/routes.ts";
-import { runEffect } from "./helpers.ts";
+import { runEffect, writeTestConfig } from "./helpers.ts";
 
 /**
  * A workspace can be remote: a normal config entry whose target and device token live beside the
  * local ones. The token and any declared extension secret are credentials — they must never reach
  * the page — while the remote shape must round-trip the file and survive a hand-mangled neighbour.
  */
-
-const writeConfig = async (value: unknown): Promise<void> => {
-  await Bun.write(configPath(), JSON.stringify(value));
-  reloadConfigSync();
-};
 
 const remote = { url: "https://host.tailnet.ts.net", workspace: "client", token: "device-token" };
 
@@ -38,7 +28,7 @@ const workspacesRoute = (): Promise<Response> => {
 };
 
 test("a remote workspace round-trips through the config", async () => {
-  await writeConfig({ workspaces: [{ id: "remote-client", name: "Client", remote }] });
+  await writeTestConfig({ workspaces: [{ id: "remote-client", name: "Client", remote }] });
   expect(runtimeConfig().workspaces).toEqual([{ id: "remote-client", name: "Client", remote }]);
 
   const written = JSON.parse(await readFile(configPath(), "utf8")) as {
@@ -48,7 +38,7 @@ test("a remote workspace round-trips through the config", async () => {
 });
 
 test("a malformed remote entry is tolerated per item", async () => {
-  await writeConfig({
+  await writeTestConfig({
     workspaces: [
       // No url, so the remote is malformed; the workspace entry itself is still the user's.
       { id: "bad-remote", name: "Bad", remote: { workspace: 7 } },
@@ -67,7 +57,7 @@ test("a malformed remote entry is tolerated per item", async () => {
 });
 
 test("the settings view masks the remote token in file and effective", async () => {
-  await writeConfig({ workspaces: [{ id: "remote-client", name: "Client", remote }] });
+  await writeTestConfig({ workspaces: [{ id: "remote-client", name: "Client", remote }] });
   const view = settingsViewSync();
 
   expect(view.file.workspaces?.[0]?.remote?.token).toBe(MASK);
@@ -78,7 +68,7 @@ test("the settings view masks the remote token in file and effective", async () 
 });
 
 test("a save that sends the mask back keeps the stored token", async () => {
-  await writeConfig({ workspaces: [{ id: "remote-client", name: "Client", remote }] });
+  await writeTestConfig({ workspaces: [{ id: "remote-client", name: "Client", remote }] });
   const view = settingsViewSync();
 
   // The page edits something else and hands the masked workspaces back unchanged.
@@ -93,7 +83,7 @@ test("a save that sends the mask back keeps the stored token", async () => {
 });
 
 test("a remote sent without a token keeps the stored token", async () => {
-  await writeConfig({ workspaces: [{ id: "remote-client", name: "Client", remote }] });
+  await writeTestConfig({ workspaces: [{ id: "remote-client", name: "Client", remote }] });
   // A form that cannot display the token builds `remote` from its visible fields only.
   await runEffect(
     writeSettings({
@@ -106,7 +96,7 @@ test("a remote sent without a token keeps the stored token", async () => {
 });
 
 test("a changed url drops the stored token rather than carrying it to a new host", async () => {
-  await writeConfig({ workspaces: [{ id: "remote-client", name: "Client", remote }] });
+  await writeTestConfig({ workspaces: [{ id: "remote-client", name: "Client", remote }] });
   // The editor's address field edits only the url; the token field still holds the mask. The old
   // host's credential must not be restored for the new host.
   await runEffect(
@@ -128,7 +118,7 @@ test("a changed url drops the stored token rather than carrying it to a new host
 });
 
 test("a changed remote workspace id drops the stored token", async () => {
-  await writeConfig({ workspaces: [{ id: "remote-client", name: "Client", remote }] });
+  await writeTestConfig({ workspaces: [{ id: "remote-client", name: "Client", remote }] });
   await runEffect(
     writeSettings({
       workspaces: [
@@ -144,7 +134,7 @@ test("a changed remote workspace id drops the stored token", async () => {
 });
 
 test("an empty token clears the stored one", async () => {
-  await writeConfig({ workspaces: [{ id: "remote-client", name: "Client", remote }] });
+  await writeTestConfig({ workspaces: [{ id: "remote-client", name: "Client", remote }] });
   await runEffect(
     writeSettings({
       workspaces: [
@@ -164,7 +154,7 @@ test("an empty token clears the stored one", async () => {
 });
 
 test("a new token replaces the stored one", async () => {
-  await writeConfig({ workspaces: [{ id: "remote-client", name: "Client", remote }] });
+  await writeTestConfig({ workspaces: [{ id: "remote-client", name: "Client", remote }] });
   await runEffect(
     writeSettings({
       workspaces: [
@@ -180,7 +170,7 @@ test("a new token replaces the stored one", async () => {
 });
 
 test("a mask for a token nothing is stored in is dropped, not persisted", async () => {
-  await writeConfig({
+  await writeTestConfig({
     workspaces: [
       { id: "remote-client", name: "Client", remote: { url: remote.url, workspace: remote.workspace } },
     ],
@@ -201,7 +191,7 @@ test("a mask for a token nothing is stored in is dropped, not persisted", async 
 });
 
 test("a save with workspaces absent preserves the stored workspaces", async () => {
-  await writeConfig({ workspaces: [{ id: "remote-client", name: "Client", remote }] });
+  await writeTestConfig({ workspaces: [{ id: "remote-client", name: "Client", remote }] });
   await runEffect(writeSettings({ notificationSound: false }));
 
   expect(runtimeConfig().notificationSound).toBe(false);
@@ -209,7 +199,7 @@ test("a save with workspaces absent preserves the stored workspaces", async () =
 });
 
 test("the workspaces route masks the remote token and extension secrets", async () => {
-  await writeConfig({
+  await writeTestConfig({
     workspaces: [
       { id: "remote-client", name: "Client", remote },
       {
@@ -239,7 +229,7 @@ test("the workspaces route masks the remote token and extension secrets", async 
 });
 
 test("the workspace view is not aliased to the live config", async () => {
-  await writeConfig({
+  await writeTestConfig({
     workspaces: [{ id: "w", name: "W", settings: { changesRoot: "/tmp/original" }, remote }],
   });
 

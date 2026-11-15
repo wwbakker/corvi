@@ -1,52 +1,34 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtemp, readFile, readdir, rm, realpath } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { createChange, readChange, changeDir } from "../apps/server/src/change/server/index.ts";
 import { checkoutFor } from "../apps/server/src/vendors/git.ts";
 import { provisionRepositories } from "../apps/server/src/change/provisioning.ts";
 import { Effect } from "effect";
-import { checkoutsOf, runCancel, runEffect, runSh, TestError } from "./helpers.ts";
+import {
+  checkoutsOf,
+  runCancel,
+  runEffect,
+  runSh,
+  TestError,
+  useOwnChangeRoot,
+  commitIn,
+  gitRepo,
+} from "./helpers.ts";
 import { cancelChange, reopenChange } from "../apps/server/src/change/server/index.ts";
-import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
 import { byWorkOrder, isFinished, CHANGE_STATES, type Change } from "@corvi/changes/record";
-
 /**
  * Cancelling is the other way a change ends: it removes the worktrees. So the things worth pinning
  * down are that no work is lost — uncommitted work is shelved, commits stay on their branch — that
  * it leaves alone everything anyone else can see, and that reopening brings it all back.
  */
 let tmp: string;
-
-const commit = (repo: string, message: string): Promise<ShellResult> =>
-  runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", message], repo);
-
-async function clonedRepo(name: string): Promise<string> {
-  const origin = join(tmp, `${name}.git`);
-  const work = join(tmp, `${name}-seed`);
-  await runSh(["git", "init", "-b", "main", work]);
-  await Bun.write(join(work, "README.md"), `${name}\n`);
-  await runSh(["git", "add", "."], work);
-  await commit(work, "init");
-  await runSh(["git", "clone", "--bare", "--quiet", work, origin]);
-
-  const clone = join(tmp, name);
-  await runSh(["git", "clone", "--quiet", origin, clone]);
-  await runSh(["git", "config", "user.email", "t@t"], clone);
-  await runSh(["git", "config", "user.name", "t"], clone);
-  return clone;
-}
-
 beforeAll(async () => {
-  tmp = await realpath(await mkdtemp(join(tmpdir(), "corvi-cancel-")));
-  process.env.CORVI_ROOT = join(tmp, "changes");
-  process.env.CORVI_ARCHIVE_ROOT = join(tmp, "changes-archive");
+  tmp = await useOwnChangeRoot("cancel");
 });
-
 afterAll(async () => {
   await rm(tmp, { recursive: true, force: true });
 });
-
 test("the order the lists show changes in", () => {
   const at = (id: string, state: Change["state"], createdAt: string): Change => ({
     id,
@@ -67,18 +49,15 @@ test("the order the lists show changes in", () => {
     .sort(byWorkOrder)
     .map((c) => c.id);
   expect(sorted).toEqual(["idea", "newer", "older", "review", "stuck"]);
-
   // A change with no state is one you are working on.
   expect(
     [at("none", undefined, "2026-01-09T00:00:00Z"), at("b", "Blocked", "2026-01-09T00:00:00Z")]
       .sort(byWorkOrder)
       .map((c) => c.id),
   ).toEqual(["none", "b"]);
-
   // The select offers them in the same order the lists sort by: one order, used twice.
   expect(CHANGE_STATES.slice(0, 3)).toEqual(["Ideation", "Implementation", "Verification"]);
 });
-
 test("a change is over when it was completed or cancelled", () => {
   const base = { id: "x", branch: "x", checkouts: checkoutsOf([]), createdAt: "2026-01-01T00:00:00Z" };
   expect(isFinished({ ...base, state: "Implementation" })).toBe(false);
@@ -88,20 +67,17 @@ test("a change is over when it was completed or cancelled", () => {
   // The fact, whatever the state says: finishing a change is what sets this.
   expect(isFinished({ ...base, completedAt: "2026-02-02T00:00:00Z" })).toBe(true);
 });
-
 test("cancelling takes back the worktree and leaves the branch", async () => {
-  const repo = await clonedRepo("cancel-plain");
+  const repo = await gitRepo(tmp, "cancel-plain", { remote: true });
   const change = await runEffect(
     createChange({ id: "PROJ-CANCEL", branch: "PROJ-CANCEL-x", checkouts: checkoutsOf([repo]) }),
   );
   // The same checkouts the git extension's change:created hook creates.
   await Effect.runPromise(provisionRepositories(change));
   expect(await runEffect(checkoutFor(change, repo))).toBeDefined();
-
   const result = await runCancel(change);
   expect("change" in result).toBe(true);
   const cancelled = (result as { change: Change }).change;
-
   expect(cancelled.state).toBe("Cancelled");
   expect(cancelled.completedAt).toBeDefined();
   expect(isFinished(cancelled)).toBe(true);
@@ -111,30 +87,26 @@ test("cancelling takes back the worktree and leaves the branch", async () => {
   // Archived, and still readable: what was abandoned is worth being able to look up.
   expect(await Bun.file(join(changeDir({ id: "PROJ-CANCEL" }), "change.json")).exists()).toBe(false);
   expect((await runEffect(readChange("PROJ-CANCEL")))?.state).toBe("Cancelled");
-
   // Nothing was committed on it, so the branch had nothing to add and went with the worktree —
   // and the report says so rather than claiming a branch is waiting for you that is not.
   expect((await runSh(["git", "branch", "--list", "PROJ-CANCEL-x"], repo)).stdout).toBe("");
   expect((result as { loose: string[] }).loose.some((l) => l.includes("branch"))).toBe(false);
 });
-
 test("cancelling shelves what is uncommitted, asks only about commits nobody else has, and reopening puts it all back", async () => {
-  const repo = await clonedRepo("cancel-work");
+  const repo = await gitRepo(tmp, "cancel-work", { remote: true });
   const change = await runEffect(
     createChange({ id: "PROJ-WORK", branch: "PROJ-WORK-x", checkouts: checkoutsOf([repo]) }),
   );
   // The same checkouts the git extension's change:created hook creates.
   await Effect.runPromise(provisionRepositories(change));
   const worktree = (await runEffect(checkoutFor(change, repo)))!;
-
   // Every kind of work: a changed tracked file, what a local run leaves behind, and a commit
   // nobody else has.
   await Bun.write(join(worktree, "wip.txt"), "work\n");
   await runSh(["git", "add", "."], worktree);
-  await commit(worktree, "work nobody else has");
+  await commitIn(worktree, "work nobody else has");
   await Bun.write(join(worktree, "README.md"), "edited, not committed\n");
   await Bun.write(join(worktree, "cache", "result.pyc"), "x\n");
-
   // The files are shelved, so they are not a question; the commits survive on the kept branch,
   // which is worth one question.
   const asked = await runCancel(change);
@@ -143,7 +115,6 @@ test("cancelling shelves what is uncommitted, asks only about commits nobody els
     reasons: [{ repository: "cancel-work", text: "commits that were never pushed" }],
   });
   expect(await readFile(join(worktree, "README.md"), "utf8")).toBe("edited, not committed\n");
-
   const forced = await runCancel(change, true);
   expect("change" in forced).toBe(true);
   expect(await runEffect(checkoutFor(change, repo))).toBeUndefined();
@@ -157,7 +128,6 @@ test("cancelling shelves what is uncommitted, asks only about commits nobody els
   expect(archived.state).toBe("Cancelled");
   expect(archived.cancelledFrom).toBe(change.state ?? "Implementation");
   expect(await readdir(join(tmp, "changes-archive", "PROJ-WORK", "shelves", "cancel-work"))).toHaveLength(1);
-
   // Reopening: the change, its worktree on the kept branch, and the shelved work.
   const reopened = await runEffect(reopenChange(archived));
   expect(reopened.change.state).toBe(change.state ?? "Implementation");
@@ -171,7 +141,6 @@ test("cancelling shelves what is uncommitted, asks only about commits nobody els
   // A clean application removes the shelf: the work lives in the checkout again.
   expect(await readdir(join(tmp, "changes", "PROJ-WORK", "shelves", "cancel-work"))).toHaveLength(0);
 });
-
 test("a change cannot be declared finished by hand", async () => {
   // The select offers the states you are in; this is where that is true rather than merely
   // displayed. Picking "Completed" from a list would set the word without merging anything,
@@ -181,16 +150,14 @@ test("a change cannot be declared finished by hand", async () => {
     createChange({
       id: "PROJ-HAND",
       branch: "PROJ-HAND-x",
-      checkouts: checkoutsOf([await clonedRepo("cancel-byhand")]),
+      checkouts: checkoutsOf([await gitRepo(tmp, "cancel-byhand", { remote: true })]),
     }),
   );
-
   expect(() => applyPatch(change, { state: "Completed" })).toThrow(/completing or cancelling/);
   expect(() => applyPatch(change, { state: "Cancelled" })).toThrow(/completing or cancelling/);
   expect(() => applyPatch(change, { state: "Nonsense" })).toThrow(/unknown state/);
   // Ideation is the other end of the same rule: set by creating an idea, left by starting work.
   expect(() => applyPatch(change, { state: "Ideation" })).toThrow(/start work/);
-
   // The transition matrix the lifecycle workflow uses, enforced here too: an idea may only start
   // its work or be abandoned, not jump to a manual phase.
   const idea = await runEffect(
@@ -198,7 +165,6 @@ test("a change cannot be declared finished by hand", async () => {
   );
   expect(() => applyPatch(idea, { state: "Verification" })).toThrow(/cannot move from Ideation/);
   expect(() => applyPatch(idea, { state: "Blocked" })).toThrow(/cannot move from Ideation/);
-
   // The states you work in are still yours to set, and so is the name.
   expect(applyPatch(change, { state: "Blocked" }).state).toBe("Blocked");
   expect(applyPatch(change, { title: "Something I called it" })).toMatchObject({
@@ -207,35 +173,29 @@ test("a change cannot be declared finished by hand", async () => {
   });
   // Cleared: the ticket may name it again.
   expect(applyPatch(change, { title: "  " }).titleEdited).toBeUndefined();
-
   // And a change that has ended keeps its state: this is about how it gets there.
   const over = { ...change, state: "Cancelled" as const, completedAt: "2026-01-01T00:00:00Z" };
   expect(applyPatch(over, { title: "renamed afterwards" }).state).toBe("Cancelled");
 });
-
 test("a change that is over is read, not acted on", async () => {
   const { repoStatusOf, cardForExtension } = await import("../apps/server/src/integrations/index.ts");
-  const repo = await clonedRepo("cancel-readonly");
+  const repo = await gitRepo(tmp, "cancel-readonly", { remote: true });
   // Not provisioned: a repository with no worktree is exactly the row that offers to make one.
   const change = await runEffect(
     createChange({ id: "PROJ-OVER", branch: "PROJ-OVER-x", checkouts: checkoutsOf([repo]) }),
   );
-
   const git = cardForExtension("git")!;
   const live = await runEffect(repoStatusOf("git", git, change, repo));
   expect(live.flatMap((i) => i.actions ?? []).map((a) => a.label)).toContain("Create worktree");
-
   const cancelled = ((await runCancel(change)) as { change: Change }).change;
   const after = await runEffect(repoStatusOf("git", git, cancelled, repo));
-
   // The row stays — what the change touched is worth reading afterwards — but offering to make
   // a worktree for an archived change is offering to half-revive something that is finished.
   expect(after.length).toBe(live.length);
   expect(after.flatMap((i) => i.actions ?? [])).toEqual([]);
 });
-
 test("what cancelling leaves alone is said out loud", async () => {
-  const repo = await clonedRepo("cancel-loose");
+  const repo = await gitRepo(tmp, "cancel-loose", { remote: true });
   const change = await runEffect(
     createChange({
       id: "PROJ-LOOSE",
@@ -246,7 +206,6 @@ test("what cancelling leaves alone is said out loud", async () => {
   );
   // The same checkouts the git extension's change:created hook creates.
   await Effect.runPromise(provisionRepositories(change));
-
   const result = (await runCancel(change)) as { loose: string[] };
   // The ticket and the branch: a cancelled change that quietly leaves those behind comes back in
   // a week as somebody else's question. (No pull request here: there is no GitHub remote.) The

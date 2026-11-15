@@ -1,6 +1,5 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { Change, CompletionStep } from "@corvi/changes/record";
 import { completeChange, completionOf, progressOf, verdict } from "../apps/server/src/change/server/index.ts";
@@ -20,30 +19,25 @@ import {
   TestError,
   type FakeShell,
   type ShellCall,
+  useOwnChangeRoot,
 } from "./helpers.ts";
 import { prItem, REPOSITORY_CONCURRENCY } from "@corvi/github/client";
 import { checkItems } from "@corvi/github/checks";
 import { githubSummaryContributor } from "@corvi/github";
 import { contentInMain, integrated } from "../apps/server/src/vendors/git.ts";
 import { changeActions } from "../apps/web/src/change-page/client/changeActions.ts";
-
 /**
  * Completing a change is a sequence of irreversible steps across repositories, extensions and
  * one change directory. The verdict decides whether to start at all, the plan says what is
  * coming before anything runs, and the journal says where a stopped completion stopped.
  */
 let tmp: string;
-
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "corvi-complete-"));
-  process.env.CORVI_ROOT = join(tmp, "changes");
-  process.env.CORVI_ARCHIVE_ROOT = join(tmp, "changes-archive");
+  tmp = await useOwnChangeRoot("complete");
 });
-
 afterAll(async () => {
   await rm(tmp, { recursive: true, force: true });
 });
-
 const changeWith = (over: Partial<Change> = {}): Change => ({
   id: "PROJ-x",
   branch: "PROJ-x",
@@ -52,16 +46,13 @@ const changeWith = (over: Partial<Change> = {}): Change => ({
   createdAt: new Date().toISOString(),
   ...over,
 });
-
 test("verdict: every repository must be ready, and unsafe work blocks the whole change", () => {
   const merged = { ready: true, merged: true } as const;
   const approved = (n: number) => ({ ready: true, merged: false, number: n }) as const;
   const blocked = (reason: string, kind: "forceable" | "hard" = "forceable") =>
     ({ ready: false, reason, kind }) as const;
-
   // An empty change is ready and has nothing to merge.
   expect(verdict([])).toEqual({ ready: true, reasons: [], tagged: [], toMerge: [] });
-
   // Ready pull requests are queued in order, including the ones already merged by hand.
   expect(
     verdict([
@@ -78,7 +69,6 @@ test("verdict: every repository must be ready, and unsafe work blocks the whole 
       { repo: "/r/c", number: 3 },
     ],
   });
-
   // A blocked repository names itself; unsafe work is said beside the readiness reason, and a
   // bare repository name has no directory part to strip. Readiness and unpushed commits are
   // forceable; uncommitted work is hard — it exists nowhere else.
@@ -106,7 +96,6 @@ test("verdict: every repository must be ready, and unsafe work blocks the whole 
     toMerge: [{ repo: "/parent/b", number: 3 }],
   });
 });
-
 test("verdict: one token at its limit is one line, not ten", () => {
   const reason = (minutes: number): string =>
     `GitHub rate limit reached; resets at 12:32 UTC (in ${minutes} minutes)`;
@@ -118,18 +107,15 @@ test("verdict: one token at its limit is one line, not ten", () => {
       readiness: { ready: false as const, reason: reason(8 - (index % 2)), kind: "hard" as const },
     })),
   );
-
   expect(completion.ready).toBe(false);
   // No acknowledgement clears it, and ten repositories share one token: said once.
   expect(completion.reasons).toEqual([reason(8)]);
   expect(completion.tagged).toEqual([{ text: reason(8), kind: "hard" }]);
   expect(completion.toMerge).toEqual([]);
 });
-
 test("verdict: a repository's own hard fact is that repository's, dirty worktrees and all", () => {
   const dirty = { kind: "dirty", text: "uncommitted changes" } as const;
   const limited = "GitHub rate limit reached; resets at 12:32 UTC (in 8 minutes)";
-
   // Two dirty worktrees are two problems to fix, both named.
   expect(
     verdict([
@@ -144,7 +130,6 @@ test("verdict: a repository's own hard fact is that repository's, dirty worktree
       { text: "two: uncommitted changes", kind: "hard" },
     ],
   });
-
   // A dirty worktree and a limited token are different facts, and both are said.
   expect(
     verdict([
@@ -160,7 +145,6 @@ test("verdict: a repository's own hard fact is that repository's, dirty worktree
     reasons: ["one: uncommitted changes", limited, "two: uncommitted changes"],
   });
 });
-
 test("plannedCompletionSteps: the included steps are each planned once", () => {
   // The included integrations are planned explicitly, jira before github-issues; a step must
   // not appear twice.
@@ -185,18 +169,15 @@ test("plannedCompletionSteps: the included steps are each planned once", () => {
     runtimeConfig().workspaces = saved;
   }
 });
-
 test("progressOf: no record is none, and a half-written record reads as none", async () => {
   const change = await runEffect(
     createChange({ id: "PROJ-PROGRESS", branch: "PROJ-PROGRESS", checkouts: checkoutsOf([join(tmp, "r")]) }),
   );
   expect(await runEffect(progressOf(change.id))).toBeNull();
-
   // A truncated or corrupted journal is not a failure of the page: the completion that was
   // interrupted rewrites it from where it got to.
   await runEffect(writeSidecar(change.id, "completion.json", "{ not json"));
   expect(await runEffect(progressOf(change.id))).toBeNull();
-
   const record = {
     startedAt: "2026-01-01T00:00:00.000Z",
     steps: [{ id: "check", label: "check", state: "done" as const }],
@@ -204,7 +185,6 @@ test("progressOf: no record is none, and a half-written record reads as none", a
   await runEffect(writeSidecar(change.id, "completion.json", JSON.stringify(record)));
   expect(await runEffect(progressOf(change.id))).toEqual(record);
 });
-
 type PullRequestJson = {
   number: number;
   title: string;
@@ -215,7 +195,6 @@ type PullRequestJson = {
   mergeable: string;
   statusCheckRollup: unknown[];
 };
-
 const approved = (number = 7): PullRequestJson => ({
   number,
   title: "do the thing",
@@ -226,11 +205,9 @@ const approved = (number = 7): PullRequestJson => ({
   mergeable: "MERGEABLE",
   statusCheckRollup: [],
 });
-
 /** A worktree as `git worktree list --porcelain` reports it, for the change's branch. */
 const worktreeAt = (path: string, branch: string): string =>
   `worktree ${path}\nHEAD ${"0".repeat(40)}\nbranch refs/heads/${branch}\n`;
-
 type CompletionShellOptions = {
   /** The worktree path, or nothing when the change has none in this repository. */
   worktree?: string;
@@ -252,7 +229,6 @@ type CompletionShellOptions = {
   /** How `gh pr list` answers when it fails; absent means it lists `pr`. */
   prList?: { code: number; stderr?: string };
 };
-
 /** A scripted shell for the completion lookups: git for the worktree and its status, gh for the
  * pull request and the merge. */
 const completionShell = (opts: CompletionShellOptions): FakeShell =>
@@ -292,7 +268,6 @@ const completionShell = (opts: CompletionShellOptions): FakeShell =>
     if (line.startsWith("git worktree remove --force")) return "";
     return undefined;
   });
-
 test("completionOf: a live look at one repository becomes the change's verdict", async () => {
   const repo = join(tmp, "ready-repo");
   const change = changeWith({ checkouts: checkoutsOf([repo]), branch: "PROJ-ready" });
@@ -308,7 +283,6 @@ test("completionOf: a live look at one repository becomes the change's verdict",
     toMerge: [{ repo, number: 7 }],
   });
 });
-
 test("completionOf: a rate-limited poll is a hard verdict, not a failure", async () => {
   const repo = join(tmp, "limited-repo");
   const change = changeWith({ checkouts: checkoutsOf([repo]), branch: "PROJ-limited" });
@@ -317,7 +291,6 @@ test("completionOf: a rate-limited poll is a hard verdict, not a failure", async
     branch: change.branch,
     prList: { code: 1, stderr: "GraphQL: API rate limit already exceeded for user ID 13013300." },
   });
-
   const completion = await runWithShell(shell, completionOf(change));
   expect(completion.ready).toBe(false);
   expect(completion.tagged).toHaveLength(1);
@@ -327,7 +300,6 @@ test("completionOf: a rate-limited poll is a hard verdict, not a failure", async
   expect(completion.toMerge).toEqual([]);
   forgetRateLimit();
 });
-
 test("completionOf: the poll reads the display answer, the click does not", async () => {
   const repo = join(tmp, "poll-repo");
   const change = changeWith({ checkouts: checkoutsOf([repo]), branch: "PROJ-poll" });
@@ -338,17 +310,14 @@ test("completionOf: the poll reads the display answer, the click does not", asyn
   });
   const asked = (): number =>
     shell.calls.map((call) => call.cmd.join(" ")).filter((line) => line.startsWith("gh pr list")).length;
-
   expect(await runWithShell(shell, completionOf(change))).toMatchObject({ ready: true });
   expect(await runWithShell(shell, completionOf(change))).toMatchObject({ ready: true });
   // Two polls, one display read.
   expect(asked()).toBe(1);
-
   // The click that decides forgets it and asks GitHub again.
   expect(await runWithShell(shell, completionOf(change, true))).toMatchObject({ ready: true });
   expect(asked()).toBe(2);
 });
-
 /** A ten-repository world in which every repository has a pushed worktree with one approved pull
  * request: nothing in the counts depends on git, only on the cache's TTLs. */
 const trafficShell = (repos: readonly string[], branch: string): FakeShell => {
@@ -422,13 +391,11 @@ const trafficShell = (repos: readonly string[], branch: string): FakeShell => {
     },
   };
 };
-
 test("traffic: a cold first minute of polling a ten-repository change costs the calls the TTLs imply", async () => {
   const repos = Array.from({ length: 10 }, (_, index) => join(tmp, `traffic-${index}`));
   const branch = "PROJ-traffic";
   const change = changeWith({ checkouts: checkoutsOf(repos), branch });
   const shell = trafficShell(repos, branch);
-
   await runWithShellWithTestClock(
     shell,
     Effect.gen(function* () {
@@ -445,14 +412,12 @@ test("traffic: a cold first minute of polling a ten-repository change costs the 
         // before the clock moves, which is what a real second between polls does.
         for (let turn = 0; turn < 24; turn++) yield* Effect.yieldNow;
       });
-
       // The page polls every 15 s. Five polls is a minute: 0, 15, 30, 45 and 60 seconds.
       for (let tick = 0; tick < 5; tick++) {
         yield* poll;
         yield* TestClock.adjust(15_000);
       }
       for (let turn = 0; turn < 24; turn++) yield* Effect.yieldNow;
-
       const lines = shell.calls.map((call) => call.cmd.join(" "));
       const asked = (prefix: string): number => lines.filter((line) => line.startsWith(prefix)).length;
       // A cold first minute, ten repositories in five polls:
@@ -464,7 +429,6 @@ test("traffic: a cold first minute of polling a ten-repository change costs the 
       expect(asked("gh api graphql")).toBe(10);
       expect(asked("gh pr checks")).toBe(20);
       expect(asked("gh ")).toBe(60);
-
       // Steady state, measured after the cold read and over four minutes: twice the least common
       // multiple of the three TTLs (30, 60 and 120 s), which is what makes the details average —
       // one refresh per two minutes — come out exact rather than rounded by a boundary.
@@ -488,7 +452,6 @@ test("traffic: a cold first minute of polling a ten-repository change costs the 
     }),
   );
 });
-
 test("repository fan-outs never hold more than four gh processes at once", async () => {
   const repos = Array.from({ length: 10 }, (_, index) => join(tmp, `burst-${index}`));
   const branch = "PROJ-burst";
@@ -510,14 +473,12 @@ test("repository fan-outs never hold more than four gh processes at once", async
       );
     },
   };
-
   await runWithShell(
     shell,
     Effect.gen(function* () {
       yield* completionOf(change);
       expect(peak).toBeGreaterThan(1);
       expect(peak).toBeLessThanOrEqual(REPOSITORY_CONCURRENCY);
-
       // The summary's own fan-out, over repositories no earlier read has cached.
       const other = Array.from({ length: 10 }, (_, index) => join(tmp, `burst-summary-${index}`));
       peak = 0;
@@ -527,7 +488,6 @@ test("repository fan-outs never hold more than four gh processes at once", async
     }),
   );
 });
-
 test("completionOf: a pull request merged by hand leaves nothing to merge", async () => {
   const repo = join(tmp, "merged-repo");
   const change = changeWith({ checkouts: checkoutsOf([repo]), branch: "PROJ-merged" });
@@ -543,7 +503,6 @@ test("completionOf: a pull request merged by hand leaves nothing to merge", asyn
     toMerge: [],
   });
 });
-
 test("completionOf: no worktree and no pull request each block, and say which", async () => {
   const noWorktree = join(tmp, "nowt-repo");
   const first = changeWith({ checkouts: checkoutsOf([noWorktree]), branch: "PROJ-nowt" });
@@ -553,7 +512,6 @@ test("completionOf: no worktree and no pull request each block, and say which", 
     tagged: [{ text: `${basename(noWorktree)}: no worktree`, kind: "forceable" }],
     toMerge: [],
   });
-
   const noPr = join(tmp, "nopr-repo");
   const second = changeWith({ checkouts: checkoutsOf([noPr]), branch: "PROJ-nopr" });
   expect(
@@ -568,7 +526,6 @@ test("completionOf: no worktree and no pull request each block, and say which", 
     toMerge: [],
   });
 });
-
 test("completionOf: work the remote never saw blocks an otherwise approved change", async () => {
   const repo = join(tmp, "dirty-repo");
   const change = changeWith({ checkouts: checkoutsOf([repo]), branch: "PROJ-dirty" });
@@ -588,7 +545,6 @@ test("completionOf: work the remote never saw blocks an otherwise approved chang
   ]);
   // The merge is still queued: it is the unsafe work, not readiness, that stops it.
   expect(result.toMerge).toEqual([{ repo, number: 7 }]);
-
   // Untracked files alone are a question, named, rather than a refusal.
   const untracked = await runWithShell(
     completionShell({
@@ -603,7 +559,6 @@ test("completionOf: work the remote never saw blocks an otherwise approved chang
     { text: `${basename(repo)}: untracked files: notes.txt`, kind: "forceable" },
   ]);
 });
-
 test("completeChange: a step that fails stops where it stands and journals it", async () => {
   const repo = join(tmp, "fail-repo");
   const change = await runEffect(
@@ -616,7 +571,6 @@ test("completeChange: a step that fails stops where it stands and journals it", 
     merge: { code: 1, stderr: "Pull request is not mergeable" },
   });
   await expect(runWithShell(shell, completeChange(change))).rejects.toThrow(/not mergeable/);
-
   const stopped = (await runEffect(progressOf(change.id)))!;
   const byId = (id: string): CompletionStep => stopped.steps.find((s) => s.id === id)!;
   expect(byId("check").state).toBe("done");
@@ -631,7 +585,6 @@ test("completeChange: a step that fails stops where it stands and journals it", 
   // Still where it was, not archived: a failed completion changed nothing on disk.
   expect((await runEffect(readChange(change.id)))?.state).toBe("Implementation");
 });
-
 test("completeChange: a provider failure that said nothing says what failed, not its type", async () => {
   const repo = join(tmp, "silent-repo");
   const change = await runEffect(
@@ -648,7 +601,6 @@ test("completeChange: a provider failure that said nothing says what failed, not
   // fails before the completion starts, which is the same rule a refusal follows.)
   await expect(runWithShell(shell, completeChange(change))).rejects.toThrow(/gh pr list exited with code 1/);
 });
-
 test("providerError: an inner error with nothing to say gets the operation's words", () => {
   // A TaggedError without a message stringifies to its type name; the wrapper must not hand
   // an empty sentence — or that name — to the boundary.
@@ -657,7 +609,6 @@ test("providerError: an inner error with nothing to say gets the operation's wor
     "github merge: gh exploded",
   );
 });
-
 test("completeChange: every step is journaled as it runs and the change is archived", async () => {
   const repo = join(tmp, "ok-repo");
   const change = await runEffect(
@@ -671,11 +622,9 @@ test("completeChange: every step is journaled as it runs and the change is archi
   });
   const result = await runWithShell(shell, completeChange(change));
   if (result._tag !== "Done") throw new Error(`expected a completion, got ${result._tag}`);
-
   expect(result.notes).toEqual([]);
   expect(result.change.state).toBe("Completed");
   expect(result.change.completedAt).toBeTruthy();
-
   // The journal, in order, says every step ran.
   const journal = (await runEffect(progressOf(change.id)))!;
   expect(journal.steps.map((s) => [s.id, s.state])).toEqual([
@@ -687,7 +636,6 @@ test("completeChange: every step is journaled as it runs and the change is archi
     ["archive", "done"],
   ]);
   expect(journal.finishedAt).toBeTruthy();
-
   // The record moved into the archive, journal and all.
   expect(await Bun.file(join(changeDir(change), "change.json")).exists()).toBe(false);
   expect((await runEffect(readChange(change.id)))?.state).toBe("Completed");
@@ -699,14 +647,12 @@ test("completeChange: every step is journaled as it runs and the change is archi
   // owns the ptys, so there is no command to observe here. The stop itself is asserted against a
   // real host through the lifecycle service in test/windowRegistryHost.test.ts.
 });
-
 test("contentInMain: contained, cherry-equivalent, and missing content", async () => {
   const repo = join(tmp, "content-repo");
   // Nothing beyond main: contained outright, no cherry needed.
   expect(
     await runWithShell(completionShell({ beyond: 0 }), contentInMain(repo, "PROJ-x", "origin/main")),
   ).toBe(true);
-
   // Commits beyond main, but every one patch-identical upstream: a squash merge.
   expect(
     await runWithShell(
@@ -714,7 +660,6 @@ test("contentInMain: contained, cherry-equivalent, and missing content", async (
       contentInMain(repo, "PROJ-x", "origin/main"),
     ),
   ).toBe(true);
-
   // One commit with no upstream twin: genuinely unmerged.
   expect(
     await runWithShell(
@@ -722,11 +667,9 @@ test("contentInMain: contained, cherry-equivalent, and missing content", async (
       contentInMain(repo, "PROJ-x", "origin/main"),
     ),
   ).toBe(false);
-
   // No base to compare with: unproven, not an error.
   expect(await runWithShell(completionShell({}), contentInMain(repo, "PROJ-x", undefined))).toBe(false);
 });
-
 test("integrated: the simulated merge is asked once per pair of tips, and again when one moves", async () => {
   const repo = join(tmp, "integrated-repo");
   const branch = "integrated-branch";
@@ -747,17 +690,14 @@ test("integrated: the simulated merge is asked once per pair of tips, and again 
     return undefined;
   });
   const ask = (): Promise<boolean> => runWithShell(shell, integrated(repo, branch, "origin/main"));
-
   expect(await ask()).toBe(true);
   expect(await ask()).toBe(true);
   expect(merges).toHaveLength(1); // the same pair of tips answered from the cache
-
   // A commit on main is a different pair: the cached answer is not about these commits.
   baseSha = "ccc";
   expect(await ask()).toBe(true);
   expect(merges).toHaveLength(2);
 });
-
 test("completionOf: a branch whose content is in main reads as merged without a PR", async () => {
   const repo = join(tmp, "integrated-repo");
   const change = changeWith({ checkouts: checkoutsOf([repo]), branch: "PROJ-integrated" });
@@ -774,7 +714,6 @@ test("completionOf: a branch whose content is in main reads as merged without a 
     toMerge: [],
   });
 });
-
 test("completionOf: a closed PR whose content landed elsewhere reads as merged", async () => {
   const repo = join(tmp, "closed-repo");
   const change = changeWith({ checkouts: checkoutsOf([repo]), branch: "PROJ-closed" });
@@ -792,7 +731,6 @@ test("completionOf: a closed PR whose content landed elsewhere reads as merged",
     toMerge: [],
   });
 });
-
 test("completionOf: an open unapproved PR still gates on an integrated branch", async () => {
   const repo = join(tmp, "open-repo");
   const change = changeWith({ checkouts: checkoutsOf([repo]), branch: "PROJ-open" });
@@ -809,7 +747,6 @@ test("completionOf: an open unapproved PR still gates on an integrated branch", 
     { text: `${basename(repo)}: not approved (review required)`, kind: "forceable" },
   ]);
 });
-
 test("completionOf: fresh fetches before reading, so a just-merged branch is seen", async () => {
   const repo = join(tmp, "fresh-repo");
   const change = changeWith({ checkouts: checkoutsOf([repo]), branch: "PROJ-fresh" });
@@ -824,7 +761,6 @@ test("completionOf: fresh fetches before reading, so a just-merged branch is see
   const asked = (shell.calls as ShellCall[]).map((c) => c.cmd.join(" "));
   expect(asked).toContain("git fetch --quiet origin");
 });
-
 test("completionOf: a pull request that needs no review is ready to merge", async () => {
   const repo = join(tmp, "noreview-ready-repo");
   const change = changeWith({ checkouts: checkoutsOf([repo]), branch: "PROJ-noreview" });
@@ -841,7 +777,6 @@ test("completionOf: a pull request that needs no review is ready to merge", asyn
     toMerge: [{ repo, number: 7 }],
   });
 });
-
 test("completeChange: a pull request that needs no review completes and is merged", async () => {
   const repo = join(tmp, "noreview-repo");
   const change = await runEffect(
@@ -855,14 +790,12 @@ test("completeChange: a pull request that needs no review completes and is merge
   });
   const result = await runWithShell(shell, completeChange(change));
   if (result._tag !== "Done") throw new Error(`expected a completion, got ${result._tag}`);
-
   expect(result.change.state).toBe("Completed");
   expect(result.notes).toEqual([]);
   // Merged, not skipped: no override was needed for a review nobody required.
   const asked = (shell.calls as ShellCall[]).map((c) => c.cmd.join(" "));
   expect(asked).toContain("gh pr merge 7 --squash");
 });
-
 test("completeChange: force completes despite an unapproved PR, and journals the override", async () => {
   const repo = join(tmp, "force-repo");
   const change = await runEffect(
@@ -876,7 +809,6 @@ test("completeChange: force completes despite an unapproved PR, and journals the
   });
   const result = await runWithShell(shell, completeChange(change, true));
   if (result._tag !== "Done") throw new Error(`expected a completion, got ${result._tag}`);
-
   expect(result.change.state).toBe("Completed");
   // The unapproved PR is skipped, not merged: nothing mergeable, nothing queued.
   expect(shell.calls.some((c) => c.cmd.join(" ").startsWith("gh pr merge"))).toBe(false);
@@ -887,7 +819,6 @@ test("completeChange: force completes despite an unapproved PR, and journals the
   expect(journal.forced).toBe(true);
   expect(journal.overridden).toEqual([`${basename(repo)}: not approved (review required)`]);
 });
-
 test("completeChange: without force an unready change is a refusal, and nothing is written", async () => {
   const repo = join(tmp, "refuse-repo");
   const change = await runEffect(
@@ -909,7 +840,6 @@ test("completeChange: without force an unready change is a refusal, and nothing 
   expect(await runEffect(progressOf(change.id))).toBeNull();
   expect((await runEffect(readChange(change.id)))?.state).toBe("Implementation");
 });
-
 test("completeChange: force still refuses uncommitted work", async () => {
   const repo = join(tmp, "dirty-force-repo");
   const change = await runEffect(
@@ -927,13 +857,11 @@ test("completeChange: force still refuses uncommitted work", async () => {
   );
   expect((await runEffect(readChange(change.id)))?.state).toBe("Implementation");
 });
-
 test("completeChange: force still refuses an idea", async () => {
   const idea = await runEffect(createChange({ id: "PROJ-FORCEIDEA", state: "Ideation" }));
   await expect(runEffect(completeChange(idea, true))).rejects.toThrow(/still an idea/);
   expect((await runEffect(readChange(idea.id)))?.state).toBe("Ideation");
 });
-
 test("CompleteAnywayDialog: every reason needs its own acknowledge", async () => {
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
@@ -968,7 +896,6 @@ test("CompleteAnywayDialog: every reason needs its own acknowledge", async () =>
     false,
   );
 });
-
 test("CompleteAnywayDialog: hard reasons offer no override button", async () => {
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
@@ -989,7 +916,6 @@ test("CompleteAnywayDialog: hard reasons offer no override button", async () => 
   expect(html).toContain("cannot be overridden");
   expect(html).not.toContain("Complete anyway");
 });
-
 test("CompleteAnywayDialog: says which pull requests will still be merged", async () => {
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
@@ -1012,7 +938,6 @@ test("CompleteAnywayDialog: says which pull requests will still be merged", asyn
   expect(html).toContain("will still be merged");
   expect(html).toContain("#7 orders");
 });
-
 test("CancelDialog: the confirm waits for the acknowledge the server names", async () => {
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
@@ -1030,7 +955,6 @@ test("CancelDialog: the confirm waits for the acknowledge the server names", asy
         onClose: () => {},
       }),
     );
-
   // What goes, named and not acknowledged: the only disabled control is the confirm.
   const reasons = ["orders: untracked files: build/", "orders: commits that were never pushed"];
   const warned = render({ reasons, acked: false });
@@ -1044,11 +968,9 @@ test("CancelDialog: the confirm waits for the acknowledge the server names", asy
   // An idea is discarded, not cancelled.
   expect(render({ reasons: [], acked: false, idea: true })).toContain("Discard");
 });
-
 test("overrideNote: only a finished forced completion says it completed with overrides", async () => {
   const { overrideNote } = await import("../apps/web/src/dashboard/client/CompletionCard.tsx");
   const step = { id: "check", label: "check", state: "done" as const };
-
   // Finished and forced: the note names what was overridden.
   expect(
     overrideNote({
@@ -1073,14 +995,12 @@ test("overrideNote: only a finished forced completion says it completed with ove
   expect(overrideNote({ startedAt: "t", finishedAt: "t", overridden: ["x"], steps: [step] })).toBeUndefined();
   expect(overrideNote({ startedAt: "t", finishedAt: "t", forced: true, steps: [step] })).toBeUndefined();
 });
-
 test("completionRefusal/forceQuestion: only a structured 409 opens a dialog", async () => {
   const { completionRefusal, forceQuestion } = await import("../apps/web/src/change-page/client/refusals.ts");
   const failure = (status: number, body: unknown): { status: number; body: unknown } => ({
     status,
     body,
   });
-
   expect(
     completionRefusal(
       failure(409, {
@@ -1100,7 +1020,6 @@ test("completionRefusal/forceQuestion: only a structured 409 opens a dialog", as
   // No reasons, or not a 409: banner news, not a dialog.
   expect(completionRefusal(failure(409, { reasons: [] }))).toBeUndefined();
   expect(completionRefusal(failure(400, { reasons: [{ text: "x", kind: "hard" }] }))).toBeUndefined();
-
   expect(forceQuestion(failure(409, { needsForce: ["orders"] }))).toEqual(["orders"]);
   expect(
     forceQuestion(
@@ -1113,14 +1032,12 @@ test("completionRefusal/forceQuestion: only a structured 409 opens a dialog", as
   expect(forceQuestion(failure(409, { needsForce: [] }))).toBeUndefined();
   expect(forceQuestion(failure(400, { needsForce: ["orders"] }))).toBeUndefined();
 });
-
 test("retryBody: a retry keeps the forced mode the journal recorded", async () => {
   const { retryBody } = await import("../apps/web/src/dashboard/client/CompletionCard.tsx");
   expect(retryBody(null)).toEqual({});
   expect(retryBody({ startedAt: "t", forced: true, steps: [] })).toEqual({ force: true });
   expect(retryBody({ startedAt: "t", forced: false, steps: [] })).toEqual({});
 });
-
 test("completeChange: the readiness check runs once per call", async () => {
   const repo = join(tmp, "once-repo");
   const change = await runEffect(
@@ -1139,7 +1056,6 @@ test("completeChange: the readiness check runs once per call", async () => {
   expect(asked.filter((line) => line.startsWith("gh pr list"))).toHaveLength(1);
   expect(asked.filter((line) => line === "git fetch --quiet origin")).toHaveLength(1);
 });
-
 test("the complete route answers a 409 with the tagged reasons, and force still refuses an idea", async () => {
   const { changeRoutes } = await import("../apps/server/src/change/routes.ts");
   const idea = await runEffect(createChange({ id: "PROJ-ROUTEIDEA", state: "Ideation" }));
@@ -1157,7 +1073,6 @@ test("the complete route answers a 409 with the tagged reasons, and force still 
       ),
       undefined,
     );
-
   // Without force: the structured refusal the dialog renders, from server truth.
   const refused = await call({});
   expect(refused.status).toBe(409);
@@ -1165,14 +1080,12 @@ test("the complete route answers a 409 with the tagged reasons, and force still 
     reasons: [{ text: "still an idea: start the work before completing it", kind: "hard" }],
     toMerge: [],
   });
-
   // With force the 409 is skipped, and the hard refusal stands as a failure — the change is
   // untouched, still an idea.
   const forced = await call({ force: true });
   expect(forced.status).toBe(400);
   expect((await runEffect(readChange(idea.id)))?.state).toBe("Ideation");
 });
-
 test("the complete route drives readiness through the scripted CLI", async () => {
   const { withChangeEffect } = await import("../apps/server/src/capabilities/web.ts");
   const { completePost } = await import("../apps/server/src/change/routes.ts");
@@ -1185,7 +1098,6 @@ test("the complete route drives readiness through the scripted CLI", async () =>
     branch: change.branch,
     pr: { ...approved(7), reviewDecision: "REVIEW_REQUIRED" },
   });
-
   // Without force: the route's own error mapping turns the refusal into a 409 whose body is the
   // tagged reasons — the dialog's input, produced from a scripted CLI, all the way through
   // `withChange` (disk read, workspace, Services).
@@ -1198,7 +1110,6 @@ test("the complete route drives readiness through the scripted CLI", async () =>
     reasons: [{ text: `${basename(repo)}: not approved (review required)`, kind: "forceable" }],
     toMerge: [],
   });
-
   // With force: the reasons are waived, the unapproved PR is skipped rather than merged, and the
   // completion runs to the archive with the override recorded.
   const forced = await runRouteWithShell(
@@ -1211,7 +1122,6 @@ test("the complete route drives readiness through the scripted CLI", async () =>
   expect(body.notes).toEqual([`completed with overrides: ${basename(repo)}: not approved (review required)`]);
   expect((shell.calls as ShellCall[]).some((c) => c.cmd.join(" ").startsWith("gh pr merge"))).toBe(false);
 });
-
 test("changeActions: the endings are last and apart, and an idea ends by discarding", () => {
   const noop = (): void => {};
   const base = {
@@ -1225,7 +1135,6 @@ test("changeActions: the endings are last and apart, and an idea ends by discard
     onComplete: noop,
     onCancel: noop,
   };
-
   // A started change: the name, the copy, then the two endings — Complete and Cancel — the
   // first of them set apart from what can still be undone.
   const active = changeActions({ ...base, idea: false });
@@ -1237,7 +1146,6 @@ test("changeActions: the endings are last and apart, and an idea ends by discard
   ]);
   expect(active.filter((a) => a.separated).map((a) => a.label)).toEqual(["Complete change"]);
   expect(active.at(-1)?.title).toContain("nothing is merged");
-
   // The readiness poll is the hover's orientation; the click re-checks.
   const ready = changeActions({
     ...base,
@@ -1245,11 +1153,9 @@ test("changeActions: the endings are last and apart, and an idea ends by discard
     completion: { ready: true, reasons: [], tagged: [], toMerge: [] },
   });
   expect(ready.find((a) => a.label === "Complete change")?.title).toBe("Ready to complete");
-
   // An idea has a third way — starting the work — and its one ending is discarding it.
   const idea = changeActions({ ...base, idea: true });
   expect(idea.map((a) => a.label)).toEqual(["Rename change", "Start work", "Discard idea"]);
-
   // The busy words follow the flags.
   const busy = changeActions({ ...base, idea: true, starting: true, cancelling: true });
   expect(busy.map((a) => a.label)).toEqual(["Rename change", "Starting…", "Discarding…"]);

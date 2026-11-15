@@ -1,13 +1,11 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { checkoutsOf } from "./helpers.ts";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { checkoutsOf, useOwnChangeRoot } from "./helpers.ts";
+import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { ClientError, makeCorviClient } from "@corvi/client";
 import { DirectoryName, RepositoryId, ChangeId } from "@corvi/contracts/changes";
 import { serve, type Serving } from "../apps/server/src/capabilities/serve.ts";
 import { repositoriesRoutes } from "../apps/server/src/change/repositories-route.ts";
-
 /**
  * The first wired slice, end to end over HTTP: the legacy record is projected read-only, the
  * workflow joins it with the checkout facts, the route encodes the DTO, and the client decodes
@@ -16,12 +14,9 @@ import { repositoriesRoutes } from "../apps/server/src/change/repositories-route
 let tmp: string;
 let root: string;
 let server: Serving;
-
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "corvi-"));
+  tmp = await useOwnChangeRoot("repositories-endpoint");
   root = join(tmp, "changes");
-  process.env.CORVI_ROOT = root;
-  process.env.CORVI_ARCHIVE_ROOT = join(tmp, "changes-archive");
   await mkdir(join(root, "demo"), { recursive: true });
   await Bun.write(
     join(root, "demo", "change.json"),
@@ -40,12 +35,10 @@ beforeAll(async () => {
   );
   server = await serve({ port: 0, hostname: "127.0.0.1", routes: repositoriesRoutes });
 });
-
 afterAll(async () => {
   server?.stop();
   await rm(tmp, { recursive: true, force: true });
 });
-
 test("the dashboard read is served and decoded by the client", async () => {
   const client = makeCorviClient({ baseUrl: server.url.toString() });
   const views = await client.changes.checkouts(ChangeId.make("demo"));
@@ -59,7 +52,6 @@ test("the dashboard read is served and decoded by the client", async () => {
     },
   ]);
 });
-
 test("an unknown change is a 404 the client classifies", async () => {
   const client = makeCorviClient({ baseUrl: server.url.toString() });
   const failure = await client.changes.checkouts(ChangeId.make("absent")).then(

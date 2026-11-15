@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
 import { Schema } from "effect";
 
 import {
@@ -14,8 +13,7 @@ import { serve, type Serving } from "../apps/server/src/capabilities/serve.ts";
 import type { RemoteFetch } from "../apps/server/src/remote-events/model.ts";
 import { availabilityRoutes } from "../apps/server/src/remote-events/routes.ts";
 import { makeRemoteEvents, type RemoteEvents } from "../apps/server/src/remote-events/server.ts";
-import { configPath, reloadConfigSync } from "../apps/server/src/workspace/server/index.ts";
-import { runEffect, until } from "./helpers.ts";
+import { runEffect, until, writeTestWorkspaces } from "./helpers.ts";
 
 /**
  * The availability owner: a scripted transport drives the bounded checks, so state transitions,
@@ -24,11 +22,6 @@ import { runEffect, until } from "./helpers.ts";
  */
 
 const INSTANCE = "test-instance";
-
-const writeConfig = (workspaces: unknown[]): void => {
-  writeFileSync(configPath(), JSON.stringify({ workspaces }));
-  reloadConfigSync();
-};
 
 const remoteWorkspace = (id: string, url: string, token = "remote-token", workspace = id): unknown => ({
   id,
@@ -235,7 +228,7 @@ afterAll(() => {
 
 test("an initial registration checks, then becomes available on the stream's first byte", async () => {
   const script = scriptedTransport(always({ kind: "stream" }));
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test")]);
   const owner = newOwner({ transport: script.transport });
 
   // Before reconcile there is nothing; after it the target is checking, not yet reachable.
@@ -253,7 +246,7 @@ test("an initial registration checks, then becomes available on the stream's fir
 
 test("heartbeat bytes keep a long-lived stream available past the stall bound", async () => {
   const script = scriptedTransport(always({ kind: "stream" }));
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test")]);
   const owner = newOwner({ transport: script.transport, deadlines: STALL });
   await runEffect(owner.reconcile());
   await until(async () => script.remotes.length >= 1, true, 2000, STEP);
@@ -271,7 +264,7 @@ test("heartbeat bytes keep a long-lived stream available past the stall bound", 
 test("a refused token is authentication; an explicit retry recovers without a new generation", async () => {
   const steps = [{ kind: "status", status: 401 } as Step, { kind: "stream" } as Step];
   const script = scriptedTransport(() => steps.shift() ?? { kind: "stream" });
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test")]);
   const owner = newOwner({ transport: script.transport });
   await runEffect(owner.reconcile());
   await until(async () => statusOf(owner.snapshot()), "unavailable", 2000);
@@ -291,7 +284,7 @@ test("a refused token is authentication; an explicit retry recovers without a ne
 
 test("a silent open stream stalls and is cancelled, then a retry recovers", async () => {
   const script = scriptedTransport(always({ kind: "stream" }));
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test")]);
   const owner = newOwner({ transport: script.transport, deadlines: STALL });
   await runEffect(owner.reconcile());
   script.remotes[0]!.push(": open\n\n");
@@ -313,7 +306,7 @@ test("a silent open stream stalls and is cancelled, then a retry recovers", asyn
 
 test("a stream that answers and then sends nothing is bounded with factual copy", async () => {
   const script = scriptedTransport(always({ kind: "stream" }));
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test")]);
   const owner = newOwner({ transport: script.transport, deadlines: { ...STABLE, firstSignalMs: 80 } });
   await runEffect(owner.reconcile());
   await until(async () => statusOf(owner.snapshot()), "unavailable", 2000, STEP);
@@ -327,13 +320,13 @@ test("a stream that answers and then sends nothing is bounded with factual copy"
 
 test("an abort cancels the owned reader even when the body ignores the signal", async () => {
   const script = scriptedTransport(always({ kind: "stream" }), { cooperative: false });
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test", "first-token", "first")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test", "first-token", "first")]);
   const owner = newOwner({ transport: script.transport });
   await runEffect(owner.reconcile());
   await until(async () => script.remotes.length >= 1, true, 2000, STEP);
 
   // The body never errors on the signal, so only the owner's explicit reader.cancel() can end it.
-  writeConfig([]);
+  writeTestWorkspaces([]);
   await runEffect(owner.reconcile());
   await until(async () => script.cancelled() >= 1, true, 2000, STEP);
   expect(script.cancelled()).toBeGreaterThanOrEqual(1);
@@ -347,7 +340,7 @@ test("an abort cancels the owned reader even when the body ignores the signal", 
 test("a late result for a replaced target neither publishes nor announces", async () => {
   const bus = await openBus();
   const script = scriptedTransport(always({ kind: "deferred" }));
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test", "first-token", "first")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test", "first-token", "first")]);
   const owner = newOwner({ transport: script.transport });
   try {
     await runEffect(owner.reconcile());
@@ -355,7 +348,7 @@ test("a late result for a replaced target neither publishes nor announces", asyn
     const firstGeneration = entryOf(owner.snapshot())!.generation;
 
     // Retarget while the old transport is still pending, then let the old target answer.
-    writeConfig([remoteWorkspace("remote-client", "http://remote.test", "second-token", "first")]);
+    writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test", "second-token", "first")]);
     await runEffect(owner.reconcile());
     script.resolveDeferred(0);
     await Bun.sleep(60);
@@ -373,7 +366,7 @@ test("a late result for a replaced target neither publishes nor announces", asyn
 
 test("a connect that never answers is bounded and classified unreachable", async () => {
   const script = scriptedTransport(always({ kind: "hang" }));
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test")]);
   const owner = newOwner({ transport: script.transport });
   await runEffect(owner.reconcile());
   await until(async () => statusOf(owner.snapshot()), "unavailable", 2000);
@@ -386,7 +379,7 @@ test("a connect that never answers is bounded and classified unreachable", async
 
 test("a connect that answers just after its deadline is still classified as a timeout", async () => {
   const script = scriptedTransport(always({ kind: "deferred" }));
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test")]);
   const owner = newOwner({ transport: script.transport });
   await runEffect(owner.reconcile());
   await until(async () => script.remotes.length >= 1, true, 2000, STEP);
@@ -406,7 +399,7 @@ test("other stream failures are classified as unreachable or configuration", asy
     { kind: "status", status: 200, contentType: "text/html" } as Step,
   ];
   const script = scriptedTransport(() => steps.shift() ?? { kind: "status", status: 500 });
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test")]);
   const owner = newOwner({ transport: script.transport });
   await runEffect(owner.reconcile());
   await until(async () => statusOf(owner.snapshot()), "unavailable", 2000);
@@ -427,7 +420,7 @@ test("other stream failures are classified as unreachable or configuration", asy
 
 test("an invalid url is a configuration failure without any fetch", async () => {
   const script = scriptedTransport(always({ kind: "stream" }));
-  writeConfig([remoteWorkspace("remote-client", "ftp://remote.test")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "ftp://remote.test")]);
   const owner = newOwner({ transport: script.transport });
   await runEffect(owner.reconcile());
   await until(async () => statusOf(owner.snapshot()), "unavailable", 2000);
@@ -441,7 +434,7 @@ test("an invalid url is a configuration failure without any fetch", async () => 
 test("a scheduled reconnect stays unavailable until it is proven healthy", async () => {
   const steps = [{ kind: "status", status: 401 } as Step, { kind: "hang" } as Step];
   const script = scriptedTransport(() => steps.shift() ?? { kind: "hang" });
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test")]);
   const owner = newOwner({ transport: script.transport });
   await runEffect(owner.reconcile());
   await until(async () => statusOf(owner.snapshot()), "unavailable", 2000, STEP);
@@ -454,7 +447,7 @@ test("a scheduled reconnect stays unavailable until it is proven healthy", async
 
 test("stopping the owner ends a waiting loop without another check", async () => {
   const script = scriptedTransport(always({ kind: "status", status: 500 }));
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test")]);
   const owner = newOwner({ transport: script.transport });
   await runEffect(owner.reconcile());
   await until(async () => script.calls() >= 1, true, 2000, STEP);
@@ -465,7 +458,7 @@ test("stopping the owner ends a waiting loop without another check", async () =>
 
 test("retries on a healthy stream are coalesced and never restart it", async () => {
   const script = scriptedTransport(always({ kind: "stream" }));
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test")]);
   const owner = newOwner({ transport: script.transport });
   await runEffect(owner.reconcile());
   script.remotes[0]!.push(": open\n\n");
@@ -481,7 +474,7 @@ test("retries on a healthy stream are coalesced and never restart it", async () 
 test("repeated retries while a check is in flight share one more attempt, not a loop", async () => {
   const steps = [{ kind: "hang" } as Step, { kind: "hang" } as Step, { kind: "stream" } as Step];
   const script = scriptedTransport(() => steps.shift() ?? { kind: "hang" });
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test")]);
   const owner = newOwner({ transport: script.transport });
   await runEffect(owner.reconcile());
   await until(async () => statusOf(owner.snapshot()), "unavailable", 2000);
@@ -499,7 +492,7 @@ test("repeated retries while a check is in flight share one more attempt, not a 
 
 test("an observation on an unhealthy source asks for one recheck and classifies nothing itself", async () => {
   const script = scriptedTransport(always({ kind: "hang" }));
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test")]);
   const owner = newOwner({ transport: script.transport });
   await runEffect(owner.reconcile());
   await until(async () => statusOf(owner.snapshot()), "unavailable", 2000);
@@ -516,7 +509,7 @@ test("an observation on an unhealthy source asks for one recheck and classifies 
 
 test("an observation never disturbs a healthy stream", async () => {
   const script = scriptedTransport(always({ kind: "stream" }));
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test")]);
   const owner = newOwner({ transport: script.transport });
   await runEffect(owner.reconcile());
   script.remotes[0]!.push(": open\n\n");
@@ -532,7 +525,9 @@ test("an observation never disturbs a healthy stream", async () => {
 
 test("a same-id target change mints a new generation and abandons the old stream", async () => {
   const script = scriptedTransport(always({ kind: "stream" }));
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test", "first-token", "first-workspace")]);
+  writeTestWorkspaces([
+    remoteWorkspace("remote-client", "http://remote.test", "first-token", "first-workspace"),
+  ]);
   const owner = newOwner({ transport: script.transport });
   await runEffect(owner.reconcile());
   script.remotes[0]!.push(": open\n\n");
@@ -542,7 +537,9 @@ test("a same-id target change mints a new generation and abandons the old stream
 
   // Same source id, same url, different remote workspace: the same-id identity the store must not
   // confuse. A fresh target is checking under a new generation.
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test", "first-token", "second-workspace")]);
+  writeTestWorkspaces([
+    remoteWorkspace("remote-client", "http://remote.test", "first-token", "second-workspace"),
+  ]);
   await runEffect(owner.reconcile());
   const second = entryOf(owner.snapshot())!;
   expect(second.status).toEqual({ _tag: "checking" });
@@ -553,11 +550,11 @@ test("a same-id target change mints a new generation and abandons the old stream
 
 test("a workspace that leaves the config disappears from the map", async () => {
   const script = scriptedTransport(always({ kind: "stream" }));
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test")]);
   const owner = newOwner({ transport: script.transport });
   await runEffect(owner.reconcile());
   expect(owner.snapshot().availability).toHaveLength(1);
-  writeConfig([]);
+  writeTestWorkspaces([]);
   await runEffect(owner.reconcile());
   expect(owner.snapshot().availability).toEqual([]);
 });
@@ -565,7 +562,7 @@ test("a workspace that leaves the config disappears from the map", async () => {
 test("a fresh server instance resets the revision with a new opaque epoch", async () => {
   const first = scriptedTransport(always({ kind: "stream" }));
   const second = scriptedTransport(always({ kind: "stream" }));
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test")]);
   const one = newOwner({ instance: "instance-one", transport: first.transport });
   const two = newOwner({ instance: "instance-two", transport: second.transport });
   await runEffect(one.reconcile());
@@ -578,7 +575,7 @@ test("a fresh server instance resets the revision with a new opaque epoch", asyn
 
 test("the snapshot and its event never carry the device token", async () => {
   const script = scriptedTransport(always({ kind: "stream" }));
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test", "super-secret-token")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test", "super-secret-token")]);
   const owner = newOwner({ transport: script.transport });
   await runEffect(owner.reconcile());
   script.remotes[0]!.push(": open\n\n");
@@ -588,7 +585,7 @@ test("the snapshot and its event never carry the device token", async () => {
 
 test("the route and client decode the canonical snapshot and 404 an unknown source", async () => {
   const script = scriptedTransport(always({ kind: "stream" }));
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test")]);
   const owner = newOwner({ transport: script.transport });
   setRuntime({
     remoteAvailabilitySnapshot: owner.snapshot,
@@ -611,7 +608,7 @@ test("the route and client decode the canonical snapshot and 404 an unknown sour
 
 test("the availability snapshot is announced on the local event stream", async () => {
   const script = scriptedTransport(always({ kind: "stream" }));
-  writeConfig([remoteWorkspace("remote-client", "http://remote.test", "stream-token")]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", "http://remote.test", "stream-token")]);
   const owner = newOwner({ transport: script.transport });
   const bus = await openBus();
   try {
