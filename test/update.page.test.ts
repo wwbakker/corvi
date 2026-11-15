@@ -1,15 +1,7 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { type Browser, type Page } from "playwright";
-import {
-  closePages,
-  openEngine,
-  serverEnv,
-  testRun,
-  testTempDir,
-  waitForUrl,
-  stopRunHost,
-} from "./helpers.ts";
+import { closePages, openEngine, testTempDir, startTestServer, stopTestServer } from "./helpers.ts";
 
 /**
  * The auto-update surface in the engine the app renders in: the notice, the icon, and the
@@ -33,20 +25,14 @@ let server: ReturnType<typeof Bun.spawn>;
 beforeAll(async () => {
   if (!usable) return;
   tmp = await testTempDir("update-pages");
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp));
 });
 
 afterAll(async () => {
   if (!usable) return;
   await closePages(browser, "update");
   await browser?.close();
-  server?.kill();
-  await stopRunHost(tmp);
+  await stopTestServer(server, tmp);
   await rm(tmp, { recursive: true, force: true });
 });
 

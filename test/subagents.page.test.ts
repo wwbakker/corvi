@@ -7,10 +7,9 @@ import {
   openEngine,
   runSh,
   serverEnv,
-  stopRunHost,
-  testRun,
   testTempDir,
-  waitForUrl,
+  startTestServer,
+  stopTestServer,
 } from "./helpers.ts";
 import { editorText, fillEditor } from "./editor.ts";
 
@@ -46,12 +45,7 @@ const source = [
 
 beforeAll(async () => {
   tmp = await testTempDir("subagents-page");
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp));
   const written = await fetch(`${url}/api/subagents/files`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
@@ -63,8 +57,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await closePages(browser, "subagents");
   await browser?.close();
-  server?.kill();
-  await stopRunHost(tmp);
+  await stopTestServer(server, tmp);
   await rm(tmp, { recursive: true, force: true });
 });
 

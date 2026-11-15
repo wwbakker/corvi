@@ -26,6 +26,7 @@ import {
   withRuntimeConfig,
   useOwnChangeRoot,
   gitRepo,
+  withEnv,
 } from "./helpers.ts";
 let tmp: string;
 let repo: string;
@@ -84,11 +85,8 @@ test("the create response names the new change's directory", async () => {
   expect(provisioned.changeDir).toBe(join(process.env.CORVI_ROOT!, "PROJ-CHANGEDIR"));
   // A workspace names a changes root of its own, and a change made in it is filed there rather
   // than in the default root. The env override would win at every scope, so put it aside.
-  const env = { root: process.env.CORVI_ROOT, archive: process.env.CORVI_ARCHIVE_ROOT };
-  delete process.env.CORVI_ROOT;
-  delete process.env.CORVI_ARCHIVE_ROOT;
-  try {
-    await withRuntimeConfig(
+  await withEnv({ CORVI_ROOT: undefined, CORVI_ARCHIVE_ROOT: undefined }, () =>
+    withRuntimeConfig(
       {
         changesRoot: join(tmp, "root-changes"),
         archiveRoot: join(tmp, "root-archive"),
@@ -112,11 +110,8 @@ test("the create response names the new change's directory", async () => {
         expect(workspaceChange.change.workspace).toBe("client");
         expect(workspaceChange.changeDir).toBe(join(tmp, "client-changes", "PROJ-WORKSPACE"));
       },
-    );
-  } finally {
-    process.env.CORVI_ROOT = env.root;
-    process.env.CORVI_ARCHIVE_ROOT = env.archive;
-  }
+    ),
+  );
 });
 test("rejects duplicate ids, unsafe ids and changes without repositories", async () => {
   await runEffect(createChange({ id: "PROJ-2", checkouts: checkoutsOf([repo]) }));

@@ -10,12 +10,10 @@ import {
   closePages,
   requireFreshWebBundle,
   runSh,
-  serverEnv,
-  testRun,
   testTempDir,
   until,
   waitFor,
-  waitForUrl,
+  startTestServer,
 } from "./helpers.ts";
 import { csiuFor } from "@corvi/terminals/model";
 import { ensureHost } from "../apps/server/src/terminals/host/client.ts";
@@ -362,14 +360,11 @@ const rapid = "PROJ-RAPID";
 const exits = "PROJ-EXIT";
 
 const startServer = async (port = 0): Promise<void> => {
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
+  ({ server, url } = await startTestServer(tmp, {
     // Shrink the host's replay ring for the restart test: it deliberately outruns the ring so only
     // the server's persisted screen can bring the deep marker back.
-    env: serverEnv(tmp, { CORVI_PORT: String(port), CORVI_HOST_REPLAY_BYTES: "131072" }),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+    env: { CORVI_PORT: String(port), CORVI_HOST_REPLAY_BYTES: "131072" },
+  }));
 };
 
 beforeAll(async () => {

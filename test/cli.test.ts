@@ -28,7 +28,7 @@ import {
   type Candidate,
 } from "../apps/cli/src/discovery.ts";
 import { pruneInstanceRecords } from "../apps/server/src/app-root/instance.ts";
-import { runSh, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
+import { runSh, testTempDir, startTestServer, stopTestServer } from "./helpers.ts";
 
 const CHANGE_ID = "CLI-1";
 
@@ -248,20 +248,17 @@ beforeAll(async () => {
     "utf8",
   );
 
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
+  ({ server, url: baseUrl } = await startTestServer(tmp, {
     cwd: resolve("."),
     // The short poll makes an await's horizon (`CORVI_SUBAGENT_POLL_MS`) reachable in a test;
     // nothing here parks long enough to notice.
-    env: serverEnv(tmp, { CORVI_SUBAGENT_POLL_MS: "300" }),
-    stdout: "pipe",
+    env: { CORVI_SUBAGENT_POLL_MS: "300" },
     stderr: "pipe",
-  });
-  baseUrl = await waitForUrl(server);
+  }));
 });
 
 afterAll(async () => {
-  server?.kill();
-  await server?.exited;
+  await stopTestServer(server, tmp);
   if (savedStateHome === undefined) delete process.env.XDG_STATE_HOME;
   else process.env.XDG_STATE_HOME = savedStateHome;
   await rm(tmp, { recursive: true, force: true });

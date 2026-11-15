@@ -8,7 +8,7 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 
-import { serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
+import { testTempDir, startTestServer, stopTestServer } from "./helpers.ts";
 
 const CHANGE = "ROUTES-turn";
 
@@ -18,12 +18,7 @@ let url: string;
 
 beforeAll(async () => {
   tmp = await testTempDir("subagents-routes");
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp));
   const created = await fetch(`${url}/api/changes`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -33,8 +28,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
-  server?.kill();
-  await server?.exited;
+  await stopTestServer(server, tmp);
   await rm(tmp, { recursive: true, force: true });
 });
 

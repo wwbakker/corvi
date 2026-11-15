@@ -3,16 +3,7 @@ import { rm, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type Browser } from "playwright";
 import { MASK } from "../apps/server/src/settings/server/secrets.ts";
-import {
-  closePages,
-  openEngine,
-  serverEnv,
-  stopRunHost,
-  testRun,
-  testTempDir,
-  until,
-  waitForUrl,
-} from "./helpers.ts";
+import { closePages, openEngine, stopRunHost, testTempDir, until, startTestServer } from "./helpers.ts";
 
 /**
  * The settings page's remote-workspace editor, in the engine the app renders in: add a context,
@@ -66,12 +57,7 @@ beforeAll(async () => {
   });
   remote = { url: `http://127.0.0.1:${stub.port}`, stop: () => void stub.stop(true) };
 
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp));
 });
 
 afterAll(async () => {

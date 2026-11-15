@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import { ensureHost } from "../apps/server/src/terminals/host/client.ts";
-import { checkoutsOf, runSh, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
+import { checkoutsOf, runSh, testTempDir, startTestServer } from "./helpers.ts";
 
 /**
  * What a flood costs the rest of the server. A terminal screen is parsed and serialized on the
@@ -55,13 +55,7 @@ beforeAll(async () => {
   process.env.XDG_STATE_HOME = join(tmp, "state");
   const repo = join(tmp, "repo");
   await runSh(["git", "init", "-b", "main", repo]);
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    cwd: resolve("."),
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  baseUrl = await waitForUrl(server);
+  ({ server, url: baseUrl } = await startTestServer(tmp, { cwd: resolve("."), stderr: "pipe" }));
   await fetch(`${baseUrl}/api/changes`, {
     method: "POST",
     body: JSON.stringify({ id: CHANGE, checkouts: checkoutsOf([repo]) }),

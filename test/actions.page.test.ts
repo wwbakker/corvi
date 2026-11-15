@@ -7,10 +7,9 @@ import {
   openEngine,
   runSh,
   serverEnv,
-  stopRunHost,
-  testRun,
   testTempDir,
-  waitForUrl,
+  startTestServer,
+  stopTestServer,
 } from "./helpers.ts";
 import { editorText, fillEditor } from "./editor.ts";
 
@@ -58,12 +57,7 @@ const typed = ["---", "label: Review it", "kind: prompt", "target: active", "---
 
 beforeAll(async () => {
   tmp = await testTempDir("actions-page");
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp));
   const written = await fetch(`${url}/api/actions/files`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
@@ -76,8 +70,7 @@ afterAll(async () => {
   // Whatever pages a failed test left open are screenshotted for CI's failure artifacts first.
   await closePages(browser, "actions");
   await browser?.close();
-  server?.kill();
-  await stopRunHost(tmp);
+  await stopTestServer(server, tmp);
   await rm(tmp, { recursive: true, force: true });
 });
 

@@ -12,13 +12,11 @@ import {
   closePages,
   openEngine,
   runSh,
-  serverEnv,
   stopRunHost,
-  testRun,
   testTempDir,
   until,
   waitFor,
-  waitForUrl,
+  startTestServer,
 } from "./helpers.ts";
 
 /**
@@ -218,12 +216,7 @@ beforeAll(async () => {
       ],
     }),
   );
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp));
 
   // A local change with the SAME id as the remote one: the collision the source dimension exists
   // to keep straight. It has a checkout so its terminal can actually attach.

@@ -6,16 +6,7 @@ import { type Browser } from "playwright";
 
 import { serve, type Serving } from "../apps/server/src/capabilities/serve.ts";
 import { guard, json } from "../apps/server/src/capabilities/web.ts";
-import {
-  closePages,
-  openEngine,
-  serverEnv,
-  stopRunHost,
-  testRun,
-  testTempDir,
-  until,
-  waitForUrl,
-} from "./helpers.ts";
+import { closePages, openEngine, stopRunHost, testTempDir, until, startTestServer } from "./helpers.ts";
 
 /**
  * A remote workspace's notification, end to end: the fake remote's `notify` event is fanned in on
@@ -88,12 +79,7 @@ beforeAll(async () => {
       ],
     }),
   );
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp));
 
   // A local change with the SAME id as the remote one: an id-only click would open this one, so
   // the test only passes if the notification's source is what resolves the change.

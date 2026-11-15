@@ -1,7 +1,7 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 
-import { serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
+import { testTempDir, startTestServer, stopTestServer } from "./helpers.ts";
 
 /**
  * The power API over a real server: the local machine arms, counts down, disarms, and says so on
@@ -16,16 +16,13 @@ let url: string;
 
 beforeAll(async () => {
   tmp = await testTempDir("power");
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp, { CORVI_POWER_COUNTDOWN_MS: "3600000" }),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp, {
+    env: { CORVI_POWER_COUNTDOWN_MS: "3600000" },
+  }));
 });
 
 afterAll(async () => {
-  server?.kill();
+  await stopTestServer(server, tmp);
   await rm(tmp, { recursive: true, force: true });
 });
 

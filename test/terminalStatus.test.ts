@@ -3,7 +3,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { ensureHost, type HostClient } from "../apps/server/src/terminals/host/client.ts";
 import { isStale, presentStatus, type AgentStatus } from "../apps/server/src/terminals/server/status.ts";
-import { checkoutsOf, runSh, serverEnv, testRun, testTempDir, waitFor, waitForUrl } from "./helpers.ts";
+import { checkoutsOf, runSh, testTempDir, waitFor, startTestServer } from "./helpers.ts";
 
 /**
  * The agent-status channel end to end: the endpoint, its validation, the presenter that reads the
@@ -15,12 +15,7 @@ let server: ReturnType<typeof Bun.spawn>;
 const id = "PROJ-STATUS";
 
 const startServer = async (): Promise<void> => {
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp));
 };
 
 const hostSocket = (): string => join(tmp, "state", "corvi", "host.sock");

@@ -2,15 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { type Browser, type Page } from "playwright";
-import {
-  closePages,
-  openEngine,
-  serverEnv,
-  testRun,
-  testTempDir,
-  waitForUrl,
-  stopRunHost,
-} from "./helpers.ts";
+import { closePages, openEngine, testTempDir, startTestServer, stopTestServer } from "./helpers.ts";
 import { editorText, fillEditor } from "./editor.ts";
 
 /**
@@ -67,12 +59,7 @@ const typed = "typed **more**";
 
 beforeAll(async () => {
   tmp = await testTempDir("plan-page");
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp));
   // The idea with its plan, as the wizard's "Create idea" would write it.
   const created = await fetch(`${url}/api/changes`, {
     method: "POST",
@@ -86,8 +73,7 @@ afterAll(async () => {
   // Whatever pages a failed test left open are screenshotted for CI's failure artifacts first.
   await closePages(browser, "plan");
   await browser?.close();
-  server?.kill();
-  await stopRunHost(tmp);
+  await stopTestServer(server, tmp);
   await rm(tmp, { recursive: true, force: true });
 });
 

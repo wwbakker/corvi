@@ -2,17 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { type Browser, type Locator, type Page } from "playwright";
-import {
-  closePages,
-  openEngine,
-  runSh,
-  serverEnv,
-  stopRunHost,
-  testRun,
-  testTempDir,
-  waitForUrl,
-  gitRepo,
-} from "./helpers.ts";
+import { closePages, gitRepo, openEngine, startTestServer, stopTestServer, testTempDir } from "./helpers.ts";
 
 /**
  * What happens to untracked files when a worktree goes, through the page: removing a repository
@@ -55,13 +45,10 @@ const exists = (path: string): Promise<boolean> => Bun.file(join(path, "README.m
 beforeAll(async () => {
   if (!usable) return;
   tmp = await testTempDir("discard-question");
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
+  ({ server, url } = await startTestServer(tmp, {
     // The repository browser opens here, not in the home directory of whoever runs the suite.
-    env: serverEnv(tmp, { CORVI_REPOSITORIES_DIRECTORY: tmp }),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+    env: { CORVI_REPOSITORIES_DIRECTORY: tmp },
+  }));
 });
 
 afterAll(async () => {
@@ -69,9 +56,7 @@ afterAll(async () => {
   // Whatever pages a failed test left open are screenshotted for CI's failure artifacts first.
   await closePages(browser, "discard-question");
   await browser?.close();
-  server?.kill();
-  await server?.exited;
-  await stopRunHost(tmp);
+  await stopTestServer(server, tmp);
   await rm(tmp, { recursive: true, force: true });
 });
 

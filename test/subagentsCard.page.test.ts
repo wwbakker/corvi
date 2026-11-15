@@ -6,12 +6,10 @@ import {
   budget,
   closePages,
   openEngine,
-  serverEnv,
-  testRun,
   testTempDir,
   until,
-  waitForUrl,
-  stopRunHost,
+  startTestServer,
+  stopTestServer,
 } from "./helpers.ts";
 
 /**
@@ -128,19 +126,13 @@ beforeAll(async () => {
       { kind: "turn_started", at: "2026-01-01T00:05:00.000Z", note: "message 1" },
     ],
   });
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp));
 }, 60_000);
 
 afterAll(async () => {
   await closePages(browser, "subagents-card");
   await browser?.close();
-  server?.kill();
-  await stopRunHost(tmp);
+  await stopTestServer(server, tmp);
   await rm(tmp, { recursive: true, force: true });
 });
 

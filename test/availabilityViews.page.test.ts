@@ -10,12 +10,10 @@ import {
   budget,
   closePages,
   openEngine,
-  serverEnv,
-  stopRunHost,
-  testRun,
   testTempDir,
   until,
-  waitForUrl,
+  startTestServer,
+  stopTestServer,
 } from "./helpers.ts";
 
 /**
@@ -98,12 +96,7 @@ beforeAll(async () => {
       ],
     }),
   );
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp));
 }, budget(120_000));
 
 afterAll(async () => {
@@ -111,8 +104,7 @@ afterAll(async () => {
   await closePages(browser, "availability-views");
   await browser?.close();
   remote?.close();
-  server?.kill();
-  await stopRunHost(tmp);
+  await stopTestServer(server, tmp);
   await rm(tmp, { recursive: true, force: true });
 }, budget(60_000));
 

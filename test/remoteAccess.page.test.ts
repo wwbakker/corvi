@@ -4,15 +4,7 @@ import type { AddressInfo } from "node:net";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type Browser } from "playwright";
-import {
-  closePages,
-  openEngine,
-  serverEnv,
-  testRun,
-  testTempDir,
-  waitForUrl,
-  stopRunHost,
-} from "./helpers.ts";
+import { closePages, openEngine, testTempDir, startTestServer, stopTestServer } from "./helpers.ts";
 
 /**
  * The Remote access settings section in the engine the app renders in: the enable toggle and
@@ -40,20 +32,14 @@ beforeAll(async () => {
   await new Promise<void>((resolve) => probe.close(() => resolve()));
   await writeFile(join(tmp, "config.json"), JSON.stringify({}));
 
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp));
 });
 
 afterAll(async () => {
   if (!usable) return;
   await closePages(browser, "remote-access");
   await browser?.close();
-  server?.kill();
-  await stopRunHost(tmp);
+  await stopTestServer(server, tmp);
   await rm(tmp, { recursive: true, force: true });
 });
 

@@ -8,11 +8,9 @@ import {
   closePages,
   requireFreshWebBundle,
   runSh,
-  serverEnv,
-  testRun,
   testTempDir,
   until,
-  waitForUrl,
+  startTestServer,
 } from "./helpers.ts";
 import { ensureHost } from "../apps/server/src/terminals/host/client.ts";
 
@@ -61,12 +59,9 @@ const awaitAttached = (page: Page): Promise<void> =>
   page.waitForSelector(".terminal-screen[data-attached]", { timeout: budget(60_000) }).then(() => undefined);
 
 const startServer = async (port = 0): Promise<void> => {
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp, { CORVI_PORT: String(port), PATH: fakePath }),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp, {
+    env: { CORVI_PORT: String(port), PATH: fakePath },
+  }));
 };
 
 beforeAll(async () => {
@@ -80,12 +75,7 @@ beforeAll(async () => {
   await writeFile(fakePi, "#!/bin/sh\nexec /bin/sh\n");
   await chmod(fakePi, 0o755);
   fakePath = `${fakeBin}:${process.env.PATH ?? ""}`;
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp, { PATH: fakePath }),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp, { env: { PATH: fakePath } }));
   browser = await chromium.launch();
 }, budget(120_000));
 

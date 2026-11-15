@@ -118,6 +118,28 @@ export const gitRepo = async (
   return clone;
 };
 
+/** Run `body` with an environment patch, restoring every key exactly as it was — an absent key
+ * removed again, not written as the string "undefined". The environment twin of
+ * `withRuntimeConfig`. */
+export const withEnv = async <T>(
+  patch: Readonly<Record<string, string | undefined>>,
+  body: () => Promise<T> | T,
+): Promise<T> => {
+  const saved = new Map(Object.keys(patch).map((key) => [key, process.env[key]]));
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  try {
+    return await body();
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+};
+
 /** Write a test configuration file and put it into effect without a restart. */
 export const writeTestConfig = (value: unknown): void => {
   writeFileSync(configPath(), JSON.stringify(value));
@@ -247,6 +269,38 @@ export const waitForUrl = async (proc: ReturnType<typeof Bun.spawn>, timeoutMs =
     ),
   );
   return await Promise.race([line, failure, timeout]);
+};
+
+/** Start a test server on an OS-picked port, with the run's isolated environment, and wait for
+ * its readiness line. The caller owns the temp dir and the teardown. */
+export const startTestServer = async (
+  tmp: string,
+  options: {
+    readonly env?: Record<string, string>;
+    readonly cwd?: string;
+    readonly stderr?: "pipe" | "ignore" | "inherit";
+  } = {},
+): Promise<{ server: ReturnType<typeof Bun.spawn>; url: string }> => {
+  const server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    env: serverEnv(tmp, options.env),
+    stdout: "pipe",
+    stderr: options.stderr ?? (process.env.CORVI_TEST_LOUD ? "inherit" : "ignore"),
+  });
+  return { server, url: await waitForUrl(server) };
+};
+
+/** Stop the server and the terminal host it started, in the order a test's teardown needs: the
+ * host outlives the server by design, so it is asked to shut down explicitly. */
+export const stopTestServer = async (
+  server: ReturnType<typeof Bun.spawn> | undefined,
+  tmp: string,
+): Promise<void> => {
+  if (server !== undefined) {
+    server.kill();
+    await server.exited.catch(() => undefined);
+  }
+  await stopRunHost(tmp);
 };
 
 /** How contended the machine is right now, as a multiplier: 1 on an idle box, up to 4 when it is

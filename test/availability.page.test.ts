@@ -12,12 +12,10 @@ import {
   closePages,
   openEngine,
   runSh,
-  serverEnv,
-  stopRunHost,
-  testRun,
   testTempDir,
   until,
-  waitForUrl,
+  startTestServer,
+  stopTestServer,
 } from "./helpers.ts";
 
 /**
@@ -109,12 +107,7 @@ beforeAll(async () => {
       ],
     }),
   );
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp));
   const repo = join(tmp, "repo");
   await runSh(["git", "init", "-b", "main", repo]);
   await fetch(`${url}/api/changes`, {
@@ -134,8 +127,7 @@ afterAll(async () => {
   await closePages(browser, "availability");
   await browser?.close();
   remote?.stop();
-  server?.kill();
-  await stopRunHost(tmp);
+  await stopTestServer(server, tmp);
   await rm(tmp, { recursive: true, force: true });
 }, budget(60_000));
 

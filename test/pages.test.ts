@@ -9,9 +9,8 @@ import {
   runSh,
   serverEnv,
   stopRunHost,
-  testRun,
   testTempDir,
-  waitForUrl,
+  startTestServer,
 } from "./helpers.ts";
 import { editorText, fillEditor } from "./editor.ts";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "@corvi/web/chrome";
@@ -59,12 +58,7 @@ beforeAll(async () => {
   // serverEnv gives the file its own changes, config, page build and cache, and
   // port 0: the OS picks a free one, so parallel workers never collide. Readiness is the
   // server's own `corvi on <url>` line.
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp, { CORVI_REPOSITORIES_DIRECTORY: tmp }),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp, { env: { CORVI_REPOSITORIES_DIRECTORY: tmp } }));
   const first = await fetch(`${url}/api/changes`, {
     method: "POST",
     body: JSON.stringify({ id, branch: `${id}-x`, checkouts: checkoutsOf([repo]) }),

@@ -6,15 +6,7 @@ import { join } from "node:path";
 import { type Browser, type Page } from "playwright";
 import { instanceRecords } from "../apps/cli/src/discovery.ts";
 import { DEVICE_COOKIE } from "../apps/server/src/devices/server/index.ts";
-import {
-  closePages,
-  openEngine,
-  serverEnv,
-  testRun,
-  testTempDir,
-  waitForUrl,
-  stopRunHost,
-} from "./helpers.ts";
+import { closePages, openEngine, testTempDir, startTestServer, stopTestServer } from "./helpers.ts";
 
 /**
  * Pairing and device management through the page.
@@ -64,12 +56,7 @@ beforeAll(async () => {
   tmp = await testTempDir("pairing-page");
   const port = await freePort();
   await writeFile(join(tmp, "config.json"), JSON.stringify({ remoteAccess: { enabled: true, port } }));
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp));
   remoteUrl = await waitForRemoteUrl();
 });
 
@@ -77,8 +64,7 @@ afterAll(async () => {
   if (!usable) return;
   await closePages(browser, "pairing");
   await browser?.close();
-  server?.kill();
-  await stopRunHost(tmp);
+  await stopTestServer(server, tmp);
   await rm(tmp, { recursive: true, force: true });
 });
 

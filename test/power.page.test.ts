@@ -6,16 +6,7 @@ import { type Browser, type Locator } from "playwright";
 
 import { serve, type Serving } from "../apps/server/src/capabilities/serve.ts";
 import { guard, json } from "../apps/server/src/capabilities/web.ts";
-import {
-  closePages,
-  openEngine,
-  serverEnv,
-  stopRunHost,
-  testRun,
-  testTempDir,
-  until,
-  waitForUrl,
-} from "./helpers.ts";
+import { closePages, openEngine, stopRunHost, testTempDir, until, startTestServer } from "./helpers.ts";
 
 /**
  * The power control in the page: the sidebar's power icon opens a dialog that names the machines,
@@ -101,12 +92,7 @@ beforeAll(async () => {
       ],
     }),
   );
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp, { CORVI_POWER_COUNTDOWN_MS: "3600000" }),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp, { env: { CORVI_POWER_COUNTDOWN_MS: "3600000" } }));
 });
 
 afterAll(async () => {
