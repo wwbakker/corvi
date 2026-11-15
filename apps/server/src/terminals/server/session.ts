@@ -955,6 +955,13 @@ export const hubGrid = (
   return hub === undefined ? undefined : { cols: hub.screen.cols, rows: hub.screen.rows };
 };
 
+/** Test seam: the live hub's serialized screen, for a test that must wait for output to be
+ * applied before it asks for a snapshot. */
+export const screenForTest = (sessionId: string, incarnation: number): string | undefined => {
+  const hub = hubs.get(`${sessionId}#${incarnation}`);
+  return hub === undefined ? undefined : hub.screen.serialize().data;
+};
+
 /** Test seam: report host bytes without feeding the screen, so a test can open a serve's window at
  * a cutoff the screen has not reached. */
 export const setReceivedForTest = (sessionId: string, incarnation: number, seq: number): void => {

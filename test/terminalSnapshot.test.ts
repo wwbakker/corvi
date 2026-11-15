@@ -10,6 +10,7 @@ import {
   flushScreens,
   hubStats,
   openSession,
+  screenForTest,
   terminalSockets,
   type TerminalSession,
 } from "../apps/server/src/terminals/server/session.ts";
@@ -226,6 +227,13 @@ test(
     const session = await openSession("SNAP-1", dir, { cols: 80, rows: 24 });
     const command = "echo FIRST_$(( 0 + 1 ))_MARK\n";
     await runAndWait(session, command);
+    // The host's byte offset advances before the screen applies the output; the snapshot the page
+    // is served serializes the screen, so wait for the text, not only the bytes.
+    await waitFor(
+      "the screen to apply the output",
+      async () => (screenForTest(session.sessionId, session.incarnation) ?? "").includes("FIRST_1_MARK"),
+      budget(15_000),
+    );
     const first = fakeSocket(session);
     terminalSockets.open(first);
     await waitFor(
