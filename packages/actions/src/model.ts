@@ -8,10 +8,12 @@
  * The shape matches pi's own prompt templates (Markdown + YAML frontmatter) on purpose: the same
  * file reads as an action here and, later, could be sent as a `/name` template there. */
 import { Result, Schema } from "effect";
-import { parse as parseYaml } from "yaml";
 
-import { ChangePhase } from "@corvi/contracts/changes";
 import { ActionKind, ActionTarget } from "@corvi/contracts/actions";
+import { ChangePhase } from "@corvi/contracts/changes";
+import { splitFrontmatter } from "@corvi/markdown/frontmatter";
+
+export { splitFrontmatter };
 
 /** One configured action: what to deliver, where, and how. */
 export type Action = {
@@ -46,23 +48,6 @@ const invalid = (...reasons: string[]): Result.Result<Action, InvalidActionFile>
 const isKind = Schema.is(ActionKind);
 const isTarget = Schema.is(ActionTarget);
 const isPhase = Schema.is(ChangePhase);
-
-/** The frontmatter block and the body below it. A file without the `---` pair has no delivery
- * instructions to read, whatever its body says. The raw frontmatter text comes back too, so a
- * caller can rewrite a body without reprinting what the user wrote above it. */
-export const splitFrontmatter = (
-  text: string,
-): { fields: unknown; frontmatter: string; body: string } | undefined => {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n([\s\S]*))?$/.exec(text);
-  if (!match) return undefined;
-  let fields: unknown;
-  try {
-    fields = parseYaml(match[1] ?? "");
-  } catch {
-    return undefined;
-  }
-  return { fields, frontmatter: match[1] ?? "", body: (match[2] ?? "").trim() };
-};
 
 /** Parse one action file. Unknown frontmatter keys are tolerated — a file may carry a
  * `description` for pi and still be an action here — but every key this vocabulary knows is

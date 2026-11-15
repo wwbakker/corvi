@@ -17,11 +17,11 @@
       "dependsOn": ["@corvi/contracts"]
     },
     "@corvi/agents": {
-      "dependsOn": ["@corvi/contracts"]
+      "dependsOn": ["@corvi/contracts", "@corvi/markdown"]
     },
     "@corvi/actions": {
-      "dependsOn": ["@corvi/contracts", "@corvi/terminals"],
-      "external": ["effect", "yaml", "node:fs", "node:fs/promises", "node:path", "node:url"]
+      "dependsOn": ["@corvi/contracts", "@corvi/markdown", "@corvi/terminals"],
+      "external": ["effect", "node:fs", "node:fs/promises", "node:path", "node:url"]
     },
     "@corvi/shell": {
       "dependsOn": ["@corvi/contracts"]
@@ -92,6 +92,10 @@
     "@corvi/desktop": {
       "dependsOn": ["@corvi/web", "@corvi/contracts", "@corvi/configuration"],
       "node": true
+    },
+    "@corvi/markdown": {
+      "dependsOn": [],
+      "external": ["yaml"]
     }
   }
 }

@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@corvi/contracts": "workspace:*",
-    "effect": "catalog:",
-    "yaml": "^2.9.1"
+    "@corvi/markdown": "workspace:*",
+    "effect": "catalog:"
   }
 }

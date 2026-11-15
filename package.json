@@ -74,6 +74,7 @@
     "@corvi/desktop": "workspace:*",
     "@corvi/github": "workspace:*",
     "@corvi/jira": "workspace:*",
+    "@corvi/markdown": "workspace:*",
     "@corvi/repositories": "workspace:*",
     "@corvi/shell": "workspace:*",
     "@corvi/terminals": "workspace:*",

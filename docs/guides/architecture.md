@@ -17,6 +17,7 @@ apps/
   desktop/                Electron host and native platform adapter
 packages/
   contracts/              shared boundary schemas and values
+  markdown/               Markdown frontmatter and body, shared by document kinds
   configuration/          configuration and workspace resolution
   changes/                change records, lifecycle rules, documents and storage
   repositories/           Git repositories, branches, worktrees and local review
@@ -53,6 +54,7 @@ unrelated issue, build, and agent operations.
 | Owner | Owns | Does not own |
 | --- | --- | --- |
 | `contracts` | Shared IDs, decoded values, request/response/event schemas and transport declarations | Services, I/O, global state, native imports, every package's internal types |
+| `markdown` | A Markdown file's YAML frontmatter and body, parsed totally | Any document kind's fields, validation or rendering |
 | `configuration` | Validated configuration snapshots, workspace selection, precedence and updates | Integration execution or a mutable singleton configuration object |
 | `changes` | Change invariants, persistence, archive location and reopening, plan/notes documents, shelves and associated metadata | Git commands, terminals, provider calls, HTTP or dashboard cards |
 | `repositories` | Repository facts, branches, worktree operations, safety assessment, diffs, commits and captured work (patches) | Corvi change-directory policy, persisted changes, GitHub calls or widgets |
