@@ -164,10 +164,9 @@ beforeAll(async () => {
     routes: guard({
       "/api/write": async (req: Request) => {
         const body = await req.text();
-        return new Response(
-          JSON.stringify({ ok: true, origin: req.headers.get("origin") ?? null, body }),
-          { headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ ok: true, origin: req.headers.get("origin") ?? null, body }), {
+          headers: { "content-type": "application/json" },
+        });
       },
     }),
   });
@@ -351,7 +350,10 @@ test("a read's header bound is bounded, and a mutation of the same remote is not
   expect(read.status).toBe(504);
 
   // The same slow answer as a write: no total-duration bound, so it completes.
-  const write = await fetch(localUrl("remote/remote-client/api/slow-headers"), { method: "POST", body: "{}" });
+  const write = await fetch(localUrl("remote/remote-client/api/slow-headers"), {
+    method: "POST",
+    body: "{}",
+  });
   expect(write.status).toBe(200);
 });
 

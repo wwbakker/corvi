@@ -95,9 +95,7 @@ afterAll(async () => {
 });
 
 /** The remote workspace as the server stored it, from the settings read. */
-const storedRemote = async (): Promise<
-  { url: string; workspace: string; token?: string } | undefined
-> => {
+const storedRemote = async (): Promise<{ url: string; workspace: string; token?: string } | undefined> => {
   const view = (await (await fetch(`${url}/api/settings`)).json()) as {
     file: { workspaces?: { id: string; remote?: { url: string; workspace: string; token?: string } }[] };
   };

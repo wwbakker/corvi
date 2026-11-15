@@ -61,7 +61,11 @@ export function ShelveDialog({
     setError(null);
     wire
       .request("POST", url(`/ext/review/changes/${changeId}/shelves`, workspace), ShelveResultSchema, {
-        body: { repository, ...(name.trim() ? { name: name.trim() } : {}), ...(allowLarge ? { allowLarge } : {}) },
+        body: {
+          repository,
+          ...(name.trim() ? { name: name.trim() } : {}),
+          ...(allowLarge ? { allowLarge } : {}),
+        },
       })
       .then((result) => {
         switch (result._tag) {
@@ -89,8 +93,8 @@ export function ShelveDialog({
     <dialog ref={ref} className="wide" onClose={onClose}>
       <h3>Shelve {repository}</h3>
       <p className="hint">
-        Its uncommitted work — staged, unstaged and untracked files — is kept in the change and the
-        checkout is left clean. Apply the shelf to put it back.
+        Its uncommitted work — staged, unstaged and untracked files — is kept in the change and the checkout
+        is left clean. Apply the shelf to put it back.
       </p>
       {error && <div className="error-banner">{error}</div>}
       <input
@@ -107,8 +111,8 @@ export function ShelveDialog({
       {large && (
         <>
           <p>
-            That is {sizeOf(large.patchBytes)} of changes — usually build output that should be
-            ignored. The biggest files:
+            That is {sizeOf(large.patchBytes)} of changes — usually build output that should be ignored. The
+            biggest files:
           </p>
           <ul>
             {large.largest.map((file) => (

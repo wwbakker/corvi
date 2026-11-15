@@ -78,8 +78,7 @@ export const settingsViewSync = (): SettingsView => {
   };
 };
 
-const absolute = (value: string | undefined): boolean =>
-  !value || isAbsolute(expandTilde(value));
+const absolute = (value: string | undefined): boolean => !value || isAbsolute(expandTilde(value));
 
 /** Everything wrong with these settings, in the order it appears on the page. Empty means they
  * can be written. The rules that are plain shapes (a word-shaped id, a directory name, an
@@ -190,9 +189,7 @@ function prune(value: unknown): unknown {
  * locking and the empty-field-means-unset pruning still apply, and a masked secret is the stored
  * value rather than the mask (apps/server/src/settings/server/secrets.ts).
  */
-export const writeSettings = (
-  next: Settings,
-): Effect.Effect<SettingsView, BadRequestError> =>
+export const writeSettings = (next: Settings): Effect.Effect<SettingsView, BadRequestError> =>
   Effect.gen(function* () {
     const wrong = problems(next);
     if (wrong.length) {

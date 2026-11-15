@@ -39,8 +39,7 @@ export const defaultArchiveRoot = (): string => join(homedir(), ID, "changes-arc
 /** Where a running server records itself for discovery: one JSON file per port, beside the
  * pid-files the desktop window writes (`<id>-app-<port>.pid`). The `*.json` suffix keeps it out
  * of `corvi stop`'s `corvi-app-*.pid` glob. */
-export const instanceRecordPath = (port: number): string =>
-  join(stateDir(), `${ID}-app-${port}.json`);
+export const instanceRecordPath = (port: number): string => join(stateDir(), `${ID}-app-${port}.json`);
 
 /** macOS, where the native app and `open -a` live. */
 export const isMac = process.platform === "darwin";

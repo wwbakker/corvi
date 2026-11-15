@@ -1,12 +1,6 @@
 import { type JSX, useEffect, useRef } from "react";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
-import {
-  defaultKeymap,
-  history,
-  historyKeymap,
-  indentLess,
-  insertTab,
-} from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, indentLess, insertTab } from "@codemirror/commands";
 import {
   bracketMatching,
   codeFolding,
@@ -157,10 +151,7 @@ export function MarkdownEditor({
           syntaxHighlighting(markdownHighlighting),
           editorChrome,
           placeholder === undefined ? [] : placeholderExtension(placeholder),
-          readOnlyCompartment.of([
-            EditorState.readOnly.of(readOnly),
-            EditorView.editable.of(!readOnly),
-          ]),
+          readOnlyCompartment.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
           EditorView.updateListener.of((update) => {
             if (update.docChanged && !applying.current) {
               events.current.onChange(update.state.doc.toString());

@@ -40,9 +40,7 @@ export type Cancelled = {
   loose: string[];
 };
 
-const isAcknowledgementCode = (
-  code: LifecycleReason["code"],
-): code is Acknowledgement["code"] =>
+const isAcknowledgementCode = (code: LifecycleReason["code"]): code is Acknowledgement["code"] =>
   code === "review-pending" ||
   code === "unpushed" ||
   code === "untracked" ||
@@ -94,10 +92,7 @@ const services = (
   workspace: WorkspaceShape,
   roots: readonly ChangeRoots[],
 ): Layer.Layer<ChangeLifecycle | ChangeRepositories> =>
-  Layer.merge(
-    changesNodeLayer.pipe(Layer.provide(storeLayer({ roots }))),
-    lifecycleLayer(workspace, roots),
-  )
+  Layer.merge(changesNodeLayer.pipe(Layer.provide(storeLayer({ roots }))), lifecycleLayer(workspace, roots));
 
 /** The transport boundary for this operation: capability failures become the taxonomy the route
  * mapper knows; the workflow and capability errors stay typed behind it. */
@@ -110,7 +105,7 @@ const asIwe = (error: unknown): IweError => {
     // foreign tagged error, never the first choice — it would show the page the type name.
     const message = raw ? String(raw) : tag;
     return tag === "ChangeNotFound" ? new NotFoundError({ message }) : new BadRequestError({ message });
-  };
+  }
   return new BadRequestError({ message: messageOf(error) });
 };
 
@@ -155,9 +150,5 @@ export const cancelChange = (
     }
     if (outcome._tag === "NeedsAcknowledgement") return needsForce(links, outcome.reasons);
     return yield* refusal(links, outcome.reasons);
-  }).pipe(
-    Effect.mapError(asIwe),
-    Effect.provide(services(workspace, roots)),
-  );
+  }).pipe(Effect.mapError(asIwe), Effect.provide(services(workspace, roots)));
 };
-

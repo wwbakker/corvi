@@ -133,8 +133,7 @@ export const jiraFetch = <T>(
     }
     return yield* Effect.try({
       try: () => (text ? (JSON.parse(text) as T) : (undefined as T)),
-      catch: (e) =>
-        new BadRequestError({ message: e instanceof Error ? e.message : String(e) }),
+      catch: (e) => new BadRequestError({ message: e instanceof Error ? e.message : String(e) }),
     });
   });
 

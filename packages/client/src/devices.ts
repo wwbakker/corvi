@@ -14,31 +14,28 @@ import {
   type RedeemPairingCodeRequestDto,
   type RedeemPairingCodeResponseDto,
   type RevokeDeviceResponseDto,
-} from "@corvi/contracts/devices"
+} from "@corvi/contracts/devices";
 
-import { decode, type RequestOptions, type Send } from "./transport.ts"
+import { decode, type RequestOptions, type Send } from "./transport.ts";
 
 export interface DevicesApi {
   /** The bootstrap check: whether this origin is the local listener, and which device is signed
    * in on the external one. An unauthenticated external request is a 401. */
-  readonly session: (options?: RequestOptions) => Promise<DeviceSessionResponseDto>
+  readonly session: (options?: RequestOptions) => Promise<DeviceSessionResponseDto>;
   /** Mint a short-lived, single-use pairing code for the host to show. */
-  readonly createPairingCode: (options?: RequestOptions) => Promise<PairingCodeResponseDto>
+  readonly createPairingCode: (options?: RequestOptions) => Promise<PairingCodeResponseDto>;
   /** Pair this browser: redeems the code through the cookie-only path, which never returns the
    * raw token to page JavaScript. */
-  readonly pair: (
-    input: PairDeviceRequestDto,
-    options?: RequestOptions,
-  ) => Promise<PairDeviceResponseDto>
+  readonly pair: (input: PairDeviceRequestDto, options?: RequestOptions) => Promise<PairDeviceResponseDto>;
   /** Redeem a code for the raw token. The gateway and CLI use this; the page does not. */
   readonly redeem: (
     input: RedeemPairingCodeRequestDto,
     options?: RequestOptions,
-  ) => Promise<RedeemPairingCodeResponseDto>
+  ) => Promise<RedeemPairingCodeResponseDto>;
   /** The devices paired to this server. */
-  readonly list: (options?: RequestOptions) => Promise<DeviceViewDto[]>
+  readonly list: (options?: RequestOptions) => Promise<DeviceViewDto[]>;
   /** Revoke a device; it may no longer authenticate. */
-  readonly revoke: (id: string, options?: RequestOptions) => Promise<RevokeDeviceResponseDto>
+  readonly revoke: (id: string, options?: RequestOptions) => Promise<RevokeDeviceResponseDto>;
 }
 
 export const makeDevicesApi = (send: Send): DevicesApi => ({
@@ -53,8 +50,7 @@ export const makeDevicesApi = (send: Send): DevicesApi => ({
       RedeemPairingCodeResponseSchema,
       await send("POST", "/devices/pairing-codes/redeem", { body: input, ...options }),
     ),
-  list: async (options) =>
-    decode(DevicesResponseSchema, await send("GET", "/devices", options)).devices,
+  list: async (options) => decode(DevicesResponseSchema, await send("GET", "/devices", options)).devices,
   revoke: async (id, options) =>
     decode(RevokeDeviceResponseSchema, await send("DELETE", `/devices/${encodeURIComponent(id)}`, options)),
-})
+});

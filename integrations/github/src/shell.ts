@@ -27,9 +27,9 @@ export const sh = (cmd: readonly string[], cwd?: string): Effect.Effect<ShellRes
     const workspace = yield* Effect.serviceOption(Workspace);
     // The Shell service reads its environment from the Workspace tag at run time; outside a
     // request the default workspace carries no env, exactly as the application's `sh` behaves.
-    return yield* shell.value.run(cmd, { cwd }).pipe(
-      Effect.provideService(Workspace, Option.isSome(workspace) ? workspace.value : DEFAULT_WORKSPACE),
-    );
+    return yield* shell.value
+      .run(cmd, { cwd })
+      .pipe(Effect.provideService(Workspace, Option.isSome(workspace) ? workspace.value : DEFAULT_WORKSPACE));
   });
 
 export const shOrThrow = (cmd: readonly string[], cwd?: string): Effect.Effect<string, CliError> =>

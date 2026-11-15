@@ -3,13 +3,27 @@ import { readFile, stat } from "node:fs/promises";
 import { Effect } from "effect";
 import { TestClock } from "effect/testing";
 
-import type { DeviceDto, PairingCodeResponseDto, RedeemPairingCodeResponseDto } from "@corvi/contracts/devices";
+import type {
+  DeviceDto,
+  PairingCodeResponseDto,
+  RedeemPairingCodeResponseDto,
+} from "@corvi/contracts/devices";
 import { deviceTokenMatches, hashDeviceToken } from "@corvi/configuration/node/devices";
-import { createPairingCode, listDevices, redeemPairingCode, revokeDevice } from "../apps/server/src/devices/server/index.ts";
+import {
+  createPairingCode,
+  listDevices,
+  redeemPairingCode,
+  revokeDevice,
+} from "../apps/server/src/devices/server/index.ts";
 import { devicesRoutes } from "../apps/server/src/devices/routes.ts";
 import { settingsViewSync, writeSettings } from "../apps/server/src/settings/server/index.ts";
 import { MASK } from "../apps/server/src/settings/server/secrets.ts";
-import { configPath, readFileSync, reloadConfigSync, runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
+import {
+  configPath,
+  readFileSync,
+  reloadConfigSync,
+  runtimeConfig,
+} from "../apps/server/src/workspace/server/index.ts";
 import { runEffect, runEffectWithTestClock } from "./helpers.ts";
 
 /**
@@ -46,8 +60,8 @@ const newCode = (): Promise<PairingCodeResponseDto> =>
   request("/api/devices/pairing-codes", "POST").then((r) => r.json()) as Promise<PairingCodeResponseDto>;
 
 const redeem = (code: string, name?: string): Promise<RedeemPairingCodeResponseDto> =>
-  request("/api/devices/pairing-codes/redeem", "POST", { code, name }).then(
-    (r) => r.json(),
+  request("/api/devices/pairing-codes/redeem", "POST", { code, name }).then((r) =>
+    r.json(),
   ) as Promise<RedeemPairingCodeResponseDto>;
 
 const pair = async (name?: string): Promise<RedeemPairingCodeResponseDto> =>

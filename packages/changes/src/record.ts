@@ -141,9 +141,7 @@ export const targetOf = (spec: CheckoutSpec): string | undefined => spec.target 
 /** The combination that cannot exist, said once: a new worktree cannot take over the branch a
  * source checkout has checked out, and an existing branch must be named. Returns the sentence
  * refusing the spec, or undefined when it stands. */
-export const checkoutSpecProblem = (
-  spec: Pick<CheckoutSpec, "location" | "branch">,
-): string | undefined =>
+export const checkoutSpecProblem = (spec: Pick<CheckoutSpec, "location" | "branch">): string | undefined =>
   spec.location === "new" && spec.branch.kind === "current"
     ? "a new worktree cannot use the branch a source checkout has checked out"
     : spec.branch.kind === "existing" && !spec.branch.name.trim()

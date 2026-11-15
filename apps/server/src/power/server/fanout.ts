@@ -24,8 +24,7 @@ export type FanoutDeps = {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
-const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
+const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /** Statuses `fetch` would follow; the fan-out refuses them instead, so a remote cannot point a
  * request carrying the token at another origin. */
@@ -114,13 +113,11 @@ export const fanOut = async (
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   return Promise.all(
     sources.map((source) =>
-      one(source, verb, doFetch, timeoutMs).catch(
-        (error): PowerTargetResultDto => ({
-          source,
-          status: "unreachable",
-          detail: messageOf(error),
-        }),
-      ),
+      one(source, verb, doFetch, timeoutMs).catch((error): PowerTargetResultDto => ({
+        source,
+        status: "unreachable",
+        detail: messageOf(error),
+      })),
     ),
   );
 };

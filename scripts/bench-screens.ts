@@ -53,7 +53,10 @@ const waitForUrl = async (proc: ReturnType<typeof Bun.spawn>, timeoutMs = 60_000
   let seen = "";
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<string>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`the server did not come up within ${timeoutMs}ms:\n${seen}`)), timeoutMs);
+    timer = setTimeout(
+      () => reject(new Error(`the server did not come up within ${timeoutMs}ms:\n${seen}`)),
+      timeoutMs,
+    );
   });
   const found = (async (): Promise<string> => {
     for (;;) {
@@ -77,7 +80,9 @@ const runSh = async (cmd: readonly string[], cwd?: string): Promise<void> => {
 };
 
 /** The checkout specs that create a change in the benchmark repo. */
-const checkoutsOf = (paths: readonly string[]): { path: string; location: "new"; branch: { kind: "change" } }[] =>
+const checkoutsOf = (
+  paths: readonly string[],
+): { path: string; location: "new"; branch: { kind: "change" } }[] =>
   paths.map((path) => ({ path, location: "new" as const, branch: { kind: "change" as const } }));
 
 /** Stop the host the server started, by the pid it recorded. A benchmark must leave no host (and
@@ -194,7 +199,10 @@ const profileFor = async (durationMs: number): Promise<string> => {
   const top = [...hits.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20);
   return [
     `profile: ${total} samples over ${durationMs}ms (self time, ~0.2ms each)`,
-    ...top.map(([name, count]) => `  ${String((count / total) * 100).padStart(5)}%  ${String(count).padStart(6)}  ${name}`),
+    ...top.map(
+      ([name, count]) =>
+        `  ${String((count / total) * 100).padStart(5)}%  ${String(count).padStart(6)}  ${name}`,
+    ),
   ].join("\n");
 };
 
@@ -222,7 +230,21 @@ const parseTrace = (text: string): Map<string, ScreenTrace> => {
   for (const line of text.split("\n")) {
     const match = TRACE_SCREEN.exec(line);
     if (match === null) continue;
-    const [, key, cols, rows, bufferRows, scrollbackRows, estBytes, attachedCount, subscribers, serializedBytes, persists, lastPersistMs, reprinting] = match;
+    const [
+      ,
+      key,
+      cols,
+      rows,
+      bufferRows,
+      scrollbackRows,
+      estBytes,
+      attachedCount,
+      subscribers,
+      serializedBytes,
+      persists,
+      lastPersistMs,
+      reprinting,
+    ] = match;
     screens.set(key!, {
       key: key!,
       gridCols: Number(cols),
@@ -275,7 +297,8 @@ const mibFromBytes = (bytes: number): string => (bytes / 1024 / 1024).toFixed(1)
 
 const main = async (): Promise<void> => {
   // The run token names the temp dirs and the host, so `scripts/clean-test.ts` can sweep this.
-  process.env.CORVI_TEST_RUN = process.env.CORVI_TEST_RUN ?? `${Date.now().toString(36)}.${process.pid.toString(36)}`;
+  process.env.CORVI_TEST_RUN =
+    process.env.CORVI_TEST_RUN ?? `${Date.now().toString(36)}.${process.pid.toString(36)}`;
   const tmp = await benchTempDir("bench");
   const traceLog = join(tmp, "terminal-trace.log");
   const server = Bun.spawn(["node", "apps/server/src/server.ts"], {
@@ -316,7 +339,9 @@ const main = async (): Promise<void> => {
     const panes: string[] = [];
     const open = (pane: string): Promise<InstanceType<typeof WebSocket>> =>
       new Promise((resolve, reject) => {
-        const socket = new WebSocket(`${url.replace(/^http/, "ws")}/api/changes/BENCH/terminal/socket?cols=80&rows=24&session=${pane}`);
+        const socket = new WebSocket(
+          `${url.replace(/^http/, "ws")}/api/changes/BENCH/terminal/socket?cols=80&rows=24&session=${pane}`,
+        );
         socket.on("message", (raw: RawData, binary: boolean) => {
           if (!binary) {
             const frame = JSON.parse(raw.toString()) as { type?: string };
@@ -329,7 +354,9 @@ const main = async (): Promise<void> => {
       new Promise((resolve, reject) => {
         const started = Date.now();
         let bytes = 0;
-        const socket = new WebSocket(`${url.replace(/^http/, "ws")}/api/changes/BENCH/terminal/socket?cols=80&rows=24&session=${pane}`);
+        const socket = new WebSocket(
+          `${url.replace(/^http/, "ws")}/api/changes/BENCH/terminal/socket?cols=80&rows=24&session=${pane}`,
+        );
         socket.on("message", (raw: RawData, binary: boolean) => {
           if (binary) {
             bytes += Buffer.isBuffer(raw) ? raw.length : raw instanceof ArrayBuffer ? raw.byteLength : 0;
@@ -414,7 +441,7 @@ const main = async (): Promise<void> => {
     const first = samples[0]!;
     const last = samples[samples.length - 1]!;
     const wall = (last.at - first.at) / 1000;
-    const cpu = wall === 0 ? 0 : ((last.ticks - first.ticks) / 100) / wall * 100;
+    const cpu = wall === 0 ? 0 : ((last.ticks - first.ticks) / 100 / wall) * 100;
     const screens = [...traceEnd.values()];
     const unviewed = screens.filter((screen) => screen.subscribers === 0).length;
     const viewed = screens.length - unviewed;
@@ -422,11 +449,17 @@ const main = async (): Promise<void> => {
       Math.max(0, screen.persists - (traceStart.get(screen.key)?.persists ?? 0)),
     );
     const line = (name: string, values: number[]): string =>
-      `${name.padEnd(20)} p50=${percentile(values, 0.5).toString().padStart(4)}ms  p95=${percentile(values, 0.95)
+      `${name.padEnd(20)} p50=${percentile(values, 0.5).toString().padStart(4)}ms  p95=${percentile(
+        values,
+        0.95,
+      )
         .toString()
-        .padStart(4)}ms  max=${Math.max(0, ...values).toString().padStart(5)}ms`;
+        .padStart(4)}ms  max=${Math.max(0, ...values)
+        .toString()
+        .padStart(5)}ms`;
 
-    const servedBytes = served.length > 0 ? served.map((entry) => entry.bytes) : firstViews.map((entry) => entry.snapshotBytes);
+    const servedBytes =
+      served.length > 0 ? served.map((entry) => entry.bytes) : firstViews.map((entry) => entry.snapshotBytes);
     const servedMs = served.map((entry) => entry.ms);
     const hostRingMiB = sessions * 4;
 
@@ -434,7 +467,7 @@ const main = async (): Promise<void> => {
       `sessions=${sessions} unviewed=${unviewed} viewed=${viewed} attached=${attached} seconds=${seconds} cadence=${cadenceMs}ms trace=${traceMs}ms`,
     );
     console.log(
-      `server cpu       ${cpu.toFixed(1)}%  (${((last.ticks - first.ticks) / 100 / wall * 100).toFixed(1)}% utime+stime; worst case: synthetic TUI plus shortened cadence)`,
+      `server cpu       ${cpu.toFixed(1)}%  (${(((last.ticks - first.ticks) / 100 / wall) * 100).toFixed(1)}% utime+stime; worst case: synthetic TUI plus shortened cadence)`,
     );
     console.log(
       `server rss       base=${mib(rssBase)} MiB  start=${mib(rssStart)} MiB  end=${mib(rssEnd)} MiB  growth=${mib(rssEnd - rssStart)} MiB (server only; measured window, includes scrollback fill, not per-open allocation)`,
@@ -452,7 +485,13 @@ const main = async (): Promise<void> => {
       `cadence           persists=${sum(persistCounts)} in ${seconds}s (${(sum(persistCounts) / seconds).toFixed(1)}/s)  lastPersistMs avg=${mean(screens.map((screen) => screen.lastPersistMs)).toFixed(1)}  max=${maxOf(screens.map((screen) => screen.lastPersistMs))}  serializedBytes avg=${Math.round(mean(screens.map((screen) => screen.serializedBytes)))}  max=${maxOf(screens.map((screen) => screen.serializedBytes))}`,
     );
     console.log(
-      `first view        n=${firstViews.length} wall p50=${percentile(firstViews.map((entry) => entry.latencyMs), 0.5)}ms p95=${percentile(firstViews.map((entry) => entry.latencyMs), 0.95)}ms | server p50=${percentile(servedMs, 0.5)}ms p95=${percentile(servedMs, 0.95)}ms | snapshot bytes p50=${percentile(servedBytes, 0.5)} max=${maxOf(servedBytes)}`,
+      `first view        n=${firstViews.length} wall p50=${percentile(
+        firstViews.map((entry) => entry.latencyMs),
+        0.5,
+      )}ms p95=${percentile(
+        firstViews.map((entry) => entry.latencyMs),
+        0.95,
+      )}ms | server p50=${percentile(servedMs, 0.5)}ms p95=${percentile(servedMs, 0.95)}ms | snapshot bytes p50=${percentile(servedBytes, 0.5)} max=${maxOf(servedBytes)}`,
     );
     console.log(line("/api/workspaces", workspaces));
     console.log(line("/api/changes", changes));

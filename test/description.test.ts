@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { describeChange, prDescription } from "../apps/server/src/change/server/index.ts";
 import type { Change } from "@corvi/changes/record";
-import { checkoutsOf, fakeShell, runWithShell, type FakeShell  } from "./helpers.ts";
+import { checkoutsOf, fakeShell, runWithShell, type FakeShell } from "./helpers.ts";
 
 /**
  * The pull-request description is a heading the extensions compose, then one link per repository.
@@ -96,7 +96,5 @@ test("prDescription: a repository with a pull request links to it", async () => 
       statusCheckRollup: [],
     },
   });
-  expect(await runWithShell(shell, prDescription(change))).toBe(
-    "\nhttps://github.com/org/repo/pull/12\n",
-  );
+  expect(await runWithShell(shell, prDescription(change))).toBe("\nhttps://github.com/org/repo/pull/12\n");
 });

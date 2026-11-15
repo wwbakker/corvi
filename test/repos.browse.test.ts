@@ -60,9 +60,7 @@ test("browse: directories only, dot-directories withheld unless asked for, .git 
   // A nested path lists what is under it, and a file beside the directories is not a row.
   const nested = await runEffect(browse(join(tmp, "alpha")));
   expect(nested.path).toBe(join(tmp, "alpha"));
-  expect(nested.entries.map((e) => [e.path, e.isRepo])).toEqual([
-    [join(tmp, "alpha", "inner"), false],
-  ]);
+  expect(nested.entries.map((e) => [e.path, e.isRepo])).toEqual([[join(tmp, "alpha", "inner"), false]]);
   expect((await runEffect(browse(join(tmp, "alpha"), true))).entries.map((e) => e.name)).toEqual([
     ".git",
     "inner",
@@ -127,9 +125,7 @@ test("remoteBranches: the remote default leads, and non-branches are filtered ou
   // origin/HEAD is a symref and a bare remote name has no branch; the default is not repeated.
   expect(found.branches).toEqual(["origin/main", "origin/feature", "upstream/x"]);
   // Fetched and pruned first: a stale list would offer a base that is behind or gone.
-  expect(shell.calls.map((c) => c.cmd.join(" "))).toContain(
-    "git fetch --quiet --prune --no-tags origin",
-  );
+  expect(shell.calls.map((c) => c.cmd.join(" "))).toContain("git fetch --quiet --prune --no-tags origin");
 });
 
 test("remoteBranches: a repository with no remote has no default", async () => {
@@ -171,8 +167,7 @@ test("remoteBranches: a failed fetch does not take the branch list down", async 
     "git fetch --quiet --prune --no-tags origin": { code: 128, stderr: "could not read from remote" },
     "git remote": "origin",
     "git symbolic-ref --quiet --short refs/remotes/origin/HEAD": "origin/main",
-    "git for-each-ref --sort=-committerdate --format=%(refname:short) refs/remotes":
-      "origin/main\n",
+    "git for-each-ref --sort=-committerdate --format=%(refname:short) refs/remotes": "origin/main\n",
   });
 
   const found = await runWithShell(shell, remoteBranches(repo));

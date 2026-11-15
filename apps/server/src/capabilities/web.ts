@@ -66,9 +66,10 @@ export function guard<R extends string>(
     } else if (value && typeof value === "object" && isMethodMap(value)) {
       // One entry per method: { GET, POST }.
       guarded[path] = Object.fromEntries(
-        Object.entries(value as Record<string, (req: never, srv: never) => unknown>).map(
-          ([method, fn]) => [method, wrap(fn)],
-        ),
+        Object.entries(value as Record<string, (req: never, srv: never) => unknown>).map(([method, fn]) => [
+          method,
+          wrap(fn),
+        ]),
       );
     } else {
       // The bundled page itself, which is not a handler at all.

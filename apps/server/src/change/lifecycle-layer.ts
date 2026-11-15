@@ -7,23 +7,18 @@
  * grows a named export rather than a hook. Nothing here imports a workflow implementation from
  * an integration.
  */
-import { Effect, Layer, Option } from "effect"
+import { Effect, Layer, Option } from "effect";
 
-import { layer as changesNodeLayer, progressLayer, shelvesLayer, storeLayer } from "@corvi/changes/node"
-import type { AgentTranscripts } from "@corvi/agents/transcripts"
-import { opencodeIfUsed, piSessionRoots, transcriptsLayer } from "@corvi/agents/node"
-import type { RootPair } from "@corvi/changes/node"
-import type { OperationProgress } from "@corvi/changes/progress"
-import { ChangeRepositories } from "@corvi/changes/repositories"
-import { specFromRepository } from "@corvi/changes/rules"
-import type { Change as CorviChange, Repository } from "@corvi/contracts/changes"
-import { Repositories, layer as repositoriesCapabilityLayer } from "@corvi/repositories"
-import {
-  Command,
-  CommandError,
-  gitLayer,
-  nodeCommand,
-} from "@corvi/repositories/node"
+import { layer as changesNodeLayer, progressLayer, shelvesLayer, storeLayer } from "@corvi/changes/node";
+import type { AgentTranscripts } from "@corvi/agents/transcripts";
+import { opencodeIfUsed, piSessionRoots, transcriptsLayer } from "@corvi/agents/node";
+import type { RootPair } from "@corvi/changes/node";
+import type { OperationProgress } from "@corvi/changes/progress";
+import { ChangeRepositories } from "@corvi/changes/repositories";
+import { specFromRepository } from "@corvi/changes/rules";
+import type { Change as CorviChange, Repository } from "@corvi/contracts/changes";
+import { Repositories, layer as repositoriesCapabilityLayer } from "@corvi/repositories";
+import { Command, CommandError, gitLayer, nodeCommand } from "@corvi/repositories/node";
 import {
   ChangeLifecycle,
   Issues,
@@ -33,28 +28,28 @@ import {
   TerminalSessions,
   layer as changeLifecycleLayer,
   type PullRequestState,
-} from "@corvi/workflows/lifecycle"
+} from "@corvi/workflows/lifecycle";
 
 /** Re-exported so a server test can drive the terminal-stop capability this layer implements
  * without depending on the workflows package's own entry point. */
-export { TerminalSessions } from "@corvi/workflows/lifecycle"
-import { ChangeWork, layer as changeWorkCapabilityLayer } from "@corvi/workflows"
-import { ChangeShelves, layer as changeShelvesWorkflowLayer } from "@corvi/workflows/shelves"
-import type { Change as LegacyChange, CompletionStep } from "@corvi/changes/record"
-import type { Workspace as WorkspaceShape } from "@corvi/configuration/config"
-import { Shell } from "@corvi/shell"
-import { Workspace } from "@corvi/contracts/workspace"
-import { messageOf } from "../capabilities/effect/support.ts"
-import { capabilitiesLayer, cacheLive, ChangesLive, GitFactsLive } from "../integrations/services.ts"
-import { prLooseEnds } from "@corvi/github"
-import { closeIssueOnComplete, planIssueClose } from "@corvi/github/issues"
-import { jiraLooseEnds, moveIssueOnComplete, planIssueCompletion } from "@corvi/jira"
-import { stopHostTerminals } from "../terminals/server/index.ts"
-import { cachedReadiness, forgetPrs, mergePr, refreshReadiness } from "@corvi/github/client"
-import type { Cache, Changes, GitFacts } from "@corvi/contracts/capabilities"
-import { runtimeCache } from "../capabilities/runtime.ts"
-import { runtimeConfig, workspaceById } from "../workspace/server/index.ts"
-import { readChange } from "./server/store.ts"
+export { TerminalSessions } from "@corvi/workflows/lifecycle";
+import { ChangeWork, layer as changeWorkCapabilityLayer } from "@corvi/workflows";
+import { ChangeShelves, layer as changeShelvesWorkflowLayer } from "@corvi/workflows/shelves";
+import type { Change as LegacyChange, CompletionStep } from "@corvi/changes/record";
+import type { Workspace as WorkspaceShape } from "@corvi/configuration/config";
+import { Shell } from "@corvi/shell";
+import { Workspace } from "@corvi/contracts/workspace";
+import { messageOf } from "../capabilities/effect/support.ts";
+import { capabilitiesLayer, cacheLive, ChangesLive, GitFactsLive } from "../integrations/services.ts";
+import { prLooseEnds } from "@corvi/github";
+import { closeIssueOnComplete, planIssueClose } from "@corvi/github/issues";
+import { jiraLooseEnds, moveIssueOnComplete, planIssueCompletion } from "@corvi/jira";
+import { stopHostTerminals } from "../terminals/server/index.ts";
+import { cachedReadiness, forgetPrs, mergePr, refreshReadiness } from "@corvi/github/client";
+import type { Cache, Changes, GitFacts } from "@corvi/contracts/capabilities";
+import { runtimeCache } from "../capabilities/runtime.ts";
+import { runtimeConfig, workspaceById } from "../workspace/server/index.ts";
+import { readChange } from "./server/store.ts";
 
 /** The provider functions speak the record shape; the store keeps the two in one record. */
 const toLegacy = (change: CorviChange, links: readonly Repository[]): LegacyChange => ({
@@ -65,38 +60,38 @@ const toLegacy = (change: CorviChange, links: readonly Repository[]): LegacyChan
   state: change.phase,
   createdAt: change.createdAt,
   ...(change.completedAt ? { completedAt: change.completedAt } : {}),
-})
+});
 
 /** A provider failure the page can read: it always names the operation, and carries the inner
  * error's sentence when there is one — an inner error with an empty message (a TaggedError
  * without one, a CLI that said nothing) would otherwise reach the transport boundary as an
  * empty string, which is rendered as the error's type name instead of what failed. */
 export const providerError = (provider: string, operation: string, error: unknown): ProviderError => {
-  const detail = messageOf(error)
+  const detail = messageOf(error);
   return new ProviderError({
     provider,
     operation,
     message: detail ? `${provider} ${operation}: ${detail}` : `${provider} ${operation} failed`,
     cause: error,
-  })
-}
+  });
+};
 
 /** Git commands through the app's Shell when one is in context — tests script it, and a host
  * may provide it — and through the direct spawner otherwise, mirroring `sh`'s own fallback. */
 const shellCommandLayer: Layer.Layer<Command> = Layer.effect(
   Command,
   Effect.gen(function* () {
-    const shell = yield* Effect.serviceOption(Shell)
-    const workspace = yield* Effect.serviceOption(Workspace)
+    const shell = yield* Effect.serviceOption(Shell);
+    const workspace = yield* Effect.serviceOption(Workspace);
     return {
       run: (input) => {
-        if (Option.isNone(shell)) return nodeCommand.run(input)
-        const run = shell.value.run([input.program, ...input.args], { cwd: input.cwd })
+        if (Option.isNone(shell)) return nodeCommand.run(input);
+        const run = shell.value.run([input.program, ...input.args], { cwd: input.cwd });
         const withWorkspace = Effect.provideService(
           run,
           Workspace,
           Option.isSome(workspace) ? workspace.value : workspaceById(undefined),
-        )
+        );
         return withWorkspace.pipe(
           Effect.map((result) => ({
             exitCode: result.code,
@@ -104,20 +99,19 @@ const shellCommandLayer: Layer.Layer<Command> = Layer.effect(
             stderr: result.stderr,
           })),
           Effect.mapError(
-            (cause) =>
-              new CommandError({ program: input.program, message: cause.message, cause }),
+            (cause) => new CommandError({ program: input.program, message: cause.message, cause }),
           ),
-        )
+        );
       },
-    }
+    };
   }),
-)
+);
 
 /** The repositories capability over the real Git adapter, whose commands honour the Shell seam. */
 export const repositoriesOverShell: Layer.Layer<Repositories> = repositoriesCapabilityLayer.pipe(
   Layer.provide(gitLayer),
   Layer.provide(shellCommandLayer),
-)
+);
 
 /** The GitHub vendor behind the pull-request port. `fresh` is the click path: it forgets the
  * change's cached reads and fetches before deciding. Only the read models and the answer cache
@@ -127,16 +121,13 @@ export const pullRequestsLayer = (): Layer.Layer<PullRequests, never, ChangeRepo
   Layer.effect(
     PullRequests,
     Effect.gen(function* () {
-      const links = yield* ChangeRepositories
+      const links = yield* ChangeRepositories;
 
-      const linkFor = (
-        change: CorviChange,
-        repositoryId: string,
-      ): Effect.Effect<Repository, ProviderError> =>
+      const linkFor = (change: CorviChange, repositoryId: string): Effect.Effect<Repository, ProviderError> =>
         links.listRepositories(change.changeId).pipe(
           Effect.mapError((error) => providerError("github", "resolve", error)),
           Effect.flatMap((all) => {
-            const found = all.find((entry) => entry.repositoryId === repositoryId)
+            const found = all.find((entry) => entry.repositoryId === repositoryId);
             return found
               ? Effect.succeed(found)
               : Effect.fail(
@@ -145,9 +136,9 @@ export const pullRequestsLayer = (): Layer.Layer<PullRequests, never, ChangeRepo
                     operation: "resolve",
                     message: "the repository is not part of the change",
                   }),
-                )
+                );
           }),
-        )
+        );
 
       /** The provider code still reads ticket keys from the record's extension data, which the
        * new model does not carry; the record is the source until integrations become packages. */
@@ -162,26 +153,27 @@ export const pullRequestsLayer = (): Layer.Layer<PullRequests, never, ChangeRepo
                   Effect.mapError((error) => providerError("github", "resolve", error)),
                 ),
           ),
-        )
+        );
 
       /** What the provider code needs from the host: the read models it reads through and the
        * answer cache it invalidates. Built per call, so the cache is the one the runtime holds
        * then. */
       const providerNeeds = (): Layer.Layer<Cache | Changes | GitFacts> =>
-        Layer.mergeAll(ChangesLive, GitFactsLive, cacheLive(runtimeCache()))
+        Layer.mergeAll(ChangesLive, GitFactsLive, cacheLive(runtimeCache()));
 
       return {
         readiness: ({ change, repository, fresh }) =>
           Effect.gen(function* () {
-            const link = yield* linkFor(change, repository.repositoryId)
-            const legacy = yield* legacyFor(change)
-            if (fresh) yield* forgetPrs(legacy)
+            const link = yield* linkFor(change, repository.repositoryId);
+            const legacy = yield* legacyFor(change);
+            if (fresh) yield* forgetPrs(legacy);
             // The click that decides is live; the poll that orients reads what the cards already
             // read. Both apply the same verdict.
-            const observed = yield* (fresh
-              ? refreshReadiness(legacy, link.originalLocation)
-              : cachedReadiness(legacy, link.originalLocation)
-            ).pipe(Effect.mapError((e) => providerError("github", "readiness", e)))
+            const observed = yield* (
+              fresh
+                ? refreshReadiness(legacy, link.originalLocation)
+                : cachedReadiness(legacy, link.originalLocation)
+            ).pipe(Effect.mapError((e) => providerError("github", "readiness", e)));
             const state: PullRequestState = observed.ready
               ? observed.merged
                 ? { repository, number: 0, ready: true, merged: true }
@@ -193,24 +185,24 @@ export const pullRequestsLayer = (): Layer.Layer<PullRequests, never, ChangeRepo
                   merged: false,
                   reason: observed.reason,
                   kind: observed.kind,
-                }
-            return state
+                };
+            return state;
           }).pipe(Effect.provide(providerNeeds())),
         merge: ({ change, repository, number }) =>
           Effect.gen(function* () {
-            const link = yield* linkFor(change, repository.repositoryId)
-            const legacy = yield* legacyFor(change)
+            const link = yield* linkFor(change, repository.repositoryId);
+            const legacy = yield* legacyFor(change);
             return yield* mergePr(legacy, link.originalLocation, number).pipe(
               Effect.mapError((e) => providerError("github", "merge", e)),
-            )
+            );
           }).pipe(Effect.provide(providerNeeds())),
         /** Loose ends are collected through the issues bridge below, which already covers the
          * pull-request lines the old `looseEnds` contributors produce; returning them here too
          * would list each one twice. */
         outstanding: () => Effect.succeed([]),
-      }
+      };
     }),
-  )
+  );
 
 /** The included completion steps and loose ends behind the issue port. */
 /** What this change's integrations plan to do, planned once and passed around: a plan that
@@ -225,66 +217,62 @@ export const issuesLayer = (workspace: WorkspaceShape): Layer.Layer<Issues, neve
   Layer.effect(
     Issues,
     Effect.gen(function* () {
-      const links = yield* ChangeRepositories
+      const links = yield* ChangeRepositories;
       /** The provider steps read ticket keys and repository lists from the old record; that is
        * the source until the integrations become packages. */
       const legacyFor = (change: CorviChange): Effect.Effect<LegacyChange, ProviderError> =>
         readChange(change.changeId).pipe(
-          Effect.mapError(
-            (error) => providerError("issues", "read", error),
-          ),
+          Effect.mapError((error) => providerError("issues", "read", error)),
           Effect.flatMap((record) =>
             record
               ? Effect.succeed(record)
               : links.listRepositories(change.changeId).pipe(
                   Effect.map((all) => toLegacy(change, all)),
-                  Effect.mapError(
-                    (error) => providerError("issues", "resolve", error),
-                  ),
+                  Effect.mapError((error) => providerError("issues", "resolve", error)),
                 ),
           ),
-        )
+        );
 
       return {
         plan: (change) =>
           Effect.gen(function* () {
-            const legacy = yield* legacyFor(change)
+            const legacy = yield* legacyFor(change);
             return plannedCompletionSteps(legacy).map((step) => ({
               id: step.id,
               label: step.label,
               state: "waiting" as const,
-            }))
+            }));
           }),
         run: ({ change, stepId }) =>
           Effect.gen(function* () {
-            const legacy = yield* legacyFor(change)
+            const legacy = yield* legacyFor(change);
             if (stepId === "jira") {
               yield* moveIssueOnComplete(legacy).pipe(
                 Effect.provide(capabilitiesLayer(workspace, "jira")),
                 Effect.mapError((error) => providerError("jira", "complete", error)),
-              )
-              return undefined
+              );
+              return undefined;
             }
             if (stepId === "github-issues") {
               return yield* closeIssueOnComplete(legacy).pipe(
                 Effect.provide(capabilitiesLayer(workspace, "github-issues")),
                 Effect.mapError((error) => providerError("github-issues", "complete", error)),
-              )
+              );
             }
-            return undefined
+            return undefined;
           }),
         current: (change) =>
           Effect.gen(function* () {
-            const legacy = yield* legacyFor(change)
+            const legacy = yield* legacyFor(change);
             // Pull-request lines first, as the github extension loaded before jira.
             const pullRequests = yield* prLooseEnds(legacy).pipe(
               Effect.provide(capabilitiesLayer(workspace, "github")),
-            )
-            return [...pullRequests, ...jiraLooseEnds(legacy)]
+            );
+            return [...pullRequests, ...jiraLooseEnds(legacy)];
           }),
-      }
+      };
     }),
-  )
+  );
 
 export const terminalSessionsLayer: Layer.Layer<TerminalSessions> = Layer.succeed(TerminalSessions, {
   stop: (changeId) =>
@@ -294,14 +282,13 @@ export const terminalSessionsLayer: Layer.Layer<TerminalSessions> = Layer.succee
       try: () => stopHostTerminals(changeId),
       catch: (error) => new TerminalError({ changeId, message: messageOf(error), cause: error }),
     }),
-})
+});
 
 /** The repositories capability over the native link store, without the lifecycle services. */
-export const repositoriesLayer = (roots: readonly RootPair[]): Layer.Layer<Repositories | ChangeRepositories> =>
-  Layer.merge(
-    changesNodeLayer.pipe(Layer.provide(storeLayer({ roots }))),
-    repositoriesOverShell,
-  )
+export const repositoriesLayer = (
+  roots: readonly RootPair[],
+): Layer.Layer<Repositories | ChangeRepositories> =>
+  Layer.merge(changesNodeLayer.pipe(Layer.provide(storeLayer({ roots }))), repositoriesOverShell);
 
 /** The start workflow over the native store and the real Git adapter: no provider ports are
  * needed, because its provisioning is all concrete checkouts. */
@@ -314,7 +301,7 @@ export const changeWorkLayer = (
     Layer.provide(storeLayer({ roots })),
     Layer.provide(repositoriesOverShell),
     Layer.provide(options.progress ?? progressLayer({ roots })),
-  )
+  );
 
 /** Shelving over the native store and shelf files and the real Git adapter. */
 export const changeShelvesLayer = (roots: readonly RootPair[]): Layer.Layer<ChangeShelves> =>
@@ -323,7 +310,7 @@ export const changeShelvesLayer = (roots: readonly RootPair[]): Layer.Layer<Chan
     Layer.provide(storeLayer({ roots })),
     Layer.provide(repositoriesOverShell),
     Layer.provide(shelvesLayer({ roots })),
-  )
+  );
 
 /** The agents' own session stores, where their own environment puts them: pi's session roots
  * (`PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR`, its `sessionDir` setting), and opencode
@@ -331,11 +318,11 @@ export const changeShelvesLayer = (roots: readonly RootPair[]): Layer.Layer<Chan
  * settings change of the agent's applies to the next archive. */
 export const agentTranscriptsLayer: Layer.Layer<AgentTranscripts> = Layer.unwrap(
   Effect.gen(function* () {
-    const roots = yield* piSessionRoots()
-    const opencode = yield* opencodeIfUsed()
-    return transcriptsLayer({ piSessionRoots: roots, ...(opencode ? { opencode } : {}) })
+    const roots = yield* piSessionRoots();
+    const opencode = yield* opencodeIfUsed();
+    return transcriptsLayer({ piSessionRoots: roots, ...(opencode ? { opencode } : {}) });
   }),
-)
+);
 
 /** The lifecycle over the native store, the real Git adapter, and the cutover adapters. */
 export const lifecycleLayer = (
@@ -353,4 +340,4 @@ export const lifecycleLayer = (
     Layer.provide(storeLayer({ roots })),
     Layer.provide(repositoriesOverShell),
     Layer.provide(options.progress ?? progressLayer({ roots })),
-  )
+  );

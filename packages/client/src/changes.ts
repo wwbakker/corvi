@@ -1,5 +1,5 @@
 /** The change's own domain: lifecycle, documents, completion and the repositories it covers. */
-import { Schema } from "effect"
+import { Schema } from "effect";
 
 import {
   CancelledResponseSchema,
@@ -32,71 +32,63 @@ import {
   type ReposBodyDto,
   type RepositoryViewDto,
   type TextDto,
-} from "@corvi/contracts/api"
-import type { ChangeId } from "@corvi/contracts/changes"
+} from "@corvi/contracts/api";
+import type { ChangeId } from "@corvi/contracts/changes";
 import {
   TranscriptListSchema,
   TranscriptSchema,
   type TranscriptDto,
   type TranscriptSummaryDto,
-} from "@corvi/contracts/transcripts"
+} from "@corvi/contracts/transcripts";
 
-import {
-  changePath,
-  decode,
-  mutableArray,
-  type RequestOptions,
-  type Send,
-} from "./transport.ts"
+import { changePath, decode, mutableArray, type RequestOptions, type Send } from "./transport.ts";
 
 export interface ChangesApi {
-  readonly list: (options?: RequestOptions) => Promise<ChangeWireDto[]>
-  readonly read: (changeId: ChangeId, options?: RequestOptions) => Promise<ChangeWireDto>
-  readonly summary: (changeId: ChangeId, options?: RequestOptions) => Promise<ChangeSummaryDto>
-  readonly description: (changeId: ChangeId, options?: RequestOptions) => Promise<TextDto>
-  readonly plan: (changeId: ChangeId, options?: RequestOptions) => Promise<PlanDocDto>
+  readonly list: (options?: RequestOptions) => Promise<ChangeWireDto[]>;
+  readonly read: (changeId: ChangeId, options?: RequestOptions) => Promise<ChangeWireDto>;
+  readonly summary: (changeId: ChangeId, options?: RequestOptions) => Promise<ChangeSummaryDto>;
+  readonly description: (changeId: ChangeId, options?: RequestOptions) => Promise<TextDto>;
+  readonly plan: (changeId: ChangeId, options?: RequestOptions) => Promise<PlanDocDto>;
   readonly writePlan: (
     changeId: ChangeId,
     body: PlanWriteBodyDto,
     options?: RequestOptions,
-  ) => Promise<PlanDocDto>
-  readonly completion: (changeId: ChangeId, options?: RequestOptions) => Promise<CompletionDto>
+  ) => Promise<PlanDocDto>;
+  readonly completion: (changeId: ChangeId, options?: RequestOptions) => Promise<CompletionDto>;
   readonly completionProgress: (
     changeId: ChangeId,
     options?: RequestOptions,
-  ) => Promise<CompletionProgressDto | null>
-  readonly create: (body: CreateChangeBodyDto) => Promise<ProvisionedChangeDto>
-  readonly start: (changeId: ChangeId) => Promise<ProvisionedChangeDto>
-  readonly complete: (changeId: ChangeId, options?: ForceBodyDto) => Promise<CompletedResponseDto>
-  readonly cancel: (changeId: ChangeId, options?: ForceBodyDto) => Promise<CancelledResponseDto>
+  ) => Promise<CompletionProgressDto | null>;
+  readonly create: (body: CreateChangeBodyDto) => Promise<ProvisionedChangeDto>;
+  readonly start: (changeId: ChangeId) => Promise<ProvisionedChangeDto>;
+  readonly complete: (changeId: ChangeId, options?: ForceBodyDto) => Promise<CompletedResponseDto>;
+  readonly cancel: (changeId: ChangeId, options?: ForceBodyDto) => Promise<CancelledResponseDto>;
   /** Undo a cancellation: the change, its checkouts and its shelved work come back. */
-  readonly reopen: (changeId: ChangeId) => Promise<ReopenedResponseDto>
+  readonly reopen: (changeId: ChangeId) => Promise<ReopenedResponseDto>;
   /** The agent sessions kept with the change when it was archived. */
-  readonly transcripts: (changeId: ChangeId, options?: RequestOptions) => Promise<readonly TranscriptSummaryDto[]>
-  readonly transcript: (changeId: ChangeId, id: string, options?: RequestOptions) => Promise<TranscriptDto>
+  readonly transcripts: (
+    changeId: ChangeId,
+    options?: RequestOptions,
+  ) => Promise<readonly TranscriptSummaryDto[]>;
+  readonly transcript: (changeId: ChangeId, id: string, options?: RequestOptions) => Promise<TranscriptDto>;
   readonly rename: (
     changeId: ChangeId,
     patch: { readonly state?: string; readonly title?: string },
-  ) => Promise<ChangeWireDto>
+  ) => Promise<ChangeWireDto>;
   /** The covered repositories and their checkout states: the read half of `setRepositories`. */
-  readonly repoStates: (changeId: ChangeId, options?: RequestOptions) => Promise<RepoStateDto[]>
-  readonly setRepositories: (
-    changeId: ChangeId,
-    body: ReposBodyDto,
-  ) => Promise<ProvisionedChangeDto>
+  readonly repoStates: (changeId: ChangeId, options?: RequestOptions) => Promise<RepoStateDto[]>;
+  readonly setRepositories: (changeId: ChangeId, body: ReposBodyDto) => Promise<ProvisionedChangeDto>;
   /** The change's repositories as Corvi's own facts: which links exist, their projected state,
    * and what is actually checked out where. */
-  readonly checkouts: (changeId: ChangeId) => Promise<readonly RepositoryViewDto[]>
+  readonly checkouts: (changeId: ChangeId) => Promise<readonly RepositoryViewDto[]>;
 }
 
 export const makeChangesApi = (send: Send): ChangesApi => {
-  const change = changePath
+  const change = changePath;
 
   return {
-    list: async (options) =>
-      decode(mutableArray(ChangeWireSchema), await send("GET", "/changes", options)),
-    read: async (changeId, options) =>
-      decode(ChangeWireSchema, await send("GET", change(changeId), options)),
+    list: async (options) => decode(mutableArray(ChangeWireSchema), await send("GET", "/changes", options)),
+    read: async (changeId, options) => decode(ChangeWireSchema, await send("GET", change(changeId), options)),
     summary: async (changeId, options) =>
       decode(ChangeSummarySchema, await send("GET", `${change(changeId)}/summary`, options)),
     description: async (changeId, options) =>
@@ -112,8 +104,7 @@ export const makeChangesApi = (send: Send): ChangesApi => {
         Schema.NullOr(CompletionProgressSchema),
         await send("GET", `${change(changeId)}/completion/progress`, options),
       ),
-    create: async (body) =>
-      decode(ProvisionedChangeSchema, await send("POST", "/changes", { body })),
+    create: async (body) => decode(ProvisionedChangeSchema, await send("POST", "/changes", { body })),
     start: async (changeId) =>
       decode(ProvisionedChangeSchema, await send("POST", `${change(changeId)}/start`)),
     complete: async (changeId, options) =>
@@ -142,9 +133,6 @@ export const makeChangesApi = (send: Send): ChangesApi => {
     setRepositories: async (changeId, body) =>
       decode(ProvisionedChangeSchema, await send("POST", `${change(changeId)}/repos`, { body })),
     checkouts: async (changeId) =>
-      decode(
-        mutableArray(RepositoryViewSchema),
-        await send("GET", `${change(changeId)}/checkouts`),
-      ),
-  }
-}
+      decode(mutableArray(RepositoryViewSchema), await send("GET", `${change(changeId)}/checkouts`)),
+  };
+};

@@ -10,10 +10,8 @@ import type { ShellResult } from "@corvi/contracts/capabilities";
 /** `--json` output through the Schema, with a deliberate tolerance: a CLI that printed nothing,
  * or something this query did not expect, reads as the fallback rather than failing — the
  * documented silent fallback. */
-export const cliJson = <S extends Schema.Constraint, B extends Schema.Schema.Type<S>>(
-  schema: S,
-  fallback: B,
-) =>
+export const cliJson =
+  <S extends Schema.Constraint, B extends Schema.Schema.Type<S>>(schema: S, fallback: B) =>
   (stdout: string): Effect.Effect<B> =>
     stdout.trim()
       ? Effect.orElseSucceed(
@@ -31,7 +29,9 @@ export const cliJson = <S extends Schema.Constraint, B extends Schema.Schema.Typ
  * callers branch on. The stderr falls back to the message: a `CliError` can carry its sentence
  * with nothing on stderr at all (a timeout names itself; a refused call names what was
  * missing), and dropping it here would hand the page an empty line where the reason was. */
-export const soft = <R>(work: Effect.Effect<ShellResult, CliError, R>): Effect.Effect<ShellResult, never, R> =>
+export const soft = <R>(
+  work: Effect.Effect<ShellResult, CliError, R>,
+): Effect.Effect<ShellResult, never, R> =>
   Effect.catch(work, (e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr || e.message }));
 
 /** A failure's message: every typed error carries the sentence the user sees, and anything else

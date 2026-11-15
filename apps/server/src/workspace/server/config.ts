@@ -17,16 +17,10 @@ import { ConfigFile, devicesFrom, remoteAccessFrom, workspacesFrom } from "./sch
 import { ENV_OVERRIDES } from "../../settings/server/legacySettings.ts";
 import { resolveSetting } from "@corvi/configuration/settings";
 import { TOOLING } from "../../capabilities/os.ts";
-import {
-  configDir,
-  defaultArchiveRoot,
-  defaultChangesRoot,
-  env,
-} from "@corvi/configuration/node";
+import { configDir, defaultArchiveRoot, defaultChangesRoot, env } from "@corvi/configuration/node";
 
 // Pure sync path logic; nothing to wrap in an Effect.
-export const configPath = (): string =>
-  process.env[env("CONFIG")] ?? join(configDir(), "config.json");
+export const configPath = (): string => process.env[env("CONFIG")] ?? join(configDir(), "config.json");
 
 export const expandTilde = (path: string): string =>
   path.startsWith("~") ? join(homedir(), path.slice(1)) : path;
@@ -127,9 +121,7 @@ export const mutateConfigFile = <A>(
   );
 
 /** The common mutation: no value travels back, only the changed file. */
-export const updateConfigFile = (
-  update: (current: ConfigFile) => ConfigFile,
-): Effect.Effect<void> =>
+export const updateConfigFile = (update: (current: ConfigFile) => ConfigFile): Effect.Effect<void> =>
   mutateConfigFile((current) => ({ write: update(current), result: undefined }));
 
 const resolvePath = (value: string): string => {
@@ -229,7 +221,6 @@ export function readConfig(): Config {
     }),
   };
 }
-
 
 /**
  * The settings snapshot: the file and the environment resolved into what the rest of the code

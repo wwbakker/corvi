@@ -36,7 +36,8 @@ type UpgradeServer = { upgrade: (request: Request, options?: { data?: unknown })
 
 const routes: Record<string, unknown> = {
   ...devicesRoutes,
-  "/": () => new Response("<!doctype html><title>corvi</title>", { headers: { "content-type": "text/html" } }),
+  "/": () =>
+    new Response("<!doctype html><title>corvi</title>", { headers: { "content-type": "text/html" } }),
   // A stand-in for the terminal socket route: it upgrades, so the external listener's authorize
   // hook has an upgrade to refuse or allow.
   "/api/socket": (req: Request, srv: UpgradeServer) =>
@@ -86,7 +87,10 @@ const withLimiter = async (limiter: RedeemLimiter, body: () => Promise<void>): P
 };
 
 /** Attempt a WebSocket upgrade and report whether it opened, or the HTTP status that refused it. */
-const upgrade = (port: number, headers: Record<string, string> = {}): Promise<{ status: number; open: boolean }> =>
+const upgrade = (
+  port: number,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; open: boolean }> =>
   new Promise((resolve) => {
     const socket = new WebSocket(`ws://127.0.0.1:${port}/api/socket`, { headers });
     let settled = false;
@@ -309,9 +313,7 @@ test("a revoked device's cookie is refused at the session check", async () => {
   const cookie = (paired.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
   const body = (await paired.json()) as { device: { id: string } };
   await runEffect(revokeDevice(body.device.id));
-  expect((await fetch(url(external, "api/devices/session"), { headers: { cookie } })).status).toBe(
-    401,
-  );
+  expect((await fetch(url(external, "api/devices/session"), { headers: { cookie } })).status).toBe(401);
 });
 
 test("a local-listener redemption sets no cookie", async () => {
@@ -370,11 +372,14 @@ test("the global redeem cap returns 429 with Retry-After", async () => {
 });
 
 test("the per-code failure cap returns 429", async () => {
-  await withLimiter(createRedeemLimiter({ globalLimit: 100, codeFailureLimit: 2, globalWindowMs: 60_000 }), async () => {
-    expect((await redeemAttempt("FFFFFFFFFFFFFFFF")).status).toBe(400);
-    expect((await redeemAttempt("FFFFFFFFFFFFFFFF")).status).toBe(400);
-    expect((await redeemAttempt("FFFFFFFFFFFFFFFF")).status).toBe(429);
-  });
+  await withLimiter(
+    createRedeemLimiter({ globalLimit: 100, codeFailureLimit: 2, globalWindowMs: 60_000 }),
+    async () => {
+      expect((await redeemAttempt("FFFFFFFFFFFFFFFF")).status).toBe(400);
+      expect((await redeemAttempt("FFFFFFFFFFFFFFFF")).status).toBe(400);
+      expect((await redeemAttempt("FFFFFFFFFFFFFFFF")).status).toBe(429);
+    },
+  );
 });
 
 test("the instance record carries the external URL", async () => {

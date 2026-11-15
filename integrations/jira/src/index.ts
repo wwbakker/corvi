@@ -1,6 +1,10 @@
 import { Effect, Result } from "effect";
 import type { ChangeWireDto as Change, OperationStepDto as CompletionStep } from "@corvi/contracts/api";
-import type { WidgetDto as Widget, WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
+import type {
+  WidgetDto as Widget,
+  WidgetItemDto as WidgetItem,
+  WidgetStateDto as WidgetState,
+} from "@corvi/contracts/api";
 import { jiraFetch, siteBaseUrl } from "./jiraHttp.ts";
 import { BadRequestError, NotFoundError } from "@corvi/contracts/errors";
 import {
@@ -241,9 +245,7 @@ export const jiraTitleSource: TitleSource = {
   lookup: (changes) =>
     Effect.gen(function* () {
       const site = siteOfWorkspace(yield* Settings, yield* Workspace);
-      const keys = [
-        ...new Set(changes.map((c) => ticketOf(c)).filter((k): k is string => Boolean(k))),
-      ];
+      const keys = [...new Set(changes.map((c) => ticketOf(c)).filter((k): k is string => Boolean(k)))];
       const issues = yield* issuesByKeys(keys, site);
       const titles = new Map<string, string>();
       for (const change of changes) {
@@ -280,9 +282,24 @@ export default {
     { ...siteFields.board, placeholder: "found from the project" },
     siteFields.token,
     siteFields.tokenEnv,
-    { key: "assignee", label: "Assign new issues to", placeholder: "whoever the token belongs to", env: JIRA_ENV.assignee },
-    { key: "startTransition", label: "Transition on starting a change", placeholder: "In Progress", env: JIRA_ENV.startTransition },
-    { key: "doneTransition", label: "Transition on completing one", placeholder: "Done", env: JIRA_ENV.doneTransition },
+    {
+      key: "assignee",
+      label: "Assign new issues to",
+      placeholder: "whoever the token belongs to",
+      env: JIRA_ENV.assignee,
+    },
+    {
+      key: "startTransition",
+      label: "Transition on starting a change",
+      placeholder: "In Progress",
+      env: JIRA_ENV.startTransition,
+    },
+    {
+      key: "doneTransition",
+      label: "Transition on completing one",
+      placeholder: "Done",
+      env: JIRA_ENV.doneTransition,
+    },
   ],
 
   cards: [
@@ -323,10 +340,7 @@ export default {
       handler: (req) => {
         const url = new URL(req.url);
         return Effect.map(
-          boardIssues(
-            url.searchParams.get("workspace") ?? undefined,
-            url.searchParams.has("refresh"),
-          ),
+          boardIssues(url.searchParams.get("workspace") ?? undefined, url.searchParams.has("refresh")),
           (board) => Response.json(board),
         );
       },

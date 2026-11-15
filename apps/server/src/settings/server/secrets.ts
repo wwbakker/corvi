@@ -73,7 +73,10 @@ function copyBags<T extends Bags>(value: T): T {
     workspace.settings?.extensionSettings
       ? {
           ...workspace,
-          settings: { ...workspace.settings, extensionSettings: copyBag(workspace.settings.extensionSettings) },
+          settings: {
+            ...workspace.settings,
+            extensionSettings: copyBag(workspace.settings.extensionSettings),
+          },
         }
       : workspace,
   );

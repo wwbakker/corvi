@@ -67,7 +67,10 @@ export function SubagentsPage({
   };
 
   useEffect(() => {
-    apiClient.subagents.files().then(setListing).catch((e: Error) => complain(e.message));
+    apiClient.subagents
+      .files()
+      .then(setListing)
+      .catch((e: Error) => complain(e.message));
     apiClient.changes
       .list()
       .then((all) => setChanges(all.filter((change) => !isFinished(change))))
@@ -155,11 +158,9 @@ export function SubagentsPage({
   const create = (target: WriteTarget, id: string, text: string): void => {
     const listed =
       target.scope === "repository"
-        ? (repositories?.repositories ?? []).find((block) => block.repository === target.repository)
-            ?.files ?? []
-        : (listing?.files ?? []).filter(
-            (f) => f.scope === target.scope && f.workspace === target.workspace,
-          );
+        ? ((repositories?.repositories ?? []).find((block) => block.repository === target.repository)
+            ?.files ?? [])
+        : (listing?.files ?? []).filter((f) => f.scope === target.scope && f.workspace === target.workspace);
     if (listed.some((f) => f.id === id)) {
       complain(`${id}.md already exists — edit it instead`);
       return;
@@ -270,9 +271,9 @@ export function SubagentsPage({
         {notice && <span className="summary">{notice}</span>}
       </header>
       <p className="hint">
-        A profile is a template for a subagent: which harness to start, the model and effort, and
-        the initial prompt. Each profile is one file — YAML frontmatter for the settings, the body
-        for the prompt — and saving writes that file at once.
+        A profile is a template for a subagent: which harness to start, the model and effort, and the initial
+        prompt. Each profile is one file — YAML frontmatter for the settings, the body for the prompt — and
+        saving writes that file at once.
       </p>
       {section("Global", filesOf("global"), { scope: "global" })}
       {(listing?.workspaces ?? []).map((workspace) =>
@@ -285,11 +286,7 @@ export function SubagentsPage({
         <h3>
           Repositories
           <span className="spacer" />
-          <select
-            aria-label="change"
-            value={selected ?? ""}
-            onChange={(e) => pick(e.target.value)}
-          >
+          <select aria-label="change" value={selected ?? ""} onChange={(e) => pick(e.target.value)}>
             <option value="" disabled>
               select a change
             </option>
@@ -301,8 +298,9 @@ export function SubagentsPage({
           </select>
         </h3>
         <p className="hint">
-          The profiles a change's checkouts carry (<code>&lt;checkout&gt;/.corvi/subagents/&lt;id&gt;.md</code>
-          ) — they show up in that change's menu and run like any other profile.
+          The profiles a change's checkouts carry (
+          <code>&lt;checkout&gt;/.corvi/subagents/&lt;id&gt;.md</code>) — they show up in that change's menu
+          and run like any other profile.
         </p>
         {selected !== null &&
           (repositories?.repositories ?? []).map((block) => (

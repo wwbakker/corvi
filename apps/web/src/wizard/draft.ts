@@ -80,11 +80,7 @@ export const planPatch = (draft: Draft, plan: string): Partial<Draft> => {
 /** The patch a step's pick makes: what its field shows, and — while the plan's heading is still
  * exactly the template's — the heading itself, so a picked issue names the change. Your own
  * words are never rewritten. */
-export const pickPatch = (
-  draft: Draft,
-  extension: string,
-  pick: StepPick | undefined,
-): Partial<Draft> => {
+export const pickPatch = (draft: Draft, extension: string, pick: StepPick | undefined): Partial<Draft> => {
   const picks = { ...draft.picks };
   if (pick === undefined) delete picks[extension];
   else picks[extension] = pick;

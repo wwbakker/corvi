@@ -6,11 +6,7 @@
 
 export type { Card } from "./api/cards.ts";
 export type { WizardStep } from "./api/wizard.ts";
-export type {
-  RawWindow,
-  WindowPresentation,
-  TerminalPresenter,
-} from "@corvi/contracts/terminal";
+export type { RawWindow, WindowPresentation, TerminalPresenter } from "@corvi/contracts/terminal";
 export type { Page } from "./api/pages.ts";
 export type { ChangeTab } from "./api/tabs.ts";
 export type { DashboardWidget } from "./api/widgets.ts";

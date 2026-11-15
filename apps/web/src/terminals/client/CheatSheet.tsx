@@ -34,8 +34,7 @@ const CHORDS_LINUX: [string, string][] = [
   ["super+c / super+v", "copy / paste"],
 ];
 
-const chords = (platform: Platform): [string, string][] =>
-  platform === "linux" ? CHORDS_LINUX : CHORDS_MAC;
+const chords = (platform: Platform): [string, string][] => (platform === "linux" ? CHORDS_LINUX : CHORDS_MAC);
 
 export function CheatSheet({
   open,
@@ -83,9 +82,8 @@ export function CheatSheet({
         </tbody>
       </table>
       <p className="hint">
-        The terminal is a host session: the shell outlives this page and the server, and every
-        window — including a subagent's — is one of these sessions, switched from the strip above
-        the terminal.
+        The terminal is a host session: the shell outlives this page and the server, and every window —
+        including a subagent's — is one of these sessions, switched from the strip above the terminal.
       </p>
       <div className="dialog-actions">
         <button type="button" className="primary" onClick={onClose}>

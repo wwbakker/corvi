@@ -57,9 +57,7 @@ type Draft = Settings;
 /** A workspace's settings: the same shape as the top level, overriding it key by key. Writable,
  * so the draft's edits copy-and-drop keys freely. */
 type Overrides = {
-  -readonly [K in keyof NonNullable<WorkspaceDto["settings"]>]: NonNullable<
-    WorkspaceDto["settings"]
-  >[K];
+  -readonly [K in keyof NonNullable<WorkspaceDto["settings"]>]: NonNullable<WorkspaceDto["settings"]>[K];
 };
 
 export function SettingsPage({
@@ -81,8 +79,8 @@ export function SettingsPage({
   const [tab, setTab] = useState("locations");
 
   useEffect(() => {
-    apiClient
-      .settings.read()
+    apiClient.settings
+      .read()
       .then((v) => {
         setView(v);
         setDraft(v.file);
@@ -183,7 +181,10 @@ export function SettingsPage({
   // The extensions' settings live in the bag, under the extension's own name, at both scopes. A
   // value is one string or a list of them; the save prunes the empties — empty means unset.
   const bag = scope === "global" ? draft.extensionSettings : own.extensionSettings;
-  const inheritedBag = scope === "global" ? effective.extensionSettings : draft.extensionSettings ?? effective.extensionSettings;
+  const inheritedBag =
+    scope === "global"
+      ? effective.extensionSettings
+      : (draft.extensionSettings ?? effective.extensionSettings);
   const bagValue = (name: string, key: string): string | string[] | undefined => bag?.[name]?.[key];
   const inheritedBagValue = (name: string, key: string): string | string[] | undefined =>
     inheritedBag?.[name]?.[key];
@@ -208,8 +209,7 @@ export function SettingsPage({
   };
   const asString = (value: string | string[] | undefined): string | undefined =>
     typeof value === "string" ? value : undefined;
-  const asList = (value: string | string[] | undefined): string[] =>
-    Array.isArray(value) ? value : [];
+  const asList = (value: string | string[] | undefined): string[] => (Array.isArray(value) ? value : []);
 
   // Which extensions this scope has anything to edit for. Inside a workspace an extension that
   // is disabled there has no settings to show — the switches on the Extensions section say so.
@@ -218,8 +218,7 @@ export function SettingsPage({
     return selected ? selected.includes(name) : true;
   };
   const shown = view.extensions.filter(
-    (extension) =>
-      extension.settings.length && (scope === "global" || enabledHere(extension.name)),
+    (extension) => extension.settings.length && (scope === "global" || enabledHere(extension.name)),
   );
 
   // The settings, one section each: the fixed ones, the extensions' own in the order they
@@ -261,9 +260,7 @@ export function SettingsPage({
       label: one.name || one.id || "Unnamed",
       removable: true,
     })),
-    ...(list.length
-      ? []
-      : [{ index: 0, label: DEFAULT_WORKSPACE.name, removable: false }]),
+    ...(list.length ? [] : [{ index: 0, label: DEFAULT_WORKSPACE.name, removable: false }]),
   ];
 
   const toggleExtensions = (names: string[]): void => {
@@ -293,8 +290,8 @@ export function SettingsPage({
         </button>
       </header>
       <p className="hint">
-        Written to <code>{view.path}</code>, which stays hand-editable. Saving takes effect at
-        once — no restart.
+        Written to <code>{view.path}</code>, which stays hand-editable. Saving takes effect at once — no
+        restart.
       </p>
       {error && <div className="error-banner">{error}</div>}
 
@@ -431,9 +428,7 @@ export function SettingsPage({
             placeholder={inherited("repositoriesDirectory")}
             locked={lock("repositoriesDirectory")}
             workspace={workspace?.id}
-            onChange={(repositoriesDirectory) =>
-              setSetting("repositoriesDirectory", repositoriesDirectory)
-            }
+            onChange={(repositoriesDirectory) => setSetting("repositoriesDirectory", repositoriesDirectory)}
           />
         </div>
       )}
@@ -447,9 +442,7 @@ export function SettingsPage({
             placeholder=".idea"
             locked={lock("worktreeCopy")}
             note={
-              scope !== "global" && value("worktreeCopy") === undefined
-                ? "inherited from Global"
-                : undefined
+              scope !== "global" && value("worktreeCopy") === undefined ? "inherited from Global" : undefined
             }
             onInherit={
               scope !== "global" && value("worktreeCopy") !== undefined
@@ -486,13 +479,9 @@ export function SettingsPage({
                   placeholder={field.placeholder}
                   values={listed.length || ownList ? listed : inheritedList}
                   locked={view.overriddenExtensions?.[extension.name]?.[field.key]}
-                  note={
-                    scope !== "global" && !ownList ? "inherited from Global" : undefined
-                  }
+                  note={scope !== "global" && !ownList ? "inherited from Global" : undefined}
                   onInherit={
-                    scope !== "global" && ownList
-                      ? () => dropBagValue(extension.name, field.key)
-                      : undefined
+                    scope !== "global" && ownList ? () => dropBagValue(extension.name, field.key) : undefined
                   }
                   onChange={(values) => setBagValue(extension.name, field.key, values)}
                 />
@@ -523,11 +512,7 @@ export function SettingsPage({
             // workspace the flag is one decision more than the global level's, and "use Global's"
             // takes it back.
             checked={value("notificationSound") ?? inherited("notificationSound") ?? true}
-            note={
-              scope !== "global" && value("notificationSound") === undefined
-                ? "inherited"
-                : undefined
-            }
+            note={scope !== "global" && value("notificationSound") === undefined ? "inherited" : undefined}
             onInherit={
               scope !== "global" && value("notificationSound") !== undefined
                 ? () => dropSetting("notificationSound")
@@ -546,9 +531,7 @@ export function SettingsPage({
             // Shown is the default, so an absent key reads as on (see the note at the top of this
             // file on flags and JSON).
             checked={value("contextMenu") ?? inherited("contextMenu") ?? true}
-            note={
-              scope !== "global" && value("contextMenu") === undefined ? "inherited" : undefined
-            }
+            note={scope !== "global" && value("contextMenu") === undefined ? "inherited" : undefined}
             onInherit={
               scope !== "global" && value("contextMenu") !== undefined
                 ? () => dropSetting("contextMenu")
@@ -605,9 +588,11 @@ export function SettingsPage({
         <div className="form">
           <ExtensionToggles
             known={view.extensions}
-            selected={(value("extensions") ?? inherited("extensions") ?? view.extensions.map((e) => e.name)).filter(
-              (name) => view.extensions.some((e) => e.name === name),
-            )}
+            selected={(
+              value("extensions") ??
+              inherited("extensions") ??
+              view.extensions.map((e) => e.name)
+            ).filter((name) => view.extensions.some((e) => e.name === name))}
             onInherit={
               scope !== "global" && value("extensions") !== undefined
                 ? () => dropSetting("extensions")

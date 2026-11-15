@@ -197,9 +197,9 @@ test.skipIf(!usable)(
     const links = dialog.locator(".commits li a");
     expect(await links.count()).toBe(2);
     expect(await links.first().getAttribute("href")).toContain("/commit/1111111aaaa");
-    expect(
-      await dialog.locator("a", { hasText: "compare on GitHub" }).getAttribute("href"),
-    ).toContain("/compare/");
+    expect(await dialog.locator("a", { hasText: "compare on GitHub" }).getAttribute("href")).toContain(
+      "/compare/",
+    );
 
     // Update now: the run stops at the install step, and the journal is what says so.
     await dialog.getByRole("button", { name: "Update now" }).click();
@@ -212,9 +212,7 @@ test.skipIf(!usable)(
     await dialog.getByRole("button", { name: "Restart now" }).waitFor();
     expect(await dialog.textContent()).toContain("The new version is ready.");
     await dialog.getByRole("button", { name: "Restart now" }).click();
-    expect(
-      await page.evaluate(() => (window as unknown as { restarts: number }).restarts),
-    ).toBe(1);
+    expect(await page.evaluate(() => (window as unknown as { restarts: number }).restarts)).toBe(1);
     expect(starts).toBe(2);
     await page.close();
   },
@@ -243,22 +241,26 @@ test.skipIf(!usable)(
   60_000,
 );
 
-test.skipIf(!usable)("an up-to-date app says so, and offers to check", async () => {
-  status = { eligible: true, behind: 0, commits: [], progress: null, restartPending: false };
-  checks = 0;
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await serve(page);
-  await page.goto(url, { waitUntil: "domcontentloaded" });
-  // Gray, not yellow: no update is waiting.
-  const icon = page.locator(".sidebar .icon-entry.update");
-  await icon.waitFor();
-  expect(await icon.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(139, 147, 161)");
-  await icon.click();
-  const dialog = page.locator("dialog");
-  await dialog.waitFor();
-  expect(await dialog.locator("h3").textContent()).toBe("Corvi is up to date");
-  await dialog.getByRole("button", { name: "Check again" }).click();
-  for (let i = 0; i < 100 && checks === 0; i++) await Bun.sleep(50);
-  expect(checks).toBe(1);
-  await page.close();
-}, 60_000);
+test.skipIf(!usable)(
+  "an up-to-date app says so, and offers to check",
+  async () => {
+    status = { eligible: true, behind: 0, commits: [], progress: null, restartPending: false };
+    checks = 0;
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await serve(page);
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+    // Gray, not yellow: no update is waiting.
+    const icon = page.locator(".sidebar .icon-entry.update");
+    await icon.waitFor();
+    expect(await icon.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(139, 147, 161)");
+    await icon.click();
+    const dialog = page.locator("dialog");
+    await dialog.waitFor();
+    expect(await dialog.locator("h3").textContent()).toBe("Corvi is up to date");
+    await dialog.getByRole("button", { name: "Check again" }).click();
+    for (let i = 0; i < 100 && checks === 0; i++) await Bun.sleep(50);
+    expect(checks).toBe(1);
+    await page.close();
+  },
+  60_000,
+);

@@ -6,7 +6,20 @@ import { chromium, webkit, type Browser } from "playwright";
 
 import { serve, type Serving } from "../apps/server/src/capabilities/serve.ts";
 import { guard, json } from "../apps/server/src/capabilities/web.ts";
-import { budget, checkoutsOf, closePages, requireFreshWebBundle, runSh, serverEnv, stopRunHost, testRun, testTempDir, until, waitFor, waitForUrl } from "./helpers.ts";
+import {
+  budget,
+  checkoutsOf,
+  closePages,
+  requireFreshWebBundle,
+  runSh,
+  serverEnv,
+  stopRunHost,
+  testRun,
+  testTempDir,
+  until,
+  waitFor,
+  waitForUrl,
+} from "./helpers.ts";
 
 /**
  * A remote workspace in the one client: its change appears in the sidebar and the workspace
@@ -76,9 +89,12 @@ beforeAll(async () => {
       // The availability owner's health stream: a remote that does not answer this is unavailable,
       // and the page would gate every one of its reads.
       "/api/events": () =>
-        new Response(new ReadableStream<Uint8Array>({ start: (c) => c.enqueue(new TextEncoder().encode(": open\n\n")) }), {
-          headers: { "content-type": "text/event-stream" },
-        }),
+        new Response(
+          new ReadableStream<Uint8Array>({ start: (c) => c.enqueue(new TextEncoder().encode(": open\n\n")) }),
+          {
+            headers: { "content-type": "text/event-stream" },
+          },
+        ),
       "/api/changes": {
         GET: (req) => {
           record(req);
@@ -127,9 +143,7 @@ beforeAll(async () => {
         },
       },
       "/api/changes/:id/terminal/socket": (req, srv) =>
-        srv.upgrade(req, { data: {} as never })
-          ? undefined
-          : new Response("no upgrade", { status: 400 }),
+        srv.upgrade(req, { data: {} as never }) ? undefined : new Response("no upgrade", { status: 400 }),
 
       // The remote's own page list, so a remote workspace's sidebar comes from the remote.
       "/api/pages": {
@@ -275,11 +289,7 @@ test.skipIf(!usable)(
 
     // Opening it reads the change from the remote, through the gateway.
     await entry.click();
-    await until(
-      async () => remotePaths.includes(`GET /api/changes/${REMOTE_CHANGE.id}`),
-      true,
-      10_000,
-    );
+    await until(async () => remotePaths.includes(`GET /api/changes/${REMOTE_CHANGE.id}`), true, 10_000);
 
     // A deep link carries the source too, and the terminal URL is asked of the remote; the
     // socket goes to the gateway prefix.
@@ -292,7 +302,10 @@ test.skipIf(!usable)(
       10_000,
     );
     await until(
-      async () => sockets.some((socket) => socket.includes(`/remote/remote-client/api/changes/${REMOTE_CHANGE.id}/terminal/socket`)),
+      async () =>
+        sockets.some((socket) =>
+          socket.includes(`/remote/remote-client/api/changes/${REMOTE_CHANGE.id}/terminal/socket`),
+        ),
       true,
       15_000,
     );
@@ -332,9 +345,7 @@ test.skipIf(!usable)(
     // arrival is the effect that used to re-resolve the view and drop the source.
     const chooseWorkspace = async (name: string): Promise<void> => {
       await page.locator("button.workspace").click();
-      const pages = page.waitForResponse(
-        (response) => new URL(response.url()).pathname === "/api/pages",
-      );
+      const pages = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/pages");
       await page.getByText(name, { exact: true }).click();
       await pages;
     };
@@ -467,11 +478,7 @@ test.skipIf(!usable)(
     // It landed on the created change, which the change page reads back from the remote.
     await until(async () => page.url().includes("/changes/remote-created"), true, 10_000);
     expect(page.url()).toContain("source=remote-client");
-    await until(
-      async () => remotePaths.includes("GET /api/changes/remote-created"),
-      true,
-      10_000,
-    );
+    await until(async () => remotePaths.includes("GET /api/changes/remote-created"), true, 10_000);
     await page.close();
   },
   60_000,

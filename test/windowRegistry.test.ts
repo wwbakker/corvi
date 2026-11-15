@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { WINDOW_TITLE_MAX } from "@corvi/contracts/terminal";
-import { mergeRecords, parseRecords, type LiveWindow, type WindowRecord } from "../apps/server/src/terminals/server/registry.ts";
+import {
+  mergeRecords,
+  parseRecords,
+  type LiveWindow,
+  type WindowRecord,
+} from "../apps/server/src/terminals/server/registry.ts";
 
 /**
  * The registry's pure half: how persisted records and the live backings become one ordered list.
@@ -21,10 +26,7 @@ const host = (id: string): LiveWindow => ({ id, kind: "host", panes: [id] });
 
 describe("window registry merge", () => {
   test("keeps order, labels and the active flag while the backings live", () => {
-    const previous = [
-      record({ id: "a", label: "One", active: true }),
-      record({ id: "b", label: "Two" }),
-    ];
+    const previous = [record({ id: "a", label: "One", active: true }), record({ id: "b", label: "Two" })];
     const merged = mergeRecords(previous, [host("a"), host("b")]);
     expect(merged.map((entry) => entry.id)).toEqual(["a", "b"]);
     expect(merged.map((entry) => entry.label)).toEqual(["One", "Two"]);
@@ -97,9 +99,9 @@ describe("registry records", () => {
   test("a malformed record is dropped, not guessed at", () => {
     // No id, no panes, an empty panes list, null and a primitive: each is dropped rather than
     // guessed at.
-    expect(parseRecords([{ label: "no id" }, { id: "no panes" }, { id: "empty", panes: [] }, null, 3])).toEqual(
-      [],
-    );
+    expect(
+      parseRecords([{ label: "no id" }, { id: "no panes" }, { id: "empty", panes: [] }, null, 3]),
+    ).toEqual([]);
     expect(parseRecords("not an array")).toEqual([]);
   });
 

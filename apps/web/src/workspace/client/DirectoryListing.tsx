@@ -41,16 +41,12 @@ export function DirectoryListing({
 
   // The parent of the current directory; undefined at the root, which has nowhere to go up to.
   const parent =
-    listing.path === "/"
-      ? undefined
-      : listing.path.slice(0, listing.path.lastIndexOf("/")) || "/";
+    listing.path === "/" ? undefined : listing.path.slice(0, listing.path.lastIndexOf("/")) || "/";
 
   // Filtering the current directory only; browsing into a subdirectory is still a click.
   const entries = useMemo(() => {
     const needle = filter.toLowerCase();
-    return needle
-      ? listing.entries.filter((e) => e.name.toLowerCase().includes(needle))
-      : listing.entries;
+    return needle ? listing.entries.filter((e) => e.name.toLowerCase().includes(needle)) : listing.entries;
   }, [listing.entries, filter]);
 
   // An empty pane has two reasons, and saying which saves a puzzled look at the toggle.
@@ -83,11 +79,7 @@ export function DirectoryListing({
           onChange={(e) => setFilter(e.target.value)}
         />
         <label className="check">
-          <input
-            type="checkbox"
-            checked={showHidden}
-            onChange={(e) => onShowHidden(e.target.checked)}
-          />
+          <input type="checkbox" checked={showHidden} onChange={(e) => onShowHidden(e.target.checked)} />
           <span>show hidden directories</span>
         </label>
       </div>

@@ -1,11 +1,6 @@
 import { type JSX, useEffect, useRef, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
-import {
-  type Change,
-  type ProvisionResult,
-  type RepoState,
-  type Selection,
-} from "../../app-root/api.ts";
+import { type Change, type ProvisionResult, type RepoState, type Selection } from "../../app-root/api.ts";
 import { useChangeClient } from "../../app-root/sources.ts";
 import { RepoBrowser } from "../../workspace/client/RepoBrowser.tsx";
 import { forceQuestion } from "../../change-page/client/refusals.ts";
@@ -18,9 +13,7 @@ import { forceQuestion } from "../../change-page/client/refusals.ts";
 const sameSpec = (a: Selection, b: Selection): boolean =>
   a.location === b.location &&
   a.branch.kind === b.branch.kind &&
-  (a.branch.kind === "existing" && b.branch.kind === "existing"
-    ? a.branch.name === b.branch.name
-    : true) &&
+  (a.branch.kind === "existing" && b.branch.kind === "existing" ? a.branch.name === b.branch.name : true) &&
   (a.base ?? "") === (b.base ?? "") &&
   (a.target ?? "") === (b.target ?? "");
 export function EditReposDialog({
@@ -57,8 +50,8 @@ export function EditReposDialog({
     // Start from what the change has now, every time the dialog is opened.
     setError(null);
     setQuestion(null);
-    client
-      .changes.repoStates(ChangeId.make(changeId))
+    client.changes
+      .repoStates(ChangeId.make(changeId))
       .then((repos) => {
         setCurrent(repos);
         setDraft(
@@ -77,8 +70,8 @@ export function EditReposDialog({
   const save = (force = false): void => {
     setBusy(true);
     setError(null);
-    client
-      .changes.setRepositories(ChangeId.make(changeId), { checkouts: draft, force })
+    client.changes
+      .setRepositories(ChangeId.make(changeId), { checkouts: draft, force })
       // The edit applies and the dialog closes; what the checkouts then reported goes to the
       // dashboard's banner, and a failed row offers its own action as the retry.
       .then((saved) => onSaved(saved.change, saved.provision))
@@ -104,9 +97,7 @@ export function EditReposDialog({
   const has = (path: string): boolean => draft.some((d) => d.path === path);
   const dropped = current.filter((r) => !has(r.path));
   // A repository whose spec changed counts as added: it is set up again the new way.
-  const added = draft.filter(
-    (d) => !current.some((r) => r.path === d.path && sameSpec(r, d)),
-  );
+  const added = draft.filter((d) => !current.some((r) => r.path === d.path && sameSpec(r, d)));
 
   return (
     <dialog ref={ref} className="wide" onCancel={onClose} onClose={onClose}>
@@ -150,8 +141,8 @@ export function EditReposDialog({
                 disabled={busy}
                 onChange={(e) => setAcked(e.target.checked)}
               />
-              Remove anyway: a worktree goes with its untracked files and its branch stays unless
-              its work landed; a checkout used where it is, is left as it is.
+              Remove anyway: a worktree goes with its untracked files and its branch stays unless its work
+              landed; a checkout used where it is, is left as it is.
             </label>
           </p>
         </>

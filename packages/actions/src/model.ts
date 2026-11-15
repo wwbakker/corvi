@@ -41,8 +41,7 @@ export type InvalidActionFile = {
   readonly reasons: readonly string[];
 };
 
-const invalid = (...reasons: string[]): Result.Result<Action, InvalidActionFile> =>
-  Result.fail({ reasons });
+const invalid = (...reasons: string[]): Result.Result<Action, InvalidActionFile> => Result.fail({ reasons });
 
 const isKind = Schema.is(ActionKind);
 const isTarget = Schema.is(ActionTarget);
@@ -121,7 +120,14 @@ export const parseActionFile = (text: string): Result.Result<Action, InvalidActi
     rawKeepOpen === undefined ? false : typeof rawKeepOpen === "boolean" ? rawKeepOpen : undefined;
   if (keepOpen === undefined) reasons.push("keepOpen: a boolean");
 
-  if (reasons.length > 0 || !kind || !target || submit === undefined || notify === undefined || keepOpen === undefined) {
+  if (
+    reasons.length > 0 ||
+    !kind ||
+    !target ||
+    submit === undefined ||
+    notify === undefined ||
+    keepOpen === undefined
+  ) {
     return invalid(...reasons);
   }
 

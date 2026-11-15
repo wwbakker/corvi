@@ -15,7 +15,12 @@ import { setRepos } from "../apps/server/src/change/provisioning.ts";
 import { sh, type ShellResult } from "../apps/server/src/capabilities/shell.ts";
 import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
-import { CacheLive, ChangesLive, GitFactsLive, SettingsLive } from "../apps/server/src/integrations/services.ts";
+import {
+  CacheLive,
+  ChangesLive,
+  GitFactsLive,
+  SettingsLive,
+} from "../apps/server/src/integrations/services.ts";
 import type { CliError } from "@corvi/contracts/errors";
 import { toResponse } from "../apps/server/src/capabilities/effect/http.ts";
 import { swr } from "../apps/server/src/capabilities/cache.ts";
@@ -24,12 +29,7 @@ import type { Change } from "@corvi/changes/record";
 import { cancelChange } from "../apps/server/src/change/server/index.ts";
 import { fileDiff, localChanges } from "../apps/server/src/integrations/review/server.ts";
 import type { LocalStatus } from "@corvi/contracts/integrations/review";
-import {
-  deploy,
-  versionsFor,
-  type Buildable,
-} from "@corvi/azure-devops/server";
-
+import { deploy, versionsFor, type Buildable } from "@corvi/azure-devops/server";
 
 /** Whether this process has written the run's pid-file yet. */
 let announced = false;
@@ -68,8 +68,7 @@ export const testRun = (): string => {
 };
 
 /** A temp dir whose name carries the run token, so the cleaner can tell whose it is. */
-const tempDirName = (label: string): string =>
-  join(testTempBase(), `corvi-${testRun()}-${label}-`);
+const tempDirName = (label: string): string => join(testTempBase(), `corvi-${testRun()}-${label}-`);
 
 export const testTempDir = (label: string): Promise<string> => mkdtemp(tempDirName(label));
 
@@ -104,7 +103,12 @@ export const stopRunHost = async (tmp: string): Promise<void> => {
   const socket = join(tmp, "state", "corvi", "host.sock");
   if (!existsSync(socket)) return;
   const { ensureHost } = await import("../apps/server/src/terminals/host/client.ts");
-  const client = await ensureHost({ socket, checkout: process.cwd(), buildId: process.env.CORVI_BUILD ?? "dev", runtime: "node" })
+  const client = await ensureHost({
+    socket,
+    checkout: process.cwd(),
+    buildId: process.env.CORVI_BUILD ?? "dev",
+    runtime: "node",
+  })
     .then((result) => result.client)
     .catch(() => undefined);
   await client?.shutdown().catch(() => undefined);
@@ -162,10 +166,7 @@ export const serverEnv = (
  * own line rather than a poll: a random port picked here once landed on a busy one, and then
  * the test said only "connection refused" (test/node-runtime.test.ts). Rejects if the
  * server exits first, or says nothing within a minute. */
-export const waitForUrl = async (
-  proc: ReturnType<typeof Bun.spawn>,
-  timeoutMs = 60_000,
-): Promise<string> => {
+export const waitForUrl = async (proc: ReturnType<typeof Bun.spawn>, timeoutMs = 60_000): Promise<string> => {
   const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
   const decoder = new TextDecoder();
   let seen = "";
@@ -292,9 +293,7 @@ const newestFile = (dir: string): number => {
  * the newest source is refused, and the message names the build that fixes it. `bun run test`
  * builds first and cannot trip it. The web directory is a parameter so a fixture can pin the
  * rule (test/webBundle.test.ts). */
-export const requireFreshWebBundle = (
-  webDir: string = join(import.meta.dir, "..", "apps", "web"),
-): void => {
+export const requireFreshWebBundle = (webDir: string = join(import.meta.dir, "..", "apps", "web")): void => {
   const sources = newestFile(join(webDir, "src"));
   const built = newestFile(join(webDir, "dist"));
   if (built === 0 || sources > built) {
@@ -369,10 +368,8 @@ export const runEffect = <A, E>(effect: Effect.Effect<A, E, Capabilities>): Prom
   Effect.runPromise(Effect.provide(effect, capabilitiesLayer(workspaceById(undefined))));
 
 /** The same, as the workspace named: for the tests that exercise per-workspace behaviour. */
-export const runEffectWith = <A, E>(
-  workspace: Workspace,
-  effect: Effect.Effect<A, E, never>,
-): Promise<A> => Effect.runPromise(Effect.provide(effect, capabilitiesLayer(workspace)));
+export const runEffectWith = <A, E>(workspace: Workspace, effect: Effect.Effect<A, E, never>): Promise<A> =>
+  Effect.runPromise(Effect.provide(effect, capabilitiesLayer(workspace)));
 
 /** Run an effect under Effect's `TestClock`, where time moves only when the effect advances it
  * with `TestClock.adjust`. The capabilities are merged in as `runEffect` does, so the same effect
@@ -381,9 +378,7 @@ export const runEffectWith = <A, E>(
  * The test clock starts at the wall clock's `now`: the cache's `ageOf` stays synchronous and on
  * the wall clock by contract, so a freshly produced entry must still read as fresh next to it.
  * Only relative advances matter, so the tests reason in offsets and behave the same at any date. */
-export const runEffectWithTestClock = <A, E>(
-  effect: Effect.Effect<A, E, never>,
-): Promise<A> =>
+export const runEffectWithTestClock = <A, E>(effect: Effect.Effect<A, E, never>): Promise<A> =>
   Effect.runPromise(
     Effect.andThen(TestClock.setTime(Date.now()), effect).pipe(
       Effect.provide(
@@ -467,10 +462,7 @@ export const fakeShell = (
  * exactly as the host provides both. `sh` reads the Shell from context and delegates, so a core
  * integration function can be driven with no subprocess. Extension effects additionally read
  * `Cache`, `Settings` and `Changes` from context, so those ride along with their live layers. */
-export const runWithShell = <A, E, R>(
-  shell: FakeShell,
-  effect: Effect.Effect<A, E, R>,
-): Promise<A> =>
+export const runWithShell = <A, E, R>(shell: FakeShell, effect: Effect.Effect<A, E, R>): Promise<A> =>
   Effect.runPromise(
     Effect.provide(
       effect as Effect.Effect<A, E, never>,
@@ -624,22 +616,17 @@ export const runCancel = async (
 };
 
 /** What is uncommitted in one repository, Promise-shaped for the tests. */
-export const runLocalChanges = (
-  ...args: Parameters<typeof localChanges>
-): Promise<LocalStatus> => runEffect(localChanges(...args));
+export const runLocalChanges = (...args: Parameters<typeof localChanges>): Promise<LocalStatus> =>
+  runEffect(localChanges(...args));
 
 /** One file's diff, Promise-shaped for the tests. */
 export const runFileDiff = (...args: Parameters<typeof fileDiff>): Promise<string> =>
   runEffect(fileDiff(...args));
 
 /** Recent builds of a service, Promise-shaped for the tests. */
-export const runVersionsFor = (
-  ...args: Parameters<typeof versionsFor>
-): Promise<Buildable[]> => runEffect(versionsFor(...args));
+export const runVersionsFor = (...args: Parameters<typeof versionsFor>): Promise<Buildable[]> =>
+  runEffect(versionsFor(...args));
 
 /** Triggering a deploy, Promise-shaped for the tests. */
-export const runDeploy = (
-  ...args: Parameters<typeof deploy>
-): Promise<{ runId: number; url?: string }> => runEffect(deploy(...args));
-
-
+export const runDeploy = (...args: Parameters<typeof deploy>): Promise<{ runId: number; url?: string }> =>
+  runEffect(deploy(...args));

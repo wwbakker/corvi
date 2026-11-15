@@ -2,10 +2,7 @@
  * caller's task, and the three places an absent task still yields a first message. */
 import { expect, test } from "bun:test";
 
-import {
-  AWAIT_INSTRUCTIONS,
-  renderSubagentBody,
-} from "../apps/server/src/subagents/server/prompt.ts";
+import { AWAIT_INSTRUCTIONS, renderSubagentBody } from "../apps/server/src/subagents/server/prompt.ts";
 import type { ChangeFacts } from "../apps/server/src/change/server/facts.ts";
 
 const facts: ChangeFacts = {
@@ -29,9 +26,7 @@ test("a body with {prompt} and no task substitutes the await instruction", () =>
   expect(renderSubagentBody("Do this:\n\n{prompt}", facts, undefined)).toBe(
     `Do this:\n\n${AWAIT_INSTRUCTIONS}`,
   );
-  expect(renderSubagentBody("Do this:\n\n{prompt}", facts, "   ")).toBe(
-    `Do this:\n\n${AWAIT_INSTRUCTIONS}`,
-  );
+  expect(renderSubagentBody("Do this:\n\n{prompt}", facts, "   ")).toBe(`Do this:\n\n${AWAIT_INSTRUCTIONS}`);
 });
 
 test("a body without {prompt} and a task appends it under a final ## Task section", () => {
@@ -56,9 +51,7 @@ test("a body-less profile with no task sends the await instruction alone", () =>
 });
 
 test("a task whose own text contains braces is not re-expanded", () => {
-  expect(renderSubagentBody("{prompt}", facts, "look at {id} and {plan}")).toBe(
-    "look at {id} and {plan}",
-  );
+  expect(renderSubagentBody("{prompt}", facts, "look at {id} and {plan}")).toBe("look at {id} and {plan}");
 });
 
 test("a non-whitespace body that renders to nothing falls back to the task or instruction", () => {

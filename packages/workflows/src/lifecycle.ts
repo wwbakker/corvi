@@ -5,12 +5,12 @@
  * acknowledgement. The journal is written step by step, so a half-finished operation stays
  * legible from a page that was never open.
  */
-import { Context, Effect, Layer, Ref, Schema, type Result } from "effect"
+import { Context, Effect, Layer, Ref, Schema, type Result } from "effect";
 
-import { AgentTranscripts, TRANSCRIPTS_DIRECTORY } from "@corvi/agents/transcripts"
+import { AgentTranscripts, TRANSCRIPTS_DIRECTORY } from "@corvi/agents/transcripts";
 
-import { ChangeService } from "@corvi/changes/changes"
-import { ChangeRepositories } from "@corvi/changes/repositories"
+import { ChangeService } from "@corvi/changes/changes";
+import { ChangeRepositories } from "@corvi/changes/repositories";
 import type {
   ChangeConflict,
   ChangeFormatTooNew,
@@ -19,17 +19,17 @@ import type {
   InvalidTransition,
   RepositoryNotFound,
   RepositoryStoreError,
-} from "@corvi/changes/errors"
-import { OperationProgress, type OperationStep } from "@corvi/changes/progress"
-import { effectiveBranchOf } from "@corvi/changes/record"
-import { checkoutLocationOf, isTerminal } from "@corvi/changes/rules"
-import { ChangeId } from "@corvi/contracts/changes"
-import type { Change, Repository, RepositoryRef } from "@corvi/contracts/changes"
-import { AbsolutePath, trimTrailingSeparators } from "@corvi/contracts/paths"
-import type { BranchCleanup, RemovalAssessment } from "@corvi/repositories"
-import { CheckoutError, Repositories } from "@corvi/repositories"
+} from "@corvi/changes/errors";
+import { OperationProgress, type OperationStep } from "@corvi/changes/progress";
+import { effectiveBranchOf } from "@corvi/changes/record";
+import { checkoutLocationOf, isTerminal } from "@corvi/changes/rules";
+import { ChangeId } from "@corvi/contracts/changes";
+import type { Change, Repository, RepositoryRef } from "@corvi/contracts/changes";
+import { AbsolutePath, trimTrailingSeparators } from "@corvi/contracts/paths";
+import type { BranchCleanup, RemovalAssessment } from "@corvi/repositories";
+import { CheckoutError, Repositories } from "@corvi/repositories";
 
-import { ChangeShelves } from "./shelves.ts"
+import { ChangeShelves } from "./shelves.ts";
 
 export class ChangeOperationInProgress extends Schema.TaggedError<ChangeOperationInProgress>()(
   "ChangeOperationInProgress",
@@ -57,121 +57,117 @@ export class TerminalError extends Schema.TaggedError<TerminalError>()("Terminal
 }) {}
 
 export type AcknowledgementCode =
-  | "review-pending"
-  | "unpushed"
-  | "untracked"
-  | "ownership-unverified"
-  | "shared-worktree"
-  | "provider-veto"
+  "review-pending" | "unpushed" | "untracked" | "ownership-unverified" | "shared-worktree" | "provider-veto";
 
-export type LifecycleReasonCode = AcknowledgementCode | "idea" | "dirty-worktree" | "finished"
+export type LifecycleReasonCode = AcknowledgementCode | "idea" | "dirty-worktree" | "finished";
 
 export type LifecycleReason = {
-  readonly code: LifecycleReasonCode
-  readonly subject?: RepositoryRef
-  readonly kind: "forceable" | "hard"
-  readonly text: string
+  readonly code: LifecycleReasonCode;
+  readonly subject?: RepositoryRef;
+  readonly kind: "forceable" | "hard";
+  readonly text: string;
   /** Fingerprints the observed facts: changed facts need a fresh acknowledgement. */
-  readonly facts: string
-}
+  readonly facts: string;
+};
 
 export type Readiness =
   | { readonly _tag: "Ready"; readonly toMerge: readonly OutstandingPullRequest[] }
   | {
-      readonly _tag: "AcknowledgementRequired"
-      readonly reasons: readonly LifecycleReason[]
-      readonly toMerge: readonly OutstandingPullRequest[]
+      readonly _tag: "AcknowledgementRequired";
+      readonly reasons: readonly LifecycleReason[];
+      readonly toMerge: readonly OutstandingPullRequest[];
     }
   | {
-      readonly _tag: "Blocked"
-      readonly reasons: readonly LifecycleReason[]
-      readonly toMerge: readonly OutstandingPullRequest[]
-    }
+      readonly _tag: "Blocked";
+      readonly reasons: readonly LifecycleReason[];
+      readonly toMerge: readonly OutstandingPullRequest[];
+    };
 
 export type Acknowledgement = {
-  readonly code: AcknowledgementCode
-  readonly subject?: RepositoryRef
-  readonly facts: string
-}
+  readonly code: AcknowledgementCode;
+  readonly subject?: RepositoryRef;
+  readonly facts: string;
+};
 
 export type LifecycleOutcome =
   | {
-      readonly _tag: "Done"
-      readonly change: Change
-      readonly notes: readonly string[]
-      readonly loose: readonly string[]
+      readonly _tag: "Done";
+      readonly change: Change;
+      readonly notes: readonly string[];
+      readonly loose: readonly string[];
     }
   | {
-      readonly _tag: "NeedsAcknowledgement"
-      readonly operation: "complete" | "cancel"
-      readonly reasons: readonly LifecycleReason[]
-      readonly toMerge: readonly OutstandingPullRequest[]
+      readonly _tag: "NeedsAcknowledgement";
+      readonly operation: "complete" | "cancel";
+      readonly reasons: readonly LifecycleReason[];
+      readonly toMerge: readonly OutstandingPullRequest[];
     }
   | {
-      readonly _tag: "Blocked"
-      readonly operation: "complete" | "cancel"
-      readonly reasons: readonly LifecycleReason[]
-      readonly toMerge: readonly OutstandingPullRequest[]
-    }
+      readonly _tag: "Blocked";
+      readonly operation: "complete" | "cancel";
+      readonly reasons: readonly LifecycleReason[];
+      readonly toMerge: readonly OutstandingPullRequest[];
+    };
 
 export type PullRequestState = {
-  readonly repository: RepositoryRef
-  readonly number: number
-  readonly ready: boolean
-  readonly merged: boolean
-  readonly reason?: string
+  readonly repository: RepositoryRef;
+  readonly number: number;
+  readonly ready: boolean;
+  readonly merged: boolean;
+  readonly reason?: string;
   /** Why the pull request is not ready, where the provider can say: `hard` needs no
    * acknowledgement because none would change it, so it blocks rather than asks. Absent reads as
    * `forceable`, the shape every provider had before this existed. */
-  readonly kind?: "forceable" | "hard"
-}
+  readonly kind?: "forceable" | "hard";
+};
 
 export type OutstandingPullRequest = {
-  readonly repository: RepositoryRef
-  readonly number: number
-}
+  readonly repository: RepositoryRef;
+  readonly number: number;
+};
 
 export interface PullRequestsInterface {
   readonly readiness: (input: {
-    readonly change: Change
-    readonly repository: RepositoryRef
+    readonly change: Change;
+    readonly repository: RepositoryRef;
     /** The click path forgets cached reads and fetches before deciding; the poll does not. */
-    readonly fresh: boolean
-  }) => Effect.Effect<PullRequestState, ProviderError>
+    readonly fresh: boolean;
+  }) => Effect.Effect<PullRequestState, ProviderError>;
   readonly merge: (input: {
-    readonly change: Change
-    readonly repository: RepositoryRef
-    readonly number: number
-  }) => Effect.Effect<string | undefined, ProviderError>
-  readonly outstanding: (change: Change) => Effect.Effect<readonly OutstandingPullRequest[], ProviderError>
+    readonly change: Change;
+    readonly repository: RepositoryRef;
+    readonly number: number;
+  }) => Effect.Effect<string | undefined, ProviderError>;
+  readonly outstanding: (change: Change) => Effect.Effect<readonly OutstandingPullRequest[], ProviderError>;
 }
 
-export class PullRequests extends Context.Service<PullRequests, PullRequestsInterface>()("corvi/workflows/PullRequests") {}
+export class PullRequests extends Context.Service<PullRequests, PullRequestsInterface>()(
+  "corvi/workflows/PullRequests",
+) {}
 
 export interface IssuesInterface {
   /** The completion steps this change's integrations plan, in order; empty when none apply. The
    * workflow journals them as `waiting` before anything runs. */
-  readonly plan: (change: Change) => Effect.Effect<readonly OperationStep[], ProviderError>
+  readonly plan: (change: Change) => Effect.Effect<readonly OperationStep[], ProviderError>;
   /** Run one planned step; a note may explain what it did. */
   readonly run: (input: {
-    readonly change: Change
-    readonly stepId: string
-  }) => Effect.Effect<string | undefined, ProviderError>
+    readonly change: Change;
+    readonly stepId: string;
+  }) => Effect.Effect<string | undefined, ProviderError>;
   /** Where the issue stands, for a cancellation's loose ends: one line each. */
-  readonly current: (change: Change) => Effect.Effect<readonly string[], ProviderError>
+  readonly current: (change: Change) => Effect.Effect<readonly string[], ProviderError>;
 }
 
 export class Issues extends Context.Service<Issues, IssuesInterface>()("corvi/workflows/Issues") {}
 
 export interface TerminalSessionsInterface {
   /** Stops the session this change owns; never one chosen by name, port, or resemblance. */
-  readonly stop: (changeId: ChangeId) => Effect.Effect<void, TerminalError>
+  readonly stop: (changeId: ChangeId) => Effect.Effect<void, TerminalError>;
 }
 
-export class TerminalSessions extends Context.Service<
-  TerminalSessions,
-  TerminalSessionsInterface
->()("corvi/workflows/TerminalSessions") {}
+export class TerminalSessions extends Context.Service<TerminalSessions, TerminalSessionsInterface>()(
+  "corvi/workflows/TerminalSessions",
+) {}
 
 export interface Interface {
   readonly assessCompletion: (
@@ -180,13 +176,13 @@ export interface Interface {
   ) => Effect.Effect<
     Readiness,
     ChangeNotFound | ChangeStoreError | RepositoryStoreError | ProviderError | CheckoutError
-  >
+  >;
   readonly completeChange: (input: {
-    readonly changeId: ChangeId
-    readonly acknowledgements?: readonly Acknowledgement[]
+    readonly changeId: ChangeId;
+    readonly acknowledgements?: readonly Acknowledgement[];
     /** A fresh assessment for this operation. When absent the workflow takes one itself; when
      * present the app's click-path check is the one that ran, so no second check repeats it. */
-    readonly assessment?: Readiness
+    readonly assessment?: Readiness;
   }) => Effect.Effect<
     LifecycleOutcome,
     | ChangeNotFound
@@ -199,15 +195,15 @@ export interface Interface {
     | ProviderError
     | TerminalError
     | CheckoutError
-  >
+  >;
   readonly assessCancellation: (
     changeId: ChangeId,
-  ) => Effect.Effect<Readiness, ChangeNotFound | ChangeStoreError | RepositoryStoreError | CheckoutError>
+  ) => Effect.Effect<Readiness, ChangeNotFound | ChangeStoreError | RepositoryStoreError | CheckoutError>;
   /** Cancelling shelves each worktree's uncommitted work (staged, unstaged and untracked) before
    * the worktree goes, so the files are not lost: reopening applies the shelf again. */
   readonly cancelChange: (input: {
-    readonly changeId: ChangeId
-    readonly acknowledgements?: readonly Acknowledgement[]
+    readonly changeId: ChangeId;
+    readonly acknowledgements?: readonly Acknowledgement[];
   }) => Effect.Effect<
     LifecycleOutcome,
     | ChangeNotFound
@@ -221,7 +217,7 @@ export interface Interface {
     | ProviderError
     | TerminalError
     | CheckoutError
-  >
+  >;
   /** Bring a cancelled change back from the archive in the phase it was cancelled from. Its
    * checkouts and shelves are the caller's next steps: the directory is back, nothing else yet. */
   readonly reopenChange: (
@@ -234,24 +230,26 @@ export interface Interface {
     | ChangeOperationInProgress
     | ChangeFormatTooNew
     | ChangeStoreError
-  >
+  >;
 }
 
-export class ChangeLifecycle extends Context.Service<ChangeLifecycle, Interface>()("corvi/workflows/ChangeLifecycle") {}
+export class ChangeLifecycle extends Context.Service<ChangeLifecycle, Interface>()(
+  "corvi/workflows/ChangeLifecycle",
+) {}
 
 const ideaReason = (change: Change): LifecycleReason => ({
   code: "idea",
   kind: "hard",
   text: "still an idea: start the work before completing it",
   facts: `idea:${change.changeId}`,
-})
+});
 
 const finishedReason = (change: Change): LifecycleReason => ({
   code: "finished",
   kind: "hard",
   text: `already ${change.phase.toLowerCase()}`,
   facts: `finished:${change.phase}`,
-})
+});
 
 const readinessFrom = (
   reasons: readonly LifecycleReason[],
@@ -261,7 +259,7 @@ const readinessFrom = (
     ? { _tag: "Blocked", reasons, toMerge }
     : reasons.length > 0
       ? { _tag: "AcknowledgementRequired", reasons, toMerge }
-      : { _tag: "Ready", toMerge }
+      : { _tag: "Ready", toMerge };
 
 /** One change-wide hard fact is one line: ten repositories behind one exhausted token must not
  * read as ten problems. A hard reason a repository owns — a dirty worktree, said with its name —
@@ -271,14 +269,14 @@ const readinessFrom = (
 const withoutRepeatedChangeWideHardReasons = (
   reasons: readonly LifecycleReason[],
 ): readonly LifecycleReason[] => {
-  const seen = new Set<string>()
+  const seen = new Set<string>();
   return reasons.filter((reason) => {
-    if (reason.kind !== "hard" || reason.subject !== undefined) return true
-    if (seen.has(reason.code)) return false
-    seen.add(reason.code)
-    return true
-  })
-}
+    if (reason.kind !== "hard" || reason.subject !== undefined) return true;
+    if (seen.has(reason.code)) return false;
+    seen.add(reason.code);
+    return true;
+  });
+};
 
 const isAcknowledged = (reason: LifecycleReason, acknowledgements: readonly Acknowledgement[]): boolean =>
   acknowledgements.some(
@@ -288,50 +286,49 @@ const isAcknowledged = (reason: LifecycleReason, acknowledgements: readonly Ackn
       (reason.subject
         ? acknowledgement.subject?.repositoryId === reason.subject.repositoryId
         : acknowledgement.subject === undefined),
-  )
+  );
 
 /** The checkouts a teardown destroys: every worktree, whatever branch it holds. */
 const worktreeLinks = (links: readonly Repository[]): readonly Repository[] =>
-  links.filter((link) => link.location === "new")
+  links.filter((link) => link.location === "new");
 
 /** Only a branch Corvi created for a worktree is ever deleted; a borrowed branch — an existing
  * one by name, or whatever the checkout had checked out — stays. */
-const createdBranch = (link: Repository): boolean => link.branch.kind === "change"
+const createdBranch = (link: Repository): boolean => link.branch.kind === "change";
 
 /** The branch a link's facts follow: the change's own, or the existing branch it named. A
  * `current` link's branch is observed at read time and never torn down, so this is only asked
  * about worktrees. */
 const branchOf = (change: Change, link: Repository): string => {
-  const effective = effectiveBranchOf(change.branch, link.branch)
-  return effective._tag === "Recorded" ? effective.name : change.branch
-}
+  const effective = effectiveBranchOf(change.branch, link.branch);
+  return effective._tag === "Recorded" ? effective.name : change.branch;
+};
 
-type RemovalOutcome = RemovalAssessment | { readonly _tag: "Gone" }
+type RemovalOutcome = RemovalAssessment | { readonly _tag: "Gone" };
 
 export const layer = Layer.effect(
   ChangeLifecycle,
   Effect.gen(function* () {
-    const changes = yield* ChangeService
-    const links = yield* ChangeRepositories
-    const repositories = yield* Repositories
-    const progress = yield* OperationProgress
-    const pullRequests = yield* PullRequests
-    const issues = yield* Issues
-    const terminals = yield* TerminalSessions
-    const shelves = yield* ChangeShelves
-    const transcripts = yield* AgentTranscripts
-    const active = yield* Ref.make<ReadonlySet<string>>(new Set())
+    const changes = yield* ChangeService;
+    const links = yield* ChangeRepositories;
+    const repositories = yield* Repositories;
+    const progress = yield* OperationProgress;
+    const pullRequests = yield* PullRequests;
+    const issues = yield* Issues;
+    const terminals = yield* TerminalSessions;
+    const shelves = yield* ChangeShelves;
+    const transcripts = yield* AgentTranscripts;
+    const active = yield* Ref.make<ReadonlySet<string>>(new Set());
 
     const record = (
       changeId: ChangeId,
       step: OperationStep,
-    ): Effect.Effect<void, ChangeFormatTooNew | ChangeStoreError> =>
-      progress.record({ changeId, step })
+    ): Effect.Effect<void, ChangeFormatTooNew | ChangeStoreError> => progress.record({ changeId, step });
 
     const subjectOf = (change: Change, link: Repository): RepositoryRef => ({
       changeId: change.changeId,
       repositoryId: link.repositoryId,
-    })
+    });
 
     const removalSafety = (
       change: Change,
@@ -339,27 +336,30 @@ export const layer = Layer.effect(
       options: { readonly uncommittedWorkCaptured?: boolean } = {},
     ): Effect.Effect<RemovalOutcome, CheckoutError> =>
       Effect.gen(function* () {
-        const worktree = AbsolutePath.make(checkoutLocationOf(change, link))
+        const worktree = AbsolutePath.make(checkoutLocationOf(change, link));
         // A borrowed selection may name a remote ref; prove integration against the checkout's
         // actual local commits, never against a remote tip that omits unpushed work.
-        const checkout = link.branch.kind === "existing" ? yield* repositories.inspectCheckout(worktree) : undefined
+        const checkout =
+          link.branch.kind === "existing" ? yield* repositories.inspectCheckout(worktree) : undefined;
         const branch = checkout
-          ? (checkout._tag === "Present" ? checkout.branch : undefined)
-          : branchOf(change, link)
+          ? checkout._tag === "Present"
+            ? checkout.branch
+            : undefined
+          : branchOf(change, link);
         return yield* repositories.assessRemoval({
           worktree,
           branch,
           ...(options.uncommittedWorkCaptured ? { uncommittedWorkCaptured: true } : {}),
-        })
+        });
       }).pipe(
-          Effect.result,
-          Effect.flatMap((assessed): Effect.Effect<RemovalOutcome, CheckoutError> => {
-            if (assessed._tag === "Success") return Effect.succeed(assessed.success)
-            const failure = assessed.failure
-            if (failure._tag === "NotARepository") return Effect.succeed({ _tag: "Gone" } as const)
-            return Effect.fail(failure)
-          }),
-        )
+        Effect.result,
+        Effect.flatMap((assessed): Effect.Effect<RemovalOutcome, CheckoutError> => {
+          if (assessed._tag === "Success") return Effect.succeed(assessed.success);
+          const failure = assessed.failure;
+          if (failure._tag === "NotARepository") return Effect.succeed({ _tag: "Gone" } as const);
+          return Effect.fail(failure);
+        }),
+      );
 
     const removeCheckout = (worktree: AbsolutePath): Effect.Effect<void, CheckoutError> =>
       repositories.removeWorktree({ worktree, force: true }).pipe(
@@ -372,7 +372,7 @@ export const layer = Layer.effect(
               })
             : error,
         ),
-      )
+      );
 
     const cleanupBranch = (change: Change, link: Repository): Effect.Effect<BranchCleanup, CheckoutError> =>
       repositories
@@ -380,48 +380,52 @@ export const layer = Layer.effect(
           repository: AbsolutePath.make(link.originalLocation),
           branch: change.branch,
         })
-        .pipe(
-          Effect.catchTag("NotARepository", () => Effect.succeed("absent" as const)),
-        )
+        .pipe(Effect.catchTag("NotARepository", () => Effect.succeed("absent" as const)));
 
     /** Copy the agent sessions that ran in the change into it before it moves, so the archive
      * keeps them. Never fatal: a change is archived whether or not its transcripts could be read,
      * and the journal says which. */
     const keepTranscripts = (change: Change): Effect.Effect<void, ChangeFormatTooNew | ChangeStoreError> =>
       Effect.gen(function* () {
-        const step = { id: "transcripts", label: "keep the agent transcripts" }
-        yield* record(change.changeId, { ...step, state: "running" })
-        const from = trimTrailingSeparators(change.workspaceLocation)
+        const step = { id: "transcripts", label: "keep the agent transcripts" };
+        yield* record(change.changeId, { ...step, state: "running" });
+        const from = trimTrailingSeparators(change.workspaceLocation);
         const collected = yield* transcripts
-          .collect({ from: AbsolutePath.make(from), to: AbsolutePath.make(`${from}/${TRANSCRIPTS_DIRECTORY}`) })
-          .pipe(Effect.result)
+          .collect({
+            from: AbsolutePath.make(from),
+            to: AbsolutePath.make(`${from}/${TRANSCRIPTS_DIRECTORY}`),
+          })
+          .pipe(Effect.result);
         if (collected._tag === "Failure") {
-          yield* record(change.changeId, { ...step, state: "failed", detail: collected.failure.message })
-          return
+          yield* record(change.changeId, { ...step, state: "failed", detail: collected.failure.message });
+          return;
         }
-        const { copied, notes } = collected.success
-        const detail = [`${copied} session${copied === 1 ? "" : "s"}`, ...notes].join("; ")
-        yield* record(change.changeId, { ...step, state: "done", detail })
-      })
+        const { copied, notes } = collected.success;
+        const detail = [`${copied} session${copied === 1 ? "" : "s"}`, ...notes].join("; ");
+        yield* record(change.changeId, { ...step, state: "done", detail });
+      });
 
     const completionAssessment = (
       change: Change,
       sourceLinks: readonly Repository[],
       fresh: boolean,
     ): Effect.Effect<
-      { readonly reasons: readonly LifecycleReason[]; readonly toMerge: readonly { link: Repository; number: number }[] },
+      {
+        readonly reasons: readonly LifecycleReason[];
+        readonly toMerge: readonly { link: Repository; number: number }[];
+      },
       ProviderError | CheckoutError
     > =>
       Effect.gen(function* () {
-        const reasons: LifecycleReason[] = []
-        const toMerge: { link: Repository; number: number }[] = []
+        const reasons: LifecycleReason[] = [];
+        const toMerge: { link: Repository; number: number }[] = [];
         for (const link of sourceLinks) {
-          const subject = subjectOf(change, link)
-          const state = yield* pullRequests.readiness({ change, repository: subject, fresh })
+          const subject = subjectOf(change, link);
+          const state = yield* pullRequests.readiness({ change, repository: subject, fresh });
           if (state.merged) {
             // Already in the base; nothing to do.
           } else if (state.ready) {
-            toMerge.push({ link, number: state.number })
+            toMerge.push({ link, number: state.number });
           } else if (state.kind === "hard") {
             // A fact no repository owns — the token at its limit, which shuts every repository at
             // once — so no subject: it is the change's, and said once for all of them. Nothing
@@ -431,7 +435,7 @@ export const layer = Layer.effect(
               kind: "hard",
               text: state.reason ?? `pull request #${state.number} is not ready`,
               facts: `review:${state.reason ?? ""}`,
-            })
+            });
           } else {
             reasons.push({
               code: "review-pending",
@@ -439,34 +443,34 @@ export const layer = Layer.effect(
               kind: "forceable",
               text: state.reason ?? `pull request #${state.number} is not ready`,
               facts: `review:${link.repositoryId}:${state.number}:${state.reason ?? ""}`,
-            })
+            });
           }
-          if (link.location !== "new") continue
-          const safety = yield* removalSafety(change, link)
-          if (safety._tag === "Gone" || safety._tag === "Safe") continue
+          if (link.location !== "new") continue;
+          const safety = yield* removalSafety(change, link);
+          if (safety._tag === "Gone" || safety._tag === "Safe") continue;
           for (const reason of safety.reasons)
-            reasons.push({ ...reason, subject, kind: reason.kind, text: reason.text })
+            reasons.push({ ...reason, subject, kind: reason.kind, text: reason.text });
         }
-        return { reasons: withoutRepeatedChangeWideHardReasons(reasons), toMerge }
-      })
+        return { reasons: withoutRepeatedChangeWideHardReasons(reasons), toMerge };
+      });
 
     const cancellationReasons = (
       change: Change,
       sourceLinks: readonly Repository[],
     ): Effect.Effect<readonly LifecycleReason[], CheckoutError> =>
       Effect.gen(function* () {
-        const reasons: LifecycleReason[] = []
+        const reasons: LifecycleReason[] = [];
         for (const link of worktreeLinks(sourceLinks)) {
-          const subject = subjectOf(change, link)
+          const subject = subjectOf(change, link);
           // The uncommitted files are shelved before the worktree goes, so only the commits are a
           // question here.
-          const safety = yield* removalSafety(change, link, { uncommittedWorkCaptured: true })
-          if (safety._tag === "Gone" || safety._tag === "Safe") continue
+          const safety = yield* removalSafety(change, link, { uncommittedWorkCaptured: true });
+          if (safety._tag === "Gone" || safety._tag === "Safe") continue;
           for (const reason of safety.reasons)
-            reasons.push({ ...reason, subject, kind: reason.kind, text: reason.text })
+            reasons.push({ ...reason, subject, kind: reason.kind, text: reason.text });
         }
-        return reasons
-      })
+        return reasons;
+      });
 
     const withOperation = <A, E, R>(
       changeId: ChangeId,
@@ -490,22 +494,22 @@ export const layer = Layer.effect(
         () => work,
         () =>
           Ref.update(active, (set) => {
-            const next = new Set(set)
-            next.delete(changeId)
-            return next
+            const next = new Set(set);
+            next.delete(changeId);
+            return next;
           }),
-      )
+      );
 
     const mergeList = (
       change: Change,
       toMerge: readonly { readonly link: Repository; readonly number: number }[],
     ): readonly OutstandingPullRequest[] =>
-      toMerge.map(({ link, number }) => ({ repository: subjectOf(change, link), number }))
+      toMerge.map(({ link, number }) => ({ repository: subjectOf(change, link), number }));
 
     const detailOf = (error: unknown): string =>
       typeof error === "object" && error !== null && "message" in error
         ? String((error as { message: unknown }).message)
-        : String(error)
+        : String(error);
 
     /** Record a step before and after; a failure is journaled before it propagates. */
     const runStep = <A, E, R>(
@@ -515,126 +519,136 @@ export const layer = Layer.effect(
       work: Effect.Effect<A, E, R>,
     ): Effect.Effect<A, E | ChangeFormatTooNew | ChangeStoreError, R> =>
       Effect.gen(function* () {
-        yield* record(changeId, { id, label, state: "running" })
-        const attempt: Result.Result<A, E> = yield* work.pipe(Effect.result)
+        yield* record(changeId, { id, label, state: "running" });
+        const attempt: Result.Result<A, E> = yield* work.pipe(Effect.result);
         if (attempt._tag === "Failure") {
-          yield* record(changeId, { id, label, state: "failed", detail: detailOf(attempt.failure) })
-          return yield* Effect.fail(attempt.failure)
+          yield* record(changeId, { id, label, state: "failed", detail: detailOf(attempt.failure) });
+          return yield* Effect.fail(attempt.failure);
         }
-        yield* record(changeId, { id, label, state: "done" })
-        return attempt.success
-      })
+        yield* record(changeId, { id, label, state: "done" });
+        return attempt.success;
+      });
 
     const assessCompletion = Effect.fn("ChangeLifecycle.assessCompletion")(function* (
       changeId: ChangeId,
       options?: { readonly fresh?: boolean },
     ) {
-      const change = yield* changes.getChange(changeId)
+      const change = yield* changes.getChange(changeId);
       if (change.phase === "Ideation")
-        return { _tag: "Blocked", reasons: [ideaReason(change)], toMerge: [] } satisfies Readiness
+        return { _tag: "Blocked", reasons: [ideaReason(change)], toMerge: [] } satisfies Readiness;
       if (isTerminal(change.phase))
-        return { _tag: "Blocked", reasons: [finishedReason(change)], toMerge: [] } satisfies Readiness
-      const sourceLinks = yield* links.listRepositories(changeId)
-      const { reasons, toMerge } = yield* completionAssessment(change, sourceLinks, options?.fresh ?? false)
-      return readinessFrom(reasons, mergeList(change, toMerge))
-    })
+        return { _tag: "Blocked", reasons: [finishedReason(change)], toMerge: [] } satisfies Readiness;
+      const sourceLinks = yield* links.listRepositories(changeId);
+      const { reasons, toMerge } = yield* completionAssessment(change, sourceLinks, options?.fresh ?? false);
+      return readinessFrom(reasons, mergeList(change, toMerge));
+    });
 
-    const assessCancellation = Effect.fn("ChangeLifecycle.assessCancellation")(function* (changeId: ChangeId) {
-      const change = yield* changes.getChange(changeId)
+    const assessCancellation = Effect.fn("ChangeLifecycle.assessCancellation")(function* (
+      changeId: ChangeId,
+    ) {
+      const change = yield* changes.getChange(changeId);
       if (isTerminal(change.phase))
-        return { _tag: "Blocked", reasons: [finishedReason(change)], toMerge: [] } satisfies Readiness
-      const sourceLinks = yield* links.listRepositories(changeId)
-      return readinessFrom(yield* cancellationReasons(change, sourceLinks), [])
-    })
+        return { _tag: "Blocked", reasons: [finishedReason(change)], toMerge: [] } satisfies Readiness;
+      const sourceLinks = yield* links.listRepositories(changeId);
+      return readinessFrom(yield* cancellationReasons(change, sourceLinks), []);
+    });
 
     const completeChange = Effect.fn("ChangeLifecycle.completeChange")(function* (input: {
-      readonly changeId: ChangeId
-      readonly acknowledgements?: readonly Acknowledgement[]
-      readonly assessment?: Readiness
+      readonly changeId: ChangeId;
+      readonly acknowledgements?: readonly Acknowledgement[];
+      readonly assessment?: Readiness;
     }) {
       return yield* withOperation(
         input.changeId,
         Effect.gen(function* () {
-          const change = yield* changes.getChange(input.changeId)
+          const change = yield* changes.getChange(input.changeId);
           if (change.phase === "Ideation")
             return {
               _tag: "Blocked",
               operation: "complete",
               reasons: [ideaReason(change)],
               toMerge: [],
-            } satisfies LifecycleOutcome
+            } satisfies LifecycleOutcome;
           if (isTerminal(change.phase))
             return {
               _tag: "Blocked",
               operation: "complete",
               reasons: [finishedReason(change)],
               toMerge: [],
-            } satisfies LifecycleOutcome
+            } satisfies LifecycleOutcome;
 
-          const sourceLinks = yield* links.listRepositories(input.changeId)
-          let assessed: Readiness
+          const sourceLinks = yield* links.listRepositories(input.changeId);
+          let assessed: Readiness;
           if (input.assessment) {
-            assessed = input.assessment
+            assessed = input.assessment;
           } else {
-            const { reasons, toMerge } = yield* completionAssessment(change, sourceLinks, true)
-            assessed = readinessFrom(reasons, mergeList(change, toMerge))
+            const { reasons, toMerge } = yield* completionAssessment(change, sourceLinks, true);
+            assessed = readinessFrom(reasons, mergeList(change, toMerge));
           }
-          const reasons = assessed._tag === "Ready" ? [] : assessed.reasons
+          const reasons = assessed._tag === "Ready" ? [] : assessed.reasons;
           const toMerge = assessed.toMerge.flatMap((pullRequest) => {
             const link = sourceLinks.find(
               (entry) => entry.repositoryId === pullRequest.repository.repositoryId,
-            )
-            return link ? [{ link, number: pullRequest.number }] : []
-          })
+            );
+            return link ? [{ link, number: pullRequest.number }] : [];
+          });
           if (reasons.some((reason) => reason.kind === "hard"))
             return {
               _tag: "Blocked",
               operation: "complete",
               reasons,
               toMerge: mergeList(change, toMerge),
-            } satisfies LifecycleOutcome
-          const acknowledgements = input.acknowledgements ?? []
+            } satisfies LifecycleOutcome;
+          const acknowledgements = input.acknowledgements ?? [];
           if (reasons.some((reason) => !isAcknowledged(reason, acknowledgements)))
             return {
               _tag: "NeedsAcknowledgement",
               operation: "complete",
               reasons,
               toMerge: mergeList(change, toMerge),
-            } satisfies LifecycleOutcome
+            } satisfies LifecycleOutcome;
 
           // The plan first: a page opened mid-operation shows what is still coming.
-          const issueSteps = yield* issues.plan(change)
+          const issueSteps = yield* issues.plan(change);
           yield* record(change.changeId, {
             id: "check",
             label: "check every repository is ready",
             state: "done",
-          })
+          });
           for (const { link, number } of toMerge)
             yield* record(change.changeId, {
               id: `merge:${link.originalLocation}`,
               label: `merge ${link.directoryName} #${number}`,
               state: "waiting",
-            })
+            });
           for (const step of issueSteps)
-            yield* record(change.changeId, { id: step.id, label: step.label, state: "waiting" })
-          yield* record(change.changeId, { id: "worktrees", label: "remove the worktrees", state: "waiting" })
-          yield* record(change.changeId, { id: "terminal", label: "close the terminal", state: "waiting" })
-          yield* record(change.changeId, { id: "transcripts", label: "keep the agent transcripts", state: "waiting" })
-          yield* record(change.changeId, { id: "archive", label: "archive the change", state: "waiting" })
+            yield* record(change.changeId, { id: step.id, label: step.label, state: "waiting" });
+          yield* record(change.changeId, {
+            id: "worktrees",
+            label: "remove the worktrees",
+            state: "waiting",
+          });
+          yield* record(change.changeId, { id: "terminal", label: "close the terminal", state: "waiting" });
+          yield* record(change.changeId, {
+            id: "transcripts",
+            label: "keep the agent transcripts",
+            state: "waiting",
+          });
+          yield* record(change.changeId, { id: "archive", label: "archive the change", state: "waiting" });
 
-          const notes: string[] = []
+          const notes: string[] = [];
 
           // Sequential on purpose: a failed merge stops the ones after it.
           for (const { link, number } of toMerge) {
-            const id = `merge:${link.originalLocation}`
-            const label = `merge ${link.directoryName} #${number}`
+            const id = `merge:${link.originalLocation}`;
+            const label = `merge ${link.directoryName} #${number}`;
             const note = yield* runStep(
               change.changeId,
               id,
               label,
               pullRequests.merge({ change, repository: subjectOf(change, link), number }),
-            )
-            if (note) notes.push(note)
+            );
+            if (note) notes.push(note);
           }
 
           // The integrations' steps: close the ticket, comment on the issue, whatever each one
@@ -645,35 +659,39 @@ export const layer = Layer.effect(
               step.id,
               step.label,
               issues.run({ change, stepId: step.id }),
-            )
-            if (note) notes.push(note)
+            );
+            if (note) notes.push(note);
           }
 
           // One journal step for the teardown, as the page has always shown it; the removal
           // rechecks each checkout before acting.
-          yield* record(change.changeId, { id: "worktrees", label: "remove the worktrees", state: "running" })
+          yield* record(change.changeId, {
+            id: "worktrees",
+            label: "remove the worktrees",
+            state: "running",
+          });
           for (const link of worktreeLinks(sourceLinks)) {
-            const id = `worktrees:${link.directoryName}`
-            const label = `remove ${link.directoryName}`
-            const safety = yield* removalSafety(change, link)
-            if (safety._tag === "Gone") continue
+            const id = `worktrees:${link.directoryName}`;
+            const label = `remove ${link.directoryName}`;
+            const safety = yield* removalSafety(change, link);
+            if (safety._tag === "Gone") continue;
             if (safety._tag !== "Safe") {
               const fresh = safety.reasons.map((reason) => ({
                 ...reason,
                 subject: subjectOf(change, link),
                 kind: reason.kind,
                 text: reason.text,
-              }))
+              }));
               const unacknowledged = fresh.some(
                 (reason) => reason.kind === "forceable" && !isAcknowledged(reason, acknowledgements),
-              )
+              );
               if (safety._tag === "Unsafe" || unacknowledged) {
                 yield* record(change.changeId, {
                   id: "worktrees",
                   label: "remove the worktrees",
                   state: "failed",
                   detail: "the checkout changed since the assessment",
-                })
+                });
                 return safety._tag === "Unsafe"
                   ? ({
                       _tag: "Blocked",
@@ -686,125 +704,129 @@ export const layer = Layer.effect(
                       operation: "complete",
                       reasons: fresh,
                       toMerge: [],
-                    } satisfies LifecycleOutcome)
+                    } satisfies LifecycleOutcome);
               }
             }
             const removal = yield* Effect.result(
               removeCheckout(AbsolutePath.make(checkoutLocationOf(change, link))),
-            )
+            );
             if (removal._tag === "Failure") {
               yield* record(change.changeId, {
                 id: "worktrees",
                 label: "remove the worktrees",
                 state: "failed",
                 detail: detailOf(removal.failure),
-              })
-              return yield* removal.failure
+              });
+              return yield* removal.failure;
             }
-            if (createdBranch(link)) yield* cleanupBranch(change, link)
+            if (createdBranch(link)) yield* cleanupBranch(change, link);
           }
-          yield* record(change.changeId, { id: "worktrees", label: "remove the worktrees", state: "done" })
+          yield* record(change.changeId, { id: "worktrees", label: "remove the worktrees", state: "done" });
 
-          yield* runStep(
-            change.changeId,
-            "terminal",
-            "close the terminal",
-            terminals.stop(change.changeId),
-          )
+          yield* runStep(change.changeId, "terminal", "close the terminal", terminals.stop(change.changeId));
 
-          yield* keepTranscripts(change)
+          yield* keepTranscripts(change);
 
           const completed = yield* runStep(
             change.changeId,
             "archive",
             "archive the change",
             changes.transitionTo(change.changeId, "Completed"),
-          )
+          );
 
-          return { _tag: "Done", change: completed, notes, loose: [] } satisfies LifecycleOutcome
+          return { _tag: "Done", change: completed, notes, loose: [] } satisfies LifecycleOutcome;
         }),
-      )
-    })
+      );
+    });
 
     const cancelChange = Effect.fn("ChangeLifecycle.cancelChange")(function* (input: {
-      readonly changeId: ChangeId
-      readonly acknowledgements?: readonly Acknowledgement[]
+      readonly changeId: ChangeId;
+      readonly acknowledgements?: readonly Acknowledgement[];
     }) {
       return yield* withOperation(
         input.changeId,
         Effect.gen(function* () {
-          const change = yield* changes.getChange(input.changeId)
+          const change = yield* changes.getChange(input.changeId);
           if (isTerminal(change.phase))
             return {
               _tag: "Blocked",
               operation: "cancel",
               reasons: [finishedReason(change)],
               toMerge: [],
-            } satisfies LifecycleOutcome
+            } satisfies LifecycleOutcome;
 
-          const sourceLinks = yield* links.listRepositories(input.changeId)
-          const reasons = yield* cancellationReasons(change, sourceLinks)
+          const sourceLinks = yield* links.listRepositories(input.changeId);
+          const reasons = yield* cancellationReasons(change, sourceLinks);
           if (reasons.some((reason) => reason.kind === "hard"))
-            return { _tag: "Blocked", operation: "cancel", reasons, toMerge: [] } satisfies LifecycleOutcome
-          const acknowledgements = input.acknowledgements ?? []
+            return { _tag: "Blocked", operation: "cancel", reasons, toMerge: [] } satisfies LifecycleOutcome;
+          const acknowledgements = input.acknowledgements ?? [];
           if (reasons.some((reason) => !isAcknowledged(reason, acknowledgements)))
             return {
               _tag: "NeedsAcknowledgement",
               operation: "cancel",
               reasons,
               toMerge: [],
-            } satisfies LifecycleOutcome
+            } satisfies LifecycleOutcome;
 
-          const loose: string[] = []
+          const loose: string[] = [];
           // The plan first: a page opened mid-operation shows what is still coming.
-          yield* record(change.changeId, { id: "loose", label: "collect the loose ends", state: "waiting" })
+          yield* record(change.changeId, { id: "loose", label: "collect the loose ends", state: "waiting" });
           for (const link of worktreeLinks(sourceLinks)) {
             yield* record(change.changeId, {
               id: `shelve:${link.directoryName}`,
               label: `shelve ${link.directoryName}`,
               state: "waiting",
-            })
+            });
             yield* record(change.changeId, {
               id: `worktrees:${link.directoryName}`,
               label: `remove ${link.directoryName}`,
               state: "waiting",
-            })
+            });
           }
-          yield* record(change.changeId, { id: "terminal", label: "close the terminal", state: "waiting" })
-          yield* record(change.changeId, { id: "transcripts", label: "keep the agent transcripts", state: "waiting" })
-          yield* record(change.changeId, { id: "archive", label: "archive the change", state: "waiting" })
-          yield* record(change.changeId, { id: "loose", label: "collect the loose ends", state: "running" })
-          const outstanding = yield* pullRequests.outstanding(change).pipe(Effect.result)
+          yield* record(change.changeId, { id: "terminal", label: "close the terminal", state: "waiting" });
+          yield* record(change.changeId, {
+            id: "transcripts",
+            label: "keep the agent transcripts",
+            state: "waiting",
+          });
+          yield* record(change.changeId, { id: "archive", label: "archive the change", state: "waiting" });
+          yield* record(change.changeId, { id: "loose", label: "collect the loose ends", state: "running" });
+          const outstanding = yield* pullRequests.outstanding(change).pipe(Effect.result);
           if (outstanding._tag === "Success") {
             for (const pullRequest of outstanding.success)
               loose.push(
                 `pull request #${pullRequest.number} is still open in ${pullRequest.repository.repositoryId}`,
-              )
+              );
           } else {
-            loose.push("could not read the open pull requests")
+            loose.push("could not read the open pull requests");
           }
-          const issue = yield* issues.current(change).pipe(Effect.result)
+          const issue = yield* issues.current(change).pipe(Effect.result);
           if (issue._tag === "Success") {
-            loose.push(...issue.success)
+            loose.push(...issue.success);
           } else {
-            loose.push("could not read the issue")
+            loose.push("could not read the issue");
           }
-          yield* record(change.changeId, { id: "loose", label: "collect the loose ends", state: "done" })
+          yield* record(change.changeId, { id: "loose", label: "collect the loose ends", state: "done" });
 
           for (const link of worktreeLinks(sourceLinks)) {
-            const id = `worktrees:${link.directoryName}`
-            const label = `remove ${link.directoryName}`
-            const shelveId = `shelve:${link.directoryName}`
-            const shelveLabel = `shelve ${link.directoryName}`
-            const present = yield* removalSafety(change, link, { uncommittedWorkCaptured: true })
+            const id = `worktrees:${link.directoryName}`;
+            const label = `remove ${link.directoryName}`;
+            const shelveId = `shelve:${link.directoryName}`;
+            const shelveLabel = `shelve ${link.directoryName}`;
+            const present = yield* removalSafety(change, link, { uncommittedWorkCaptured: true });
             if (present._tag === "Gone") {
-              yield* record(change.changeId, { id: shelveId, label: shelveLabel, state: "done", detail: "nothing to shelve" })
-              yield* record(change.changeId, { id, label, state: "done", detail: "nothing to remove" })
-              continue
+              yield* record(change.changeId, {
+                id: shelveId,
+                label: shelveLabel,
+                state: "done",
+                detail: "nothing to shelve",
+              });
+              yield* record(change.changeId, { id, label, state: "done", detail: "nothing to remove" });
+              continue;
             }
             // The uncommitted work goes on a shelf first; the worktree is removed only once it is
             // clean, which is what makes cancelling an operation that can be undone.
-            yield* record(change.changeId, { id: shelveId, label: shelveLabel, state: "running" })
+            yield* record(change.changeId, { id: shelveId, label: shelveLabel, state: "running" });
             const shelved = yield* shelves
               .shelveRepository({
                 changeId: change.changeId,
@@ -822,26 +844,38 @@ export const layer = Layer.effect(
                     }),
                   ),
                 ),
-              )
+              );
             if (shelved._tag === "Shelved") {
-              const count = shelved.shelf.files.length
+              const count = shelved.shelf.files.length;
               yield* record(change.changeId, {
                 id: shelveId,
                 label: shelveLabel,
                 state: "done",
                 detail: `${count} file${count === 1 ? "" : "s"} shelved`,
-              })
-              loose.push(`the uncommitted work in ${link.directoryName} is shelved; reopening the change applies it`)
+              });
+              loose.push(
+                `the uncommitted work in ${link.directoryName} is shelved; reopening the change applies it`,
+              );
             } else if (shelved._tag === "Clean") {
-              yield* record(change.changeId, { id: shelveId, label: shelveLabel, state: "done", detail: "nothing uncommitted" })
+              yield* record(change.changeId, {
+                id: shelveId,
+                label: shelveLabel,
+                state: "done",
+                detail: "nothing uncommitted",
+              });
             } else {
               const text =
                 shelved._tag === "Conflicted"
                   ? `conflicts in ${shelved.files.join(", ")}: resolve them before cancelling`
                   : shelved._tag === "Changed"
                     ? `${shelved.reason}: try again`
-                    : "the uncommitted work could not be shelved"
-              yield* record(change.changeId, { id: shelveId, label: shelveLabel, state: "failed", detail: text })
+                    : "the uncommitted work could not be shelved";
+              yield* record(change.changeId, {
+                id: shelveId,
+                label: shelveLabel,
+                state: "failed",
+                detail: text,
+              });
               return {
                 _tag: "Blocked",
                 operation: "cancel",
@@ -855,13 +889,13 @@ export const layer = Layer.effect(
                   },
                 ],
                 toMerge: [],
-              } satisfies LifecycleOutcome
+              } satisfies LifecycleOutcome;
             }
-            yield* record(change.changeId, { id, label, state: "running" })
-            const safety = yield* removalSafety(change, link)
+            yield* record(change.changeId, { id, label, state: "running" });
+            const safety = yield* removalSafety(change, link);
             if (safety._tag === "Gone") {
-              yield* record(change.changeId, { id, label, state: "done", detail: "nothing to remove" })
-              continue
+              yield* record(change.changeId, { id, label, state: "done", detail: "nothing to remove" });
+              continue;
             }
             if (safety._tag !== "Safe") {
               const fresh = safety.reasons.map((reason) => ({
@@ -869,10 +903,10 @@ export const layer = Layer.effect(
                 subject: subjectOf(change, link),
                 kind: reason.kind,
                 text: reason.text,
-              }))
+              }));
               const unacknowledged = fresh.some(
                 (reason) => reason.kind === "forceable" && !isAcknowledged(reason, acknowledgements),
-              )
+              );
               if (safety._tag === "Unsafe" || unacknowledged)
                 return safety._tag === "Unsafe"
                   ? ({
@@ -886,42 +920,43 @@ export const layer = Layer.effect(
                       operation: "cancel",
                       reasons: fresh,
                       toMerge: [],
-                    } satisfies LifecycleOutcome)
+                    } satisfies LifecycleOutcome);
             }
-            yield* removeCheckout(AbsolutePath.make(checkoutLocationOf(change, link)))
+            yield* removeCheckout(AbsolutePath.make(checkoutLocationOf(change, link)));
             // Only a branch Corvi created for this worktree is deleted; a borrowed one stays.
-            const cleanup = createdBranch(link) ? yield* cleanupBranch(change, link) : ("absent" as const)
+            const cleanup = createdBranch(link) ? yield* cleanupBranch(change, link) : ("absent" as const);
             // The branch survives when its content is not in the base; say so.
-            if (cleanup === "kept") loose.push(`the branch ${change.branch} is kept in ${link.directoryName}`)
-            yield* record(change.changeId, { id, label, state: "done" })
+            if (cleanup === "kept")
+              loose.push(`the branch ${change.branch} is kept in ${link.directoryName}`);
+            yield* record(change.changeId, { id, label, state: "done" });
           }
 
-          yield* record(change.changeId, { id: "terminal", label: "close the terminal", state: "running" })
-          yield* terminals.stop(change.changeId)
-          yield* record(change.changeId, { id: "terminal", label: "close the terminal", state: "done" })
+          yield* record(change.changeId, { id: "terminal", label: "close the terminal", state: "running" });
+          yield* terminals.stop(change.changeId);
+          yield* record(change.changeId, { id: "terminal", label: "close the terminal", state: "done" });
 
-          yield* keepTranscripts(change)
+          yield* keepTranscripts(change);
 
-          yield* record(change.changeId, { id: "archive", label: "archive the change", state: "running" })
-          const cancelled = yield* changes.transitionTo(change.changeId, "Cancelled")
-          yield* record(change.changeId, { id: "archive", label: "archive the change", state: "done" })
+          yield* record(change.changeId, { id: "archive", label: "archive the change", state: "running" });
+          const cancelled = yield* changes.transitionTo(change.changeId, "Cancelled");
+          yield* record(change.changeId, { id: "archive", label: "archive the change", state: "done" });
 
-          return { _tag: "Done", change: cancelled, notes: [], loose } satisfies LifecycleOutcome
+          return { _tag: "Done", change: cancelled, notes: [], loose } satisfies LifecycleOutcome;
         }),
-      )
-    })
+      );
+    });
 
     const reopenChange = Effect.fn("ChangeLifecycle.reopenChange")(function* (changeId: ChangeId) {
       return yield* withOperation(
         changeId,
         Effect.gen(function* () {
-          const reopened = yield* changes.reopen(changeId)
-          yield* record(changeId, { id: "reopen", label: `reopen as ${reopened.phase}`, state: "done" })
-          return reopened
+          const reopened = yield* changes.reopen(changeId);
+          yield* record(changeId, { id: "reopen", label: `reopen as ${reopened.phase}`, state: "done" });
+          return reopened;
         }),
-      )
-    })
+      );
+    });
 
-    return { assessCompletion, assessCancellation, completeChange, cancelChange, reopenChange }
+    return { assessCompletion, assessCancellation, completeChange, cancelChange, reopenChange };
   }),
-)
+);

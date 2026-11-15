@@ -10,7 +10,7 @@ import { changeDir, createChange } from "../apps/server/src/change/server/index.
 import { provisionRepositories } from "../apps/server/src/change/provisioning.ts";
 import { visibleChangeTabs } from "../apps/server/src/integrations/selectors.ts";
 import { runtimeConfig, workspaceById } from "../apps/server/src/workspace/server/index.ts";
-import { checkoutsOf, runEffect, runSh  } from "./helpers.ts";
+import { checkoutsOf, runEffect, runSh } from "./helpers.ts";
 
 /**
  * E2's new surface and capability, with no consumer yet: the change-tab route and the read-only
@@ -147,9 +147,9 @@ test("the Changes layer answers the base branch through the contract", async () 
   // No base chosen and no remote on this repository: its own default branch is what is left.
   expect(await base(change)).toBe("main");
   // What the change chose answers without asking git, so a stacked change keeps its base.
-  expect(
-    await base({ ...change, checkouts: checkoutsOf([repo], [], { [repo]: "origin/release" }) }),
-  ).toBe("origin/release");
+  expect(await base({ ...change, checkouts: checkoutsOf([repo], [], { [repo]: "origin/release" }) })).toBe(
+    "origin/release",
+  );
 });
 
 test("the Changes layer reads a change, or answers null when there is none", async () => {

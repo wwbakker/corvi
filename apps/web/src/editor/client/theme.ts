@@ -14,15 +14,7 @@ import { tags, type Tag } from "@lezer/highlight";
  * emphasis and strikethrough carry no color of their own — they are weight, slant and strike.
  */
 export type TokenRole =
-  | "heading"
-  | "strong"
-  | "emphasis"
-  | "strikethrough"
-  | "code"
-  | "link"
-  | "quote"
-  | "keyword"
-  | "mark";
+  "heading" | "strong" | "emphasis" | "strikethrough" | "code" | "link" | "quote" | "keyword" | "mark";
 
 /** The CSS a role paints. */
 export type RoleStyle = {

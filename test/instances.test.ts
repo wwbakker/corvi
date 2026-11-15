@@ -50,9 +50,7 @@ const createIdea = async (url: string, id: string): Promise<void> => {
 };
 
 const changeIds = async (url: string): Promise<string[]> =>
-  (
-    (await fetch(`${url}/api/changes`).then((r) => r.json())) as { id: string }[]
-  ).map((change) => change.id);
+  ((await fetch(`${url}/api/changes`).then((r) => r.json())) as { id: string }[]).map((change) => change.id);
 
 test("changes written to one instance are invisible to the other", async () => {
   await createIdea(firstUrl, "PROJ-ONLY-A");

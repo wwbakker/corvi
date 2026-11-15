@@ -86,7 +86,9 @@ const listScope = (
         id: file.id,
         path: file.path,
         text: file.text,
-        ...(Result.isSuccess(parsed) ? { label: parsed.success.label } : { problems: parsed.failure.reasons }),
+        ...(Result.isSuccess(parsed)
+          ? { label: parsed.success.label }
+          : { problems: parsed.failure.reasons }),
       };
     }),
   );
@@ -166,10 +168,7 @@ const repositoryBlocks = (
 
 /** The `.corvi/subagents` directory of one named checkout. A repository the change does not
  * carry — or one not checked out — is refused, never invented. */
-const repositoryDirFor = (
-  change: Change,
-  repository: string,
-): Effect.Effect<string, BadRequestError> =>
+const repositoryDirFor = (change: Change, repository: string): Effect.Effect<string, BadRequestError> =>
   Effect.gen(function* () {
     const found = (yield* repositoryBlocks(change)).find((one) => one.repository === repository);
     if (found === undefined) {
@@ -180,9 +179,7 @@ const repositoryDirFor = (
 
 /** The change's repository profiles, one block per checkout — what the Repositories view lists,
  * parsed exactly as the other scopes are. */
-export const repositorySubagentFiles = (
-  change: Change,
-): Effect.Effect<SubagentRepositoryFilesResponseDto> =>
+export const repositorySubagentFiles = (change: Change): Effect.Effect<SubagentRepositoryFilesResponseDto> =>
   Effect.gen(function* () {
     const repositories: { repository: string; files: readonly SubagentProfileFileDto[] }[] = [];
     for (const root of yield* repositoryBlocks(change)) {

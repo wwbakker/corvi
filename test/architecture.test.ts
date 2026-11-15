@@ -14,7 +14,11 @@ interface FixtureGraph {
   readonly packages: Readonly<
     Record<
       string,
-      { readonly dependsOn: readonly string[]; readonly external?: readonly string[]; readonly node?: boolean }
+      {
+        readonly dependsOn: readonly string[];
+        readonly external?: readonly string[];
+        readonly node?: boolean;
+      }
     >
   >;
 }
@@ -119,7 +123,10 @@ test("an undeclared workspace dependency fails", async () => {
 
 test("a forbidden workspace edge fails even when declared", async () => {
   const root = await writeFixture("reverse", graph, [
-    contractsPackage({ "changes.ts": 'import "@corvi/changes";\n' }, { dependencies: { effect: "catalog:", "@corvi/changes": "workspace:*" } }),
+    contractsPackage(
+      { "changes.ts": 'import "@corvi/changes";\n' },
+      { dependencies: { effect: "catalog:", "@corvi/changes": "workspace:*" } },
+    ),
     changesPackage({ "index.ts": "export const y = 1;\n" }),
   ]);
   expect(problemsOf(root)).toContain("workspace dependency not allowed: @corvi/contracts -> @corvi/changes");
@@ -169,29 +176,37 @@ test("an application may import a Node built-in outside a node adapter", async (
   const root = await writeFixture(
     "application-node",
     { packages: { "@corvi/server": { dependsOn: [], node: true } } },
-    [serverPackage({ "capabilities/shell.ts": 'import { join } from "node:path";\nexport const x = join("a", "b");\n' })],
+    [
+      serverPackage({
+        "capabilities/shell.ts": 'import { join } from "node:path";\nexport const x = join("a", "b");\n',
+      }),
+    ],
   );
   expect(checkArchitecture(root)).toEqual([]);
 });
 
 test("an application without the node rule still keeps Node in its adapter", async () => {
-  const root = await writeFixture(
-    "application-browser",
-    { packages: { "@corvi/web": { dependsOn: [] } } },
-    [
-      {
-        dir: "web",
-        manifest: { name: "@corvi/web", version: "0.0.0", exports: { ".": "./src/index.ts" }, dependencies: {} },
-        files: { "index.ts": 'import "node:fs";\n' },
+  const root = await writeFixture("application-browser", { packages: { "@corvi/web": { dependsOn: [] } } }, [
+    {
+      dir: "web",
+      manifest: {
+        name: "@corvi/web",
+        version: "0.0.0",
+        exports: { ".": "./src/index.ts" },
+        dependencies: {},
       },
-    ],
-  );
+      files: { "index.ts": 'import "node:fs";\n' },
+    },
+  ]);
   expect(problemsOf(root)).toContain("Node built-in imports belong in the node adapter entrypoint: node:fs");
 });
 
 test("contracts may not import an external outside its allowlist", async () => {
   const root = await writeFixture("allowlist", graph, [
-    contractsPackage({ "changes.ts": 'import "zod";\n' }, { dependencies: { effect: "catalog:", zod: "^3.0.0" } }),
+    contractsPackage(
+      { "changes.ts": 'import "zod";\n' },
+      { dependencies: { effect: "catalog:", zod: "^3.0.0" } },
+    ),
     changesPackage({ "index.ts": "export const y = 1;\n" }),
   ]);
   expect(problemsOf(root)).toContain("external import not on the allowlist: zod");
@@ -205,8 +220,16 @@ test("a configured dependency cycle fails", async () => {
     },
   };
   const root = await writeFixture("cycle", cyclic, [
-    { dir: "a", manifest: { name: "@corvi/a", version: "0.0.0" }, files: { "index.ts": "export const a = 1;\n" } },
-    { dir: "b", manifest: { name: "@corvi/b", version: "0.0.0" }, files: { "index.ts": "export const b = 1;\n" } },
+    {
+      dir: "a",
+      manifest: { name: "@corvi/a", version: "0.0.0" },
+      files: { "index.ts": "export const a = 1;\n" },
+    },
+    {
+      dir: "b",
+      manifest: { name: "@corvi/b", version: "0.0.0" },
+      files: { "index.ts": "export const b = 1;\n" },
+    },
   ]);
   expect(problemsOf(root)).toContain("dependency cycle");
 });
@@ -236,7 +259,9 @@ test("type-only and dynamic imports count as dependencies", async () => {
       { dependencies: {} },
     ),
   ]);
-  const undeclared = checkArchitecture(root).filter((problem) => problem.includes("undeclared workspace dependency"));
+  const undeclared = checkArchitecture(root).filter((problem) =>
+    problem.includes("undeclared workspace dependency"),
+  );
   expect(undeclared.length).toBe(2);
 });
 

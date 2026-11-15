@@ -127,7 +127,11 @@ test("an upgrade whose handshake never completes calls onAbort", async () => {
         req: Request,
         srv: { upgrade: (req: Request, options?: { onAbort?: () => void }) => boolean },
       ) =>
-        srv.upgrade(req, { onAbort: () => { aborted = true; } })
+        srv.upgrade(req, {
+          onAbort: () => {
+            aborted = true;
+          },
+        })
           ? undefined
           : new Response("no", { status: 400 }),
     },

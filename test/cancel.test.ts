@@ -6,7 +6,7 @@ import { createChange, readChange, changeDir } from "../apps/server/src/change/s
 import { checkoutFor } from "../apps/server/src/vendors/git.ts";
 import { provisionRepositories } from "../apps/server/src/change/provisioning.ts";
 import { Effect } from "effect";
-import { checkoutsOf, runCancel, runEffect, runSh, TestError  } from "./helpers.ts";
+import { checkoutsOf, runCancel, runEffect, runSh, TestError } from "./helpers.ts";
 import { cancelChange, reopenChange } from "../apps/server/src/change/server/index.ts";
 import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
 import { byWorkOrder, isFinished, CHANGE_STATES, type Change } from "@corvi/changes/record";
@@ -69,9 +69,11 @@ test("the order the lists show changes in", () => {
   expect(sorted).toEqual(["idea", "newer", "older", "review", "stuck"]);
 
   // A change with no state is one you are working on.
-  expect([at("none", undefined, "2026-01-09T00:00:00Z"), at("b", "Blocked", "2026-01-09T00:00:00Z")]
-    .sort(byWorkOrder)
-    .map((c) => c.id)).toEqual(["none", "b"]);
+  expect(
+    [at("none", undefined, "2026-01-09T00:00:00Z"), at("b", "Blocked", "2026-01-09T00:00:00Z")]
+      .sort(byWorkOrder)
+      .map((c) => c.id),
+  ).toEqual(["none", "b"]);
 
   // The select offers them in the same order the lists sort by: one order, used twice.
   expect(CHANGE_STATES.slice(0, 3)).toEqual(["Ideation", "Implementation", "Verification"]);
@@ -89,7 +91,9 @@ test("a change is over when it was completed or cancelled", () => {
 
 test("cancelling takes back the worktree and leaves the branch", async () => {
   const repo = await clonedRepo("cancel-plain");
-  const change = await runEffect(createChange({ id: "PROJ-CANCEL", branch: "PROJ-CANCEL-x", checkouts: checkoutsOf([repo]) }));
+  const change = await runEffect(
+    createChange({ id: "PROJ-CANCEL", branch: "PROJ-CANCEL-x", checkouts: checkoutsOf([repo]) }),
+  );
   // The same checkouts the git extension's change:created hook creates.
   await Effect.runPromise(provisionRepositories(change));
   expect(await runEffect(checkoutFor(change, repo))).toBeDefined();
@@ -116,7 +120,9 @@ test("cancelling takes back the worktree and leaves the branch", async () => {
 
 test("cancelling shelves what is uncommitted, asks only about commits nobody else has, and reopening puts it all back", async () => {
   const repo = await clonedRepo("cancel-work");
-  const change = await runEffect(createChange({ id: "PROJ-WORK", branch: "PROJ-WORK-x", checkouts: checkoutsOf([repo]) }));
+  const change = await runEffect(
+    createChange({ id: "PROJ-WORK", branch: "PROJ-WORK-x", checkouts: checkoutsOf([repo]) }),
+  );
   // The same checkouts the git extension's change:created hook creates.
   await Effect.runPromise(provisionRepositories(change));
   const worktree = (await runEffect(checkoutFor(change, repo)))!;
@@ -171,11 +177,13 @@ test("a change cannot be declared finished by hand", async () => {
   // displayed. Picking "Completed" from a list would set the word without merging anything,
   // removing a worktree or archiving the change.
   const { applyPatch } = await import("../apps/server/src/change/server/index.ts");
-  const change = await runEffect(createChange({
-    id: "PROJ-HAND",
-    branch: "PROJ-HAND-x",
-    checkouts: checkoutsOf([await clonedRepo("cancel-byhand")]),
-  }));
+  const change = await runEffect(
+    createChange({
+      id: "PROJ-HAND",
+      branch: "PROJ-HAND-x",
+      checkouts: checkoutsOf([await clonedRepo("cancel-byhand")]),
+    }),
+  );
 
   expect(() => applyPatch(change, { state: "Completed" })).toThrow(/completing or cancelling/);
   expect(() => applyPatch(change, { state: "Cancelled" })).toThrow(/completing or cancelling/);
@@ -209,7 +217,9 @@ test("a change that is over is read, not acted on", async () => {
   const { repoStatusOf, cardForExtension } = await import("../apps/server/src/integrations/index.ts");
   const repo = await clonedRepo("cancel-readonly");
   // Not provisioned: a repository with no worktree is exactly the row that offers to make one.
-  const change = await runEffect(createChange({ id: "PROJ-OVER", branch: "PROJ-OVER-x", checkouts: checkoutsOf([repo]) }));
+  const change = await runEffect(
+    createChange({ id: "PROJ-OVER", branch: "PROJ-OVER-x", checkouts: checkoutsOf([repo]) }),
+  );
 
   const git = cardForExtension("git")!;
   const live = await runEffect(repoStatusOf("git", git, change, repo));
@@ -226,12 +236,14 @@ test("a change that is over is read, not acted on", async () => {
 
 test("what cancelling leaves alone is said out loud", async () => {
   const repo = await clonedRepo("cancel-loose");
-  const change = await runEffect(createChange({
-    id: "PROJ-LOOSE",
-    branch: "PROJ-LOOSE-x",
-    checkouts: checkoutsOf([repo]),
-    extensions: { jira: { key: "PROJ-LOOSE" } },
-  }));
+  const change = await runEffect(
+    createChange({
+      id: "PROJ-LOOSE",
+      branch: "PROJ-LOOSE-x",
+      checkouts: checkoutsOf([repo]),
+      extensions: { jira: { key: "PROJ-LOOSE" } },
+    }),
+  );
   // The same checkouts the git extension's change:created hook creates.
   await Effect.runPromise(provisionRepositories(change));
 

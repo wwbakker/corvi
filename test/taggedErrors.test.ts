@@ -55,10 +55,15 @@ test("the taxonomy's errors are Schema.TaggedError-backed and round-trip their f
   assertSchemaBacked(BadRequestError, "BadRequestError", bad, { message: "bad id" });
   expect(bad.message).toBe("bad id");
 
-  assertSchemaBacked(ConflictError, "ConflictError", new ConflictError({ message: "dirty", needsForce: true }), {
-    message: "dirty",
-    needsForce: true,
-  });
+  assertSchemaBacked(
+    ConflictError,
+    "ConflictError",
+    new ConflictError({ message: "dirty", needsForce: true }),
+    {
+      message: "dirty",
+      needsForce: true,
+    },
+  );
   assertSchemaBacked(
     TooManyRequestsError,
     "TooManyRequestsError",
@@ -91,12 +96,10 @@ test("the taxonomy's errors are Schema.TaggedError-backed and round-trip their f
 test("the change and repository errors are Schema.TaggedError-backed, brands included", () => {
   // The branded `changeId` must come back as the same branded value, not a plain string.
   const changeId = ChangeId.make("c1");
-  assertSchemaBacked(
-    ChangeNotFound,
-    "ChangeNotFound",
-    new ChangeNotFound({ changeId, message: "missing" }),
-    { changeId, message: "missing" },
-  );
+  assertSchemaBacked(ChangeNotFound, "ChangeNotFound", new ChangeNotFound({ changeId, message: "missing" }), {
+    changeId,
+    message: "missing",
+  });
   assertSchemaBacked(
     ChangeFormatTooNew,
     "ChangeFormatTooNew",

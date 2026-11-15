@@ -127,8 +127,12 @@ const acceptable = (data: string, highWater: number): boolean =>
   byteLength(data) <= SNAPSHOT_MAX_BYTES;
 
 /** Store one screen's serialization. Returns whether the store accepted it. */
-export const setSnapshot = (sessionId: string, incarnation: number, data: string, highWater: number): boolean =>
-  setSnapshots([{ sessionId, incarnation, data, highWater }]);
+export const setSnapshot = (
+  sessionId: string,
+  incarnation: number,
+  data: string,
+  highWater: number,
+): boolean => setSnapshots([{ sessionId, incarnation, data, highWater }]);
 
 /** Store a batch, replacing any earlier entry per session and persisting the file once: a cadence
  * tick with several dirty screens should not rewrite the whole store once per screen. An

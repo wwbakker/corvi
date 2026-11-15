@@ -38,8 +38,8 @@ export const isNewWindowKey = (e: Keyish, platform: Platform): boolean => {
  * itself. Plain Enter, alt-Enter and anything with the command key are left to xterm, which
  * encodes those correctly. */
 const CSI_U: Record<string, string> = {
-  "shift": "\x1b[13;2u",
-  "ctrl": "\x1b[13;5u",
+  shift: "\x1b[13;2u",
+  ctrl: "\x1b[13;5u",
   "shift-ctrl": "\x1b[13;6u",
 };
 

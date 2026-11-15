@@ -22,8 +22,7 @@ const asWorkspace = <A, E>(
   change: Change,
   effect: Effect.Effect<A, E, Capabilities>,
   extension?: string,
-): Effect.Effect<A, E> =>
-  Effect.provide(effect, capabilitiesLayer(workspaceOf(change), extension));
+): Effect.Effect<A, E> => Effect.provide(effect, capabilitiesLayer(workspaceOf(change), extension));
 
 /** One card's widget; a failed effect is a red card carrying the error's message, never a
  * failed request. A finished change's rows lose their actions — reading, not acting. The

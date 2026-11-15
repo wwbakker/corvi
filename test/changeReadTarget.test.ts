@@ -34,7 +34,9 @@ test("a read's answer is published only for the target it asked for", () => {
   // A same-id retarget while it was in flight: the old target's answer is not the new one's.
   expect(changeReadStillCurrent(target(), sources, { r: entry(available, "g2") })).toBe(false);
   // Yet a read that started under g2 and lands under g2 is published.
-  expect(changeReadStillCurrent(target({ generation: "g2" }), sources, { r: entry(available, "g2") })).toBe(true);
+  expect(changeReadStillCurrent(target({ generation: "g2" }), sources, { r: entry(available, "g2") })).toBe(
+    true,
+  );
 
   // The source was removed: a late answer cannot bring it back.
   expect(changeReadStillCurrent(target(), [], { r: entry() })).toBe(false);
@@ -43,7 +45,7 @@ test("a read's answer is published only for the target it asked for", () => {
   expect(changeReadStillCurrent(target(), sources, { r: entry(unavailable, "g1") })).toBe(false);
 
   // The local source has no availability entry and is always the target it says it is.
-  expect(
-    changeReadStillCurrent(target({ source: "", generation: "", status: "available" }), [""], {}),
-  ).toBe(true);
+  expect(changeReadStillCurrent(target({ source: "", generation: "", status: "available" }), [""], {})).toBe(
+    true,
+  );
 });

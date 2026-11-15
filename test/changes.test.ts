@@ -19,7 +19,7 @@ import { ProvisionedChangeSchema, type ProvisionedChangeDto } from "@corvi/contr
 import type { Change } from "@corvi/changes/record";
 import type { RawWindow } from "../apps/server/src/integrations/types.ts";
 import type { PresentedWindow } from "../apps/server/src/terminals/server/index.ts";
-import { checkoutsOf, runEffect, runSetRepos, runSh, withRuntimeConfig  } from "./helpers.ts";
+import { checkoutsOf, runEffect, runSetRepos, runSh, withRuntimeConfig } from "./helpers.ts";
 
 let tmp: string;
 let repo: string;
@@ -137,8 +137,12 @@ test("the create response names the new change's directory", async () => {
 
 test("rejects duplicate ids, unsafe ids and changes without repositories", async () => {
   await runEffect(createChange({ id: "PROJ-2", checkouts: checkoutsOf([repo]) }));
-  expect(runEffect(createChange({ id: "PROJ-2", checkouts: checkoutsOf([repo]) }))).rejects.toThrow("already exists");
-  expect(runEffect(createChange({ id: "../escape", checkouts: checkoutsOf([repo]) }))).rejects.toThrow("invalid change id");
+  expect(runEffect(createChange({ id: "PROJ-2", checkouts: checkoutsOf([repo]) }))).rejects.toThrow(
+    "already exists",
+  );
+  expect(runEffect(createChange({ id: "../escape", checkouts: checkoutsOf([repo]) }))).rejects.toThrow(
+    "invalid change id",
+  );
   expect(runEffect(createChange({ id: "PROJ-3" }))).rejects.toThrow("at least one repository");
 });
 
@@ -295,11 +299,13 @@ test("a repository used in place is linked and switched, dirty ones are left alo
   const dirty = await makeRepo("dirty");
   await Bun.write(join(dirty, "scratch.txt"), "half-finished work\n");
 
-  const change = await runEffect(createChange({
-    id: "PROJ-DIRECT",
-    branch: "PROJ-DIRECT-work",
-    checkouts: checkoutsOf([clean, dirty], [clean, dirty]),
-  }));
+  const change = await runEffect(
+    createChange({
+      id: "PROJ-DIRECT",
+      branch: "PROJ-DIRECT-work",
+      checkouts: checkoutsOf([clean, dirty], [clean, dirty]),
+    }),
+  );
   expect(isInPlace(change, clean)).toBe(true);
   // The same checkouts a creation makes.
   const run = await Effect.runPromise(provisionRepositories(change));
@@ -336,11 +342,13 @@ test("a worktree starts from the base branch it was given, not the remote defaul
   const clone = join(tmp, "stacked");
   await runSh(["git", "clone", "--quiet", origin, clone]);
 
-  const change = await runEffect(createChange({
-    id: "PROJ-STACK",
-    branch: "PROJ-STACK-second",
-    checkouts: checkoutsOf([clone], [], { [clone]: "origin/PROJ-1-first" }),
-  }));
+  const change = await runEffect(
+    createChange({
+      id: "PROJ-STACK",
+      branch: "PROJ-STACK-second",
+      checkouts: checkoutsOf([clone], [], { [clone]: "origin/PROJ-1-first" }),
+    }),
+  );
   // The same checkouts a creation makes.
   await Effect.runPromise(provisionRepositories(change));
 
@@ -349,7 +357,9 @@ test("a worktree starts from the base branch it was given, not the remote defaul
   expect(await Bun.file(join(worktree, "first.txt")).text()).toBe("work of the change below\n");
 
   // And a change without a base still starts from the remote default, which has no such file.
-  const plain = await runEffect(createChange({ id: "PROJ-PLAIN", branch: "PROJ-PLAIN-x", checkouts: checkoutsOf([clone]) }));
+  const plain = await runEffect(
+    createChange({ id: "PROJ-PLAIN", branch: "PROJ-PLAIN-x", checkouts: checkoutsOf([clone]) }),
+  );
   // The same checkouts a creation makes.
   await Effect.runPromise(provisionRepositories(plain));
   const plainTree = (await runEffect(checkoutFor(plain, clone)))!;
@@ -366,7 +376,6 @@ test("a completed change is listed once, even when its directory is left behind"
   const listed = (await runEffect(listChanges())).filter((c) => c.id === "PROJ-TWICE");
   expect(listed.length).toBe(1);
 });
-
 
 test("a completion is only journaled once it will run", async () => {
   const { completeChange, progressOf } = await import("../apps/server/src/change/server/index.ts");
@@ -440,8 +449,16 @@ test("an agent's own account of itself is read from the @agent_status pane optio
       ...(subagent ? { subagent: true } : {}),
     });
   // What an agent's reporter publishes as the `@agent_status` fact.
-  expect(presented({ "@agent_status": "working" })).toMatchObject({ label: "example-api - (agent working)", icon: "agent", state: "ok" });
-  expect(presented({ "@agent_status": "waiting" })).toMatchObject({ label: "example-api - (agent waiting)", icon: "agent", state: "idle" });
+  expect(presented({ "@agent_status": "working" })).toMatchObject({
+    label: "example-api - (agent working)",
+    icon: "agent",
+    state: "ok",
+  });
+  expect(presented({ "@agent_status": "waiting" })).toMatchObject({
+    label: "example-api - (agent waiting)",
+    icon: "agent",
+    state: "idle",
+  });
   // The explicit agent pair the quiet rule reads, separate from `busy`: a working agent is
   // agent+working, a waiting one is agent but not working, and a subagent's host window leaves
   // both to the subagent's own view.
@@ -456,8 +473,16 @@ test("an agent's own account of itself is read from the @agent_status pane optio
     label: "example-api - (opencode waiting)",
   });
   // Unset, or set to something else by something else: no claim is made about the window.
-  expect(presented({ "@agent_status": "" })).toMatchObject({ label: "example-api - (node)", icon: "terminal", state: "idle" });
-  expect(presented({ "@agent_status": "busy" })).toMatchObject({ label: "example-api - (node)", icon: "terminal", state: "idle" });
+  expect(presented({ "@agent_status": "" })).toMatchObject({
+    label: "example-api - (node)",
+    icon: "terminal",
+    state: "idle",
+  });
+  expect(presented({ "@agent_status": "busy" })).toMatchObject({
+    label: "example-api - (node)",
+    icon: "terminal",
+    state: "idle",
+  });
 });
 
 test("a name you gave replaces every label the presenters compose, and the presenter still says the rest", async () => {
@@ -554,8 +579,7 @@ test("a change belongs to the context it was made in, and older ones to the firs
     { id: "client", name: "Acme" },
     { id: "personal", name: "Personal" },
   ];
-  const change = (id: string, workspace?: string): { id: string; workspace?: string } =>
-    ({ id, workspace });
+  const change = (id: string, workspace?: string): { id: string; workspace?: string } => ({ id, workspace });
   const all = [change("PROJ-1", "client"), change("IWE-1", "personal"), change("OLD-1")];
 
   // No workspace: it belongs to the first one, the default when there is only one place for
@@ -683,7 +707,10 @@ test("a change is named by its ticket, until you name it yourself", async () => 
       new Response(
         JSON.stringify({
           issues: [
-            { key: "PROJ-7", fields: { summary: "Split the invoice export", status: { name: "In Progress" } } },
+            {
+              key: "PROJ-7",
+              fields: { summary: "Split the invoice export", status: { name: "In Progress" } },
+            },
           ],
         }),
         { status: 200 },

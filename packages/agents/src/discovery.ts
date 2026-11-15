@@ -97,15 +97,13 @@ export const mergeProfileFiles = (files: readonly ProfileFileInput[]): ProfileDi
   return {
     profiles: parsed
       .filter((found) => winners.has(found))
-      .map(
-        (found): DiscoveredProfile => ({
-          key: found.key,
-          id: found.file.id,
-          source: found.file.source,
-          sourceLabel: found.file.originLabel ?? found.file.origin,
-          profile: found.profile,
-        }),
-      ),
+      .map((found): DiscoveredProfile => ({
+        key: found.key,
+        id: found.file.id,
+        source: found.file.source,
+        sourceLabel: found.file.originLabel ?? found.file.origin,
+        profile: found.profile,
+      })),
     skipped,
   };
 };

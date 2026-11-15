@@ -67,9 +67,7 @@ test("IDE state is copied into the worktree with its paths pointing at the workt
   expect(await readFile(join(tree, ".bsp", "scala.json"), "utf8")).toBe(
     JSON.stringify({ argv: [`${tree}/cli/x.sc`] }),
   );
-  expect(await readFile(join(tree, ".idea", "workspace.xml"), "utf8")).toContain(
-    `value="${tree}/build"`,
-  );
+  expect(await readFile(join(tree, ".idea", "workspace.xml"), "utf8")).toContain(`value="${tree}/build"`);
 });
 
 test("what the worktree already has is left alone, and binary files survive the copy", async () => {

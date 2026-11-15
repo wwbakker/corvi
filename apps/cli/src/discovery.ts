@@ -123,7 +123,8 @@ export const serverCandidates = async (input: CandidateInput = {}): Promise<read
   const configured = Number(envVars[env("PORT")]);
   const devPort = input.devPort ?? (Number.isFinite(configured) ? configured : DEV_PORT);
   const raw: Candidate[] = [];
-  if (input.url !== undefined && input.url !== "") raw.push({ url: input.url, source: "--server", priority: EXPLICIT });
+  if (input.url !== undefined && input.url !== "")
+    raw.push({ url: input.url, source: "--server", priority: EXPLICIT });
   if (input.envUrl !== undefined && input.envUrl !== "")
     raw.push({ url: input.envUrl, source: "CORVI_URL", priority: FROM_ENV });
   for (const record of await instanceRecords(input.dir)) {
@@ -158,12 +159,14 @@ export type Probe = (candidate: Candidate) => Promise<readonly string[]>;
 
 /** The real probe: ask each candidate what it knows, with a deadline so an unresponsive one is
  * skipped rather than waited on. A candidate may name its own, longer deadline. */
-export const clientProbe = (timeoutMs: number = PROBE_TIMEOUT_MS): Probe => async (candidate) => {
-  const identity = await makeCorviClient({ baseUrl: candidate.url }).server.identity({
-    signal: AbortSignal.timeout(candidate.timeoutMs ?? timeoutMs),
-  });
-  return identity.changeIds;
-};
+export const clientProbe =
+  (timeoutMs: number = PROBE_TIMEOUT_MS): Probe =>
+  async (candidate) => {
+    const identity = await makeCorviClient({ baseUrl: candidate.url }).server.identity({
+      signal: AbortSignal.timeout(candidate.timeoutMs ?? timeoutMs),
+    });
+    return identity.changeIds;
+  };
 
 export type ResolveInput = {
   readonly candidates: readonly Candidate[];

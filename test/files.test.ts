@@ -23,9 +23,7 @@ test("writeAtomic replaces a file with one whole version under concurrency", asy
   const path = join(tmp, "concurrent");
   await writeAtomic(path, "start");
   // Eight writers at once, each with content that would be recognisable if two were interleaved.
-  await Promise.all(
-    Array.from({ length: 8 }, (_, i) => writeAtomic(path, String(i).repeat(5000))),
-  );
+  await Promise.all(Array.from({ length: 8 }, (_, i) => writeAtomic(path, String(i).repeat(5000))));
   const text = await Bun.file(path).text();
   expect(text).toMatch(/^([0-7])\1{4999}$/);
   // No temp files survive a successful write.

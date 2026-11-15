@@ -105,9 +105,7 @@ test("the listing query is the one request both callers make", () => {
   expect(listingQuery({ hidden: true })).toBe("hidden=1");
   // An explicit path wins over the context, and is encoded like any other query value.
   expect(listingQuery({ path: "/a b" })).toBe("path=%2Fa+b");
-  expect(listingQuery({ path: "/a", workspace: "client", hidden: true })).toBe(
-    "path=%2Fa&hidden=1",
-  );
+  expect(listingQuery({ path: "/a", workspace: "client", hidden: true })).toBe("path=%2Fa&hidden=1");
   // An empty path is not a path: the context (or the global start) answers instead.
   expect(listingQuery({ path: "", workspace: "client" })).toBe("workspace=client");
 });

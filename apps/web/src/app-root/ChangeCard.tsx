@@ -8,8 +8,7 @@ import { moment } from "./moment.ts";
 import { usePolled } from "./poll.ts";
 import { StaleMarker } from "./RemoteAvailability.tsx";
 
-const plural = (n: number, one: string, many = `${one}s`): string =>
-  `${n} ${n === 1 ? one : many}`;
+const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
 
 /**
  * One fact about a change, as a coloured dot and a phrase. Facts that say nothing are left out

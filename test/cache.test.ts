@@ -18,7 +18,15 @@ import { forgetPrs } from "@corvi/github/client";
 import { Cache } from "../apps/server/src/integrations/api/capabilities.ts";
 import { capabilitiesLayer } from "../apps/server/src/integrations/services.ts";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
-import { checkoutsOf, runEffect, runEffectWith, runEffectWithTestClock, runSh, runSwr, TestError  } from "./helpers.ts";
+import {
+  checkoutsOf,
+  runEffect,
+  runEffectWith,
+  runEffectWithTestClock,
+  runSh,
+  runSwr,
+  TestError,
+} from "./helpers.ts";
 
 const file = join(tmpdir(), "corvi-cache-test.json");
 process.env.CORVI_CACHE = file;
@@ -28,7 +36,7 @@ afterAll(() => rm(file, { force: true }));
 
 /** Lets a test decide when the work finishes, which is the only way to see "stale served while
  * the refresh runs" rather than guessing at timings. */
-function gate<T>(value: T): { promise: Promise<T>; release: (v?: T) => void; } {
+function gate<T>(value: T): { promise: Promise<T>; release: (v?: T) => void } {
   let release: (v: T) => void;
   const promise = new Promise<T>((resolve) => (release = resolve));
   return { promise, release: (v: T = value) => release(v) };
@@ -43,8 +51,7 @@ function staged<T, E>(started: Deferred.Deferred<void>, finish: Effect.Effect<T,
 
 test("the first caller waits, everyone after that is instant", async () => {
   let calls = 0;
-  const work = (): Effect.Effect<string, unknown> =>
-    Effect.promise(async () => `answer ${++calls}`);
+  const work = (): Effect.Effect<string, unknown> => Effect.promise(async () => `answer ${++calls}`);
 
   await runEffectWithTestClock(
     Effect.gen(function* () {
@@ -80,7 +87,11 @@ test("a stale answer is handed over at once, and replaced when the refresh lands
 
   await runEffectWithTestClock(
     Effect.gen(function* () {
-      yield* swr("k", 1000, Effect.sync(() => `answer ${++calls}`));
+      yield* swr(
+        "k",
+        1000,
+        Effect.sync(() => `answer ${++calls}`),
+      );
       // Walk past the ttl: this returns what we had rather than waiting for what is true now.
       yield* TestClock.adjust(1000);
       const stale = yield* swr(
@@ -117,9 +128,16 @@ test("an invalidate during a refresh leaves the newer answer, not the one it rep
       yield* swr("k", 1000, Effect.succeed("first"));
       // Past the ttl: the old answer is served now, and the refresh runs behind it.
       yield* TestClock.adjust(1001);
-      expect(yield* swr("k", 1000, staged(started, Effect.promise(() => slow.promise)))).toBe(
-        "first",
-      );
+      expect(
+        yield* swr(
+          "k",
+          1000,
+          staged(
+            started,
+            Effect.promise(() => slow.promise),
+          ),
+        ),
+      ).toBe("first");
       yield* Deferred.await(started);
 
       // An action makes the key wrong while that refresh is still blocked, and the read that
@@ -189,7 +207,10 @@ test("an invalidate with no read behind it drops the in-flight outcome", async (
       const work = (): Effect.Effect<string> =>
         Effect.gen(function* () {
           calls++;
-          return yield* staged(started, Effect.promise(() => slow.promise));
+          return yield* staged(
+            started,
+            Effect.promise(() => slow.promise),
+          );
         });
 
       yield* swr("k", 1000, Effect.succeed("first"));
@@ -205,7 +226,13 @@ test("an invalidate with no read behind it drops the in-flight outcome", async (
       yield* TestClock.adjust(0);
 
       // The next reader pays for a run of its own rather than being handed the dropped answer.
-      expect(yield* swr("k", 120_000, Effect.sync(() => `answer ${++calls}`))).toBe("answer 2");
+      expect(
+        yield* swr(
+          "k",
+          120_000,
+          Effect.sync(() => `answer ${++calls}`),
+        ),
+      ).toBe("answer 2");
       expect(calls).toBe(2);
     }),
   );
@@ -226,12 +253,18 @@ test("an old refresh landing during a newer in-flight read does not drop that re
       const oldWork = (): Effect.Effect<string> =>
         Effect.gen(function* () {
           oldCalls++;
-          return yield* staged(oldStarted, Effect.promise(() => oldGate.promise));
+          return yield* staged(
+            oldStarted,
+            Effect.promise(() => oldGate.promise),
+          );
         });
       const newerWork = (): Effect.Effect<string> =>
         Effect.gen(function* () {
           newCalls++;
-          return yield* staged(newStarted, Effect.promise(() => newGate.promise));
+          return yield* staged(
+            newStarted,
+            Effect.promise(() => newGate.promise),
+          );
         });
       const thirdWork = (): Effect.Effect<string> =>
         Effect.gen(function* () {
@@ -296,7 +329,10 @@ test("a failing refresh whose entry is gone deletes nothing", async () => {
       const newerWork = (): Effect.Effect<string> =>
         Effect.gen(function* () {
           secondCalls++;
-          return yield* staged(newStarted, Effect.promise(() => newGate.promise));
+          return yield* staged(
+            newStarted,
+            Effect.promise(() => newGate.promise),
+          );
         });
       const thirdWork = (): Effect.Effect<string> =>
         Effect.gen(function* () {

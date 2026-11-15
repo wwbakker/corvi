@@ -18,7 +18,14 @@ import {
 import { BadRequestError } from "@corvi/contracts/errors";
 import { bodyAs, guard, json, withChange } from "../capabilities/web.ts";
 import { runRoute } from "../capabilities/effect/run.ts";
-import { deleteSubagentFile, deleteRepositorySubagentFile, repositorySubagentFiles, subagentFiles, writeSubagentFile, writeRepositorySubagentFile } from "./server/files.ts";
+import {
+  deleteSubagentFile,
+  deleteRepositorySubagentFile,
+  repositorySubagentFiles,
+  subagentFiles,
+  writeSubagentFile,
+  writeRepositorySubagentFile,
+} from "./server/files.ts";
 import { profilesFor } from "./server/run.ts";
 import {
   closeSubagent,
@@ -69,15 +76,13 @@ export const subagentsRoutes = guard({
   },
 
   "/api/changes/:id/subagent-profiles": {
-    GET: (req) =>
-      withChange(req.params.id, (change) => Effect.map(profilesFor(change), json)),
+    GET: (req) => withChange(req.params.id, (change) => Effect.map(profilesFor(change), json)),
   },
 
   // The Repositories view's files: one block per checkout, written and deleted like any other
   // scope — the route names the change, the body (or query) names the repository.
   "/api/changes/:id/subagent-files": {
-    GET: (req) =>
-      withChange(req.params.id, (change) => Effect.map(repositorySubagentFiles(change), json)),
+    GET: (req) => withChange(req.params.id, (change) => Effect.map(repositorySubagentFiles(change), json)),
     PUT: (req) =>
       withChange(req.params.id, (change) =>
         Effect.gen(function* () {
@@ -120,7 +125,8 @@ export const subagentsRoutes = guard({
   },
 
   "/api/changes/:id/subagents/:subagent": {
-    GET: (req) => withChange(req.params.id, (change) => Effect.map(showSubagent(change, req.params.subagent), json)),
+    GET: (req) =>
+      withChange(req.params.id, (change) => Effect.map(showSubagent(change, req.params.subagent), json)),
   },
 
   "/api/changes/:id/subagents/:subagent/open": {
@@ -175,7 +181,9 @@ export const subagentsRoutes = guard({
         Effect.gen(function* () {
           const afterRaw = new URL(req.url).searchParams.get("after");
           const after = afterRaw === null ? undefined : Number(afterRaw);
-          return json(yield* nextForSubagent(change, req.params.subagent, Number.isFinite(after) ? after : undefined));
+          return json(
+            yield* nextForSubagent(change, req.params.subagent, Number.isFinite(after) ? after : undefined),
+          );
         }),
       ),
   },

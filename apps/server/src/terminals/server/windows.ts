@@ -73,13 +73,15 @@ const markClosed = (sessionId: string): void => {
 
 /** The URL path the page opens the terminal socket on. The route and the client share this one
  * spelling, so it lives beside the route that serves it. */
-export const terminalSocketPath = (id: string): string => `/api/changes/${encodeURIComponent(id)}/terminal/socket`;
+export const terminalSocketPath = (id: string): string =>
+  `/api/changes/${encodeURIComponent(id)}/terminal/socket`;
 
 /** The checkout's own CLI entry, put in front of a host session's PATH. An installed `corvi` from
  * another checkout may not have this channel's commands, and the server's `putCliOnPath`
  * deliberately lets an installed one win for `start`/`stop` — so a host session seeds the
  * matching entry explicitly. */
-const cliBinDir = (): string => join(fileURLToPath(new URL("../../../../../", import.meta.url)), "apps", "cli", "bin");
+const cliBinDir = (): string =>
+  join(fileURLToPath(new URL("../../../../../", import.meta.url)), "apps", "cli", "bin");
 
 /** The change's context for a host window. The host replaces its own environment with this one
  * (`session.open` env is the whole environment), so the scrub here actually wins. `TMUX` and
@@ -186,7 +188,12 @@ const commandOptions = (record: WindowRecord, session: SessionInfo | undefined):
 /** The raw window a host session presents as. A labelled one (an action run) uses the label as
  * its name and lets the presenter speak; a plain shell uses its directory. `title` is the name the
  * user gave it, which the presenter shows in place of either. */
-const hostRaw = (record: WindowRecord, dir: string, session: SessionInfo | undefined, status: AgentStatus | undefined): RawWindow => ({
+const hostRaw = (
+  record: WindowRecord,
+  dir: string,
+  session: SessionInfo | undefined,
+  status: AgentStatus | undefined,
+): RawWindow => ({
   index: 0,
   id: record.id,
   name: record.label ?? basename(dir),
@@ -227,7 +234,11 @@ export const allWindowsAsync = async (): Promise<Record<string, PresentedWindow[
   const existing = new Set(changeList.map((change) => change.id));
   pruneRegistry(existing);
   const sessions = hostRunning() ? await (await hostClient()).list() : [];
-  pruneStatuses(new Set(sessions.filter((session) => session.alive).map((session) => `${session.id}#${session.incarnation}`)));
+  pruneStatuses(
+    new Set(
+      sessions.filter((session) => session.alive).map((session) => `${session.id}#${session.incarnation}`),
+    ),
+  );
   // A snapshot survives only while its session is live or its record asked to be kept open (a
   // frozen command window is still worth looking behind). Everything else — a dead incarnation,
   // a session that exited while detached — is pruned here, on the watcher's poll.
@@ -235,7 +246,8 @@ export const allWindowsAsync = async (): Promise<Record<string, PresentedWindow[
   pruneSnapshots(liveSnapshotKeys(sessions, keptOpen));
   const ids = new Set<string>(existing);
   for (const session of sessions) {
-    if (session.alive && session.metadata?.change && existing.has(session.metadata.change)) ids.add(session.metadata.change);
+    if (session.alive && session.metadata?.change && existing.has(session.metadata.change))
+      ids.add(session.metadata.change);
   }
   const result: Record<string, PresentedWindow[]> = {};
   for (const id of ids) result[id] = await listWindowsAsync(id);
@@ -263,7 +275,9 @@ export const keptOpenPanes = (recordsByChange: readonly (readonly WindowRecord[]
  * session exits only while the record still lists that pane, so a pane the user closed is released
  * — even the window's first, whose session id equals the window id. */
 export const isKeptOpen = (changeId: string, paneSessionId: string): boolean =>
-  registryRecords(changeId).some((record) => record.keepOpen === true && record.panes.includes(paneSessionId));
+  registryRecords(changeId).some(
+    (record) => record.keepOpen === true && record.panes.includes(paneSessionId),
+  );
 
 /** The `(id, incarnation)` snapshot keys to keep: live sessions, plus the panes of a kept-open
  * window (their frozen output must still be replayable). A closed pane is no longer in its record,
@@ -454,7 +468,8 @@ export const newSubagentWindowAsync = (
 export const newSubagentWindow = (
   changeId: string,
   args: Parameters<typeof newSubagentWindowAsync>[1],
-): Effect.Effect<string, CommandFailure> => Effect.tryPromise({ try: () => newSubagentWindowAsync(changeId, args), catch: asFailure });
+): Effect.Effect<string, CommandFailure> =>
+  Effect.tryPromise({ try: () => newSubagentWindowAsync(changeId, args), catch: asFailure });
 
 /** Kill a subagent's host session and drop its pane, or the window if it was the last pane. */
 export const killHostWindowAsync = async (changeId: string, sessionId: string): Promise<void> =>
@@ -527,7 +542,11 @@ export const selectWindowAsync = (changeId: string, index: number): Promise<void
     if (index < 0 || index >= records.length) return;
     save(
       changeId,
-      records.map((record, at) => ({ ...record, active: at === index, activity: at === index ? false : record.activity })),
+      records.map((record, at) => ({
+        ...record,
+        active: at === index,
+        activity: at === index ? false : record.activity,
+      })),
     );
   });
 
@@ -583,7 +602,11 @@ export const renameWindowAsync = (changeId: string, windowId: string, title: str
 
 /** Split the window: a new pane in the active pane's directory, focused. `direction` is the
  * page's to compose (5b); the server records the pane and focuses it. Caller holds the lock. */
-export const splitPaneAsync = (changeId: string, windowId: string, direction: "right" | "down"): Promise<void> =>
+export const splitPaneAsync = (
+  changeId: string,
+  windowId: string,
+  direction: "right" | "down",
+): Promise<void> =>
   withRegistryLock(async () => {
     void direction;
     const records = await listRecords(changeId);
@@ -617,7 +640,11 @@ export const splitPaneAsync = (changeId: string, windowId: string, direction: "r
 
 /** Kill a pane and drop it from its window; the window goes too when it was the last pane. The
  * caller holds the registry lock (this is the shared half of close-pane and subagent close). */
-const closePaneUnlocked = async (changeId: string, windowId: string, paneSessionId: string): Promise<void> => {
+const closePaneUnlocked = async (
+  changeId: string,
+  windowId: string,
+  paneSessionId: string,
+): Promise<void> => {
   // Tombstone before signalling: the pty can outlive `kill` (a process that ignores SIGHUP), and a
   // rebuild must not re-adopt it in the meantime.
   markClosed(paneSessionId);
@@ -627,11 +654,17 @@ const closePaneUnlocked = async (changeId: string, windowId: string, paneSession
   if (record === undefined) return;
   const panes = record.panes.filter((pane) => pane !== paneSessionId);
   if (panes.length === 0) {
-    save(changeId, records.filter((entry) => entry.id !== windowId));
+    save(
+      changeId,
+      records.filter((entry) => entry.id !== windowId),
+    );
     return;
   }
   const activePane = record.activePane === paneSessionId ? panes[0]! : record.activePane;
-  save(changeId, records.map((entry) => (entry.id === windowId ? { ...entry, panes, activePane } : entry)));
+  save(
+    changeId,
+    records.map((entry) => (entry.id === windowId ? { ...entry, panes, activePane } : entry)),
+  );
 };
 
 /** Close one pane; the window survives if it has another. */
@@ -719,17 +752,30 @@ export const selectWindowById = (changeId: string, windowId: string): Effect.Eff
 export const moveWindow = (changeId: string, from: number, to: number): Effect.Effect<void, CommandFailure> =>
   Effect.tryPromise({ try: () => moveWindowAsync(changeId, from, to), catch: asFailure });
 
-export const renameWindow = (changeId: string, windowId: string, title: string): Effect.Effect<void, CommandFailure> =>
+export const renameWindow = (
+  changeId: string,
+  windowId: string,
+  title: string,
+): Effect.Effect<void, CommandFailure> =>
   Effect.tryPromise({ try: () => renameWindowAsync(changeId, windowId, title), catch: asFailure });
 
 export const splitPane = (
   changeId: string,
   windowId: string,
   direction: "right" | "down",
-): Effect.Effect<void, CommandFailure> => Effect.tryPromise({ try: () => splitPaneAsync(changeId, windowId, direction), catch: asFailure });
+): Effect.Effect<void, CommandFailure> =>
+  Effect.tryPromise({ try: () => splitPaneAsync(changeId, windowId, direction), catch: asFailure });
 
-export const closePane = (changeId: string, windowId: string, paneSessionId: string): Effect.Effect<void, CommandFailure> =>
+export const closePane = (
+  changeId: string,
+  windowId: string,
+  paneSessionId: string,
+): Effect.Effect<void, CommandFailure> =>
   Effect.tryPromise({ try: () => closePaneAsync(changeId, windowId, paneSessionId), catch: asFailure });
 
-export const focusPane = (changeId: string, windowId: string, paneSessionId: string): Effect.Effect<void, CommandFailure> =>
+export const focusPane = (
+  changeId: string,
+  windowId: string,
+  paneSessionId: string,
+): Effect.Effect<void, CommandFailure> =>
   Effect.tryPromise({ try: () => focusPaneAsync(changeId, windowId, paneSessionId), catch: asFailure });

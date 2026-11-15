@@ -28,8 +28,8 @@ export const workspaces = (): Workspace[] => runtimeConfig().workspaces;
  * this is the other read surface (`GET /api/workspaces`), and it must not leak what that one
  * hides. */
 export const workspaceViews = (declarations: SecretDeclarations): Workspace[] =>
-  redactRemoteTokens(redactSecrets({ workspaces: runtimeConfig().workspaces }, declarations))
-    .workspaces ?? [];
+  redactRemoteTokens(redactSecrets({ workspaces: runtimeConfig().workspaces }, declarations)).workspaces ??
+  [];
 
 /** The workspace with this id, or the first one — where every change without one belongs. */
 export function workspaceById(id?: string): Workspace {
@@ -39,8 +39,7 @@ export function workspaceById(id?: string): Workspace {
 /** Which context a change belongs to. The selection reads the change's `workspace` field and
  * nothing else, so that field is all this takes: a caller with a partial change states what is
  * read rather than casting past the fields it does not hold. */
-export const workspaceOf = (change: { readonly workspace?: string }): Workspace =>
-  of(workspaces(), change);
+export const workspaceOf = (change: { readonly workspace?: string }): Workspace => of(workspaces(), change);
 
 /** What applies in this workspace: every setting resolved down the chain (environment variable >
  * workspace > global > default), for the app's own reads and any caller that wants one

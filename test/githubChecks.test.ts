@@ -3,7 +3,7 @@ import { checkItems, groupChecks, type Check } from "@corvi/github/checks";
 import type { Change } from "@corvi/changes/record";
 import type { WidgetItemDto } from "@corvi/contracts/api";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
-import { checkoutsOf, fakeShell, forgetRateLimit, runWithShell  } from "./helpers.ts";
+import { checkoutsOf, fakeShell, forgetRateLimit, runWithShell } from "./helpers.ts";
 
 beforeEach(() => {
   clearCache();
@@ -73,10 +73,7 @@ test("groupChecks names a group's own check 'overall' and labels the rest by wha
     check("owner.frontend-app", "pass"),
     check("owner.frontend-app (CI App @scope/one-app)", "pass"),
   ]);
-  expect(items[0]!.children!.map((c) => c.label)).toEqual([
-    "overall",
-    "CI App @scope/one-app",
-  ]);
+  expect(items[0]!.children!.map((c) => c.label)).toEqual(["overall", "CI App @scope/one-app"]);
   // The detail is the check's own state, in GitHub's lowercase word.
   expect(items[0]!.children![0]!.detail).toBe("pass");
 });

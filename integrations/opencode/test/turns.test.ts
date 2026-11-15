@@ -252,7 +252,11 @@ test("aborting while a run is in flight leaves the loop rather than parking", as
     exec: async (args) => {
       calls.push(args[1] ?? "");
       if (args[1] === "next") {
-        return { code: 0, stdout: JSON.stringify({ status: "message", message: { number: 1, body: "hi" } }), stderr: "" };
+        return {
+          code: 0,
+          stdout: JSON.stringify({ status: "message", message: { number: 1, body: "hi" } }),
+          stderr: "",
+        };
       }
       return { code: 0, stdout: "{}", stderr: "" };
     },
@@ -269,7 +273,8 @@ test("aborting while a run is in flight leaves the loop rather than parking", as
 }, 10_000);
 
 /** A fake `BunShell`: each call counts an exec and resolves to the fixed result. */
-const makeShell = (onExec: () => { exitCode: number; stdout: Buffer; stderr: Buffer }): unknown =>
+const makeShell =
+  (onExec: () => { exitCode: number; stdout: Buffer; stderr: Buffer }): unknown =>
   (): Record<string, unknown> => {
     const result = onExec();
     const thenable: Record<string, unknown> = {

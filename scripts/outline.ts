@@ -45,16 +45,13 @@ function filesOf(path: string): string[] {
 /** The exported statements of one file, in source order, as lines of an outline. */
 function outlineOf(source: ts.SourceFile, checker: ts.TypeChecker): string[] {
   const lines: string[] = [];
-  const format =
-    ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope;
+  const format = ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope;
 
   const typeOf = (symbol: ts.Symbol, node: ts.Node): string =>
     checker.typeToString(checker.getTypeOfSymbolAtLocation(symbol, node), node, format);
 
   const docOf = (symbol: ts.Symbol | undefined): string => {
-    const text = symbol
-      ? ts.displayPartsToString(symbol.getDocumentationComment(checker)).trim()
-      : "";
+    const text = symbol ? ts.displayPartsToString(symbol.getDocumentationComment(checker)).trim() : "";
     return text
       .split("\n")
       .map((line) => `    ${line}`.trimEnd())
@@ -97,11 +94,7 @@ function outlineOf(source: ts.SourceFile, checker: ts.TypeChecker): string[] {
 
   /** Print one exported declaration, however it is written, with its doc. A re-export's
    * provenance (`note`) is appended to a single-line signature or set above a multi-line one. */
-  const printDeclaration = (
-    node: ts.Declaration,
-    symbol: ts.Symbol | undefined,
-    note = "",
-  ): void => {
+  const printDeclaration = (node: ts.Declaration, symbol: ts.Symbol | undefined, note = ""): void => {
     const isDefault =
       ts.canHaveModifiers(node) &&
       Boolean(ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword));

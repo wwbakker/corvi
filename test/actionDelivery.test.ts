@@ -69,7 +69,12 @@ test("an action runs in a host window and its command takes effect", async () =>
   expect(result.window?.id).toBeDefined();
   await waitFor(
     "the action's command to write the file",
-    async () => (await Bun.file(stamp).text().catch(() => "")).trim() === "ran",
+    async () =>
+      (
+        await Bun.file(stamp)
+          .text()
+          .catch(() => "")
+      ).trim() === "ran",
     20_000,
   );
   expect((await Bun.file(stamp).text()).trim()).toBe("ran");
@@ -111,11 +116,22 @@ test("a kept command window freezes with its label and fires the notify edge", a
   expect(record?.keepOpen).toBe(true);
   expect(record?.notify).toBe(true);
 
-  await waitFor("the command to run", async () => (await Bun.file(stamp).text().catch(() => "")) === "FROZEN-OUTPUT\n", 20_000);
-  await waitFor("the retained window to present as finished", async () => {
-    const frozen = (await listWindowsAsync(change.id)).find((window) => window.id === id);
-    return frozen?.attention === true && frozen?.label === "Freeze me" && frozen?.busy === false;
-  }, 20_000);
+  await waitFor(
+    "the command to run",
+    async () =>
+      (await Bun.file(stamp)
+        .text()
+        .catch(() => "")) === "FROZEN-OUTPUT\n",
+    20_000,
+  );
+  await waitFor(
+    "the retained window to present as finished",
+    async () => {
+      const frozen = (await listWindowsAsync(change.id)).find((window) => window.id === id);
+      return frozen?.attention === true && frozen?.label === "Freeze me" && frozen?.busy === false;
+    },
+    20_000,
+  );
   const frozen = (await listWindowsAsync(change.id)).find((window) => window.id === id);
   expect(frozen?.label).toBe("Freeze me");
   expect(frozen?.note).toContain("exit code 0");
@@ -125,7 +141,11 @@ test("an agent-target action uses a running host agent window instead of a fresh
   const session = await newWindowAsync(change.id, join(process.env.CORVI_ROOT ?? own, change.id));
   const hostSession = (await (await hostClient()).list()).find((entry) => entry.id === session.id);
   expect(hostSession).toBeDefined();
-  setStatus(session.id, hostSession!.incarnation, { state: "working", name: "pi", at: new Date().toISOString() });
+  setStatus(session.id, hostSession!.incarnation, {
+    state: "working",
+    name: "pi",
+    at: new Date().toISOString(),
+  });
 
   const stamp = join(own, "agent-note.txt");
   await Effect.runPromise(

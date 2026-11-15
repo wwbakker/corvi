@@ -106,7 +106,8 @@ const scriptedTransport = (steps: () => Step, options: { cooperative?: boolean }
       cancelled += 1;
     });
     remotes.push(remote);
-    if (step.kind === "deferred") return new Promise((resolve) => deferredResolvers.push(() => resolve(remote.response)));
+    if (step.kind === "deferred")
+      return new Promise((resolve) => deferredResolvers.push(() => resolve(remote.response)));
     init.signal.addEventListener(
       "abort",
       () => {
@@ -117,7 +118,9 @@ const scriptedTransport = (steps: () => Step, options: { cooperative?: boolean }
     );
     if (step.kind === "hang") {
       return new Promise((_resolve, reject) => {
-        init.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+        init.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), {
+          once: true,
+        });
       });
     }
     return Promise.resolve(remote.response);
@@ -132,7 +135,10 @@ const scriptedTransport = (steps: () => Step, options: { cooperative?: boolean }
   };
 };
 
-const always = (step: Step): (() => Step) => () => step;
+const always =
+  (step: Step): (() => Step) =>
+  () =>
+    step;
 
 /** The default bounds keep a stream that is not being beaten stable for the length of a test.
  * Tests that exercise the stall bound use `STALL`. */
@@ -409,10 +415,14 @@ test("other stream failures are classified as unreachable or configuration", asy
     reason: { _tag: "unreachable", message: "the remote event stream answered 500" },
   });
   await runEffect(owner.retry("remote-client"));
-  await until(async () => {
-    const status = entryOf(owner.snapshot())!.status;
-    return status._tag === "unavailable" && status.reason._tag === "configuration";
-  }, true, 2000);
+  await until(
+    async () => {
+      const status = entryOf(owner.snapshot())!.status;
+      return status._tag === "unavailable" && status.reason._tag === "configuration";
+    },
+    true,
+    2000,
+  );
 });
 
 test("an invalid url is a configuration failure without any fetch", async () => {

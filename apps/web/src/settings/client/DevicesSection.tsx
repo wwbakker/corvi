@@ -106,9 +106,7 @@ export function DevicesSection(): JSX.Element {
             <button type="button" className="create" onClick={() => void create()} disabled={busy}>
               {busy ? "Creating…" : "Create a pairing code"}
             </button>
-            <small>
-              On the remote device, open the Corvi URL and enter the code on its pairing screen.
-            </small>
+            <small>On the remote device, open the Corvi URL and enter the code on its pairing screen.</small>
           </div>
         )}
         {code && remaining === 0 && <small>That code has expired. Create another.</small>}

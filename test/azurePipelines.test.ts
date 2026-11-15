@@ -50,9 +50,7 @@ const runRow = (
 
 /** A shell for the repository-scoped reads: `az` configured with a project, and a checkout
  * whose origin is on GitHub, so its pipelines are asked for by that repository's name. */
-const repositoryShell = (
-  answer: (line: string) => string | Partial<ShellResult> | undefined,
-): FakeShell =>
+const repositoryShell = (answer: (line: string) => string | Partial<ShellResult> | undefined): FakeShell =>
   fakeShell((cmd) => {
     const line = cmd.join(" ");
     return azureCheckoutAnswer("acme/repo")(line) ?? answer(line);
@@ -79,10 +77,7 @@ test("runState reads a queued or running build as pending and every other comple
 
 test("refsFor adds the pull request merge ref only once a pull request exists", () => {
   expect(refsFor("PROJ-1-thing")).toEqual(["refs/heads/PROJ-1-thing"]);
-  expect(refsFor("PROJ-1-thing", 42)).toEqual([
-    "refs/pull/42/merge",
-    "refs/heads/PROJ-1-thing",
-  ]);
+  expect(refsFor("PROJ-1-thing", 42)).toEqual(["refs/pull/42/merge", "refs/heads/PROJ-1-thing"]);
   // Pull request zero is not a pull request.
   expect(refsFor("PROJ-1-thing", 0)).toEqual(["refs/heads/PROJ-1-thing"]);
 });
@@ -94,13 +89,9 @@ test("typicalDuration takes the median of the successful runs and ignores everyt
   expect(typicalDuration([])).toBeUndefined();
   // No times at all, and a zero-length run, contribute nothing.
   expect(typicalDuration([runRow(1, "inProgress")])).toBeUndefined();
-  expect(
-    typicalDuration([finished(1, "2026-01-01T10:00:00Z", "2026-01-01T10:00:00Z")]),
-  ).toBeUndefined();
+  expect(typicalDuration([finished(1, "2026-01-01T10:00:00Z", "2026-01-01T10:00:00Z")])).toBeUndefined();
   // A finish before the start is not a duration.
-  expect(
-    typicalDuration([finished(1, "2026-01-01T10:00:00Z", "2026-01-01T09:00:00Z")]),
-  ).toBeUndefined();
+  expect(typicalDuration([finished(1, "2026-01-01T10:00:00Z", "2026-01-01T09:00:00Z")])).toBeUndefined();
 
   // An even count: the two middle values, 10m and 20m, average to 15m. A run still in flight is
   // not one of them.
@@ -124,18 +115,18 @@ test("typicalDuration takes the median of the successful runs and ignores everyt
   // Only a midpoint can land between two whole milliseconds — the durations themselves are
   // milliseconds — so this is the one path that rounds: 1000 and 1001 midpoint to 1000.5.
   const ms = (id: number, duration: number): Run =>
-    finished(id, "2026-01-01T10:00:00.000Z", new Date(Date.parse("2026-01-01T10:00:00.000Z") + duration).toISOString());
+    finished(
+      id,
+      "2026-01-01T10:00:00.000Z",
+      new Date(Date.parse("2026-01-01T10:00:00.000Z") + duration).toISOString(),
+    );
   expect(typicalDuration([ms(1, 1000), ms(2, 1000), ms(3, 1002)])).toBe(1000);
   expect(typicalDuration([ms(1, 1000), ms(2, 1002)])).toBe(1001);
   expect(typicalDuration([ms(1, 1000), ms(2, 1001)])).toBe(1001);
 });
 
 test("typicalDuration counts only successful runs", () => {
-  const finished = (
-    id: number,
-    result: string | null,
-    mins: number,
-  ): Run =>
+  const finished = (id: number, result: string | null, mins: number): Run =>
     runRow(id, "completed", result, undefined, {
       startTime: "2026-01-01T10:00:00Z",
       finishTime: new Date(Date.parse("2026-01-01T10:00:00Z") + mins * 60_000).toISOString(),
@@ -172,9 +163,7 @@ test("typicalDuration counts only successful runs", () => {
 test("versionInLines reads the version out of the line a pipeline prints it on", () => {
   expect(versionInLines(["Version is: '20260818.4'"])).toBe("20260818.4");
   // The image reference is deliberately loose: docker prints the full reference before the tag.
-  expect(versionInLines(["pushing manifest for my.registry.io/team/app:20260818.12"])).toBe(
-    "20260818.12",
-  );
+  expect(versionInLines(["pushing manifest for my.registry.io/team/app:20260818.12"])).toBe("20260818.12");
   expect(versionInLines(["Built and pushed image as registry/app:20260818.4"])).toBe("20260818.4");
   expect(versionInLines(["nothing to see", "still nothing"])).toBeUndefined();
   // Line order wins, not pattern order: the first line with any version answers.
@@ -197,9 +186,7 @@ test("buildUrl needs both the organisation and the project, and encodes the proj
     }),
   ).toBe("https://dev.azure.com/org/My%20Project/_build/results?buildId=7");
   // Half an address is no address.
-  expect(
-    buildUrl(7, { key: "k", args: [], organization: "https://dev.azure.com/org" }),
-  ).toBeUndefined();
+  expect(buildUrl(7, { key: "k", args: [], organization: "https://dev.azure.com/org" })).toBeUndefined();
   expect(buildUrl(7, { key: "k", args: [], project: "proj" })).toBeUndefined();
 });
 
@@ -278,12 +265,7 @@ test("azFor names the workspace's own Azure DevOps when it has one", async () =>
   });
   // The organisation and project are passed explicitly, in that order, so a second client is
   // possible with one `az` login.
-  expect(result.args).toEqual([
-    "--organization",
-    "https://dev.azure.com/client",
-    "--project",
-    "ClientProj",
-  ]);
+  expect(result.args).toEqual(["--organization", "https://dev.azure.com/client", "--project", "ClientProj"]);
 });
 
 test("azFor falls back to what az devops configure holds", async () => {
@@ -331,15 +313,15 @@ test("a pipeline whose recent runs all failed has no estimate either", async () 
     const line = cmd.join(" ");
     return line.startsWith("az pipelines runs list --pipeline-ids 505")
       ? JSON.stringify([
-        runRow(1, "completed", "failed", 505, {
-          startTime: "2026-01-01T10:00:00Z",
-          finishTime: "2026-01-01T10:00:20Z",
-        }),
-        runRow(2, "completed", "canceled", 505, {
-          startTime: "2026-01-01T09:00:00Z",
-          finishTime: "2026-01-01T09:00:10Z",
-        }),
-      ])
+          runRow(1, "completed", "failed", 505, {
+            startTime: "2026-01-01T10:00:00Z",
+            finishTime: "2026-01-01T10:00:20Z",
+          }),
+          runRow(2, "completed", "canceled", 505, {
+            startTime: "2026-01-01T09:00:00Z",
+            finishTime: "2026-01-01T09:00:10Z",
+          }),
+        ])
       : undefined;
   });
   expect(await runWithShell(shell, expectedDuration(az(), 505))).toBeUndefined();
@@ -380,7 +362,9 @@ test("expectedDuration asks az for as much history as CORVI_AZURE_HISTORY names"
 test("versionOf asks nothing for a run that did not succeed", async () => {
   const shell = fakeShell();
   expect(await runWithShell(shell, versionOf(runRow(700001, "inProgress", null, 9), "proj"))).toBeUndefined();
-  expect(await runWithShell(shell, versionOf(runRow(700002, "completed", "failed", 9), "proj"))).toBeUndefined();
+  expect(
+    await runWithShell(shell, versionOf(runRow(700002, "completed", "failed", 9), "proj")),
+  ).toBeUndefined();
   expect(shell.calls).toEqual([]);
 });
 
@@ -418,17 +402,23 @@ test("versionOf finds nothing when no log printed a version", async () => {
     }
     return undefined;
   });
-  expect(await runWithShell(shell, versionOf(runRow(700004, "completed", "succeeded", 78), "proj"))).toBeUndefined();
+  expect(
+    await runWithShell(shell, versionOf(runRow(700004, "completed", "succeeded", 78), "proj")),
+  ).toBeUndefined();
 });
 
 test("versionOf finds nothing when the log listing fails or the run names no pipeline", async () => {
   const failing = fakeShell((cmd) =>
     cmd.join(" ").includes("--area pipelines --resource logs") ? { code: 1, stderr: "no logs" } : undefined,
   );
-  expect(await runWithShell(failing, versionOf(runRow(700005, "completed", "succeeded", 79), "proj"))).toBeUndefined();
+  expect(
+    await runWithShell(failing, versionOf(runRow(700005, "completed", "succeeded", 79), "proj")),
+  ).toBeUndefined();
 
   const noPipeline = fakeShell();
-  expect(await runWithShell(noPipeline, versionOf(runRow(700006, "completed", "succeeded"), "proj"))).toBeUndefined();
+  expect(
+    await runWithShell(noPipeline, versionOf(runRow(700006, "completed", "succeeded"), "proj")),
+  ).toBeUndefined();
   expect(noPipeline.calls).toEqual([]);
 });
 
@@ -449,10 +439,12 @@ test("versionOf finds nothing when reading a log fails", async () => {
 test("activeRuns counts only in-flight runs of this repository's pipelines", async () => {
   const shell = repositoryShell((line) => {
     if (line.includes("--resource definitions")) {
-      return JSON.stringify({ value: [
-        { id: 11, name: "build-a", path: "\\repo" },
-        { id: 12, name: "build-b", path: "\\repo" },
-      ] });
+      return JSON.stringify({
+        value: [
+          { id: 11, name: "build-a", path: "\\repo" },
+          { id: 12, name: "build-b", path: "\\repo" },
+        ],
+      });
     }
     if (line.startsWith("az pipelines runs list --branch")) {
       return JSON.stringify([
@@ -501,11 +493,13 @@ test("activeRuns reads a failed query as no runs, not as an error", async () => 
 test("pipelineItems nests each pipeline's newest runs under it", async () => {
   const shell = repositoryShell((line) => {
     if (line.includes("--resource definitions")) {
-      return JSON.stringify({ value: [
-        { id: 201, name: "build-a", path: "\\repo" },
-        { id: 202, name: "build-b", path: "\\repo" },
-        { id: 203, name: "build-c", path: "\\repo" },
-      ] });
+      return JSON.stringify({
+        value: [
+          { id: 201, name: "build-a", path: "\\repo" },
+          { id: 202, name: "build-b", path: "\\repo" },
+          { id: 203, name: "build-c", path: "\\repo" },
+        ],
+      });
     }
     if (line.startsWith("az pipelines runs list --branch")) {
       return JSON.stringify([
@@ -579,10 +573,7 @@ test("pipelineItems appends the version a successful build printed", async () =>
   try {
     const { items } = await runWithShell(
       shell,
-      pipelineItems(
-        { ...change, workspace: undefined },
-        "/repos/repo",
-      ),
+      pipelineItems({ ...change, workspace: undefined }, "/repos/repo"),
     );
     expect(items[0]!.children![0]!.detail).toBe("succeeded · 20260818.5");
   } finally {

@@ -39,8 +39,8 @@ export function PowerDialog({ view, onClose }: { view: PowerView; onClose: () =>
     >
       <h3>Power down when done</h3>
       <p className="hint">
-        Each ticked machine powers itself off once no agent on it is working. This machine is
-        ticked already; ticking a remote arms it too.
+        Each ticked machine powers itself off once no agent on it is working. This machine is ticked already;
+        ticking a remote arms it too.
       </p>
 
       <ul className="power-machines">
@@ -112,11 +112,7 @@ function MachineBody({ reading, now }: { reading: MachineReading; now: number })
   const blockers = blockersOf(state.agents);
   return (
     <>
-      {stale && (
-        <p className="hint error">
-          cannot be read — {reading.error}; showing the last known state
-        </p>
-      )}
+      {stale && <p className="hint error">cannot be read — {reading.error}; showing the last known state</p>}
       {state.agents.length === 0 ? (
         <p className="hint">no agents reported</p>
       ) : (
@@ -137,9 +133,7 @@ function MachineBody({ reading, now }: { reading: MachineReading; now: number })
       {state.phase === "armed" && (
         <p className="hint">
           {stale ? "last known: " : ""}
-          {blockers.length === 0
-            ? "waiting for the next check"
-            : `waiting for ${blockers.join(", ")}`}
+          {blockers.length === 0 ? "waiting for the next check" : `waiting for ${blockers.join(", ")}`}
         </p>
       )}
     </>

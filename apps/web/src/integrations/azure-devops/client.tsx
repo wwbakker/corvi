@@ -8,7 +8,11 @@ import { RefreshIcon } from "../../app-root/icons.tsx";
 import { aborted } from "../../app-root/api.ts";
 import { DeployDialog } from "./DeployDialog.tsx";
 import { autoDeployedApp } from "@corvi/contracts/integrations/azure-devops";
-import { ServicesResponseSchema, type Deployed, type Service } from "@corvi/contracts/integrations/azure-devops";
+import {
+  ServicesResponseSchema,
+  type Deployed,
+  type Service,
+} from "@corvi/contracts/integrations/azure-devops";
 
 export type { Deployed, Service };
 
@@ -149,9 +153,7 @@ export function AzureDevopsPage({ workspace }: { workspace?: string }): JSX.Elem
       {error && <div className="error-banner">{error}</div>}
       {notice && <div className="notice">{notice}</div>}
       {!services && !error && <p className="hint">loading…</p>}
-      {services && services.length === 0 && !error && (
-        <p className="hint">no deploy pipelines found</p>
-      )}
+      {services && services.length === 0 && !error && <p className="hint">no deploy pipelines found</p>}
       {services && services.length > 0 && (
         <table className="table deployments">
           <thead>
@@ -249,8 +251,8 @@ export function AzureDevopsPage({ workspace }: { workspace?: string }): JSX.Elem
         }}
       />
       <p className="hint">
-        The newest run per environment, as Azure DevOps recorded it — including one that failed,
-        which leaves the previous version running and says so.
+        The newest run per environment, as Azure DevOps recorded it — including one that failed, which leaves
+        the previous version running and says so.
       </p>
     </div>
   );

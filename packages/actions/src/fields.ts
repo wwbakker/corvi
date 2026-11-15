@@ -87,15 +87,13 @@ const documented = {
   },
   notify: {
     required: false,
-    about:
-      "Command only: keep the finished window and let it call you. Implies keepOpen.",
+    about: "Command only: keep the finished window and let it call you. Implies keepOpen.",
     values: { kind: "choices", choices: toggle },
     defaultValue: "false",
   },
   keepOpen: {
     required: false,
-    about:
-      "Command only: freeze the pane over its output instead of closing the window at the end.",
+    about: "Command only: freeze the pane over its output instead of closing the window at the end.",
     values: { kind: "choices", choices: toggle },
     defaultValue: "false",
   },

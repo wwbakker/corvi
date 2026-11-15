@@ -286,7 +286,10 @@ const changeCommand = async (
     }
     case "complete": {
       const id = requireChange(changeId);
-      const completed = await client.changes.complete(id, boolFlag(args, "force") ? { force: true } : undefined);
+      const completed = await client.changes.complete(
+        id,
+        boolFlag(args, "force") ? { force: true } : undefined,
+      );
       emit(io, json, { value: completed, human: () => `completed ${id}` });
       return;
     }
@@ -304,10 +307,7 @@ const changeCommand = async (
       const id = requireChange(changeId);
       const phase = rest[0];
       if (phase === undefined || !PHASES.includes(phase as ChangePhase)) {
-        throw new CliFailure(
-          `change phase needs one of: ${PHASES.join(", ")}`,
-          EXIT.usage,
-        );
+        throw new CliFailure(`change phase needs one of: ${PHASES.join(", ")}`, EXIT.usage);
       }
       const updated = await client.changes.rename(id, { state: phase });
       emit(io, json, {
@@ -380,7 +380,9 @@ const changeCommand = async (
     }
     default:
       throw new CliFailure(
-        command === undefined ? "change needs a command: list, create, show, start, complete, cancel, phase, repository" : `unknown change command: ${command}`,
+        command === undefined
+          ? "change needs a command: list, create, show, start, complete, cancel, phase, repository"
+          : `unknown change command: ${command}`,
         EXIT.usage,
       );
   }
@@ -400,8 +402,7 @@ const actionCommand = async (
       const actions = await client.actions.list(id);
       emit(io, json, {
         value: actions,
-        human: (value) =>
-          value.map((action) => `${action.key}\t${action.label}`).join("\n"),
+        human: (value) => value.map((action) => `${action.key}\t${action.label}`).join("\n"),
       });
       return;
     }
@@ -448,7 +449,10 @@ const subagentCommand = async (
   const subId = (position = 0): string => {
     const named = stringFlag(args, "subagent") ?? rest[position];
     if (named === undefined || named === "") {
-      throw new CliFailure(`${command ?? "this"} needs a subagent id (--subagent <id>, or a positional)`, EXIT.usage);
+      throw new CliFailure(
+        `${command ?? "this"} needs a subagent id (--subagent <id>, or a positional)`,
+        EXIT.usage,
+      );
     }
     return named;
   };
@@ -485,7 +489,10 @@ const subagentCommand = async (
         { profile, ...(prompt === undefined ? {} : { prompt }) },
         stringFlag(args, "idempotency-key"),
       );
-      emit(io, json, { value: instance, human: (value) => `created ${value.id} (message ${value.messages[0]?.number ?? "?"})` });
+      emit(io, json, {
+        value: instance,
+        human: (value) => `created ${value.id} (message ${value.messages[0]?.number ?? "?"})`,
+      });
       return EXIT.ok;
     }
     case "open":
@@ -553,7 +560,7 @@ const subagentCommand = async (
       const sub = named ?? rest[0];
       const text = named === undefined ? rest[1] : rest[0];
       if (sub === undefined || text === undefined) {
-        throw new CliFailure('subagent turn needs --subagent <id> and the reply text', EXIT.usage);
+        throw new CliFailure("subagent turn needs --subagent <id> and the reply text", EXIT.usage);
       }
       // `--in-reply-to` must name a positive message number; checked before discovery too, so a
       // bad value is usage (2) and not "no server".
@@ -646,7 +653,9 @@ const turnInReplyTo = (args: ParsedArgs): number | undefined => messageNumberFla
 /** The `subagent await` target set: the named/positional ids, `--any`/`--all`, and the explicit
  * `--turn`. Checked before discovery (`run` calls this beside `validateCommand`): a bad `--turn`,
  * or a `--turn` with several targets, is a usage error (2) rather than a probe. */
-const awaitTarget = (args: ParsedArgs): {
+const awaitTarget = (
+  args: ParsedArgs,
+): {
   readonly ids: readonly string[];
   readonly mode: "any" | "all";
   readonly turn?: number;
@@ -684,7 +693,10 @@ const profileTarget = (args: ParsedArgs): ProfileTarget => {
   // A write with no text and a terminal in front would hang on stdin for ever — the one failure
   // mode an agent-facing CLI must not have. A piped stdin is still read to its EOF below.
   if (sub === "write" && stringFlag(args, "from") === undefined && process.stdin.isTTY === true) {
-    throw new CliFailure("profile write needs the file's text: --from <path>, or pipe it to stdin", EXIT.usage);
+    throw new CliFailure(
+      "profile write needs the file's text: --from <path>, or pipe it to stdin",
+      EXIT.usage,
+    );
   }
   const scope = stringFlag(args, "scope");
   const workspace = stringFlag(args, "workspace");
@@ -851,7 +863,10 @@ const profileText = async (args: ParsedArgs): Promise<string> => {
   const text = from === undefined ? await readStdin() : await readFile(from, "utf8").catch(() => undefined);
   if (text === undefined) throw new CliFailure(`cannot read ${from ?? "stdin"}`, EXIT.usage);
   if (text.trim() === "") {
-    throw new CliFailure("profile write needs the file's text: --from <path>, or pipe it to stdin", EXIT.usage);
+    throw new CliFailure(
+      "profile write needs the file's text: --from <path>, or pipe it to stdin",
+      EXIT.usage,
+    );
   }
   return text;
 };
@@ -949,12 +964,7 @@ const profileCommand = async (
   await profileFileCommand(family === "action" ? client.actions : client.subagents, changeId, args, json, io);
 };
 
-const statusCommand = async (
-  client: CorviClient,
-  args: ParsedArgs,
-  json: boolean,
-  io: Io,
-): Promise<void> => {
+const statusCommand = async (client: CorviClient, args: ParsedArgs, json: boolean, io: Io): Promise<void> => {
   const status = args.positionals[1];
   if (status !== "working" && status !== "waiting" && status !== "clear") {
     throw new CliFailure("status needs working, waiting or clear", EXIT.usage);
@@ -1028,14 +1038,7 @@ const report = (error: unknown, io: Io, json: boolean): number => {
   if (error instanceof CliFailure) return fail(io, json, error.message, error.exitCode);
   if (error instanceof ClientError) {
     const refused = error.status === 400 || error.status === 404 || error.status === 409;
-    return fail(
-      io,
-      json,
-      error.message,
-      refused ? EXIT.refused : EXIT.failure,
-      error.status,
-      error.body,
-    );
+    return fail(io, json, error.message, refused ? EXIT.refused : EXIT.failure, error.status, error.body);
   }
   return fail(io, json, error instanceof Error ? error.message : String(error), EXIT.failure);
 };

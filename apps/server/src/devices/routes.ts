@@ -100,7 +100,6 @@ export const devicesRoutes = guard({
   },
 
   "/api/devices/:id": {
-    DELETE: (req) =>
-      runRoute(Effect.map(revokeDevice(req.params.id), (device) => json({ device }))),
+    DELETE: (req) => runRoute(Effect.map(revokeDevice(req.params.id), (device) => json({ device }))),
   },
 });

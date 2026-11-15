@@ -44,7 +44,16 @@
  * leaks them. Getting a misread run's processes ended stays a residual risk; deleting a live
  * run's directories does not.
  */
-import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -58,9 +67,7 @@ import { testTempBase } from "./test-temp.ts";
  * and both spellings turn up in command lines depending on who built the path. */
 export const testRoots = async (): Promise<string[]> => {
   const bases = [testTempBase(), tmpdir()];
-  const roots = await Promise.all(
-    bases.map(async (base) => [base, await realpath(base).catch(() => base)]),
-  );
+  const roots = await Promise.all(bases.map(async (base) => [base, await realpath(base).catch(() => base)]));
   return [...new Set(roots.flat())];
 };
 
@@ -180,8 +187,7 @@ const liveToken = (token: string, roots: readonly string[]): boolean => {
 };
 
 /** The only processes this tool is ever allowed to end: the runtimes a test server can be. */
-const isKillable = (command: string): boolean =>
-  /(?:^|\/)(?:bun|node)(?: |$).*src\/server\.ts/.test(command);
+const isKillable = (command: string): boolean => /(?:^|\/)(?:bun|node)(?: |$).*src\/server\.ts/.test(command);
 
 /** What the report lists as left alone: the things this tool could plausibly have ended and did
  * not — a server. */
@@ -294,7 +300,8 @@ const main = async (): Promise<void> => {
       (t) => coversRun({ all, run }, t),
       coversUnnamed({ all, run }),
     );
-    if (removed.length) console.log(`removed ${removed.length} leftover test path(s):\n  ${removed.join("\n  ")}`);
+    if (removed.length)
+      console.log(`removed ${removed.length} leftover test path(s):\n  ${removed.join("\n  ")}`);
   };
 
   if (!procs.length) {

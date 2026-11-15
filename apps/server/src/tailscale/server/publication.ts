@@ -16,11 +16,7 @@ import { ID, stateDir } from "@corvi/configuration/node";
  * something else) is no record rather than a wrong one. */
 const Publication = Schema.Struct({
   port: Schema.Number.pipe(
-    Schema.check(
-      Schema.isInt(),
-      Schema.isGreaterThanOrEqualTo(1),
-      Schema.isLessThanOrEqualTo(65535),
-    ),
+    Schema.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(65535)),
   ),
 });
 
@@ -30,9 +26,7 @@ export const publicationPath = (): string => join(stateDir(), `${ID}-tailscale.j
 /** The port a previous run published, or undefined when there is no readable record. */
 export const readPublishedPort = (): number | undefined => {
   try {
-    const parsed = Schema.decodeUnknownSync(Publication)(
-      JSON.parse(readFileSync(publicationPath(), "utf8")),
-    );
+    const parsed = Schema.decodeUnknownSync(Publication)(JSON.parse(readFileSync(publicationPath(), "utf8")));
     return parsed.port;
   } catch {
     return undefined;

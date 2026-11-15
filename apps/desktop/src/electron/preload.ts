@@ -16,13 +16,10 @@ import { ID } from "@corvi/configuration/node";
 let open: ((change: string, window: string, source?: string) => void) | null = null;
 let pending: [change: string, window: string, source?: string] | null = null;
 
-ipcRenderer.on(
-  `${ID}:open-window`,
-  (_event, change: string, window: string, source?: string) => {
-    if (open) open(change, window, source);
-    else pending = [change, window, source];
-  },
-);
+ipcRenderer.on(`${ID}:open-window`, (_event, change: string, window: string, source?: string) => {
+  if (open) open(change, window, source);
+  else pending = [change, window, source];
+});
 
 /** The window's platform for the page's chrome, which only tells macOS apart from the rest
  * (@corvi/web/chrome). Anything else lays out the same way, so it has one name here. */

@@ -40,8 +40,7 @@ export const actionsRoutes = guard({
   // The Repositories view's files: one block per checkout, written and deleted like any other
   // scope — the route names the change, the body (or query) names the repository.
   "/api/changes/:id/action-files": {
-    GET: (req) =>
-      withChange(req.params.id, (change) => Effect.map(repositoryActionFiles(change), json)),
+    GET: (req) => withChange(req.params.id, (change) => Effect.map(repositoryActionFiles(change), json)),
     PUT: (req) =>
       withChange(req.params.id, (change) =>
         Effect.gen(function* () {

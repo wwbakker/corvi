@@ -157,20 +157,20 @@ export function ChangeView({
   // and re-read a retargeted target.
   useEffect(() => {
     if (blocked) return;
-    client
-      .changes.read(ChangeId.make(id))
+    client.changes
+      .read(ChangeId.make(id))
       .then(setChange)
       .catch((e: Error) => setError(e.message));
-    client
-      .dashboard.cards(ChangeId.make(id))
+    client.dashboard
+      .cards(ChangeId.make(id))
       .then(setInfos)
       .catch((e: Error) => setError(e.message));
-    client
-      .dashboard.tabs(ChangeId.make(id))
+    client.dashboard
+      .tabs(ChangeId.make(id))
       .then(setTabs)
       .catch((e: Error) => setError(e.message));
-    client
-      .dashboard.widgets(ChangeId.make(id))
+    client.dashboard
+      .widgets(ChangeId.make(id))
       .then(setWidgets)
       .catch((e: Error) => setError(e.message));
   }, [id, source, client, blocked, sourceGeneration]);
@@ -180,8 +180,8 @@ export function ChangeView({
     if (change?.completedAt || blocked) return;
     const ac = new AbortController();
     const load = (): Promise<void> =>
-      client
-        .changes.completion(ChangeId.make(id), { signal: ac.signal })
+      client.changes
+        .completion(ChangeId.make(id), { signal: ac.signal })
         .then(setCompletion)
         .catch(() => {}); // keep the last verdict rather than blanking the button
     void load();
@@ -213,8 +213,8 @@ export function ChangeView({
   };
 
   const copyDescription = (): Promise<void> =>
-    client
-      .changes.description(ChangeId.make(id))
+    client.changes
+      .description(ChangeId.make(id))
       .then(({ text }) => navigator.clipboard.writeText(text ?? ""))
       .then(() => {
         setNotice("Pull request description copied");
@@ -227,8 +227,8 @@ export function ChangeView({
   const complete = (force = false): void => {
     setCompleting(true);
     setError(null);
-    client
-      .changes.complete(ChangeId.make(id), force ? { force: true } : {})
+    client.changes
+      .complete(ChangeId.make(id), force ? { force: true } : {})
       .then(({ change: updated }) => {
         setChange(updated);
         setGeneration((g) => g + 1);
@@ -256,8 +256,8 @@ export function ChangeView({
   const startWork = (): void => {
     setStarting(true);
     setError(null);
-    client
-      .changes.start(ChangeId.make(id))
+    client.changes
+      .start(ChangeId.make(id))
       .then(({ change: updated, provision }) => {
         setChange(updated);
         setGeneration((g) => g + 1);
@@ -287,8 +287,8 @@ export function ChangeView({
     }
     setCancelling(true);
     setError(null);
-    client
-      .changes.cancel(ChangeId.make(id), { force })
+    client.changes
+      .cancel(ChangeId.make(id), { force })
       .then(({ change: updated, loose }) => {
         setChange(updated);
         setGeneration((g) => g + 1);
@@ -321,8 +321,8 @@ export function ChangeView({
     setReopening(true);
     setError(null);
     setNotice(null);
-    client
-      .changes.reopen(ChangeId.make(id))
+    client.changes
+      .reopen(ChangeId.make(id))
       .then(({ change: updated, provision, restored }) => {
         setChange(updated);
         setGeneration((g) => g + 1);
@@ -351,8 +351,8 @@ export function ChangeView({
     if (blocked) return;
     setDraft(null);
     if (next === (change?.title ?? "")) return;
-    client
-      .changes.rename(ChangeId.make(id), { title: next })
+    client.changes
+      .rename(ChangeId.make(id), { title: next })
       .then((updated) => {
         setChange(updated);
         onChanged();
@@ -365,8 +365,8 @@ export function ChangeView({
     // The select is disabled while blocked; this is the same rule at the handler, so a programmatic
     // or stale event cannot make the write.
     if (blocked) return;
-    client
-      .changes.rename(ChangeId.make(id), { state })
+    client.changes
+      .rename(ChangeId.make(id), { state })
       .then((updated) => {
         setChange(updated);
         onChanged(); // the navigation column and the overview list states too
@@ -505,8 +505,8 @@ export function ChangeView({
           write is refused, so the page says so before a button does. */}
       {change && (change.formatVersion ?? 0) > FORMAT_VERSION && (
         <div className="notice">
-          this change was written by a newer version of Corvi (record format {change.formatVersion});
-          upgrade to edit it
+          this change was written by a newer version of Corvi (record format {change.formatVersion}); upgrade
+          to edit it
         </div>
       )}
       {notice && <div className="notice">{notice}</div>}
@@ -548,12 +548,7 @@ export function ChangeView({
           hand it means a hint rather than a crash. */}
       {active.kind === "tab" &&
         (change ? (
-          <TabHost
-            key={active.tab.id}
-            info={active.tab}
-            change={change}
-            workspace={change.workspace}
-          />
+          <TabHost key={active.tab.id} info={active.tab} change={change} workspace={change.workspace} />
         ) : (
           <p className="hint">loading…</p>
         ))}

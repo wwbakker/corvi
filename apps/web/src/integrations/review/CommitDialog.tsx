@@ -64,14 +64,10 @@ export function CommitDialog({
     setError(null);
     setResults(null);
     setMessage(suggestion);
-    const staged = candidates.flatMap((c) =>
-      c.files.filter((f) => f.staged).map((f) => key(c.repo, f.path)),
-    );
+    const staged = candidates.flatMap((c) => c.files.filter((f) => f.staged).map((f) => key(c.repo, f.path)));
     setPicked(
       new Set(
-        staged.length > 0
-          ? staged
-          : candidates.flatMap((c) => c.files.map((f) => key(c.repo, f.path))),
+        staged.length > 0 ? staged : candidates.flatMap((c) => c.files.map((f) => key(c.repo, f.path))),
       ),
     );
   }, [open]);

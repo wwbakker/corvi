@@ -8,7 +8,14 @@ import type { Change } from "@corvi/changes/record";
 import type { WidgetDto, WidgetItemDto } from "@corvi/contracts/api";
 import type { Capabilities } from "../apps/server/src/integrations/api/capabilities.ts";
 import type { Card } from "../apps/server/src/integrations/types.ts";
-import { BusLive, CacheLive, ChangesLive, GitFactsLive, SettingsLive, extensionStoreLayer } from "../apps/server/src/integrations/services.ts";
+import {
+  BusLive,
+  CacheLive,
+  ChangesLive,
+  GitFactsLive,
+  SettingsLive,
+  extensionStoreLayer,
+} from "../apps/server/src/integrations/services.ts";
 import { repoStatusOf, runCard, statusOne } from "../apps/server/src/integrations/effects.ts";
 import { integrationRoutes } from "../apps/server/src/integrations/routes.ts";
 import { createChange } from "../apps/server/src/change/server/index.ts";
@@ -20,7 +27,19 @@ import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
-import { AZ_CONFIGURED, azureCheckoutAnswer, checkoutsOf, fakeShell, forgetRateLimit, runEffect, runWithShell, TestError, testTempDir, withRuntimeConfig, type FakeShell  } from "./helpers.ts";
+import {
+  AZ_CONFIGURED,
+  azureCheckoutAnswer,
+  checkoutsOf,
+  fakeShell,
+  forgetRateLimit,
+  runEffect,
+  runWithShell,
+  TestError,
+  testTempDir,
+  withRuntimeConfig,
+  type FakeShell,
+} from "./helpers.ts";
 
 /**
  * The cards' server half: the GitHub tree and the Azure DevOps tree the dashboard draws, the
@@ -114,7 +133,10 @@ test("the github card draws repository > pull request > checks", async () => {
     return undefined;
   });
 
-  const items = await runWithShell(shell, github.repoStatus!(change({ checkouts: checkoutsOf([orderRepo]) }), orderRepo));
+  const items = await runWithShell(
+    shell,
+    github.repoStatus!(change({ checkouts: checkoutsOf([orderRepo]) }), orderRepo),
+  );
   expect(items).toHaveLength(1);
   const repoRow = items[0]!;
   expect(repoRow.label).toBe("example-api");
@@ -160,7 +182,10 @@ test("the azure-devops card draws repository > pipeline > run", async () => {
     return undefined;
   });
 
-  const items = await runWithShell(shell, azure.repoStatus!(change({ checkouts: checkoutsOf([orderRepo]) }), orderRepo));
+  const items = await runWithShell(
+    shell,
+    azure.repoStatus!(change({ checkouts: checkoutsOf([orderRepo]) }), orderRepo),
+  );
   expect(items).toHaveLength(1);
   const repoRow = items[0]!;
   expect(repoRow.label).toBe("example-api");
@@ -212,7 +237,10 @@ test("a finished build carries the moment to read, a running one counts in its b
     return undefined;
   });
 
-  const items = await runWithShell(shell, azure.repoStatus!(change({ checkouts: checkoutsOf([orderRepo]) }), orderRepo));
+  const items = await runWithShell(
+    shell,
+    azure.repoStatus!(change({ checkouts: checkoutsOf([orderRepo]) }), orderRepo),
+  );
   const runs = items[0]!.children![0]!.children!;
   // Newest first, and only the finished one carries a moment to read: a running build's age is its
   // progress bar, which counts from the same start time.
@@ -241,7 +269,10 @@ test("the azure-devops card answers empty when it found no pipelines", async () 
 
   // A repository built by GitHub Actions, or by pipelines in another project, has nothing here
   // to show: the GitHub card carries the checks, and this card stays silent.
-  const items = await runWithShell(shell, azure.repoStatus!(change({ checkouts: checkoutsOf([orderRepo]) }), orderRepo));
+  const items = await runWithShell(
+    shell,
+    azure.repoStatus!(change({ checkouts: checkoutsOf([orderRepo]) }), orderRepo),
+  );
   expect(items).toEqual([]);
 });
 
@@ -253,7 +284,10 @@ test("a repository with no worktree reads as no worktree, not as a failed lookup
     return undefined;
   });
 
-  const items = await runWithShell(shell, github.repoStatus!(change({ checkouts: checkoutsOf([orderRepo]) }), orderRepo));
+  const items = await runWithShell(
+    shell,
+    github.repoStatus!(change({ checkouts: checkoutsOf([orderRepo]) }), orderRepo),
+  );
   const prRow = items[0]!.children![0]!;
   expect(prRow).toMatchObject({ label: "pull request", detail: "no worktree", state: "none" });
   expect(items[0]!.state).toBe("none");
@@ -268,7 +302,10 @@ test("a pushed branch with no pull request offers to create one", async () => {
     return undefined;
   });
 
-  const items = await runWithShell(shell, github.repoStatus!(change({ checkouts: checkoutsOf([orderRepo]) }), orderRepo));
+  const items = await runWithShell(
+    shell,
+    github.repoStatus!(change({ checkouts: checkoutsOf([orderRepo]) }), orderRepo),
+  );
   const prRow = items[0]!.children![0]!;
   expect(prRow).toMatchObject({ label: "no pull request", detail: "not pushed yet", state: "none" });
   expect(prRow.actions).toEqual([{ id: "create", label: "Push & create PR", arg: orderRepo }]);
@@ -280,7 +317,10 @@ test("the github create action pushes and opens the pull request", async () => {
     return checkedOut(line) ?? undefined;
   });
 
-  await runWithShell(shell, github.run!(change({ checkouts: checkoutsOf([orderRepo]) }), "create", orderRepo));
+  await runWithShell(
+    shell,
+    github.run!(change({ checkouts: checkoutsOf([orderRepo]) }), "create", orderRepo),
+  );
   const lines = shell.calls.map((c) => c.cmd.join(" "));
   expect(lines).toContain(`git push -u origin ${branch}`);
   expect(lines).toContain("gh pr create --fill");
@@ -291,9 +331,9 @@ test("the github card refuses an action it does not know, and create without a r
   await expect(
     runWithShell(shell, github.run!(change({ checkouts: checkoutsOf([orderRepo]) }), "bogus", orderRepo)),
   ).rejects.toThrow("unknown github action: bogus");
-  await expect(runWithShell(shell, github.run!(change({ checkouts: checkoutsOf([orderRepo]) }), "create", undefined))).rejects.toThrow(
-    "repo required",
-  );
+  await expect(
+    runWithShell(shell, github.run!(change({ checkouts: checkoutsOf([orderRepo]) }), "create", undefined)),
+  ).rejects.toThrow("repo required");
   expect(shell.calls).toEqual([]);
 });
 
@@ -349,9 +389,7 @@ test("the github summary names open comments and takes the checks' verdict", asy
     shell,
     githubSummaryContributor.facts(change({ checkouts: checkoutsOf([orderRepo]) })),
   );
-  expect(summary.facts).toEqual([
-    { id: "unresolved", label: "1 unresolved comment", state: "warn" },
-  ]);
+  expect(summary.facts).toEqual([{ id: "unresolved", label: "1 unresolved comment", state: "warn" }]);
   expect(summary.state).toBe("ok");
 });
 
@@ -520,7 +558,8 @@ const extLayer = (shell: FakeShell, workspaceId?: string): Layer.Layer<Capabilit
     CacheLive,
     SettingsLive,
     BusLive,
-    ChangesLive, GitFactsLive,
+    ChangesLive,
+    GitFactsLive,
     Layer.succeed(WorkspaceTag, workspaceById(workspaceId)),
     extensionStoreLayer("test"),
   );
@@ -551,10 +590,7 @@ test("the services route answers for a workspace that enabled azure-devops", asy
   const result = await withRuntimeConfig({ workspaces: [workspace] }, () =>
     runRoute(
       shell,
-      servicesRoute.handler(
-        new Request("http://localhost/api/ext/azure-devops/services?workspace=acme"),
-        {},
-      ),
+      servicesRoute.handler(new Request("http://localhost/api/ext/azure-devops/services?workspace=acme"), {}),
       "acme",
     ),
   );
@@ -659,32 +695,23 @@ type ServicesBody = { services: Service[]; error?: string };
 const serviceOn = (body: ServicesBody, service: string): Service | undefined =>
   body.services.find((s) => s.name === service);
 
-const environmentOn = (
-  body: ServicesBody,
-  service: string,
-  environment = "accept",
-): Deployed | undefined =>
+const environmentOn = (body: ServicesBody, service: string, environment = "accept"): Deployed | undefined =>
   serviceOn(body, service)?.environments.find((e) => e.environment === environment);
 
-const versionOn = (
-  body: ServicesBody,
-  service: string,
-  environment = "accept",
-): string | undefined => environmentOn(body, service, environment)?.version;
+const versionOn = (body: ServicesBody, service: string, environment = "accept"): string | undefined =>
+  environmentOn(body, service, environment)?.version;
 
 /** How often one pipeline's runs were listed, split by which question was asked: the deploy runs
  * themselves, or the completed history behind the duration estimate. */
 const runsAsks = (shell: FakeShell, pipelineId: number, status = ""): number =>
   shell.calls.filter((c) =>
-    c.cmd.join(" ").startsWith(`az pipelines runs list --pipeline-ids ${pipelineId} ${status}--top`)
+    c.cmd.join(" ").startsWith(`az pipelines runs list --pipeline-ids ${pipelineId} ${status}--top`),
   ).length;
 
 const pipelinesAsks = (shell: FakeShell): number =>
   shell.calls.filter((c) => c.cmd.join(" ").startsWith("az pipelines list ")).length;
 
-const configuredShell = (
-  respond: (line: string) => string | Partial<ShellResult> | undefined,
-): FakeShell =>
+const configuredShell = (respond: (line: string) => string | Partial<ShellResult> | undefined): FakeShell =>
   fakeShell((cmd) => {
     const line = cmd.join(" ");
     if (line === "az devops configure -l") return AZ_CONFIGURED;
@@ -692,20 +719,27 @@ const configuredShell = (
   });
 
 const readServices = async (shell: FakeShell, query = ""): Promise<ServicesBody> =>
-  await jsonOf(await runRoute(shell, servicesRoute.handler(
-    new Request(`http://localhost/api/ext/azure-devops/services${query}`),
-    {},
-  ))) as ServicesBody;
+  (await jsonOf(
+    await runRoute(
+      shell,
+      servicesRoute.handler(new Request(`http://localhost/api/ext/azure-devops/services${query}`), {}),
+    ),
+  )) as ServicesBody;
 
 const readVersions = async (
   shell: FakeShell,
   service: string,
   query = "",
 ): Promise<{ runId: number; version?: string; deployedTo: string[] }[]> =>
-  await jsonOf(await runRoute(shell, versionsRoute.handler(
-    new Request(`http://localhost/api/ext/azure-devops/services/${service}/versions${query}`),
-    { service },
-  ))) as { runId: number; version?: string; deployedTo: string[] }[];
+  (await jsonOf(
+    await runRoute(
+      shell,
+      versionsRoute.handler(
+        new Request(`http://localhost/api/ext/azure-devops/services/${service}/versions${query}`),
+        { service },
+      ),
+    ),
+  )) as { runId: number; version?: string; deployedTo: string[] }[];
 
 test("a poll reads again only the pipeline that is deploying", async () => {
   // What the deploys look like, driven by this test rather than by how often it has been asked.
@@ -753,10 +787,7 @@ test("a poll reads again only the pipeline that is deploying", async () => {
   const before = [runsAsks(shell, 101), runsAsks(shell, 102)];
   alpha = deployRun(6, "completed", "v2", "accept");
   const second = await readServices(shell);
-  expect([
-    runsAsks(shell, 101) - before[0]!,
-    runsAsks(shell, 102) - before[1]!,
-  ]).toEqual([1, 0]);
+  expect([runsAsks(shell, 101) - before[0]!, runsAsks(shell, 102) - before[1]!]).toEqual([1, 0]);
   // And the watch is what moved the row.
   expect(environmentOn(second, "alpha")).toMatchObject({ state: "ok", version: "v2" });
 
@@ -764,10 +795,7 @@ test("a poll reads again only the pipeline that is deploying", async () => {
   // serves the finished deploy rather than reading it again.
   const settled = [runsAsks(shell, 101), runsAsks(shell, 102)];
   const third = await readServices(shell);
-  expect([
-    runsAsks(shell, 101) - settled[0]!,
-    runsAsks(shell, 102) - settled[1]!,
-  ]).toEqual([0, 0]);
+  expect([runsAsks(shell, 101) - settled[0]!, runsAsks(shell, 102) - settled[1]!]).toEqual([0, 0]);
   expect(environmentOn(third, "alpha")).toMatchObject({ state: "ok", version: "v2" });
 
   // Names are not deployments: the pipeline list was read once for every poll.
@@ -832,9 +860,7 @@ test("only the environment that is deploying carries a duration", async () => {
 });
 
 test("a failed live read leaves a deploying environment where it was", async () => {
-  let answer: string | Partial<ShellResult> = JSON.stringify([
-    deployRun(5, "inProgress", "v1", "accept"),
-  ]);
+  let answer: string | Partial<ShellResult> = JSON.stringify([deployRun(5, "inProgress", "v1", "accept")]);
   const shell = configuredShell((line) => {
     if (line.startsWith("az pipelines list ")) {
       return JSON.stringify([{ id: 131, name: "deploy-alpha", path: "\\alpha" }]);
@@ -1011,9 +1037,9 @@ test("the versions route reads the runs again only when the dialog asks it to", 
     return undefined;
   });
 
-  expect(
-    (await readVersions(shell, "example-api")).map((v) => [v.runId, v.version, v.deployedTo]),
-  ).toEqual([[31, "v31", ["accept"]]]);
+  expect((await readVersions(shell, "example-api")).map((v) => [v.runId, v.version, v.deployedTo])).toEqual([
+    [31, "v31", ["accept"]],
+  ]);
   expect([runsAsks(shell, 21), runsAsks(shell, 22)]).toEqual([1, 1]);
 
   // A second open without the flag is the same question: the cache answers without reading `az`.
@@ -1025,12 +1051,11 @@ test("the versions route reads the runs again only when the dialog asks it to", 
   newerBuild = true;
   deployVersion = "v32";
   expect(
-    (await readVersions(shell, "example-api", "?refresh=1")).map((v) => [
-      v.runId,
-      v.version,
-      v.deployedTo,
-    ]),
-  ).toEqual([[32, "v32", ["accept"]], [31, "v31", []]]);
+    (await readVersions(shell, "example-api", "?refresh=1")).map((v) => [v.runId, v.version, v.deployedTo]),
+  ).toEqual([
+    [32, "v32", ["accept"]],
+    [31, "v31", []],
+  ]);
   expect([runsAsks(shell, 21), runsAsks(shell, 22)]).toEqual([2, 2]);
   // The pipeline list is not a run: it stays cached.
   expect(pipelinesAsks(shell)).toBe(1);
@@ -1051,17 +1076,16 @@ test("the versions route reads a *-app service's deploy runs again when asked", 
     return undefined;
   });
 
-  expect((await readVersions(shell, "example-app")).map((v) => [v.runId, v.version])).toEqual([
-    [1, "v9"],
-  ]);
+  expect((await readVersions(shell, "example-app")).map((v) => [v.runId, v.version])).toEqual([[1, "v9"]]);
   // A second open without the flag answers from the cache.
   expect((await readVersions(shell, "example-app")).map((v) => v.runId)).toEqual([1]);
   expect(runsAsks(shell, 7)).toBe(1);
 
   newer = true;
-  expect(
-    (await readVersions(shell, "example-app", "?refresh=1")).map((v) => [v.runId, v.version]),
-  ).toEqual([[2, "v10"], [1, "v9"]]);
+  expect((await readVersions(shell, "example-app", "?refresh=1")).map((v) => [v.runId, v.version])).toEqual([
+    [2, "v10"],
+    [1, "v9"],
+  ]);
   expect(runsAsks(shell, 7)).toBe(2);
 });
 
@@ -1132,11 +1156,13 @@ test("the deploy route passes a complete body to the promotion-guarded deploy", 
   // The known environment gets as far as the pipeline lookup; the unknown one is refused first.
   const known = await call({ version: "v1", environment: "accept" });
   expect(Result.isFailure(known)).toBe(true);
-  if (Result.isFailure(known)) expect((known.failure as Error).message).toBe("no deploy pipeline for example-api");
+  if (Result.isFailure(known))
+    expect((known.failure as Error).message).toBe("no deploy pipeline for example-api");
 
   const unknown = await call({ version: "v1", environment: "staging" });
   expect(Result.isFailure(unknown)).toBe(true);
-  if (Result.isFailure(unknown)) expect((unknown.failure as Error).message).toBe("unknown environment: staging");
+  if (Result.isFailure(unknown))
+    expect((unknown.failure as Error).message).toBe("unknown environment: staging");
 });
 
 // --- effects: provisioning, status/repoStatus, actions and the read-only finished change ----
@@ -1181,7 +1207,11 @@ test("a card with no whole-widget status fails as a red card that says so", asyn
 
 test("a failing status is a red card carrying the message", async () => {
   const result = await runEffect(
-    statusOne("test", card({ status: () => Effect.fail(new TestError({ message: "vendor down" })) }), change()),
+    statusOne(
+      "test",
+      card({ status: () => Effect.fail(new TestError({ message: "vendor down" })) }),
+      change(),
+    ),
   );
   expect(result).toMatchObject({ state: "error", summary: "vendor down" });
 });
@@ -1215,7 +1245,12 @@ test("repoStatusOf returns a card's rows for the repository, or a red row naming
   ]);
 
   const failed = await runEffect(
-    repoStatusOf("test", card({ repoStatus: () => Effect.fail(new TestError({ message: "gh said no" })) }), change(), repo),
+    repoStatusOf(
+      "test",
+      card({ repoStatus: () => Effect.fail(new TestError({ message: "gh said no" })) }),
+      change(),
+      repo,
+    ),
   );
   expect(failed).toEqual([{ label: "example-api", detail: "gh said no", state: "error" }]);
 });
@@ -1295,12 +1330,8 @@ const cardsOf = async (id: string): Promise<{ name: string; editable?: boolean }
 };
 
 test("the cards route says which cards are editable", async () => {
-  await runEffect(
-    createChange({ id: "PROJ-CARDS-EDIT", state: "Ideation", checkouts: checkoutsOf([]) }),
-  );
-  const editable = Object.fromEntries(
-    (await cardsOf("PROJ-CARDS-EDIT")).map((c) => [c.name, c.editable]),
-  );
+  await runEffect(createChange({ id: "PROJ-CARDS-EDIT", state: "Ideation", checkouts: checkoutsOf([]) }));
+  const editable = Object.fromEntries((await cardsOf("PROJ-CARDS-EDIT")).map((c) => [c.name, c.editable]));
   // The cards whose client half ships an editor — the repository list and the two ticket links.
   expect(editable["git"]).toBe(true);
   expect(editable["jira"]).toBe(true);

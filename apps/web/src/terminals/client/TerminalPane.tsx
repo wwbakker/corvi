@@ -99,9 +99,11 @@ const fitTerminal = (term: Terminal): void => {
   const parentHeight = parseInt(parentStyle.getPropertyValue("height"), 10);
   const style = window.getComputedStyle(element);
   const paddingWidth =
-    parseInt(style.getPropertyValue("padding-left"), 10) + parseInt(style.getPropertyValue("padding-right"), 10);
+    parseInt(style.getPropertyValue("padding-left"), 10) +
+    parseInt(style.getPropertyValue("padding-right"), 10);
   const paddingHeight =
-    parseInt(style.getPropertyValue("padding-top"), 10) + parseInt(style.getPropertyValue("padding-bottom"), 10);
+    parseInt(style.getPropertyValue("padding-top"), 10) +
+    parseInt(style.getPropertyValue("padding-bottom"), 10);
   const cols = Math.max(2, Math.floor((parentWidth - paddingWidth) / cell.width));
   const rows = Math.max(1, Math.floor((parentHeight - paddingHeight) / cell.height));
   if (!Number.isFinite(cols) || !Number.isFinite(rows)) return;
@@ -135,7 +137,9 @@ const FONT_SIZE_MAX = 32;
 const readFontSize = (): number => {
   try {
     const value = Number(localStorage.getItem(FONT_SIZE_KEY));
-    return Number.isInteger(value) && value >= FONT_SIZE_MIN && value <= FONT_SIZE_MAX ? value : FONT_SIZE_DEFAULT;
+    return Number.isInteger(value) && value >= FONT_SIZE_MIN && value <= FONT_SIZE_MAX
+      ? value
+      : FONT_SIZE_DEFAULT;
   } catch {
     return FONT_SIZE_DEFAULT;
   }
@@ -460,10 +464,13 @@ export function TerminalPane({
     if (socket.current) return;
     fitTerminal(term);
     const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-    const windowQuery = sessionId === undefined || sessionId === null ? "" : `&session=${encodeURIComponent(sessionId)}`;
+    const windowQuery =
+      sessionId === undefined || sessionId === null ? "" : `&session=${encodeURIComponent(sessionId)}`;
     setSocketState("connecting");
     setEnded(false);
-    const ws = new WebSocket(`${scheme}//${location.host}${url}?cols=${term.cols}&rows=${term.rows}${windowQuery}`);
+    const ws = new WebSocket(
+      `${scheme}//${location.host}${url}?cols=${term.cols}&rows=${term.rows}${windowQuery}`,
+    );
     ws.binaryType = "arraybuffer";
     ws.onmessage = (event: MessageEvent) => {
       if (socket.current !== ws) return; // a superseded socket: its screen is not this pane's
@@ -501,7 +508,10 @@ export function TerminalPane({
         return;
       }
       // Raw output, binary: the live bytes the snapshot resumed from.
-      const bytes = event.data instanceof ArrayBuffer ? new Uint8Array(event.data) : new Uint8Array(event.data as ArrayBufferLike);
+      const bytes =
+        event.data instanceof ArrayBuffer
+          ? new Uint8Array(event.data)
+          : new Uint8Array(event.data as ArrayBufferLike);
       term.write(bytes);
     };
     // A resize that happened while this socket was connecting was queued; the shell starts at
@@ -590,15 +600,19 @@ export function TerminalPane({
       const term = terminal.current;
       if (!term) return;
       // Copy and paste are the page's: Ctrl+Shift+C/V everywhere, the platform's command key
-      // (Cmd on macOS, Super on Linux), and the Linux terminal convention Ctrl+Insert / 
+      // (Cmd on macOS, Super on Linux), and the Linux terminal convention Ctrl+Insert /
       // Shift+Insert — which is what a compositor's "universal clipboard" sends a window it treats
       // as a terminal. Swallowed even when there is nothing to copy or paste, so a shifted chord
       // never turns into the control byte it would be without it, and the shell keeps plain Ctrl+C
       // as the interrupt.
       const commandChord =
         !e.altKey && ((e.ctrlKey && e.shiftKey && !e.metaKey) || (e.metaKey && !e.ctrlKey && !e.shiftKey));
-      const copy = (commandChord && e.code === "KeyC") || (e.code === "Insert" && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey);
-      const paste = (commandChord && e.code === "KeyV") || (e.code === "Insert" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey);
+      const copy =
+        (commandChord && e.code === "KeyC") ||
+        (e.code === "Insert" && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey);
+      const paste =
+        (commandChord && e.code === "KeyV") ||
+        (e.code === "Insert" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey);
       if (copy || paste) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -612,7 +626,11 @@ export function TerminalPane({
         setFindOpen(true);
         return;
       }
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.code === "Minus" || e.code === "Equal" || e.code === "Digit0")) {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
+        (e.code === "Minus" || e.code === "Equal" || e.code === "Digit0")
+      ) {
         e.preventDefault();
         e.stopImmediatePropagation();
         if (e.code === "Digit0") setFontSize(FONT_SIZE_DEFAULT);
@@ -737,8 +755,8 @@ export function TerminalPane({
       {error && <div className="error-banner">{error}</div>}
       {unavailable && (
         <div className="terminal-gone" role="status">
-          This workspace is unavailable: {unavailable.message} The terminal is not connected; cached
-          windows stay listed until it recovers.
+          This workspace is unavailable: {unavailable.message} The terminal is not connected; cached windows
+          stay listed until it recovers.
         </div>
       )}
       {/* These follow the socket, not the screen: an overlay keeps a hint from taking a row and
@@ -786,7 +804,11 @@ export function TerminalPane({
         // The pane is attached only while the open socket is for the window the page currently
         // names (or the page names none and the server resolved one): the tests' readiness gate
         // must not pass on the socket a window switch is about to replace.
-        data-attached={attached !== null && (sessionId === undefined || sessionId === null || attached === sessionId) ? "1" : undefined}
+        data-attached={
+          attached !== null && (sessionId === undefined || sessionId === null || attached === sessionId)
+            ? "1"
+            : undefined
+        }
         onContextMenu={onContextMenu}
       />
       {linkTooltip && (

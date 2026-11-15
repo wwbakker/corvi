@@ -3,18 +3,24 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { Change, CompletionStep } from "@corvi/changes/record";
-import {
-  completeChange,
-  completionOf,
-  progressOf,
-  verdict,
-} from "../apps/server/src/change/server/index.ts";
+import { completeChange, completionOf, progressOf, verdict } from "../apps/server/src/change/server/index.ts";
 import { plannedCompletionSteps, providerError } from "../apps/server/src/change/lifecycle-layer.ts";
 import { changeDir, createChange, readChange, writeSidecar } from "../apps/server/src/change/server/index.ts";
 import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import { Effect } from "effect";
 import { TestClock } from "effect/testing";
-import { checkoutsOf, fakeShell, forgetRateLimit, runEffect, runRouteWithShell, runWithShell, runWithShellWithTestClock, TestError, type FakeShell, type ShellCall  } from "./helpers.ts";
+import {
+  checkoutsOf,
+  fakeShell,
+  forgetRateLimit,
+  runEffect,
+  runRouteWithShell,
+  runWithShell,
+  runWithShellWithTestClock,
+  TestError,
+  type FakeShell,
+  type ShellCall,
+} from "./helpers.ts";
 import { prItem, REPOSITORY_CONCURRENCY } from "@corvi/github/client";
 import { checkItems } from "@corvi/github/checks";
 import { githubSummaryContributor } from "@corvi/github";
@@ -267,8 +273,7 @@ const completionShell = (opts: CompletionShellOptions): FakeShell =>
       // A worktree being completed has been pushed, so it has an upstream by default — that is
       // what keeps a branch whose default branch cannot be read out of the "unpushed commits"
       // question. A test that cares about dirt, being behind or having no upstream overrides it.
-      return opts.status ??
-        `# branch.upstream origin/${opts.branch ?? "main"}\n# branch.ab +0 -0\n`;
+      return opts.status ?? `# branch.upstream origin/${opts.branch ?? "main"}\n# branch.ab +0 -0\n`;
     }
     if (line === "git remote") return "origin";
     if (line === "git symbolic-ref --quiet --short refs/remotes/origin/HEAD") {
@@ -374,7 +379,11 @@ const trafficShell = (repos: readonly string[], branch: string): FakeShell => {
       if (line === `git rev-parse --abbrev-ref --symbolic-full-name ${branch}@{upstream}`) {
         return out(`origin/${branch}`);
       }
-      if (line.startsWith("git rev-list") || line.startsWith("git cherry") || line.startsWith("git merge-base")) {
+      if (
+        line.startsWith("git rev-list") ||
+        line.startsWith("git cherry") ||
+        line.startsWith("git merge-base")
+      ) {
         // Nothing to prove about main: these worktrees are clean and pushed, so a removal is
         // safe without the integration check.
         return Effect.andThen(
@@ -445,8 +454,7 @@ test("traffic: a cold first minute of polling a ten-repository change costs the 
       for (let turn = 0; turn < 24; turn++) yield* Effect.yieldNow;
 
       const lines = shell.calls.map((call) => call.cmd.join(" "));
-      const asked = (prefix: string): number =>
-        lines.filter((line) => line.startsWith(prefix)).length;
+      const asked = (prefix: string): number => lines.filter((line) => line.startsWith(prefix)).length;
       // A cold first minute, ten repositories in five polls:
       // - the pull request list (30 s) is asked at 0, 30 and 60 s → 3 × 10;
       // - the threads/stack query (120 s) once → 1 × 10;
@@ -466,8 +474,7 @@ test("traffic: a cold first minute of polling a ten-repository change costs the 
         yield* TestClock.adjust(15_000);
       }
       const steady = shell.calls.slice(cold).map((call) => call.cmd.join(" "));
-      const refreshed = (prefix: string): number =>
-        steady.filter((line) => line.startsWith(prefix)).length;
+      const refreshed = (prefix: string): number => steady.filter((line) => line.startsWith(prefix)).length;
       // Per repository per four minutes: the list 8 (every 30 s), the details 2 (every 120 s),
       // the checks 4 (every 60 s) — 14 calls, and 3.5 a minute for each repository: 2 100/h for
       // ten repositories, the plan's number.
@@ -497,7 +504,10 @@ test("repository fan-outs never hold more than four gh processes at once", async
       if (!cmd.join(" ").startsWith("gh ")) return work;
       inFlight += 1;
       peak = Math.max(peak, inFlight);
-      return Effect.ensuring(work, Effect.sync(() => (inFlight -= 1)));
+      return Effect.ensuring(
+        work,
+        Effect.sync(() => (inFlight -= 1)),
+      );
     },
   };
 
@@ -511,9 +521,7 @@ test("repository fan-outs never hold more than four gh processes at once", async
       // The summary's own fan-out, over repositories no earlier read has cached.
       const other = Array.from({ length: 10 }, (_, index) => join(tmp, `burst-summary-${index}`));
       peak = 0;
-      yield* githubSummaryContributor.facts(
-        changeWith({ checkouts: checkoutsOf(other), branch }),
-      );
+      yield* githubSummaryContributor.facts(changeWith({ checkouts: checkoutsOf(other), branch }));
       expect(peak).toBeGreaterThan(1);
       expect(peak).toBeLessThanOrEqual(REPOSITORY_CONCURRENCY);
     }),
@@ -645,7 +653,9 @@ test("providerError: an inner error with nothing to say gets the operation's wor
   // A TaggedError without a message stringifies to its type name; the wrapper must not hand
   // an empty sentence — or that name — to the boundary.
   expect(providerError("jira", "complete", new Error("")).message).toBe("jira complete failed");
-  expect(providerError("github", "merge", new Error("gh exploded")).message).toBe("github merge: gh exploded");
+  expect(providerError("github", "merge", new Error("gh exploded")).message).toBe(
+    "github merge: gh exploded",
+  );
 });
 
 test("completeChange: every step is journaled as it runs and the change is archived", async () => {
@@ -694,10 +704,7 @@ test("contentInMain: contained, cherry-equivalent, and missing content", async (
   const repo = join(tmp, "content-repo");
   // Nothing beyond main: contained outright, no cherry needed.
   expect(
-    await runWithShell(
-      completionShell({ beyond: 0 }),
-      contentInMain(repo, "PROJ-x", "origin/main"),
-    ),
+    await runWithShell(completionShell({ beyond: 0 }), contentInMain(repo, "PROJ-x", "origin/main")),
   ).toBe(true);
 
   // Commits beyond main, but every one patch-identical upstream: a squash merge.
@@ -717,9 +724,7 @@ test("contentInMain: contained, cherry-equivalent, and missing content", async (
   ).toBe(false);
 
   // No base to compare with: unproven, not an error.
-  expect(await runWithShell(completionShell({}), contentInMain(repo, "PROJ-x", undefined))).toBe(
-    false,
-  );
+  expect(await runWithShell(completionShell({}), contentInMain(repo, "PROJ-x", undefined))).toBe(false);
 });
 
 test("integrated: the simulated merge is asked once per pair of tips, and again when one moves", async () => {
@@ -741,8 +746,7 @@ test("integrated: the simulated merge is asked once per pair of tips, and again 
     if (line.endsWith("^{tree}")) return tree;
     return undefined;
   });
-  const ask = (): Promise<boolean> =>
-    runWithShell(shell, integrated(repo, branch, "origin/main"));
+  const ask = (): Promise<boolean> => runWithShell(shell, integrated(repo, branch, "origin/main"));
 
   expect(await ask()).toBe(true);
   expect(await ask()).toBe(true);
@@ -933,9 +937,8 @@ test("completeChange: force still refuses an idea", async () => {
 test("CompleteAnywayDialog: every reason needs its own acknowledge", async () => {
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { CompleteAnywayDialog, canCompleteAnyway } = await import(
-    "../apps/web/src/change-page/client/CompleteAnywayDialog.tsx"
-  );
+  const { CompleteAnywayDialog, canCompleteAnyway } =
+    await import("../apps/web/src/change-page/client/CompleteAnywayDialog.tsx");
   const refusal = {
     reasons: [
       { text: "orders: no pull request", kind: "forceable" as const },
@@ -961,17 +964,16 @@ test("CompleteAnywayDialog: every reason needs its own acknowledge", async () =>
   expect(canCompleteAnyway(refusal.reasons, [false, false])).toBe(false);
   expect(canCompleteAnyway(refusal.reasons, [true, false])).toBe(false);
   expect(canCompleteAnyway(refusal.reasons, [true, true])).toBe(true);
-  expect(
-    canCompleteAnyway([{ text: "orders: uncommitted changes", kind: "hard" as const }], [true]),
-  ).toBe(false);
+  expect(canCompleteAnyway([{ text: "orders: uncommitted changes", kind: "hard" as const }], [true])).toBe(
+    false,
+  );
 });
 
 test("CompleteAnywayDialog: hard reasons offer no override button", async () => {
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { CompleteAnywayDialog } = await import(
-    "../apps/web/src/change-page/client/CompleteAnywayDialog.tsx"
-  );
+  const { CompleteAnywayDialog } =
+    await import("../apps/web/src/change-page/client/CompleteAnywayDialog.tsx");
   const html = renderToStaticMarkup(
     createElement(CompleteAnywayDialog, {
       changeId: "PROJ-x",
@@ -991,9 +993,8 @@ test("CompleteAnywayDialog: hard reasons offer no override button", async () => 
 test("CompleteAnywayDialog: says which pull requests will still be merged", async () => {
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { CompleteAnywayDialog } = await import(
-    "../apps/web/src/change-page/client/CompleteAnywayDialog.tsx"
-  );
+  const { CompleteAnywayDialog } =
+    await import("../apps/web/src/change-page/client/CompleteAnywayDialog.tsx");
   const html = renderToStaticMarkup(
     createElement(CompleteAnywayDialog, {
       changeId: "PROJ-x",
@@ -1016,11 +1017,7 @@ test("CancelDialog: the confirm waits for the acknowledge the server names", asy
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { CancelDialog } = await import("../apps/web/src/change-page/client/CancelDialog.tsx");
-  const render = (props: {
-    reasons: string[];
-    acked: boolean;
-    idea?: boolean;
-  }): string =>
+  const render = (props: { reasons: string[]; acked: boolean; idea?: boolean }): string =>
     renderToStaticMarkup(
       createElement(CancelDialog, {
         changeId: "PROJ-x",
@@ -1073,18 +1070,12 @@ test("overrideNote: only a finished forced completion says it completed with ove
     }),
   ).toBeUndefined();
   // Not forced, or nothing overridden: no note at all.
-  expect(
-    overrideNote({ startedAt: "t", finishedAt: "t", overridden: ["x"], steps: [step] }),
-  ).toBeUndefined();
-  expect(
-    overrideNote({ startedAt: "t", finishedAt: "t", forced: true, steps: [step] }),
-  ).toBeUndefined();
+  expect(overrideNote({ startedAt: "t", finishedAt: "t", overridden: ["x"], steps: [step] })).toBeUndefined();
+  expect(overrideNote({ startedAt: "t", finishedAt: "t", forced: true, steps: [step] })).toBeUndefined();
 });
 
 test("completionRefusal/forceQuestion: only a structured 409 opens a dialog", async () => {
-  const { completionRefusal, forceQuestion } = await import(
-    "../apps/web/src/change-page/client/refusals.ts"
-  );
+  const { completionRefusal, forceQuestion } = await import("../apps/web/src/change-page/client/refusals.ts");
   const failure = (status: number, body: unknown): { status: number; body: unknown } => ({
     status,
     body,
@@ -1108,9 +1099,7 @@ test("completionRefusal/forceQuestion: only a structured 409 opens a dialog", as
   });
   // No reasons, or not a 409: banner news, not a dialog.
   expect(completionRefusal(failure(409, { reasons: [] }))).toBeUndefined();
-  expect(
-    completionRefusal(failure(400, { reasons: [{ text: "x", kind: "hard" }] })),
-  ).toBeUndefined();
+  expect(completionRefusal(failure(400, { reasons: [{ text: "x", kind: "hard" }] }))).toBeUndefined();
 
   expect(forceQuestion(failure(409, { needsForce: ["orders"] }))).toEqual(["orders"]);
   expect(
@@ -1219,12 +1208,8 @@ test("the complete route drives readiness through the scripted CLI", async () =>
   expect(forced.status).toBe(200);
   const body = (await forced.json()) as { change: Change; notes: string[] };
   expect(body.change.state).toBe("Completed");
-  expect(body.notes).toEqual([
-    `completed with overrides: ${basename(repo)}: not approved (review required)`,
-  ]);
-  expect((shell.calls as ShellCall[]).some((c) => c.cmd.join(" ").startsWith("gh pr merge"))).toBe(
-    false,
-  );
+  expect(body.notes).toEqual([`completed with overrides: ${basename(repo)}: not approved (review required)`]);
+  expect((shell.calls as ShellCall[]).some((c) => c.cmd.join(" ").startsWith("gh pr merge"))).toBe(false);
 });
 
 test("changeActions: the endings are last and apart, and an idea ends by discarding", () => {

@@ -18,7 +18,7 @@ import { readiness, headRef, waitingOnYou } from "@corvi/github/client";
 import { presentWindow, type PresentedWindow } from "../apps/server/src/terminals/server/index.ts";
 import type { RawWindow } from "../apps/server/src/integrations/types.ts";
 import type { Change } from "@corvi/changes/record";
-import { checkoutsOf, runDeploy, runEffect, runSetRepos  } from "./helpers.ts";
+import { checkoutsOf, runDeploy, runEffect, runSetRepos } from "./helpers.ts";
 
 /**
  * A changes root of its own, because some of what is tested here writes one. A change may be
@@ -124,10 +124,7 @@ test("a pull request says what it is waiting for", () => {
 test("blank entries are not repositories, and a repository is not listed twice", async () => {
   // The list arrives from a browser: whitespace is nothing, and adding the same path twice is a
   // double click rather than two repositories.
-  const emptied = await runSetRepos(
-    { ...change, checkouts: checkoutsOf([]) },
-    checkoutsOf(["  ", ""]),
-  );
+  const emptied = await runSetRepos({ ...change, checkouts: checkoutsOf([]) }, checkoutsOf(["  ", ""]));
   expect(((emptied as { change: Change }).change.checkouts ?? []).map((spec) => spec.path)).toEqual([]);
 
   // Listed twice, and already there: nothing is created, so this needs no repository on disk.
@@ -219,7 +216,7 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
   expect(w({ name: "logs", command: "logs", directory: "x", named: true }).label).toBe("logs");
   // The detail is the long form, what the tooltip reads.
   expect(w({}).detail).toBe("zsh (zsh) in example-api");
-})
+});
 
 test("opening a repository uses the platform's own launcher", () => {
   const command = (id: string): string[] => openers.find((o) => o.id === id)!.command("/w/repo");
@@ -300,10 +297,13 @@ test("a pull request is looked up by the branch that was pushed", () => {
 
   // Tracking the default branch is not a pull request to go looking for.
   expect(headRef("PROJ-1", "origin/main", "origin/main")).toBe("PROJ-1");
-})
+});
 
 test("a review thread you answered last is not waiting on you", () => {
-  const thread = (isResolved: boolean, ...logins: string[]): { isResolved: boolean; comments: { nodes: { author: { login: string; }; }[]; }; } => ({
+  const thread = (
+    isResolved: boolean,
+    ...logins: string[]
+  ): { isResolved: boolean; comments: { nodes: { author: { login: string } }[] } } => ({
     isResolved,
     comments: { nodes: logins.map((login) => ({ author: { login } })) },
   });
@@ -333,7 +333,16 @@ test("what an environment holds is the newest run that was sent to it", async ()
     version: string,
     result: string | null,
     status = "completed",
-  ): { id: number; buildNumber: string; status: string; result: string | null; sourceBranch: string; finishTime: string; startTime: string; templateParameters: { environment: string; dockerTag: string; }; } => ({
+  ): {
+    id: number;
+    buildNumber: string;
+    status: string;
+    result: string | null;
+    sourceBranch: string;
+    finishTime: string;
+    startTime: string;
+    templateParameters: { environment: string; dockerTag: string };
+  } => ({
     id,
     buildNumber: `${environment} - ${version}`,
     status,
@@ -349,20 +358,36 @@ test("what an environment holds is the newest run that was sent to it", async ()
     run(2, "accept", "v3", "succeeded"),
     run(1, "accept", "v2", "succeeded"),
   ];
-  expect(latestFor(runs, "accept", settings, { key: "t", args: [] })).toMatchObject({ version: "v3", state: "ok" });
-  expect(latestFor(runs, "production", settings, { key: "t", args: [] })).toMatchObject({ version: "v3", state: "ok" });
+  expect(latestFor(runs, "accept", settings, { key: "t", args: [] })).toMatchObject({
+    version: "v3",
+    state: "ok",
+  });
+  expect(latestFor(runs, "production", settings, { key: "t", args: [] })).toMatchObject({
+    version: "v3",
+    state: "ok",
+  });
   // An environment nobody has deployed to says so rather than pretending to be empty.
-  expect(latestFor(runs, "sandbox", settings, { key: "t", args: [] })).toMatchObject({ state: "none", detail: "never deployed" });
+  expect(latestFor(runs, "sandbox", settings, { key: "t", args: [] })).toMatchObject({
+    state: "none",
+    detail: "never deployed",
+  });
 
   // A deploy in flight is what that environment is doing, whatever it holds at this moment.
-  expect(latestFor([run(4, "accept", "v4", null, "inProgress"), ...runs], "accept", settings, { key: "t", args: [] })).toMatchObject({
+  expect(
+    latestFor([run(4, "accept", "v4", null, "inProgress"), ...runs], "accept", settings, {
+      key: "t",
+      args: [],
+    }),
+  ).toMatchObject({
     state: "pending",
     detail: "deploying v4",
   });
 
   // A failed deploy leaves the previous version running: the state is red, and the version is
   // the one that is actually there.
-  expect(latestFor([run(4, "accept", "v4", "failed"), ...runs], "accept", settings, { key: "t", args: [] })).toMatchObject({
+  expect(
+    latestFor([run(4, "accept", "v4", "failed"), ...runs], "accept", settings, { key: "t", args: [] }),
+  ).toMatchObject({
     state: "error",
     version: "v3",
   });

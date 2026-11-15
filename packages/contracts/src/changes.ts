@@ -1,8 +1,8 @@
 /** Canonical boundary values for changes and the repository links they own. */
-import { Schema } from "effect"
+import { Schema } from "effect";
 
-export const ChangeId = Schema.String.pipe(Schema.brand("corvi/ChangeId"))
-export type ChangeId = typeof ChangeId.Type
+export const ChangeId = Schema.String.pipe(Schema.brand("corvi/ChangeId"));
+export type ChangeId = typeof ChangeId.Type;
 
 export const ChangePhase = Schema.Literals([
   "Ideation",
@@ -11,8 +11,8 @@ export const ChangePhase = Schema.Literals([
   "Blocked",
   "Completed",
   "Cancelled",
-])
-export type ChangePhase = typeof ChangePhase.Type
+]);
+export type ChangePhase = typeof ChangePhase.Type;
 
 export class Change extends Schema.Class<Change>("Change")({
   changeId: ChangeId,
@@ -30,26 +30,26 @@ export class Change extends Schema.Class<Change>("Change")({
   revision: Schema.optional(Schema.Number),
 }) {}
 
-export type ChangeFilter = "Active" | "Archived"
+export type ChangeFilter = "Active" | "Archived";
 
 export type CreateChangeInput = {
-  readonly changeId: ChangeId
-  readonly title: string
-  readonly workspaceLocation: string
-  readonly branch?: string
-  readonly phase?: ChangePhase
-}
+  readonly changeId: ChangeId;
+  readonly title: string;
+  readonly workspaceLocation: string;
+  readonly branch?: string;
+  readonly phase?: ChangePhase;
+};
 
-export const RepositoryId = Schema.String.pipe(Schema.brand("corvi/RepositoryId"))
-export type RepositoryId = typeof RepositoryId.Type
+export const RepositoryId = Schema.String.pipe(Schema.brand("corvi/RepositoryId"));
+export type RepositoryId = typeof RepositoryId.Type;
 
-export const DirectoryName = Schema.String.pipe(Schema.brand("corvi/DirectoryName"))
-export type DirectoryName = typeof DirectoryName.Type
+export const DirectoryName = Schema.String.pipe(Schema.brand("corvi/DirectoryName"));
+export type DirectoryName = typeof DirectoryName.Type;
 
 /** Where a checkout lives: a worktree Corvi owns under the change (`new`), or the repository's
  * own checkout (`original`), which Corvi only links for reading. */
-export const CheckoutLocation = Schema.Literals(["new", "original"])
-export type CheckoutLocation = typeof CheckoutLocation.Type
+export const CheckoutLocation = Schema.Literals(["new", "original"]);
+export type CheckoutLocation = typeof CheckoutLocation.Type;
 
 /** Which branch a checkout uses: the change's own (created from `base` when missing, attached
  * when present), the branch the checkout has right now (adopted untouched), or an existing
@@ -58,8 +58,8 @@ export const BranchPlan = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("change") }),
   Schema.Struct({ kind: Schema.Literal("current") }),
   Schema.Struct({ kind: Schema.Literal("existing"), name: Schema.String }),
-])
-export type BranchPlan = typeof BranchPlan.Type
+]);
+export type BranchPlan = typeof BranchPlan.Type;
 
 export class Repository extends Schema.Class<Repository>("Repository")({
   changeId: ChangeId,
@@ -74,33 +74,32 @@ export class Repository extends Schema.Class<Repository>("Repository")({
   target: Schema.optional(Schema.String),
 }) {}
 
-export type RepositoryState = "Concept" | "Active" | "Archived"
+export type RepositoryState = "Concept" | "Active" | "Archived";
 
 /** Which branch a checkout's facts follow: the change's own branch, a named existing branch, or
  * whatever the checkout has checked out now — which is observed live at read time, never
  * recorded. */
 export type EffectiveBranch =
-  | { readonly _tag: "Recorded"; readonly name: string }
-  | { readonly _tag: "Observed" }
+  { readonly _tag: "Recorded"; readonly name: string } | { readonly _tag: "Observed" };
 
 // Pure and synchronous: nothing for an Effect to wrap.
 export const effectiveBranchOf = (changeBranch: string, branch: BranchPlan): EffectiveBranch =>
   branch.kind === "current"
     ? { _tag: "Observed" }
-    : { _tag: "Recorded", name: branch.kind === "existing" ? branch.name : changeBranch }
+    : { _tag: "Recorded", name: branch.kind === "existing" ? branch.name : changeBranch };
 
 export type RepositoryRef = {
-  readonly changeId: ChangeId
-  readonly repositoryId: RepositoryId
-}
+  readonly changeId: ChangeId;
+  readonly repositoryId: RepositoryId;
+};
 
 export type AddRepositoryInput = {
-  readonly changeId: ChangeId
+  readonly changeId: ChangeId;
   /** The source repository's checkout; the link's directory name and id derive from its last
    * component, so re-reading a record yields the same links every time. */
-  readonly originalLocation: string
-  readonly location: CheckoutLocation
-  readonly branch: BranchPlan
-  readonly base?: string
-  readonly target?: string
-}
+  readonly originalLocation: string;
+  readonly location: CheckoutLocation;
+  readonly branch: BranchPlan;
+  readonly base?: string;
+  readonly target?: string;
+};

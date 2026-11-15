@@ -128,7 +128,10 @@ const shq = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`;
 const isOursUrl = (url: string): boolean => {
   try {
     const { hostname, protocol } = new URL(url);
-    return (protocol === "http:" || protocol === "https:") && (hostname === "127.0.0.1" || hostname === "localhost");
+    return (
+      (protocol === "http:" || protocol === "https:") &&
+      (hostname === "127.0.0.1" || hostname === "localhost")
+    );
   } catch {
     return false;
   }
@@ -257,7 +260,9 @@ const startServer = (port: number, checkout: string): void => {
   logLine(log, `starting the server on port ${port} (pid ${serverPid ?? "unknown"})`);
   // `close` fires once the stdio pipes are done too, so it is the last word on the child's death;
   // `exit` would only add a second line for the same event.
-  child.on("close", (code, signal) => logLine(log, `the server process closed (code ${code ?? "none"}, signal ${signal ?? "none"})`));
+  child.on("close", (code, signal) =>
+    logLine(log, `the server process closed (code ${code ?? "none"}, signal ${signal ?? "none"})`),
+  );
 };
 
 /** Send a signal to the process group the server leads: the login shell execs the server, so
@@ -324,12 +329,7 @@ const present = (win: BrowserWindow): void => {
 /** Ask the page to open what the notice was about. A click can arrive while the page is loading,
  * in which case the message waits for `did-finish-load`; a click can also arrive before the page
  * has mounted its handler, which the preload's pending slot covers. */
-const openFromNotice = (
-  win: BrowserWindow,
-  change: string,
-  window: string,
-  source: string,
-): void => {
+const openFromNotice = (win: BrowserWindow, change: string, window: string, source: string): void => {
   const send = (): void => win.webContents.send(`${ID}:open-window`, change, window, source);
   if (win.webContents.isLoading()) win.webContents.once("did-finish-load", send);
   else send();
@@ -388,10 +388,7 @@ let contextMenu = true;
  * of the app, and the inspector while this runs from a checkout. Nothing to offer means no menu —
  * which is also what a page that handled the click itself gets, since a right-click the page has
  * cancelled never reaches here (the terminal's menu is the page's own). */
-const menuFor = (
-  win: BrowserWindow,
-  params: Electron.ContextMenuParams,
-): MenuItemConstructorOptions[] => {
+const menuFor = (win: BrowserWindow, params: Electron.ContextMenuParams): MenuItemConstructorOptions[] => {
   const template: MenuItemConstructorOptions[] = [];
   if (params.isEditable) {
     template.push({ role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" });
@@ -460,9 +457,7 @@ const createWindow = (): BrowserWindow => {
     // No title bar of the platform's: the page's first row is the window's (@corvi/web/chrome,
     // apps/web/src/app-root/styles.css), and macOS keeps its traffic lights, placed where that row expects
     // them. Linux is left as it is — its compositor draws no decorations for this app to remove.
-    ...(isMac
-      ? { titleBarStyle: "hidden" as const, trafficLightPosition: TRAFFIC_LIGHTS.position }
-      : {}),
+    ...(isMac ? { titleBarStyle: "hidden" as const, trafficLightPosition: TRAFFIC_LIGHTS.position } : {}),
     webPreferences: {
       // `app.getAppPath()`, not `__dirname`: the bundler (apps/desktop/src/electron/build.ts) writes
       // the source directory into __dirname at build time, and the app does not run from there.
@@ -545,9 +540,7 @@ const run = async (): Promise<void> => {
     // clipboard API (there is no Linux menu to route them, and Ctrl/Cmd+C belongs to the
     // shell), so the page needs both clipboard permissions. Everything else stays denied.
     const allowed =
-      permission === "media" ||
-      permission === "clipboard-read" ||
-      permission === "clipboard-sanitized-write";
+      permission === "media" || permission === "clipboard-read" || permission === "clipboard-sanitized-write";
     callback(allowed && isOursUrl(origin));
   });
 

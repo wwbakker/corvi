@@ -82,9 +82,7 @@ test("each workspace's root holds its own changes, and lookup spans them all", a
       expect(changeDir(first)).toBe(join(tmp, "client-changes", "ROOT-FIRST"));
 
       // A workspace that names no roots uses the global level's.
-      const global = await runEffect(
-        createChange({ id: "ROOT-OWN", state: "Ideation", workspace: "own" }),
-      );
+      const global = await runEffect(createChange({ id: "ROOT-OWN", state: "Ideation", workspace: "own" }));
       expect(changeDir(global)).toBe(join(tmp, "changes", "ROOT-OWN"));
 
       // Every root is listed and read: one lookup across all of them.
@@ -118,9 +116,9 @@ test("each workspace's root holds its own changes, and lookup spans them all", a
       expect((await runEffect(readChange("ROOT-OLD")))?.id).toBe("ROOT-OLD");
 
       await runEffect(archiveChange("ROOT-OLD"));
-      await expect(
-        Bun.file(join(tmp, "client-archive", "ROOT-OLD", "change.json")).exists(),
-      ).resolves.toBe(true);
+      await expect(Bun.file(join(tmp, "client-archive", "ROOT-OLD", "change.json")).exists()).resolves.toBe(
+        true,
+      );
       await expect(Bun.file(join(tmp, "changes", "ROOT-OLD")).exists()).resolves.toBe(false);
     });
   });

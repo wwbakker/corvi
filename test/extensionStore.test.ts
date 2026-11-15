@@ -5,10 +5,15 @@ import { join } from "node:path";
 import { Effect } from "effect";
 import { ExtensionStore } from "../apps/server/src/integrations/api/capabilities.ts";
 import { extensionStoreLayer } from "../apps/server/src/integrations/services.ts";
-import { archiveChange, changeDir, createChange, readChange } from "../apps/server/src/change/server/index.ts";
+import {
+  archiveChange,
+  changeDir,
+  createChange,
+  readChange,
+} from "../apps/server/src/change/server/index.ts";
 import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "@corvi/changes/record";
-import { checkoutsOf, runEffect  } from "./helpers.ts";
+import { checkoutsOf, runEffect } from "./helpers.ts";
 
 /**
  * The single-writer `ExtensionStore`: the namespaced files and the bag entry an extension
@@ -31,10 +36,8 @@ afterAll(async () => {
 });
 
 /** Run a store effect with the extension's name bound, exactly as the host binds it. */
-const runStore = <A, E>(
-  name: string,
-  effect: Effect.Effect<A, E, ExtensionStore>,
-): Promise<A> => Effect.runPromise(Effect.provide(effect, extensionStoreLayer(name)));
+const runStore = <A, E>(name: string, effect: Effect.Effect<A, E, ExtensionStore>): Promise<A> =>
+  Effect.runPromise(Effect.provide(effect, extensionStoreLayer(name)));
 
 test("ExtensionStore.update replaces the extension's bag entry and leaves the rest of change.json intact", async () => {
   const change = await runEffect(
@@ -59,7 +62,7 @@ test("ExtensionStore.update replaces the extension's bag entry and leaves the re
   // Everything the store does not own is exactly as it was.
   expect(onDisk.branch).toBe(change.branch);
   expect(onDisk.createdAt).toBe(change.createdAt);
-  expect(((onDisk).checkouts ?? []).map((spec) => spec.path)).toEqual(["/r"]);
+  expect((onDisk.checkouts ?? []).map((spec) => spec.path)).toEqual(["/r"]);
 });
 
 test("two updates through separate ExtensionStore layers both survive", async () => {

@@ -71,7 +71,8 @@ const startRemote = (port: number): Server => {
       res.on("close", () => clearInterval(beat));
       return;
     }
-    if (url.startsWith("/api/changes/") && url.includes("/plan")) return json({ text: "# REMOTE PLAN\n", revision: "1" });
+    if (url.startsWith("/api/changes/") && url.includes("/plan"))
+      return json({ text: "# REMOTE PLAN\n", revision: "1" });
     if (url.startsWith("/api/changes/")) return json(CHANGE);
     if (url.startsWith("/api/changes")) return json([CHANGE]);
     if (url.startsWith("/api/terminals")) return json({});
@@ -125,28 +126,34 @@ afterAll(async () => {
   await rm(tmp, { recursive: true, force: true });
 }, budget(60_000));
 
-test.skipIf(!usable)("a change opened while its remote is down banners, is read-only, and recovers in place", async () => {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-  try {
-    await page.goto(`${url}/changes/${REMOTE}/plan?source=remote-client`, { waitUntil: "domcontentloaded" });
+test.skipIf(!usable)(
+  "a change opened while its remote is down banners, is read-only, and recovers in place",
+  async () => {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    try {
+      await page.goto(`${url}/changes/${REMOTE}/plan?source=remote-client`, {
+        waitUntil: "domcontentloaded",
+      });
 
-    // The banner is by the viewed source, not the chosen workspace.
-    const banner = page.locator(".remote-unavailable");
-    await banner.waitFor({ timeout: budget(30_000) });
-    expect(await banner.innerText()).toContain("unavailable");
-    // The remote's document is not loaded: no stale-or-blank editor shows it as current.
-    expect(await page.getByText("REMOTE PLAN").count()).toBe(0);
+      // The banner is by the viewed source, not the chosen workspace.
+      const banner = page.locator(".remote-unavailable");
+      await banner.waitFor({ timeout: budget(30_000) });
+      expect(await banner.innerText()).toContain("unavailable");
+      // The remote's document is not loaded: no stale-or-blank editor shows it as current.
+      expect(await page.getByText("REMOTE PLAN").count()).toBe(0);
 
-    // The remote comes up; Retry now recovers without a reload.
-    remote = startRemote(remotePort);
-    await banner.getByRole("button", { name: "Retry now" }).click();
-    await until(async () => (await page.locator(".remote-unavailable").count()), 0, budget(40_000));
-    expect(await page.locator(".remote-unavailable").count()).toBe(0);
-    await until(async () => (await page.getByText("Remote change").count()) > 0, true, budget(30_000));
-    expect(await page.getByText("Remote change").count()).toBeGreaterThan(0);
-    await until(async () => (await page.getByText("REMOTE PLAN").count()) > 0, true, budget(30_000));
-    expect(await page.getByText("REMOTE PLAN").count()).toBeGreaterThan(0);
-  } finally {
-    await page.close();
-  }
-}, budget(180_000));
+      // The remote comes up; Retry now recovers without a reload.
+      remote = startRemote(remotePort);
+      await banner.getByRole("button", { name: "Retry now" }).click();
+      await until(async () => await page.locator(".remote-unavailable").count(), 0, budget(40_000));
+      expect(await page.locator(".remote-unavailable").count()).toBe(0);
+      await until(async () => (await page.getByText("Remote change").count()) > 0, true, budget(30_000));
+      expect(await page.getByText("Remote change").count()).toBeGreaterThan(0);
+      await until(async () => (await page.getByText("REMOTE PLAN").count()) > 0, true, budget(30_000));
+      expect(await page.getByText("REMOTE PLAN").count()).toBeGreaterThan(0);
+    } finally {
+      await page.close();
+    }
+  },
+  budget(180_000),
+);

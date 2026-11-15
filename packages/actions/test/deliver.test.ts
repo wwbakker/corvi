@@ -79,13 +79,20 @@ test("the window rule: the one you are on when it fits, else the leftmost that d
   expect(selectTargetWindow(windows, "agent", "w-1")?.window).toBe("w-2"); // on a shell: leftmost agent
   expect(selectTargetWindow(windows, "here", "w-3")?.window).toBe("w-3"); // the window the menu was on
   expect(selectTargetWindow(windows, "here")?.window).toBe("w-2");
-  expect(selectTargetWindow(windows.filter((w) => w.kind === "plain"), "agent")).toBeUndefined();
+  expect(
+    selectTargetWindow(
+      windows.filter((w) => w.kind === "plain"),
+      "agent",
+    ),
+  ).toBeUndefined();
 });
 
 test("a prompt to the agent is pasted and left for reading; submit sends it", () => {
   const noSubmit = recording();
   const delivery = Effect.runSync(
-    deliverAction(noSubmit.sessions, request({})).pipe(Effect.orElseSucceed(() => ({ submitted: false, started: false }))),
+    deliverAction(noSubmit.sessions, request({})).pipe(
+      Effect.orElseSucceed(() => ({ submitted: false, started: false })),
+    ),
   );
   expect(delivery).toEqual({ submitted: false, started: false, window: { id: "w-2", label: "pi working" } });
   expect(noSubmit.calls).toEqual(["paste:w-2:Look at it"]);
@@ -126,10 +133,9 @@ test("a prompt into a new window uses its start, never a bare shell", () => {
 test("a command window runs the body; notify freezes it and announces the ending", () => {
   const plain = recording();
   Effect.runSync(
-    deliverAction(
-      plain.sessions,
-      request({ action: { ...command, notify: false }, text: "bun test" }),
-    ).pipe(Effect.orElseSucceed(() => ({ submitted: false, started: false }))),
+    deliverAction(plain.sessions, request({ action: { ...command, notify: false }, text: "bun test" })).pipe(
+      Effect.orElseSucceed(() => ({ submitted: false, started: false })),
+    ),
   );
   expect(plain.started).toEqual([{ command: "bun test", options: { keepOpen: false } }]);
 
@@ -160,7 +166,10 @@ test("a command in the shell you are on is pasted and submitted; nowhere is a re
 
   const none = recording();
   const failure = Effect.runSync(
-    deliverAction(none.sessions, request({ action: { ...command, target: "active" }, candidates: [], text: "bun test" })).pipe(
+    deliverAction(
+      none.sessions,
+      request({ action: { ...command, target: "active" }, candidates: [], text: "bun test" }),
+    ).pipe(
       Effect.map(() => "ran"),
       Effect.catch((e) => Effect.succeed("_tag" in e ? "refused" : "other")),
     ),

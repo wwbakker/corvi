@@ -13,9 +13,7 @@ const row = (item: Parameters<typeof Item>[0]["item"]): string =>
   renderToStaticMarkup(createElement(Item, { item, busy: false, onAction: () => {} }));
 
 test("a card that is fetching again says so, and one that is not, does not", () => {
-  expect(renderToStaticMarkup(createElement(Refreshing))).toBe(
-    '<span class="refreshing">refreshing…</span>',
-  );
+  expect(renderToStaticMarkup(createElement(Refreshing))).toBe('<span class="refreshing">refreshing…</span>');
 });
 
 test("a row says how long ago its build was, and the exact moment on hover", () => {

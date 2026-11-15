@@ -165,10 +165,8 @@ export const listSubagentsStrict = (
     return records.map((record) => toDto(record, live.get(record.id)));
   });
 
-export const showSubagent = (
-  change: Change,
-  id: string,
-): Effect.Effect<SubagentInstanceDto, NotFoundError> => refreshSubagent(change, id);
+export const showSubagent = (change: Change, id: string): Effect.Effect<SubagentInstanceDto, NotFoundError> =>
+  refreshSubagent(change, id);
 
 /** A filename-shaped id derived from the label, with a timestamp and a counter for uniqueness. */
 const uniqueId = (change: Change, label: string): Effect.Effect<string> =>
@@ -179,7 +177,9 @@ const uniqueId = (change: Change, label: string): Effect.Effect<string> =>
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-+|-+$/g, "")
         .slice(0, 24) || "subagent";
-    const stamp = now().replace(/[-:T.]/g, "").slice(0, 15);
+    const stamp = now()
+      .replace(/[-:T.]/g, "")
+      .slice(0, 15);
     for (let attempt = 1; ; attempt += 1) {
       const id = attempt === 1 ? `${slug}-${stamp}` : `${slug}-${stamp}-${attempt}`;
       const taken = yield* readInstance(changeDir(change), id);
@@ -190,7 +190,10 @@ const uniqueId = (change: Change, label: string): Effect.Effect<string> =>
 /** How an instance's window is opened. The default creates the host session and returns its id;
  * a test can supply one that returns a fake id, which is the only part of create/open that
  * touches the terminal substrate. The caller persists the id under the lock. */
-export type SubagentLauncher = (change: Change, record: SubagentRecord) => Effect.Effect<string, BadRequestError>;
+export type SubagentLauncher = (
+  change: Change,
+  record: SubagentRecord,
+) => Effect.Effect<string, BadRequestError>;
 
 /** The argv and working directory a subagent's host window runs: the harness pinned to the
  * subagent id (`--session-id`/`--session`), in the subagent's own directory. Pure, so the resume
@@ -299,9 +302,7 @@ export const createSubagent = (
             Effect.andThen(
               removeInstance(dir, id).pipe(
                 Effect.catch((cleanup) =>
-                  Effect.sync(() =>
-                    console.error(`could not roll back subagent ${id}:`, cleanup),
-                  ),
+                  Effect.sync(() => console.error(`could not roll back subagent ${id}:`, cleanup)),
                 ),
               ),
               Effect.fail(failure),
@@ -466,9 +467,7 @@ export const resultOfSubagent = (
       const reply = [...record.messages].reverse().find((message) => message.role === "subagent");
       return reply ?? null;
     }
-    const known = record.messages.some(
-      (message) => message.role !== "subagent" && message.number === turn,
-    );
+    const known = record.messages.some((message) => message.role !== "subagent" && message.number === turn);
     if (!known) {
       return yield* new BadRequestError({ message: `subagent ${id} has no inbound message ${turn}` });
     }
@@ -518,7 +517,6 @@ export const nextForSubagent = (
     }
   });
 
-
 export type AwaitInput = {
   /** The subagents to await; empty means every subagent of the change. */
   readonly ids: readonly string[];
@@ -546,10 +544,7 @@ export const awaitReady = (
   input: AwaitInput,
 ): Effect.Effect<SubagentAwaitResponseDto, NotFoundError | BadRequestError> =>
   Effect.gen(function* () {
-    if (
-      input.turn !== undefined &&
-      (!Number.isInteger(input.turn) || input.turn < 1)
-    ) {
+    if (input.turn !== undefined && (!Number.isInteger(input.turn) || input.turn < 1)) {
       return yield* new BadRequestError({ message: "turn needs a positive message number" });
     }
     if (input.turn !== undefined && (input.ids.length !== 1 || input.mode === "all")) {
@@ -587,9 +582,7 @@ export const awaitReady = (
           const step = yield* Effect.gen(function* () {
             const live = yield* liveBySubagent(change.id);
             const entry = live.get(id);
-            const record = yield* requireInstance(change, id).pipe(
-              Effect.catch(() => Effect.succeed(null)),
-            );
+            const record = yield* requireInstance(change, id).pipe(Effect.catch(() => Effect.succeed(null)));
             if (record === null) {
               return {
                 done: true as const,

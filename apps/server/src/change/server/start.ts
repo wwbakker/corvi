@@ -2,19 +2,10 @@ import { Effect } from "effect";
 
 import { ChangeId } from "@corvi/contracts/changes";
 import { ChangeWork, withCheckoutLock } from "@corvi/workflows";
-import {
-  BadRequestError,
-  ConflictError,
-  isIweError,
-  type IweError,
-} from "@corvi/contracts/errors";
+import { BadRequestError, ConflictError, isIweError, type IweError } from "@corvi/contracts/errors";
 import { messageOf } from "../../capabilities/effect/support.ts";
 import { type Change, type ProvisionResult } from "@corvi/changes/record";
-import {
-  finishCheckouts,
-  prepareCheckouts,
-  type RefreshOutcome,
-} from "../provisioning.ts";
+import { finishCheckouts, prepareCheckouts, type RefreshOutcome } from "../provisioning.ts";
 import { startTicket } from "../tickets.ts";
 import { changeWorkLayer } from "../lifecycle-layer.ts";
 import { changePairs, readChange } from "./store.ts";
@@ -69,9 +60,7 @@ const startBody = (change: Change): Effect.Effect<Started, IweError> =>
 
         const outcome = yield* work
           .startChange(ChangeId.make(change.id))
-          .pipe(
-            Effect.mapError((error): IweError => asIwe(change, error)),
-          );
+          .pipe(Effect.mapError((error): IweError => asIwe(change, error)));
 
         return yield* finishCheckouts(change, outcome.reports);
       }),

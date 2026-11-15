@@ -6,14 +6,7 @@ import { gateFailureOf } from "../app-root/sourceOwner.ts";
 import { RepoBrowser } from "../workspace/client/RepoBrowser.tsx";
 import { StepHost, type StepContext, type StepInfo, type StepPick } from "../integrations/client.tsx";
 import type { Workspace } from "../workspace/client/workspaces.ts";
-import {
-  planPatch,
-  seedPatch,
-  stepContext,
-  toChangeDraft,
-  type Draft,
-  type DraftPatch,
-} from "./draft.ts";
+import { planPatch, seedPatch, stepContext, toChangeDraft, type Draft, type DraftPatch } from "./draft.ts";
 import { firstHeading } from "./plan.ts";
 import { MarkdownEditor } from "../editor/client/MarkdownEditor.tsx";
 
@@ -85,8 +78,8 @@ export function Wizard({
     if (createBlocked) return;
     let alive = true;
     setSteps(undefined);
-    client
-      .wizard.spec(wireWorkspace)
+    client.wizard
+      .spec(wireWorkspace)
       .then((found) => {
         if (!alive) return;
         setSteps(found.steps);
@@ -135,8 +128,8 @@ export function Wizard({
   const create = (): void => {
     setBusy(true);
     setError(null);
-    client
-      .changes.create(toChangeDraft(draft, wireWorkspace))
+    client.changes
+      .create(toChangeDraft(draft, wireWorkspace))
       .then((created) => onCreated(created.change, created.provision, source))
       .catch((e: Error) => setError(e.message))
       .finally(() => setBusy(false));
@@ -182,13 +175,7 @@ export function Wizard({
         <div className="wizard-sections">
           {!steps && <span className="hint">loading…</span>}
           {issueSteps.map((info) => (
-            <StepField
-              key={info.id}
-              info={info}
-              ctx={ctx}
-              pick={picks[info.extension]}
-              source={source}
-            />
+            <StepField key={info.id} info={info} ctx={ctx} pick={picks[info.extension]} source={source} />
           ))}
 
           <div className="form">
@@ -242,13 +229,7 @@ export function Wizard({
           />
 
           {repoSteps.map((info) => (
-            <StepField
-              key={info.id}
-              info={info}
-              ctx={ctx}
-              pick={picks[info.extension]}
-              source={source}
-            />
+            <StepField key={info.id} info={info} ctx={ctx} pick={picks[info.extension]} source={source} />
           ))}
         </div>
       </div>
@@ -383,12 +364,11 @@ function ReposField({
       <dialog ref={ref} className="wide" onClose={() => setOpen(false)}>
         <h3>Repositories</h3>
         <p className="hint">
-          Select the repositories this change touches. Each one answers two questions: where its
-          checkout lives — a <b>new worktree</b> in the change directory, or the repository's own
-          checkout <b>in place</b> — and which branch it uses: the change&apos;s own (
-          <code>{branchLabel}</code>), an <b>existing branch</b>, or the checkout&apos;s{" "}
-          <b>current branch</b>. A new branch starts where <i>starts from</i> says, and a pull
-          request merges into <i>merges into</i>.
+          Select the repositories this change touches. Each one answers two questions: where its checkout
+          lives — a <b>new worktree</b> in the change directory, or the repository's own checkout{" "}
+          <b>in place</b> — and which branch it uses: the change&apos;s own (<code>{branchLabel}</code>), an{" "}
+          <b>existing branch</b>, or the checkout&apos;s <b>current branch</b>. A new branch starts where{" "}
+          <i>starts from</i> says, and a pull request merges into <i>merges into</i>.
         </p>
         <RepoBrowser
           workspace={workspace}

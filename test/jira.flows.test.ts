@@ -6,16 +6,8 @@ import { Cache, Settings } from "@corvi/contracts/capabilities";
 import type { Capabilities } from "../apps/server/src/integrations/api/capabilities.ts";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
 import { CacheLive, capabilitiesLayer } from "../apps/server/src/integrations/services.ts";
-import {
-  createChange,
-  readChange,
-  writeChange,
-} from "../apps/server/src/change/server/index.ts";
-import {
-  runtimeConfig,
-  workspaceById,
-  type Workspace,
-} from "../apps/server/src/workspace/server/index.ts";
+import { createChange, readChange, writeChange } from "../apps/server/src/change/server/index.ts";
+import { runtimeConfig, workspaceById, type Workspace } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "@corvi/changes/record";
 import jiraExtension from "@corvi/jira";
 import {
@@ -39,7 +31,7 @@ import { assignIssue, moveIssueOnStart } from "@corvi/jira";
 import { assignTicketOnCreate, startTicket } from "../apps/server/src/change/tickets.ts";
 import { jiraFetch } from "@corvi/jira/jiraHttp";
 import { accountId } from "@corvi/jira/account";
-import { checkoutsOf, runEffect, testTempDir  } from "./helpers.ts";
+import { checkoutsOf, runEffect, testTempDir } from "./helpers.ts";
 
 /**
  * The Jira extension's server half, driven through a stubbed `fetch`. Every test states its site
@@ -75,9 +67,7 @@ const text = (body: string, status = 200, statusText?: string): Response =>
 
 const noContent = (): Response => new Response(null, { status: 204 });
 
-const runEither = <A, E>(
-  effect: Effect.Effect<A, E, Settings | Cache>,
-): Promise<Result.Result<A, E>> =>
+const runEither = <A, E>(effect: Effect.Effect<A, E, Settings | Cache>): Promise<Result.Result<A, E>> =>
   Effect.runPromise(
     Effect.result(Effect.provide(Effect.provideService(effect, Settings, runtimeConfig()), CacheLive)),
   );
@@ -187,9 +177,7 @@ test("jiraFetch asks the site with basic auth and only the defined query paramet
 
   expect(result).toEqual({ ok: true });
   const call = fetchCalls[0]!;
-  expect(call.url.origin + call.url.pathname).toBe(
-    "https://example.atlassian.net/rest/api/3/issue/PROJ-1",
-  );
+  expect(call.url.origin + call.url.pathname).toBe("https://example.atlassian.net/rest/api/3/issue/PROJ-1");
   expect(call.url.searchParams.get("fields")).toBe("summary");
   // An undefined query value is not sent at all, rather than sent as the string "undefined".
   expect(call.url.searchParams.has("nextPageToken")).toBe(false);
@@ -225,9 +213,7 @@ test("jiraFetch reads an empty response body as no value", async () => {
 
 test("jiraFetch maps Jira's errorMessages and errors onto one line", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  stubFetch(() =>
-    json({ errorMessages: ["Issue does not exist"], errors: { summary: "is required" } }, 400),
-  );
+  stubFetch(() => json({ errorMessages: ["Issue does not exist"], errors: { summary: "is required" } }, 400));
 
   const either = await runEither(jiraFetch("/rest/api/3/issue/PROJ-1", { site: SITE }));
   expect(Result.isFailure(either)).toBe(true);
@@ -306,9 +292,7 @@ test("jiraFetch names the field that is not configured, and asks Jira nothing", 
 
   // A token, absolutely not: the failure is decided before the request.
   setEnv("JIRA_API_TOKEN", undefined);
-  const noToken = await runEither(
-    jiraFetch("/x", { site: { server: SITE.server, email: SITE.email } }),
-  );
+  const noToken = await runEither(jiraFetch("/x", { site: { server: SITE.server, email: SITE.email } }));
   if (Result.isFailure(noToken)) {
     expect(noToken.failure.message).toBe(
       "no Jira token for this workspace — set API token in Settings, or export JIRA_API_TOKEN",
@@ -403,7 +387,9 @@ test("siteOfWorkspace overrides the default site field by field", () => {
 
   // Its own bag wins where it speaks, and inherits where it is silent.
   expect(
-    siteOfWorkspace(runtimeConfig(), { settings: { extensionSettings: { jira: { project: "PROJ", token: "own-token" } } } }),
+    siteOfWorkspace(runtimeConfig(), {
+      settings: { extensionSettings: { jira: { project: "PROJ", token: "own-token" } } },
+    }),
   ).toEqual({
     server: "https://default.example",
     email: "default@example.com",
@@ -424,7 +410,11 @@ test("a workspace that names its own token variable does not inherit the default
 
   // It says where its credential comes from, so the default's stored token is not also its own —
   // otherwise one client's token would be sent to another with no way to say otherwise.
-  expect(siteOfWorkspace(runtimeConfig(), { settings: { extensionSettings: { jira: { tokenEnv: "CLIENT_TOKEN" } } } })).toEqual({
+  expect(
+    siteOfWorkspace(runtimeConfig(), {
+      settings: { extensionSettings: { jira: { tokenEnv: "CLIENT_TOKEN" } } },
+    }),
+  ).toEqual({
     server: SITE.server,
     email: SITE.email,
     project: undefined,
@@ -553,7 +543,9 @@ test("the board is found from the project when Board is not set", async () => {
         : text("unexpected", 500),
   );
 
-  expect(await runEffect(listSprints({ server: SITE.server, email: SITE.email, project: "PROJ" }))).toEqual([]);
+  expect(await runEffect(listSprints({ server: SITE.server, email: SITE.email, project: "PROJ" }))).toEqual(
+    [],
+  );
   expect(fetchCalls[0]!.url.pathname).toBe("/rest/agile/1.0/board");
   expect(fetchCalls[0]!.url.searchParams.get("projectLocation")).toBe("PROJ");
   expect(fetchCalls[1]!.url.pathname).toBe("/rest/agile/1.0/board/169/sprint");
@@ -639,7 +631,9 @@ test("several located boards are named, even when the filter would answer one", 
   const result = await runEither(listSprints({ server: SITE.server, email: SITE.email, project: "FF" }));
 
   if (Result.isFailure(result)) {
-    expect(result.failure.message).toBe("project FF has 2 boards: Alpha (1), Beta (2) — set Board in Settings");
+    expect(result.failure.message).toBe(
+      "project FF has 2 boards: Alpha (1), Beta (2) — set Board in Settings",
+    );
   } else {
     throw new Error("expected an ambiguous project to be refused");
   }
@@ -661,7 +655,9 @@ test("the board list is paged while Jira says there is more", async () => {
 
   // The second page is what makes it ambiguous: one page alone would have picked Alpha.
   if (Result.isFailure(result)) {
-    expect(result.failure.message).toBe("project PROJ has 2 boards: Alpha (1), Beta (2) — set Board in Settings");
+    expect(result.failure.message).toBe(
+      "project PROJ has 2 boards: Alpha (1), Beta (2) — set Board in Settings",
+    );
   } else {
     throw new Error("expected the second page to be read");
   }
@@ -676,7 +672,9 @@ test("the board choice: located boards are trusted as answered, the filter's are
   expect(chooseLocatedBoard("SBS", [])).toBeUndefined();
 
   // The filter's board in the project itself, by key or id, counts as its own.
-  expect(chooseFilteredBoard("SBS", [{ id: 1, name: "A", location: { projectKey: "SBS" } }])).toEqual({ id: "1" });
+  expect(chooseFilteredBoard("SBS", [{ id: 1, name: "A", location: { projectKey: "SBS" } }])).toEqual({
+    id: "1",
+  });
   expect(
     chooseFilteredBoard("15686", [{ id: 1, name: "A", location: { projectKey: "SBS", projectId: 15686 } }]),
   ).toEqual({ id: "1" });
@@ -687,14 +685,17 @@ test("the board choice: located boards are trusted as answered, the filter's are
       { id: 2, name: "B", location: { projectKey: "OTHER" } },
     ]),
   ).toEqual({ id: "1" });
-  expect(chooseFilteredBoard("SBS", [])).toEqual({ problem: "no board in project SBS — set Board in Settings" });
+  expect(chooseFilteredBoard("SBS", [])).toEqual({
+    problem: "no board in project SBS — set Board in Settings",
+  });
 });
 
 test("a lowercase, padded project is sent as its key everywhere", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
   runtimeConfig().workspaces = [jiraWorkspace("case-ws", { project: " proj ", board: "" })];
   stubFetch((url, init) => {
-    if (url.pathname === "/rest/agile/1.0/board") return json({ values: [{ id: 7, name: "PROJ" }], isLast: true });
+    if (url.pathname === "/rest/agile/1.0/board")
+      return json({ values: [{ id: 7, name: "PROJ" }], isLast: true });
     if (url.pathname === "/rest/agile/1.0/board/7/sprint") return json({ values: [] });
     if (url.pathname === "/rest/api/3/search/jql") return json({ issues: [] });
     if (url.pathname === "/rest/api/3/issue" && init?.method === "POST") return json({ key: "PROJ-1" });
@@ -710,8 +711,9 @@ test("a lowercase, padded project is sent as its key everywhere", async () => {
   expect(call("/rest/api/3/search/jql").url.searchParams.get("jql")).toBe(
     "project = PROJ AND sprint is EMPTY AND statusCategory != Done ORDER BY rank",
   );
-  const fields = (JSON.parse(call("/rest/api/3/issue").init?.body as string) as { fields: Record<string, unknown> })
-    .fields;
+  const fields = (
+    JSON.parse(call("/rest/api/3/issue").init?.body as string) as { fields: Record<string, unknown> }
+  ).fields;
   expect(fields["project"]).toEqual({ key: "PROJ" });
 });
 
@@ -719,7 +721,14 @@ test("a project with several boards is asked about rather than guessed, and none
   setEnv("JIRA_API_TOKEN", "secret");
   const site = { server: SITE.server, email: SITE.email, project: "PROJ" };
 
-  stubFetch(() => json({ values: [{ id: 1, name: "Alpha" }, { id: 2, name: "Beta" }] }));
+  stubFetch(() =>
+    json({
+      values: [
+        { id: 1, name: "Alpha" },
+        { id: 2, name: "Beta" },
+      ],
+    }),
+  );
   const several = await runEither(listSprints(site));
   if (Result.isFailure(several)) {
     expect(several.failure.message).toBe(
@@ -768,7 +777,9 @@ test("boardIssues groups sprints and the backlog, filtered to workable types", a
       });
     }
     if (url.pathname === "/rest/agile/1.0/board/169/sprint/2/issue") {
-      return json({ issues: [{ key: "PROJ-2", fields: { summary: "Two", assignee: null, issuetype: { name: "Bug" } } }] });
+      return json({
+        issues: [{ key: "PROJ-2", fields: { summary: "Two", assignee: null, issuetype: { name: "Bug" } } }],
+      });
     }
     if (url.pathname === "/rest/api/3/search/jql") {
       // The backlog is paged: the first page names a token, the second does not.
@@ -856,9 +867,7 @@ test("two workspaces on one site do not share a board", async () => {
     jiraWorkspace("alpha-ws", { board: "1" }),
     jiraWorkspace("beta-ws", { board: "2" }),
   ];
-  stubFetch((url) =>
-    url.pathname.endsWith("/sprint") ? json({ values: [] }) : json({ issues: [] }),
-  );
+  stubFetch((url) => (url.pathname.endsWith("/sprint") ? json({ values: [] }) : json({ issues: [] })));
 
   await runEffect(boardIssues("alpha-ws"));
   await runEffect(boardIssues("beta-ws"));
@@ -962,13 +971,20 @@ test("createIssue skips assignment when asked and omits an empty description", a
   );
 
   const issue = await runEffect(
-    createIssue({ summary: "Only the issue", description: "   ", type: "Bug", assignToMe: false, workspace: "create-ws" }),
+    createIssue({
+      summary: "Only the issue",
+      description: "   ",
+      type: "Bug",
+      assignToMe: false,
+      workspace: "create-ws",
+    }),
   );
 
   expect(issue.type).toBe("Bug");
   // One request and no more: no account lookup, no assignee call.
   expect(fetchCalls.length).toBe(1);
-  const fields = (JSON.parse(fetchCalls[0]!.init?.body as string) as { fields: Record<string, unknown> }).fields;
+  const fields = (JSON.parse(fetchCalls[0]!.init?.body as string) as { fields: Record<string, unknown> })
+    .fields;
   expect(fields["description"]).toBeUndefined();
   expect(fields["issuetype"]).toEqual({ name: "Bug" });
 });
@@ -996,7 +1012,8 @@ test("createIssue looks up a configured name and assigns the account it finds", 
   runtimeConfig().workspaces = [jiraWorkspace("create-ws", { assignee: "ada@example.com" })];
   stubFetch((url, init) => {
     if (url.pathname === "/rest/api/3/issue" && init?.method === "POST") return json({ key: "PROJ-12" });
-    if (url.pathname === "/rest/api/3/user/search") return json([{ accountId: "acc-search", displayName: "Ada" }]);
+    if (url.pathname === "/rest/api/3/user/search")
+      return json([{ accountId: "acc-search", displayName: "Ada" }]);
     if (url.pathname.endsWith("/assignee")) return noContent();
     return text("unexpected", 500);
   });
@@ -1068,7 +1085,14 @@ test("moveIssue finds the transition by name or destination and posts it", async
 
 test("moveIssue lists the available transitions when the name is not one of them", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  stubFetch(() => json({ transitions: [{ id: "1", name: "To Do" }, { id: "2", name: "In Progress" }] }));
+  stubFetch(() =>
+    json({
+      transitions: [
+        { id: "1", name: "To Do" },
+        { id: "2", name: "In Progress" },
+      ],
+    }),
+  );
 
   const either = await runEither(moveIssue("PROJ-1", "Done", SITE));
   if (Result.isFailure(either)) {
@@ -1196,7 +1220,9 @@ test("issueByKey reads one issue and answers undefined when it cannot", async ()
 
 test("accountId asks for the token's own account when nothing is configured", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  stubFetch((url) => (url.pathname === "/rest/api/3/myself" ? json({ accountId: "acc-me" }) : text("unexpected", 500)));
+  stubFetch((url) =>
+    url.pathname === "/rest/api/3/myself" ? json({ accountId: "acc-me" }) : text("unexpected", 500),
+  );
   expect(await runEffect(accountId("   ", SITE))).toBe("acc-me");
 
   // A token with no readable account id is no account to assign to.
@@ -1208,12 +1234,14 @@ test("accountId passes an id through and searches for a name or email", async ()
   setEnv("JIRA_API_TOKEN", "secret");
 
   stubFetch(() => text("never", 500));
-  expect(await runEffect(accountId("5b10ac8d82e05b22cc7d4ef5", SITE))).toBe(
-    "5b10ac8d82e05b22cc7d4ef5",
-  );
+  expect(await runEffect(accountId("5b10ac8d82e05b22cc7d4ef5", SITE))).toBe("5b10ac8d82e05b22cc7d4ef5");
   expect(fetchCalls.length).toBe(0);
 
-  stubFetch((url) => (url.pathname === "/rest/api/3/user/search" ? json([{ accountId: "acc-search" }]) : text("unexpected", 500)));
+  stubFetch((url) =>
+    url.pathname === "/rest/api/3/user/search"
+      ? json([{ accountId: "acc-search" }])
+      : text("unexpected", 500),
+  );
   expect(await runEffect(accountId("Ada Lovelace", SITE))).toBe("acc-search");
   expect(fetchCalls[0]!.url.searchParams.get("query")).toBe("Ada Lovelace");
 
@@ -1232,9 +1260,7 @@ test("an unconfigured Jira leaves the wizard's table empty, and still usable", a
   runtimeConfig().workspaces = [bareWorkspace("bare-ws")];
   stubFetch(() => text("never", 500));
 
-  const response = await runEffect(
-    getIssues.handler(new Request("http://x/issues?workspace=bare-ws")),
-  );
+  const response = await runEffect(getIssues.handler(new Request("http://x/issues?workspace=bare-ws")));
 
   // A page, not a failure: the step renders this beside an empty table and lets you type an id.
   expect(response.status).toBe(200);
@@ -1297,9 +1323,7 @@ const runLink = <A, E>(effect: Effect.Effect<A, E, Capabilities>): Promise<A> =>
   Effect.runPromise(Effect.provide(effect, capabilitiesLayer(workspaceById(undefined), "jira")));
 
 /** The same, capturing a refusal instead of rejecting with it. */
-const runLinkEither = <A, E>(
-  effect: Effect.Effect<A, E, Capabilities>,
-): Promise<Result.Result<A, E>> =>
+const runLinkEither = <A, E>(effect: Effect.Effect<A, E, Capabilities>): Promise<Result.Result<A, E>> =>
   Effect.runPromise(
     Effect.result(Effect.provide(effect, capabilitiesLayer(workspaceById(undefined), "jira"))),
   );
@@ -1338,9 +1362,7 @@ test("the link route refuses a finished change: its completion already moved its
       extensions: { jira: { key: "PROJ-1" } },
     }),
   );
-  await runEffect(
-    writeChange({ ...created, state: "Completed", completedAt: "2026-01-02T00:00:00.000Z" }),
-  );
+  await runEffect(writeChange({ ...created, state: "Completed", completedAt: "2026-01-02T00:00:00.000Z" }));
 
   const either = await runLinkEither(
     putLink.handler(
@@ -1366,14 +1388,11 @@ test("the link route 404s an unknown change and refuses a body with no key", asy
   );
   expect(Result.isFailure(missing) && missing.failure._tag).toBe("NotFoundError");
 
-  await runEffect(
-    createChange({ id: "PROJ-LINK-KEY", state: "Ideation", checkouts: checkoutsOf([]) }),
-  );
+  await runEffect(createChange({ id: "PROJ-LINK-KEY", state: "Ideation", checkouts: checkoutsOf([]) }));
   const blank = await runLinkEither(
-    putLink.handler(
-      new Request("http://x/link", { method: "PUT", body: JSON.stringify({ key: "   " }) }),
-      { id: "PROJ-LINK-KEY" },
-    ),
+    putLink.handler(new Request("http://x/link", { method: "PUT", body: JSON.stringify({ key: "   " }) }), {
+      id: "PROJ-LINK-KEY",
+    }),
   );
   expect(Result.isFailure(blank) && blank.failure._tag).toBe("BadRequestError");
 });
@@ -1400,8 +1419,7 @@ const startStub = (options: {
     if (url.pathname === "/rest/api/3/issue/PROJ-1/transitions" && method === "POST") return noContent();
     if (url.pathname === "/rest/api/3/search/jql")
       return json({ issues: options.backlog === false ? [] : [{ key: "PROJ-1" }] });
-    if (url.pathname === "/rest/agile/1.0/board/169/sprint")
-      return json({ values: options.sprints ?? [] });
+    if (url.pathname === "/rest/agile/1.0/board/169/sprint") return json({ values: options.sprints ?? [] });
     // Jira's move endpoint is singular /issue; the plural /issues route does not exist.
     if (/^\/rest\/agile\/1\.0\/sprint\/\d+\/issue$/.test(url.pathname) && method === "POST")
       return options.sprintMoveStatus && options.sprintMoveStatus >= 400
@@ -1514,9 +1532,9 @@ test("a failed sprint move says what happened after the status moved", async () 
     /is In Progress, but the sprint move failed/,
   );
   // The transition is the move that matters, and it happened.
-  expect(
-    fetchCalls.some((c) => c.url.pathname.endsWith("/transitions") && c.init?.method === "POST"),
-  ).toBe(true);
+  expect(fetchCalls.some((c) => c.url.pathname.endsWith("/transitions") && c.init?.method === "POST")).toBe(
+    true,
+  );
 });
 
 test("equal start dates fall to the later sprint id", async () => {

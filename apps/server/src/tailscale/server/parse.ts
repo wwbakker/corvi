@@ -88,11 +88,7 @@ export const parseServeMappings = (stdout: string): ServeMapping[] => {
     for (const handler of Object.values(handlers)) {
       const proxy = asRecord(handler)?.["Proxy"];
       const targetPort = typeof proxy === "string" ? targetPortOf(proxy) : undefined;
-      mappings.push(
-        targetPort === undefined
-          ? { externalPort, host }
-          : { externalPort, host, targetPort },
-      );
+      mappings.push(targetPort === undefined ? { externalPort, host } : { externalPort, host, targetPort });
     }
   }
   return mappings;
@@ -125,4 +121,7 @@ export const decideServe = (mappings: readonly ServeMapping[], port: number): Se
 
 /** The first non-empty line of a command's stderr, for an error the UI can show. */
 export const firstLine = (text: string): string =>
-  text.split("\n").find((line) => line.trim().length > 0)?.trim() ?? "";
+  text
+    .split("\n")
+    .find((line) => line.trim().length > 0)
+    ?.trim() ?? "";

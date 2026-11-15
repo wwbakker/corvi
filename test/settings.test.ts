@@ -2,7 +2,13 @@ import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
 import { mkdtemp, rm, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MASK, problems, settingsViewSync, writeSettings, type Settings } from "../apps/server/src/settings/server/index.ts";
+import {
+  MASK,
+  problems,
+  settingsViewSync,
+  writeSettings,
+  type Settings,
+} from "../apps/server/src/settings/server/index.ts";
 import { runtimeConfig, reloadConfigSync, type Config } from "../apps/server/src/workspace/server/index.ts";
 import { runEffect } from "./helpers.ts";
 
@@ -64,9 +70,7 @@ test("what cannot be written", () => {
       ],
     }),
   ).toEqual(['two workspaces share the id "client"']);
-  expect(problems({ workspaces: [{ id: "client", name: "" }] })).toEqual([
-    'workspace "client" has no name',
-  ]);
+  expect(problems({ workspaces: [{ id: "client", name: "" }] })).toEqual(['workspace "client" has no name']);
 
   // A directory copied into a worktree is a name next to the code, never a way out of it.
   expect(problems({ worktreeCopy: ["../.ssh"] })).toEqual([
@@ -173,9 +177,7 @@ test("a key the file no longer has does not survive a reload", async () => {
   // reload must drop what the file dropped, or the settings page cannot undo a hand edit.
   await Bun.write(file, JSON.stringify({ jiraDoneTransition: "Ready for release" }));
   reloadConfigSync();
-  expect((runtimeConfig() as { jiraDoneTransition?: string }).jiraDoneTransition).toBe(
-    "Ready for release",
-  );
+  expect((runtimeConfig() as { jiraDoneTransition?: string }).jiraDoneTransition).toBe("Ready for release");
 
   await Bun.write(file, JSON.stringify({}));
   reloadConfigSync();
@@ -285,12 +287,14 @@ test("an extension setting the environment overrides is reported as locked too",
 });
 
 test("the extensions' own settings round-trip, strings and string lists", async () => {
-  await runEffect(writeSettings({
-    extensionSettings: {
-      jira: { assignee: "me@example.com" },
-      "azure-devops": { environments: ["dev", "accept"], pipeline: ["build-", "deploy-"] },
-    },
-  }));
+  await runEffect(
+    writeSettings({
+      extensionSettings: {
+        jira: { assignee: "me@example.com" },
+        "azure-devops": { environments: ["dev", "accept"], pipeline: ["build-", "deploy-"] },
+      },
+    }),
+  );
 
   const written = JSON.parse(await readFile(file, "utf8")) as {
     extensionSettings?: Config["extensionSettings"];
@@ -305,12 +309,14 @@ test("the extensions' own settings round-trip, strings and string lists", async 
 
   // A later save keeps what the extensions wrote, and clearing a field means unset: the empty
   // string goes, the list stays.
-  await runEffect(writeSettings({
-    extensionSettings: {
-      jira: { assignee: "" },
-      "azure-devops": { environments: ["dev", "accept"] },
-    },
-  }));
+  await runEffect(
+    writeSettings({
+      extensionSettings: {
+        jira: { assignee: "" },
+        "azure-devops": { environments: ["dev", "accept"] },
+      },
+    }),
+  );
   const again = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   expect(again.extensionSettings).toEqual({
     "azure-devops": { environments: ["dev", "accept"] },
@@ -322,7 +328,11 @@ test("a declared secret never reaches the page, and not retyping it keeps it", a
     writeSettings({
       extensionSettings: { jira: { server: "https://x.example", token: "root-secret" } },
       workspaces: [
-        { id: "client", name: "Client", settings: { extensionSettings: { jira: { token: "client-secret" } } } },
+        {
+          id: "client",
+          name: "Client",
+          settings: { extensionSettings: { jira: { token: "client-secret" } } },
+        },
       ],
     }),
   );
@@ -336,12 +346,16 @@ test("a declared secret never reaches the page, and not retyping it keeps it", a
   // The running config still holds the real one: the redaction copies rather than mutating the
   // object every request is reading.
   expect(runtimeConfig().extensionSettings?.["jira"]?.["token"]).toBe("root-secret");
-  expect(runtimeConfig().workspaces[0]?.settings?.extensionSettings?.["jira"]?.["token"]).toBe("client-secret");
+  expect(runtimeConfig().workspaces[0]?.settings?.extensionSettings?.["jira"]?.["token"]).toBe(
+    "client-secret",
+  );
 
   // A save that sends the mask back — a page that edited anything else — keeps what is stored.
   await runEffect(writeSettings(view.file));
   expect(runtimeConfig().extensionSettings?.["jira"]?.["token"]).toBe("root-secret");
-  expect(runtimeConfig().workspaces[0]?.settings?.extensionSettings?.["jira"]?.["token"]).toBe("client-secret");
+  expect(runtimeConfig().workspaces[0]?.settings?.extensionSettings?.["jira"]?.["token"]).toBe(
+    "client-secret",
+  );
   const kept = await readFile(file, "utf8");
   expect(kept).toContain("root-secret");
   expect(kept).not.toContain(MASK);

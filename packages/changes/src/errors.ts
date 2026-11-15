@@ -1,10 +1,10 @@
 /** Capability errors for changes and their repository links. Every one of them carries the
  * sentence the user sees (`messageOf`, `formatError`): an error without one reaches a transport
  * boundary as an empty string, which is rendered as the error's type name instead. */
-import { Schema } from "effect"
+import { Schema } from "effect";
 
-import { ChangeId, ChangePhase, DirectoryName, RepositoryId } from "@corvi/contracts/changes"
-import { ShelfId } from "@corvi/contracts/shelves"
+import { ChangeId, ChangePhase, DirectoryName, RepositoryId } from "@corvi/contracts/changes";
+import { ShelfId } from "@corvi/contracts/shelves";
 
 export class ChangeNotFound extends Schema.TaggedError<ChangeNotFound>()("ChangeNotFound", {
   changeId: ChangeId,
@@ -42,24 +42,18 @@ export class ChangeStoreError extends Schema.TaggedError<ChangeStoreError>()("Ch
 
 /** The record was written by a newer Corvi: it is read best-effort, but nothing writes it — a
  * format this version does not understand must not be flattened into one it does. */
-export class ChangeFormatTooNew extends Schema.TaggedError<ChangeFormatTooNew>()(
-  "ChangeFormatTooNew",
-  {
-    changeId: ChangeId,
-    recordFormat: Schema.Number,
-    appFormat: Schema.Number,
-    message: Schema.String,
-  },
-) {}
+export class ChangeFormatTooNew extends Schema.TaggedError<ChangeFormatTooNew>()("ChangeFormatTooNew", {
+  changeId: ChangeId,
+  recordFormat: Schema.Number,
+  appFormat: Schema.Number,
+  message: Schema.String,
+}) {}
 
-export class RepositoryNotFound extends Schema.TaggedError<RepositoryNotFound>()(
-  "RepositoryNotFound",
-  {
-    changeId: ChangeId,
-    repositoryId: RepositoryId,
-    message: Schema.String,
-  },
-) {}
+export class RepositoryNotFound extends Schema.TaggedError<RepositoryNotFound>()("RepositoryNotFound", {
+  changeId: ChangeId,
+  repositoryId: RepositoryId,
+  message: Schema.String,
+}) {}
 
 export class DuplicateDirectoryName extends Schema.TaggedError<DuplicateDirectoryName>()(
   "DuplicateDirectoryName",
@@ -70,15 +64,12 @@ export class DuplicateDirectoryName extends Schema.TaggedError<DuplicateDirector
   },
 ) {}
 
-export class RepositoryStoreError extends Schema.TaggedError<RepositoryStoreError>()(
-  "RepositoryStoreError",
-  {
-    changeId: ChangeId,
-    operation: Schema.Literals(["read", "write"]),
-    message: Schema.String,
-    cause: Schema.optional(Schema.Unknown),
-  },
-) {}
+export class RepositoryStoreError extends Schema.TaggedError<RepositoryStoreError>()("RepositoryStoreError", {
+  changeId: ChangeId,
+  operation: Schema.Literals(["read", "write"]),
+  message: Schema.String,
+  cause: Schema.optional(Schema.Unknown),
+}) {}
 
 export class ShelfNotFound extends Schema.TaggedError<ShelfNotFound>()("ShelfNotFound", {
   changeId: ChangeId,

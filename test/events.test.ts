@@ -1,7 +1,7 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { checkoutsOf, runSh, serverEnv, testRun, testTempDir, waitForUrl  } from "./helpers.ts";
+import { checkoutsOf, runSh, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
 
 /**
  * The push side of the pages: one connection that says when something changed, instead of every

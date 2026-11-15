@@ -55,8 +55,8 @@ export function useWorkspaces(): {
   // Read again after the settings page writes them: a context that has just been renamed should
   // not still be in the switcher under its old name.
   const reload = (): Promise<void> =>
-    apiClient
-      .workspaces.list()
+    apiClient.workspaces
+      .list()
       .then(({ workspaces: next, platform: told }) => {
         setWorkspaces(next);
         setPlatform(told);
@@ -126,8 +126,8 @@ export function usePages(
     if (!available) return; // retained: the same generation's last good list stands
     // Alive guards the context-change race: only the latest fetch may answer.
     let alive = true;
-    client
-      .workspaces.pages(workspaceId)
+    client.workspaces
+      .pages(workspaceId)
       .then((pages) => {
         if (!alive) return;
         setPages(pages);
@@ -143,8 +143,8 @@ export function usePages(
     };
   }, [workspaceId, client, generation, available]);
   const reload = useCallback(() => {
-    client
-      .workspaces.pages(workspaceId)
+    client.workspaces
+      .pages(workspaceId)
       .then((pages) => {
         setPages(pages);
         setSettled(true);
@@ -158,10 +158,8 @@ export function usePages(
  * Which context a change belongs to. A change that names none belongs to the first context,
  * which is where a change written outside any workspace sits.
  */
-export const workspaceOf = (
-  change: { readonly workspace?: string },
-  workspaces: Workspace[],
-): string => change.workspace ?? workspaces[0]?.id ?? ALL;
+export const workspaceOf = (change: { readonly workspace?: string }, workspaces: Workspace[]): string =>
+  change.workspace ?? workspaces[0]?.id ?? ALL;
 
 /** The changes of one context, or all of them. */
 export const inWorkspace = <T extends { readonly workspace?: string }>(

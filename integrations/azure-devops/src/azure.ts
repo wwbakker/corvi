@@ -59,9 +59,9 @@ const globalAzure = (settings: Config): AzureSite => azureOf({}, settings);
 const shResult = (cmd: string[]): Effect.Effect<{ code: number; stdout: string }, never, Shell | Workspace> =>
   Effect.gen(function* () {
     const shell = yield* Shell;
-    return yield* shell.run(cmd).pipe(
-      Effect.catch((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
-    );
+    return yield* shell
+      .run(cmd)
+      .pipe(Effect.catch((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })));
   });
 
 export const azDefaults = (): Effect.Effect<
@@ -104,9 +104,11 @@ const loadDefaults = (): Effect.Effect<
  */
 export type Az = { key: string; args: string[]; organization?: string; project?: string };
 
-export const azFor = (
-  workspace: { id: string; settings?: { extensionSettings?: Record<string, Record<string, string | string[]>> }; azure?: unknown },
-): Effect.Effect<Az, never, Shell | Workspace | Cache | Settings> =>
+export const azFor = (workspace: {
+  id: string;
+  settings?: { extensionSettings?: Record<string, Record<string, string | string[]>> };
+  azure?: unknown;
+}): Effect.Effect<Az, never, Shell | Workspace | Cache | Settings> =>
   Effect.gen(function* () {
     const settings = yield* Settings;
     const own = azureOf(workspace, settings);

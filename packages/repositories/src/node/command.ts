@@ -1,8 +1,8 @@
 /** Process execution port for the Git adapter. The node layer is the only real implementation;
  * tests script it. Never runs through a shell, so arguments stay arguments.
  */
-import { spawn } from "node:child_process"
-import { Context, Effect, Layer, Schema } from "effect"
+import { spawn } from "node:child_process";
+import { Context, Effect, Layer, Schema } from "effect";
 
 export class CommandError extends Schema.TaggedError<CommandError>()("CommandError", {
   program: Schema.String,
@@ -13,19 +13,19 @@ export class CommandError extends Schema.TaggedError<CommandError>()("CommandErr
 }) {}
 
 export interface CommandResult {
-  readonly exitCode: number
+  readonly exitCode: number;
   /** May arrive trimmed: a host's runner (the app's Shell) strips surrounding whitespace, so a
    * parser must not depend on a leading space. */
-  readonly stdout: string
-  readonly stderr: string
+  readonly stdout: string;
+  readonly stderr: string;
 }
 
 export interface CommandInterface {
   readonly run: (input: {
-    readonly program: string
-    readonly args: readonly string[]
-    readonly cwd: string
-  }) => Effect.Effect<CommandResult, CommandError>
+    readonly program: string;
+    readonly args: readonly string[];
+    readonly cwd: string;
+  }) => Effect.Effect<CommandResult, CommandError>;
 }
 
 export class Command extends Context.Service<Command, CommandInterface>()("corvi/Command") {}
@@ -41,22 +41,22 @@ export const nodeCommand: CommandInterface = {
             cwd,
             env: process.env,
             stdio: ["ignore", "pipe", "pipe"],
-          })
-          let stdout = ""
-          let stderr = ""
-          child.stdout.setEncoding("utf8")
-          child.stderr.setEncoding("utf8")
+          });
+          let stdout = "";
+          let stderr = "";
+          child.stdout.setEncoding("utf8");
+          child.stderr.setEncoding("utf8");
           child.stdout.on("data", (chunk: string) => {
-            stdout += chunk
-          })
+            stdout += chunk;
+          });
           child.stderr.on("data", (chunk: string) => {
-            stderr += chunk
-          })
-          child.on("error", (cause) => reject(cause))
-          child.on("close", (code) => resolve({ exitCode: code ?? -1, stdout, stderr }))
+            stderr += chunk;
+          });
+          child.on("error", (cause) => reject(cause));
+          child.on("close", (code) => resolve({ exitCode: code ?? -1, stdout, stderr }));
         }),
       catch: (cause) => new CommandError({ program, message: `could not run ${program}`, cause }),
     }),
-}
+};
 
-export const layer = Layer.succeed(Command, nodeCommand)
+export const layer = Layer.succeed(Command, nodeCommand);

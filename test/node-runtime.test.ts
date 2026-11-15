@@ -87,21 +87,17 @@ afterAll(async () => {
   if (tmp !== undefined) await rm(tmp, { recursive: true, force: true });
 });
 
-test(
-  "the server runs on Electron's Node, page and all",
-  async () => {
-    const page = await fetch(url).then((r) => r.text());
-    expect(page).toContain("<!doctype html>");
-    expect(page).toContain('id="root"');
-    // The page's script is the esbuild bundle the server made on its first page request.
-    expect(page).toContain('src="./app.js"');
-    const script = await fetch(`${url}app.js`).then((r) => r.text());
-    expect(script.length).toBeGreaterThan(10_000);
+test("the server runs on Electron's Node, page and all", async () => {
+  const page = await fetch(url).then((r) => r.text());
+  expect(page).toContain("<!doctype html>");
+  expect(page).toContain('id="root"');
+  // The page's script is the esbuild bundle the server made on its first page request.
+  expect(page).toContain('src="./app.js"');
+  const script = await fetch(`${url}app.js`).then((r) => r.text());
+  expect(script.length).toBeGreaterThan(10_000);
 
-    const workspaces = (await fetch(`${url}api/workspaces`).then((r) => r.json())) as {
-      workspaces: unknown[];
-    };
-    expect(workspaces.workspaces.length).toBeGreaterThan(0);
-  },
-  30_000,
-);
+  const workspaces = (await fetch(`${url}api/workspaces`).then((r) => r.json())) as {
+    workspaces: unknown[];
+  };
+  expect(workspaces.workspaces.length).toBeGreaterThan(0);
+}, 30_000);

@@ -2,7 +2,15 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, webkit, type Browser } from "playwright";
-import { closePages, requireFreshWebBundle, serverEnv, testRun, testTempDir, waitForUrl, stopRunHost } from "./helpers.ts";
+import {
+  closePages,
+  requireFreshWebBundle,
+  serverEnv,
+  testRun,
+  testTempDir,
+  waitForUrl,
+  stopRunHost,
+} from "./helpers.ts";
 import type { Listing } from "../apps/web/src/app-root/api.ts";
 
 /**
@@ -108,56 +116,60 @@ test("an explicit path is listed, and a relative one is refused", async () => {
   expect(((await bad.json()) as { error: string }).error).toContain("not an absolute path");
 });
 
-test.skipIf(!usable)("the settings picker walks, reveals hidden directories and writes the choice", async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  try {
-    await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("nav.tabs");
+test.skipIf(!usable)(
+  "the settings picker walks, reveals hidden directories and writes the choice",
+  async () => {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    try {
+      await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector("nav.tabs");
 
-    const field = page
-      .locator(".settings .field")
-      .filter({ has: page.getByLabel("Repositories directory") });
-    // By its aria-label rather than `field.locator("input")`: the picker's dialog lives inside
-    // the same field, and its filter box and checkbox are inputs too once it is open.
-    const input = page.getByLabel("Repositories directory");
-    // The file's value: the picker has a place of its own to open on.
-    expect(await input.inputValue()).toBe(startDir);
+      const field = page
+        .locator(".settings .field")
+        .filter({ has: page.getByLabel("Repositories directory") });
+      // By its aria-label rather than `field.locator("input")`: the picker's dialog lives inside
+      // the same field, and its filter box and checkbox are inputs too once it is open.
+      const input = page.getByLabel("Repositories directory");
+      // The file's value: the picker has a place of its own to open on.
+      expect(await input.inputValue()).toBe(startDir);
 
-    await field.getByRole("button", { name: "Browse" }).click();
-    const dialog = page.locator("dialog[open]");
-    await dialog.waitFor();
-    expect((await dialog.locator("h3").innerText()).trim()).toBe("Choose a directory");
-    // Opened on the field's own value — the subdirectory, not the global start. Wait for the
-    // first response before counting: the dialog says "loading…" until the listing lands.
-    await dialog.locator(".entries button.dir").first().waitFor();
-    expect(await dialog.locator(".entries button.dir", { hasText: "inner" }).count()).toBe(1);
-    // And the server withheld the dot-directories: the request did not ask for them.
-    expect(await dialog.locator(".entries button.dir", { hasText: ".git" }).count()).toBe(0);
+      await field.getByRole("button", { name: "Browse" }).click();
+      const dialog = page.locator("dialog[open]");
+      await dialog.waitFor();
+      expect((await dialog.locator("h3").innerText()).trim()).toBe("Choose a directory");
+      // Opened on the field's own value — the subdirectory, not the global start. Wait for the
+      // first response before counting: the dialog says "loading…" until the listing lands.
+      await dialog.locator(".entries button.dir").first().waitFor();
+      expect(await dialog.locator(".entries button.dir", { hasText: "inner" }).count()).toBe(1);
+      // And the server withheld the dot-directories: the request did not ask for them.
+      expect(await dialog.locator(".entries button.dir", { hasText: ".git" }).count()).toBe(0);
 
-    // The filter narrows what arrived, and a miss says so rather than looking empty.
-    await dialog.locator("input.filter").fill("nothing");
-    await dialog.locator(".entries .hint", { hasText: "nothing matches" }).waitFor();
-    await dialog.locator("input.filter").fill("");
+      // The filter narrows what arrived, and a miss says so rather than looking empty.
+      await dialog.locator("input.filter").fill("nothing");
+      await dialog.locator(".entries .hint", { hasText: "nothing matches" }).waitFor();
+      await dialog.locator("input.filter").fill("");
 
-    await dialog.locator('input[type="checkbox"]').check();
-    await dialog.locator(".entries button.dir", { hasText: ".git" }).first().waitFor();
+      await dialog.locator('input[type="checkbox"]').check();
+      await dialog.locator(".entries button.dir", { hasText: ".git" }).first().waitFor();
 
-    // Up to the global directory, hidden still shown: the flag travels with the listing.
-    await dialog.getByRole("button", { name: "Up" }).click();
-    await dialog.locator(".entries button.dir", { hasText: ".secret" }).first().waitFor();
-    await dialog.locator(".entries button.dir", { hasText: "alpha" }).first().waitFor();
+      // Up to the global directory, hidden still shown: the flag travels with the listing.
+      await dialog.getByRole("button", { name: "Up" }).click();
+      await dialog.locator(".entries button.dir", { hasText: ".secret" }).first().waitFor();
+      await dialog.locator(".entries button.dir", { hasText: "alpha" }).first().waitFor();
 
-    await dialog.getByRole("button", { name: "Use this directory" }).click();
-    expect(await input.inputValue()).toBe(globalDir);
+      await dialog.getByRole("button", { name: "Use this directory" }).click();
+      expect(await input.inputValue()).toBe(globalDir);
 
-    // Save takes effect at once, and survives a reload because the file is what holds it.
-    await page.getByRole("button", { name: "Save" }).click();
-    await page.waitForSelector(".hint.saved", { timeout: 10_000 });
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await page.waitForSelector("nav.tabs");
-    const after = await page.getByLabel("Repositories directory").inputValue();
-    expect(after).toBe(globalDir);
-  } finally {
-    await page.close();
-  }
-}, 60_000);
+      // Save takes effect at once, and survives a reload because the file is what holds it.
+      await page.getByRole("button", { name: "Save" }).click();
+      await page.waitForSelector(".hint.saved", { timeout: 10_000 });
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await page.waitForSelector("nav.tabs");
+      const after = await page.getByLabel("Repositories directory").inputValue();
+      expect(after).toBe(globalDir);
+    } finally {
+      await page.close();
+    }
+  },
+  60_000,
+);

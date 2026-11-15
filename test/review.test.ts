@@ -11,7 +11,7 @@ import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "@corvi/changes/record";
 import type { CommitResult, LocalStatus } from "@corvi/contracts/integrations/review";
 import type { ShelfDto, ShelveResultDto } from "@corvi/contracts/shelves";
-import { checkoutsOf, runEffect, runSh  } from "./helpers.ts";
+import { checkoutsOf, runEffect, runSh } from "./helpers.ts";
 import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
 
 /**
@@ -46,11 +46,7 @@ const changeFor = async (id: string, repos: string[]): Promise<Change> =>
   runEffect(createChange({ id, branch: `${id}-work`, checkouts: checkoutsOf(repos) }));
 
 /** Call the extension's own namespace (the path after `/api/ext/review/`), as the page does. */
-const ext = async (
-  path: string,
-  method = "GET",
-  body?: unknown,
-): Promise<Response> => {
+const ext = async (path: string, method = "GET", body?: unknown): Promise<Response> => {
   const response = dispatchIntegrationRoute(
     new Request(`http://localhost/api/ext/review/${path}`, {
       method,
@@ -105,7 +101,7 @@ test("the extension's local route answers for a repository of a change, and 404s
   // The change is found through the Changes capability; one that does not exist is a 404.
   const missing = await ext(`changes/PROJ-NOPE/local?path=${encodeURIComponent(repo)}`);
   expect(missing.status).toBe(404);
-  expect((await missing.json() as { error: string }).error).toMatch(/no such change/);
+  expect(((await missing.json()) as { error: string }).error).toMatch(/no such change/);
 
   // A missing query parameter is the caller's mistake, exactly as the core route said it.
   const noPath = await ext(`changes/${change.id}/local`);
@@ -153,11 +149,11 @@ test("committing takes the files you ticked, in every repository at once", async
     files: { [a]: ["later.txt"] },
   });
   expect(noMessage.status).toBe(400);
-  expect((await noMessage.json() as { error: string }).error).toMatch(/needs a message/);
+  expect(((await noMessage.json()) as { error: string }).error).toMatch(/needs a message/);
 
   const noFiles = await ext(`changes/${change.id}/commit`, "POST", { message: "x", files: { [a]: [] } });
   expect(noFiles.status).toBe(400);
-  expect((await noFiles.json() as { error: string }).error).toMatch(/select at least one file/);
+  expect(((await noFiles.json()) as { error: string }).error).toMatch(/select at least one file/);
 });
 
 test("a repository that refuses to commit does not stop the others", async () => {
@@ -224,7 +220,7 @@ test("what is committed but only here is counted, and pushing takes it away", as
   expect(((await bad.json()) as CommitResult[])[0]).toMatchObject({ ok: false, error: "no worktree" });
   const none = await ext(`changes/${change.id}/push`, "POST", { repos: [] });
   expect(none.status).toBe(400);
-  expect((await none.json() as { error: string }).error).toMatch(/nothing to push/);
+  expect(((await none.json()) as { error: string }).error).toMatch(/nothing to push/);
 });
 
 test("a repository's line says what is uncommitted and what is only here", async () => {
@@ -278,12 +274,16 @@ test("shelving through the tab's routes puts a repository's work aside, lists it
   expect(patch.text).toContain("+edited");
 
   // Nothing to shelve is an answer, not a failure; an unknown repository is a 404.
-  expect(await (await ext(`changes/SHELF-1/shelves`, "POST", { repository: "review-shelf" })).json()).toEqual({
-    _tag: "Clean",
-  });
+  expect(await (await ext(`changes/SHELF-1/shelves`, "POST", { repository: "review-shelf" })).json()).toEqual(
+    {
+      _tag: "Clean",
+    },
+  );
   expect((await ext(`changes/SHELF-1/shelves`, "POST", { repository: "nope" })).status).toBe(404);
 
-  const applied = await (await ext(`changes/SHELF-1/shelves/apply`, "POST", { shelf: shelved.shelf.id })).json();
+  const applied = await (
+    await ext(`changes/SHELF-1/shelves/apply`, "POST", { shelf: shelved.shelf.id })
+  ).json();
   expect(applied).toEqual({ _tag: "Applied" });
   expect(await Bun.file(join(worktree, "scratch", "note.txt")).text()).toBe("new\n");
   expect(await (await ext(`changes/SHELF-1/shelves`)).json()).toEqual([]);
@@ -293,6 +293,8 @@ test("shelving through the tab's routes puts a repository's work aside, lists it
     await ext(`changes/SHELF-1/shelves`, "POST", { repository: "review-shelf" })
   ).json()) as ShelveResultDto;
   if (again._tag !== "Shelved") throw new Error(`expected a shelf, got ${again._tag}`);
-  expect((await ext(`changes/SHELF-1/shelves?shelf=${encodeURIComponent(again.shelf.id)}`, "DELETE")).status).toBe(200);
+  expect(
+    (await ext(`changes/SHELF-1/shelves?shelf=${encodeURIComponent(again.shelf.id)}`, "DELETE")).status,
+  ).toBe(200);
   expect(await (await ext(`changes/SHELF-1/shelves`)).json()).toEqual([]);
 });

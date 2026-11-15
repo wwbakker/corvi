@@ -64,7 +64,7 @@ export const refreshTitles = (): Effect.Effect<Record<string, string>, unknown> 
         Effect.gen(function* () {
           // A ticket the vendor did not answer for keeps whatever was stored: a renamed ticket is
           // worth following, a broken CLI is not worth forgetting a name over.
-          const summary = change.titleEdited ? change.title : known.get(change.id) ?? change.title;
+          const summary = change.titleEdited ? change.title : (known.get(change.id) ?? change.title);
           if (!summary) return;
           titles[change.id] = summary;
           if (summary !== change.title) yield* writeChange({ ...change, title: summary });

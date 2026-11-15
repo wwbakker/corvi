@@ -1,9 +1,5 @@
 import { Effect, Schema } from "effect";
-import {
-  BadRequestError,
-  DecodeError,
-  NotFoundError,
-} from "@corvi/contracts/errors";
+import { BadRequestError, DecodeError, NotFoundError } from "@corvi/contracts/errors";
 import { Changes } from "../api/capabilities.ts";
 import type { IncludedIntegration } from "../types.ts";
 import type { Change } from "@corvi/changes/record";
@@ -116,7 +112,9 @@ export default {
       method: "GET",
       path: "/changes/:id/shelves",
       handler: (_req, params) =>
-        withChange(params.id!, (change) => Effect.map(listShelves(change), (shelves) => Response.json(shelves))),
+        withChange(params.id!, (change) =>
+          Effect.map(listShelves(change), (shelves) => Response.json(shelves)),
+        ),
     },
     {
       // Put one repository's uncommitted work on a shelf. Every answer but `Shelved` left the
@@ -174,10 +172,7 @@ export default {
           Effect.gen(function* () {
             const body = yield* bodyAs(req, PushBody);
             return Response.json(
-              yield* pushChange(
-                change,
-                body.repos ?? (change.checkouts ?? []).map((spec) => spec.path),
-              ),
+              yield* pushChange(change, body.repos ?? (change.checkouts ?? []).map((spec) => spec.path)),
             );
           }),
         ),

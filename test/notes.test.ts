@@ -16,7 +16,7 @@ import { resolveChangePage } from "../apps/web/src/change-page/client/changeTabs
 import { Changes } from "../apps/server/src/integrations/api/capabilities.ts";
 import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "@corvi/changes/record";
-import { checkoutsOf, runEffect  } from "./helpers.ts";
+import { checkoutsOf, runEffect } from "./helpers.ts";
 
 /**
  * The notes extension: a dashboard widget backed by `ExtensionStore`, plus the one migration it
@@ -62,7 +62,12 @@ test("the Notes widget is offered only when the extension is enabled, and its ol
     { id: "without-notes", name: "Without notes", settings: { extensions: [] } },
   ];
   try {
-    const change: Change = { id: "PROJ-NOTES-W", branch: "PROJ-NOTES-W", checkouts: checkoutsOf([]), createdAt: "" };
+    const change: Change = {
+      id: "PROJ-NOTES-W",
+      branch: "PROJ-NOTES-W",
+      checkouts: checkoutsOf([]),
+      createdAt: "",
+    };
     expect(widgetsFor({ ...change, workspace: "with-notes" })).toEqual([
       { id: "notes", title: "Notes", extension: "notes", column: "left" },
     ]);
@@ -113,7 +118,7 @@ test("notes written before the store still show, and the first write lands under
 test("the notes route answers an unknown change with 404 and a malformed body with 400", async () => {
   const missing = await ext("changes/PROJ-NOPE/notes");
   expect(missing.status).toBe(404);
-  expect((await missing.json() as { error: string }).error).toMatch(/no such change/);
+  expect(((await missing.json()) as { error: string }).error).toMatch(/no such change/);
 
   const change = await changeFor("PROJ-NOTES-BODY");
   const badBody = dispatchIntegrationRoute(

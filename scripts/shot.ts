@@ -71,7 +71,12 @@ if (await jiraEdit.isVisible().catch(() => false)) {
   await page.waitForSelector("dialog[open]");
   await page.waitForTimeout(500);
   const issues = page.locator("dialog[open] .table tbody tr:not(.group)");
-  if (await issues.first().isVisible().catch(() => false)) {
+  if (
+    await issues
+      .first()
+      .isVisible()
+      .catch(() => false)
+  ) {
     await issues.first().click();
     await page.waitForTimeout(200);
   }
@@ -83,10 +88,7 @@ await shot("3-wizard-named");
 
 // The repositories behind their field's "Edit…": the same directory browser as always, in a
 // dialog over the small list of what is picked.
-await page
-  .locator(".wizard-sections .repos-field")
-  .getByRole("button", { name: "Edit…" })
-  .click();
+await page.locator(".wizard-sections .repos-field").getByRole("button", { name: "Edit…" }).click();
 await page.waitForSelector("dialog[open] .browser");
 // Tick the first repository, so the shot shows the browser in use. Rows settle when the listing
 // arrives — the empty hint is not a row — and the first row is not always a repository: a

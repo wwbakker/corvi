@@ -30,9 +30,7 @@ export async function buildApp(outDir: string, root: string): Promise<void> {
       external: ["electron"],
     });
     if (!result.success) {
-      throw new Error(
-        `${entry} did not build:\n${result.logs.map((log) => log.message).join("\n")}`,
-      );
+      throw new Error(`${entry} did not build:\n${result.logs.map((log) => log.message).join("\n")}`);
     }
   }
   writeFileSync(

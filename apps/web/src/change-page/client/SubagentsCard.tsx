@@ -61,8 +61,8 @@ export function SubagentsCard({
     // The sequence guard stops a late old-generation answer from republishing.
     if (blocked) return;
     const seq = ++loadSeq.current;
-    client
-      .subagents.list(ChangeId.make(changeId))
+    client.subagents
+      .list(ChangeId.make(changeId))
       .then((next) => {
         if (seq === loadSeq.current) setInstances(next);
       })

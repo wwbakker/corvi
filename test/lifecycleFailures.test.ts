@@ -33,7 +33,5 @@ test("only the failures are shown, in the order they were reported", () => {
       { integration: "jira", ok: false, error: "boom" },
       { integration: "ci", ok: false, error: "down" },
     ]),
-  ).toBe(
-    '<div class="error-banner">jira: boom</div><div class="error-banner">ci: down</div>',
-  );
+  ).toBe('<div class="error-banner">jira: boom</div><div class="error-banner">ci: down</div>');
 });

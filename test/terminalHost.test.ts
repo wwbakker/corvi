@@ -3,9 +3,26 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { connect, createServer, type Socket } from "node:net";
 import { join } from "node:path";
-import { ensureHost, HostClient, type EnsureOptions, type SessionInfo } from "../apps/server/src/terminals/host/client.ts";
-import { OSC_INTRO, OSC_ST, MAX_OSC_CARRY, MAX_OSC_PAYLOAD, parseOsc, sanitizeStatus } from "../apps/server/src/terminals/host/osc.ts";
-import { PROTOCOL, parseRequest, requestIdFrom, requestTypeOf } from "../apps/server/src/terminals/host/protocol.ts";
+import {
+  ensureHost,
+  HostClient,
+  type EnsureOptions,
+  type SessionInfo,
+} from "../apps/server/src/terminals/host/client.ts";
+import {
+  OSC_INTRO,
+  OSC_ST,
+  MAX_OSC_CARRY,
+  MAX_OSC_PAYLOAD,
+  parseOsc,
+  sanitizeStatus,
+} from "../apps/server/src/terminals/host/osc.ts";
+import {
+  PROTOCOL,
+  parseRequest,
+  requestIdFrom,
+  requestTypeOf,
+} from "../apps/server/src/terminals/host/protocol.ts";
 import { runSh, testTempDir, waitFor } from "./helpers.ts";
 
 /**
@@ -35,10 +52,29 @@ describe("terminal host protocol", () => {
       env: { A: "1", B: 2 },
       metadata: { change: "C1" },
     });
-    expect(parsed).toEqual({ type: "session.open", id: "s1", command: ["sh", "-i"], cols: 80, metadata: { change: "C1" } });
-    const valid = parseRequest({ type: "session.open", id: "s1", env: { A: "1" }, metadata: { change: "C1", window: "W1" } });
-    expect(valid).toEqual({ type: "session.open", id: "s1", env: { A: "1" }, metadata: { change: "C1", window: "W1" } });
-    expect(parseRequest({ type: "session.open", id: "s1", metadata: { change: 1 } })).toEqual({ type: "session.open", id: "s1" });
+    expect(parsed).toEqual({
+      type: "session.open",
+      id: "s1",
+      command: ["sh", "-i"],
+      cols: 80,
+      metadata: { change: "C1" },
+    });
+    const valid = parseRequest({
+      type: "session.open",
+      id: "s1",
+      env: { A: "1" },
+      metadata: { change: "C1", window: "W1" },
+    });
+    expect(valid).toEqual({
+      type: "session.open",
+      id: "s1",
+      env: { A: "1" },
+      metadata: { change: "C1", window: "W1" },
+    });
+    expect(parseRequest({ type: "session.open", id: "s1", metadata: { change: 1 } })).toEqual({
+      type: "session.open",
+      id: "s1",
+    });
   });
 
   test("rejects a session.open without an id", () => {
@@ -143,7 +179,10 @@ describe("terminal host OSC", () => {
   });
 
   test("a string-terminated sequence parses", () => {
-    const result = parseOsc(Buffer.concat([OSC_INTRO, b64({ status: "waiting", name: "pi" }), OSC_ST]), empty);
+    const result = parseOsc(
+      Buffer.concat([OSC_INTRO, b64({ status: "waiting", name: "pi" }), OSC_ST]),
+      empty,
+    );
     expect(result.clean.length).toBe(0);
     expect(result.statuses.map((status) => status.status)).toEqual(["waiting"]);
   });
@@ -219,7 +258,10 @@ const session = (sessions: readonly SessionInfo[], id: string): SessionInfo | un
   sessions.find((entry) => entry.id === id);
 
 /** Speak the raw protocol on a fresh connection: handshake, send lines, collect replies. */
-const rawExchange = async (socketPath: string, rawLines: readonly string[]): Promise<Record<string, unknown>[]> => {
+const rawExchange = async (
+  socketPath: string,
+  rawLines: readonly string[],
+): Promise<Record<string, unknown>[]> => {
   const token = readFileSync(`${socketPath}.token`, "utf8").trim();
   const socket: Socket = connect(socketPath);
   await new Promise<void>((resolve, reject) => {
@@ -270,7 +312,11 @@ describe.skipIf(!usable)("terminal host under Node", () => {
       fixture.client.onData("s2", (data) => identity.push(data.toString("utf8")));
       await fixture.client.open("s2", {
         cwd: fixture.dir,
-        command: ["/bin/sh", "-c", 'printf "ID=%s INC=%s\\n" "$CORVI_SESSION_ID" "$CORVI_SESSION_INCARNATION"; sleep 3'],
+        command: [
+          "/bin/sh",
+          "-c",
+          'printf "ID=%s INC=%s\\n" "$CORVI_SESSION_ID" "$CORVI_SESSION_INCARNATION"; sleep 3',
+        ],
       });
       await fixture.client.attach("s2");
       await waitFor("the identity to print", async () => identity.join("").includes("ID=s2 INC=1"));
@@ -317,10 +363,17 @@ describe.skipIf(!usable)("terminal host under Node", () => {
 
   test("six concurrent callers end with exactly one host", async () => {
     const dir = await testTempDir("host");
-    const options: EnsureOptions = { socket: join(dir, "host.sock"), checkout: dir, buildId: "test", runtime: "node" };
+    const options: EnsureOptions = {
+      socket: join(dir, "host.sock"),
+      checkout: dir,
+      buildId: "test",
+      runtime: "node",
+    };
     const results = await Promise.all(Array.from({ length: 6 }, () => ensureHost(options)));
     try {
-      const pids = new Set((await Promise.all(results.map((result) => result.client.info()))).map((owner) => owner.pid));
+      const pids = new Set(
+        (await Promise.all(results.map((result) => result.client.info()))).map((owner) => owner.pid),
+      );
       expect(pids.size).toBe(1);
       expect(results.filter((result) => !result.adopted).length).toBe(1);
     } finally {
@@ -341,7 +394,10 @@ describe.skipIf(!usable)("terminal host under Node", () => {
         exitSignal = signal;
       });
       await fixture.client.kill("s");
-      await waitFor("the session to be retained dead", async () => session(await fixture.client.list(), "s")?.alive === false);
+      await waitFor(
+        "the session to be retained dead",
+        async () => session(await fixture.client.list(), "s")?.alive === false,
+      );
       const retained = session(await fixture.client.list(), "s");
       expect(retained?.signal).toBeGreaterThan(0);
       expect(exitSignal).toBeGreaterThan(0);
@@ -370,8 +426,16 @@ describe.skipIf(!usable)("terminal host under Node", () => {
         if (incarnation === firstIncarnation) oldExits++;
       });
       await fixture.client.kill("r");
-      await waitFor("the old session to die", async () => session(await fixture.client.list(), "r")?.alive === false);
-      const reopened = await fixture.client.open("r", { cwd: fixture.dir, command: ["/bin/sh"], cols: 80, rows: 24 });
+      await waitFor(
+        "the old session to die",
+        async () => session(await fixture.client.list(), "r")?.alive === false,
+      );
+      const reopened = await fixture.client.open("r", {
+        cwd: fixture.dir,
+        command: ["/bin/sh"],
+        cols: 80,
+        rows: 24,
+      });
       expect(reopened.opened).toBe(true);
       expect(reopened.incarnation).toBe(firstIncarnation + 1);
       await Bun.sleep(300);
@@ -395,7 +459,12 @@ describe.skipIf(!usable)("terminal host under Node", () => {
     const fixture = await openHost();
     try {
       const emitter = `for(let i=0;i<12000;i++)process.stdout.write("x".repeat(40)+"\\n");setTimeout(()=>{},6000)`;
-      await fixture.client.open("big", { cwd: fixture.dir, command: ["node", "-e", emitter], cols: 100, rows: 30 });
+      await fixture.client.open("big", {
+        cwd: fixture.dir,
+        command: ["node", "-e", emitter],
+        cols: 100,
+        rows: 30,
+      });
       await waitFor(
         "the output to settle past the buffer",
         async () => {
@@ -427,8 +496,16 @@ describe.skipIf(!usable)("terminal host under Node", () => {
       const script = `const p=Buffer.from(JSON.stringify({status:"working",name:"pi",sessionName:"Fix login"}),"utf8").toString("base64");process.stdout.write("\\x1b]1337;corvi="+p+"\\x07");setTimeout(()=>{},3000)`;
       const seen: string[] = [];
       fixture.client.onData("osc", (data) => seen.push(data.toString("utf8")));
-      await fixture.client.open("osc", { cwd: fixture.dir, command: ["node", "-e", script], cols: 100, rows: 30 });
-      await waitFor("the status to be recorded", async () => session(await fixture.client.list(), "osc")?.status?.state === "working");
+      await fixture.client.open("osc", {
+        cwd: fixture.dir,
+        command: ["node", "-e", script],
+        cols: 100,
+        rows: 30,
+      });
+      await waitFor(
+        "the status to be recorded",
+        async () => session(await fixture.client.list(), "osc")?.status?.state === "working",
+      );
       const status = session(await fixture.client.list(), "osc")?.status;
       expect(status?.name).toBe("pi");
       expect(status?.sessionName).toBe("Fix login");
@@ -437,7 +514,9 @@ describe.skipIf(!usable)("terminal host under Node", () => {
       await fixture.client.kill("osc");
       await waitFor(
         "the status to clear on exit",
-        async () => session(await fixture.client.list(), "osc")?.alive === false && session(await fixture.client.list(), "osc")?.status === undefined,
+        async () =>
+          session(await fixture.client.list(), "osc")?.alive === false &&
+          session(await fixture.client.list(), "osc")?.status === undefined,
       );
     } finally {
       await closeHost(fixture);
@@ -447,13 +526,26 @@ describe.skipIf(!usable)("terminal host under Node", () => {
   test("write and resize are not applied after exit, and a data-less write is not applied", async () => {
     const fixture = await openHost();
     try {
-      await fixture.client.open("live", { cwd: fixture.dir, command: ["/bin/sh", "-c", "sleep 30"], cols: 80, rows: 24 });
+      await fixture.client.open("live", {
+        cwd: fixture.dir,
+        command: ["/bin/sh", "-c", "sleep 30"],
+        cols: 80,
+        rows: 24,
+      });
       await fixture.client.kill("live");
-      await waitFor("the session to die", async () => session(await fixture.client.list(), "live")?.alive === false);
+      await waitFor(
+        "the session to die",
+        async () => session(await fixture.client.list(), "live")?.alive === false,
+      );
       expect(await fixture.client.write("live", "echo hi\n")).toBe(false);
       expect(await fixture.client.resize("live", 80, 24)).toBe(false);
 
-      await fixture.client.open("alive", { cwd: fixture.dir, command: ["/bin/sh", "-c", "sleep 30"], cols: 80, rows: 24 });
+      await fixture.client.open("alive", {
+        cwd: fixture.dir,
+        command: ["/bin/sh", "-c", "sleep 30"],
+        cols: 80,
+        rows: 24,
+      });
       const replies = await rawExchange(fixture.options.socket, [
         JSON.stringify({ type: "session.write", id: "alive", requestId: 42 }),
       ]);
@@ -482,7 +574,14 @@ describe.skipIf(!usable)("terminal host under Node", () => {
     const dir = await testTempDir("host");
     const socketPath = join(dir, "fake.sock");
     writeFileSync(`${socketPath}.token`, "token", { mode: 0o600 });
-    const owner = { pid: 1, socket: socketPath, checkout: dir, buildId: "x", protocol: PROTOCOL, startedAt: new Date().toISOString() };
+    const owner = {
+      pid: 1,
+      socket: socketPath,
+      checkout: dir,
+      buildId: "x",
+      protocol: PROTOCOL,
+      startedAt: new Date().toISOString(),
+    };
     const server = createServer((socket) => {
       socket.setEncoding("utf8");
       let buffer = "";
@@ -495,10 +594,14 @@ describe.skipIf(!usable)("terminal host under Node", () => {
           buffer = buffer.slice(newline + 1);
           if (line.trim() === "") continue;
           const request = JSON.parse(line) as { type: string; requestId?: number };
-          if (request.type === "hello") socket.write(`${JSON.stringify({ type: "welcome", requestId: request.requestId, owner })}\n`);
+          if (request.type === "hello")
+            socket.write(`${JSON.stringify({ type: "welcome", requestId: request.requestId, owner })}\n`);
         }
       });
-      setTimeout(() => socket.write(`${JSON.stringify({ type: "error", request: "parse", message: "boom" })}\n`), 30);
+      setTimeout(
+        () => socket.write(`${JSON.stringify({ type: "error", request: "parse", message: "boom" })}\n`),
+        30,
+      );
     });
     await new Promise<void>((resolve) => server.listen(socketPath, resolve));
     try {
@@ -517,7 +620,12 @@ describe.skipIf(!usable)("terminal host under Node", () => {
   test("recovers from a host SIGKILL and evicts dead sessions at the cap", async () => {
     const fixture = await openHost();
     try {
-      await fixture.client.open("s", { cwd: fixture.dir, command: ["/bin/sh", "-c", "sleep 30"], cols: 80, rows: 24 });
+      await fixture.client.open("s", {
+        cwd: fixture.dir,
+        command: ["/bin/sh", "-c", "sleep 30"],
+        cols: 80,
+        rows: 24,
+      });
       process.kill(fixture.pid, "SIGKILL");
       await waitFor("the killed host to be gone", async () => !alive(fixture.pid));
       const recovered = await ensureHost(fixture.options);
@@ -536,7 +644,12 @@ describe.skipIf(!usable)("terminal host under Node", () => {
     const cap = await openHost();
     try {
       for (let i = 0; i < 66; i++) {
-        await cap.client.open(`d${String(i).padStart(2, "0")}`, { cwd: cap.dir, command: ["/bin/sh", "-c", "exit 0"], cols: 40, rows: 10 });
+        await cap.client.open(`d${String(i).padStart(2, "0")}`, {
+          cwd: cap.dir,
+          command: ["/bin/sh", "-c", "exit 0"],
+          cols: 40,
+          rows: 10,
+        });
       }
       await waitFor(
         "every session to exit",
@@ -555,11 +668,19 @@ describe.skipIf(!usable)("terminal host under Node", () => {
   test("shuts down when idle and keeps a live session up", async () => {
     const live = await openHost(500);
     try {
-      await live.client.open("keep", { cwd: live.dir, command: ["/bin/sh", "-c", "sleep 30"], cols: 80, rows: 24 });
+      await live.client.open("keep", {
+        cwd: live.dir,
+        command: ["/bin/sh", "-c", "sleep 30"],
+        cols: 80,
+        rows: 24,
+      });
       await Bun.sleep(1200);
       expect(alive(live.pid)).toBe(true);
       await live.client.kill("keep");
-      await waitFor("the session to die", async () => session(await live.client.list(), "keep")?.alive === false);
+      await waitFor(
+        "the session to die",
+        async () => session(await live.client.list(), "keep")?.alive === false,
+      );
       live.client.close();
       await waitFor("the idle host to exit", async () => !alive(live.pid), 5000);
     } finally {
@@ -570,7 +691,9 @@ describe.skipIf(!usable)("terminal host under Node", () => {
   test("cannot start a host without an explicit Node runtime under Bun", async () => {
     const dir = await testTempDir("host");
     try {
-      await expect(ensureHost({ socket: join(dir, "host.sock"), checkout: dir, buildId: "test" })).rejects.toThrow(/needs Node/);
+      await expect(
+        ensureHost({ socket: join(dir, "host.sock"), checkout: dir, buildId: "test" }),
+      ).rejects.toThrow(/needs Node/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

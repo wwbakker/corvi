@@ -38,13 +38,7 @@ const respond = <A, E>(
   effect: Effect.Effect<A, E, Repositories>,
   encode: (value: A) => Response,
 ): Promise<Response> =>
-  runRoute(
-    effect.pipe(
-      Effect.mapError(asIwe),
-      Effect.map(encode),
-      Effect.provide(repositoriesLayer),
-    ),
-  );
+  runRoute(effect.pipe(Effect.mapError(asIwe), Effect.map(encode), Effect.provide(repositoriesLayer)));
 
 const encodeStart = (start: UpdateStart): Response =>
   json(start.status, start._tag === "Started" ? 202 : 200);

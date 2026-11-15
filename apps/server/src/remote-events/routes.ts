@@ -18,7 +18,6 @@ export const availabilityRoutes = guard({
   // answer is the map as it stands when the request is handled. An unknown or local source is a
   // 404, not a silent success.
   "/api/remotes/:source/availability/retry": {
-    POST: (req) =>
-      runRoute(Effect.map(runtimeRemoteAvailabilityRetry(req.params.source), json)),
+    POST: (req) => runRoute(Effect.map(runtimeRemoteAvailabilityRetry(req.params.source), json)),
   },
 });

@@ -33,10 +33,7 @@ const FALLBACK: DeploySettings = {
   environments: ["accept", "production"],
 };
 
-export function deploySettingsOf(
-  own: SettingBag | undefined,
-  global?: SettingBag,
-): DeploySettings {
+export function deploySettingsOf(own: SettingBag | undefined, global?: SettingBag): DeploySettings {
   const pair = (bag: SettingBag | undefined): readonly [string, string] | undefined => {
     const pipeline = bagList(bag, "pipeline");
     return pipeline && pipeline.length === 2 ? [pipeline[0]!, pipeline[1]!] : undefined;
@@ -73,11 +70,7 @@ export function deploySettingsOf(
 
 /** The deployment conventions in effect for this workspace: its bag entries over the global
  * bag's, then the declared environment variables. */
-export const deploySettings = (): Effect.Effect<
-  DeploySettings,
-  never,
-  Settings | Workspace
-> =>
+export const deploySettings = (): Effect.Effect<DeploySettings, never, Settings | Workspace> =>
   Effect.gen(function* () {
     const settings = yield* Settings;
     const workspace = yield* Workspace;

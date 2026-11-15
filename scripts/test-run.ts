@@ -196,17 +196,12 @@ export const runPlan = (
   parallel: mode === "unit",
 });
 
-const USAGE =
-  "usage: scripts/test-run.ts [all|unit|e2e|e2e-terminal|e2e-rest] [bun test arguments...]";
+const USAGE = "usage: scripts/test-run.ts [all|unit|e2e|e2e-terminal|e2e-rest] [bun test arguments...]";
 
 /** `bun test --timeout 30000 [--parallel] --timings=scripts/timings.json <files> <args>`.
  * `--parallel` is omitted for the e2e modes (they contend for one machine) and when
  * `CORVI_TEST_SERIAL=1` forces a single process, where a stalled teardown cannot hang the run. */
-const testArgs = (
-  files: readonly string[],
-  passthrough: readonly string[],
-  parallel: boolean,
-): string[] => [
+const testArgs = (files: readonly string[], passthrough: readonly string[], parallel: boolean): string[] => [
   "bun",
   "test",
   "--timeout",
@@ -260,10 +255,7 @@ const SIGNAL_EXIT_CODES: ReadonlyArray<readonly [NodeJS.Signals, number]> = [
 /** How long to wait for a signaled child to exit before cleaning up without it. */
 const SIGNAL_REAP_MS = 10_000;
 
-const withTimeout = async (
-  promise: Promise<number | undefined>,
-  ms: number,
-): Promise<number | undefined> => {
+const withTimeout = async (promise: Promise<number | undefined>, ms: number): Promise<number | undefined> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
@@ -322,7 +314,10 @@ const installCleanup = (token: string): void => {
         }
         // `.catch` keeps the exit unconditional: a rejected `exited` must not leave the parked
         // main flow hanging instead of cleaning up and exiting.
-        const exitCode = await withTimeout(child.exited.catch(() => undefined), SIGNAL_REAP_MS);
+        const exitCode = await withTimeout(
+          child.exited.catch(() => undefined),
+          SIGNAL_REAP_MS,
+        );
         process.exit(exitCode ?? fallback);
       })();
     });
@@ -338,11 +333,7 @@ const list = (requested: string | undefined): number => {
   return 0;
 };
 
-const runMode = async (
-  mode: Mode,
-  groups: Groups,
-  passthrough: readonly string[],
-): Promise<number> => {
+const runMode = async (mode: Mode, groups: Groups, passthrough: readonly string[]): Promise<number> => {
   switch (mode) {
     case "unit": {
       const plan = runPlan(mode, groups.unit, passthrough);

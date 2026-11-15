@@ -181,7 +181,9 @@ test("a new token replaces the stored one", async () => {
 
 test("a mask for a token nothing is stored in is dropped, not persisted", async () => {
   await writeConfig({
-    workspaces: [{ id: "remote-client", name: "Client", remote: { url: remote.url, workspace: remote.workspace } }],
+    workspaces: [
+      { id: "remote-client", name: "Client", remote: { url: remote.url, workspace: remote.workspace } },
+    ],
   });
   await runEffect(
     writeSettings({

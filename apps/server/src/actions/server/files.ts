@@ -183,10 +183,7 @@ const repositoryBlocks = (
 
 /** The `.corvi/actions` directory of one named checkout. A repository the change does not carry
  * — or one not checked out — is refused, never invented. */
-const repositoryDirFor = (
-  change: Change,
-  repository: string,
-): Effect.Effect<string, BadRequestError> =>
+const repositoryDirFor = (change: Change, repository: string): Effect.Effect<string, BadRequestError> =>
   Effect.gen(function* () {
     const found = (yield* repositoryBlocks(change)).find((one) => one.repository === repository);
     if (found === undefined) {
@@ -197,9 +194,7 @@ const repositoryDirFor = (
 
 /** The change's repository actions, one block per checkout — what the Repositories view lists,
  * parsed exactly as the other scopes are. */
-export const repositoryActionFiles = (
-  change: Change,
-): Effect.Effect<ActionRepositoryFilesResponseDto> =>
+export const repositoryActionFiles = (change: Change): Effect.Effect<ActionRepositoryFilesResponseDto> =>
   Effect.gen(function* () {
     const repositories: { repository: string; files: readonly ActionFileDto[] }[] = [];
     for (const root of yield* repositoryBlocks(change)) {

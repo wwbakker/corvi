@@ -10,7 +10,13 @@
 import { Effect, Layer } from "effect";
 
 import { ChangeId } from "@corvi/contracts/changes";
-import { ConflictError, isIweError, BadRequestError, NotFoundError, type IweError } from "@corvi/contracts/errors";
+import {
+  ConflictError,
+  isIweError,
+  BadRequestError,
+  NotFoundError,
+  type IweError,
+} from "@corvi/contracts/errors";
 import type { ApplyShelfResultDto } from "@corvi/contracts/shelves";
 import { ChangeLifecycle } from "@corvi/workflows/lifecycle";
 import { ChangeShelves } from "@corvi/workflows/shelves";
@@ -38,7 +44,12 @@ const asIwe = (error: unknown): IweError => {
     const tag = String((error as { _tag: unknown })._tag);
     const raw = "message" in error ? (error as { message: unknown }).message : undefined;
     const message = raw ? String(raw) : tag;
-    if (tag === "InvalidTransition" || tag === "ChangeConflict" || tag === "ChangeFormatTooNew" || tag === "ChangeOperationInProgress")
+    if (
+      tag === "InvalidTransition" ||
+      tag === "ChangeConflict" ||
+      tag === "ChangeFormatTooNew" ||
+      tag === "ChangeOperationInProgress"
+    )
       return new ConflictError({ message });
     if (tag === "ChangeNotFound" || tag === "RepositoryNotFound" || tag === "ShelfNotFound")
       return new NotFoundError({ message });
@@ -55,7 +66,8 @@ export const reopenChange = (change: Change): Effect.Effect<Reopened, IweError> 
     const shelves = yield* ChangeShelves;
     yield* lifecycle.reopenChange(changeId);
     const reopened = yield* readChange(change.id);
-    if (!reopened) return yield* new NotFoundError({ message: `${change.id} could not be read back after reopening` });
+    if (!reopened)
+      return yield* new NotFoundError({ message: `${change.id} could not be read back after reopening` });
 
     const run = yield* provisionRepositories(reopened);
     const restored = yield* shelves.restoreCancelShelves(changeId);

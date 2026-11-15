@@ -62,13 +62,20 @@ test("azureOf walks the chain one level at a time", () => {
     // The workspace's own bag — what the settings page writes — sits above it.
     expect(
       azureOf(
-        ws({ settings: { extensionSettings: { "azure-devops": { organization: "own-org", project: "own-proj" } } } }),
+        ws({
+          settings: {
+            extensionSettings: { "azure-devops": { organization: "own-org", project: "own-proj" } },
+          },
+        }),
         runtimeConfig(),
       ),
     ).toEqual({ organization: "own-org", project: "own-proj" });
     // Half a per-workspace address still leaves the other half to the level below.
     expect(
-      azureOf(ws({ settings: { extensionSettings: { "azure-devops": { project: "own-proj" } } } }), runtimeConfig()),
+      azureOf(
+        ws({ settings: { extensionSettings: { "azure-devops": { project: "own-proj" } } } }),
+        runtimeConfig(),
+      ),
     ).toEqual({ organization: "global-org", project: "own-proj" });
 
     // With no bag at all, the empty answer is what `azFor` falls back from to `az devops configure`.
@@ -148,4 +155,3 @@ test("deploySettings reads the extension's own bag through the Settings capabili
     },
   );
 });
-

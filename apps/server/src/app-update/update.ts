@@ -74,14 +74,20 @@ const takeGuard = (): Effect.Effect<boolean> =>
     return true;
   });
 
-const releaseGuard = (): Effect.Effect<void> => Effect.sync(() => { running = false; });
+const releaseGuard = (): Effect.Effect<void> =>
+  Effect.sync(() => {
+    running = false;
+  });
 
 /** The forge's web home for a remote URL — `github.com/owner/repo` in any spelling git accepts.
  * Undefined for anything else: the app links to commits and compares where it can prove the page
  * exists, and shows plain text rows elsewhere. */
 // Pure and synchronous: nothing for an Effect to wrap.
 export const webBase = (remoteUrl: string): string | undefined => {
-  const cleaned = remoteUrl.trim().replace(/\.git\/?$/, "").replace(/\/$/, "");
+  const cleaned = remoteUrl
+    .trim()
+    .replace(/\.git\/?$/, "")
+    .replace(/\/$/, "");
   const match = /^(?:https?:\/\/|ssh:\/\/git@|git@)github\.com[:/](.+)$/.exec(cleaned);
   return match?.[1] ? `https://github.com/${match[1]}` : undefined;
 };
@@ -95,11 +101,7 @@ export const commitUrl = (remoteUrl: string | undefined, sha: string): string | 
 
 /** The forge's compare page for a range, when the remote lives at one that can be linked to. */
 // Pure and synchronous: nothing for an Effect to wrap.
-export const comparePage = (
-  remoteUrl: string | undefined,
-  from: string,
-  to: string,
-): string | undefined => {
+export const comparePage = (remoteUrl: string | undefined, from: string, to: string): string | undefined => {
   const base = remoteUrl === undefined ? undefined : webBase(remoteUrl);
   return base === undefined ? undefined : `${base}/compare/${from}...${to}`;
 };
@@ -162,31 +164,24 @@ const ineligible = (reason: string): Snapshot => ({ eligible: false, reason, beh
  * page can show is the point, and "could not read the checkout" is one. With `fresh`, the remote
  * is fetched first and a fetch that cannot reach it refuses the update; without it, everything
  * comes from local state and costs no network call. */
-const assess = (
-  options: AppUpdateOptions,
-  fresh: boolean,
-): Effect.Effect<Snapshot, never, Repositories> =>
+const assess = (options: AppUpdateOptions, fresh: boolean): Effect.Effect<Snapshot, never, Repositories> =>
   Effect.gen(function* () {
     // The gate first, before anything touches git: a dev server or a browser-fallback run has no
     // business fetching, and its checkout is not this feature's subject.
     if (!options.app) return yield* Effect.succeed(ineligible("not running as the installed app"));
-    const tooling = yield* Effect.sync(
-      () => commandAvailable("git") && commandAvailable("bun"),
-    );
+    const tooling = yield* Effect.sync(() => commandAvailable("git") && commandAvailable("bun"));
     if (!tooling) return yield* Effect.succeed(ineligible("git and bun must be on PATH"));
     const repositories = yield* Repositories;
     const root = AbsolutePath.make(options.root);
     const facts = yield* Effect.result(
       Effect.gen(function* () {
         const checkout = yield* repositories.inspectCheckout(root);
-        if (checkout._tag === "Missing")
-          return ineligible("the app is not running from a git repository");
+        if (checkout._tag === "Missing") return ineligible("the app is not running from a git repository");
         if (checkout.branch === undefined) return ineligible("the checkout is on a detached HEAD");
         const defaultBranch = yield* repositories.defaultRemoteBranch(root);
         if (defaultBranch === undefined)
           return ineligible("the checkout has no remote default branch to update from");
-        if (checkout.branch !== defaultBranch)
-          return ineligible(`not on the ${defaultBranch} branch`);
+        if (checkout.branch !== defaultBranch) return ineligible(`not on the ${defaultBranch} branch`);
 
         // A fetch that fails is not a dead check: the remote-tracking refs still say what was
         // new last time, and the update itself refuses with the reason below.
@@ -339,8 +334,7 @@ export const startUpdate = (
   options: AppUpdateOptions,
 ): Effect.Effect<UpdateStart, UpdateRefused | UpdateBusy | UpdateJournalError, Repositories> =>
   Effect.gen(function* () {
-    if (!(yield* takeGuard()))
-      return yield* new UpdateBusy({ reason: "an update is already running" });
+    if (!(yield* takeGuard())) return yield* new UpdateBusy({ reason: "an update is already running" });
     // An opening that fails has taken its last step: release at once, so a refusal costs the
     // next start nothing.
     const opening = yield* openUpdate(options).pipe(
@@ -353,9 +347,7 @@ export const startUpdate = (
     // The run owns the guard from here to its own end, and says so in the journal as it goes.
     yield* Effect.forkDetach(
       runSteps(options).pipe(
-        Effect.catch((error) =>
-          Effect.sync(() => console.error("the update stopped:", errorDetail(error))),
-        ),
+        Effect.catch((error) => Effect.sync(() => console.error("the update stopped:", errorDetail(error)))),
         Effect.ensuring(releaseGuard()),
       ),
     );
@@ -383,8 +375,7 @@ const openUpdate = (
           _tag: "AlreadyUpToDate" as const,
           status: statusFrom(snapshot, previous, lastChecked),
         };
-      if (snapshot.refusal !== undefined)
-        return yield* new UpdateRefused({ reason: snapshot.refusal });
+      if (snapshot.refusal !== undefined) return yield* new UpdateRefused({ reason: snapshot.refusal });
     }
     const kept = new Set(
       continuing && previous !== null
@@ -394,9 +385,7 @@ const openUpdate = (
     const progress: OperationProgressDto = {
       startedAt: new Date().toISOString(),
       steps: STEP_PLAN.map((step) =>
-        kept.has(step.id)
-          ? { ...step, state: "done" as const }
-          : { ...step, state: "waiting" as const },
+        kept.has(step.id) ? { ...step, state: "done" as const } : { ...step, state: "waiting" as const },
       ),
     };
     yield* writeJournal(progress);
@@ -408,11 +397,7 @@ const openUpdate = (
  * rather than a plan that is still "running" for ever. */
 const runSteps = (
   options: AppUpdateOptions,
-): Effect.Effect<
-  void,
-  UpdateJournalError | CliError | CheckoutError | NotARepository,
-  Repositories
-> =>
+): Effect.Effect<void, UpdateJournalError | CliError | CheckoutError | NotARepository, Repositories> =>
   Effect.gen(function* () {
     const root = AbsolutePath.make(options.root);
     const opened = yield* readJournal();

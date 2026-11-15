@@ -195,9 +195,7 @@ test("a preference is read from among the other cookies, or is absent", () => {
 
 test("a preference is written with the attributes that survive a fresh port", () => {
   setPref("corvi:workspace", "My Client");
-  expect(cookie).toBe(
-    "corvi:workspace=My%20Client; max-age=315360000; path=/; SameSite=Lax",
-  );
+  expect(cookie).toBe("corvi:workspace=My%20Client; max-age=315360000; path=/; SameSite=Lax");
 
   // The key is written as-is, the value is encoded.
   setPref("corvi:workspace", "a/b&c=d");
@@ -221,7 +219,9 @@ test("only an abort is an abort", () => {
 });
 
 test("a finished change's nav ends with its transcripts, and only a finished change resolves them", () => {
-  expect(changeNav([{ id: "review", title: "Review changes", extension: "review" }], { finished: true })).toEqual([
+  expect(
+    changeNav([{ id: "review", title: "Review changes", extension: "review" }], { finished: true }),
+  ).toEqual([
     { id: "plan", title: "Plan" },
     { id: "dashboard", title: "Dashboard" },
     { id: "review", title: "Review changes" },

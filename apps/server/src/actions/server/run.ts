@@ -64,7 +64,9 @@ export const listActionsFor = (change: Change): Effect.Effect<readonly ActionSum
     const discovery = yield* actionRootsFor(change).pipe(Effect.flatMap(discoverActions));
     const state = change.state ?? "Implementation";
     return discovery.actions
-      .filter((found) => found.action.phases === undefined || found.action.phases.some((phase) => phase === state))
+      .filter(
+        (found) => found.action.phases === undefined || found.action.phases.some((phase) => phase === state),
+      )
       .map(summaryOf);
   });
 
@@ -107,7 +109,11 @@ export const runActionFor = (
             shippedBody: builtinActionBody("brief"),
           })
         : found.action.body;
-    const text = renderActionBody(template, factsFor(change), found.action.kind === "command" ? "shell" : "text");
+    const text = renderActionBody(
+      template,
+      factsFor(change),
+      found.action.kind === "command" ? "shell" : "text",
+    );
 
     const dir = changeDir(change);
     // A change whose only windows are subagent windows must not get a throwaway shell just to
@@ -117,7 +123,8 @@ export const runActionFor = (
     if (windows.length === 0) {
       yield* Effect.tryPromise({
         try: () => ensureActiveHostWindow(change.id, dir, { cols: 100, rows: 30 }),
-        catch: (error) => new BadRequestError({ message: error instanceof Error ? error.message : String(error) }),
+        catch: (error) =>
+          new BadRequestError({ message: error instanceof Error ? error.message : String(error) }),
       });
       windows = yield* listWindows(change.id);
     }

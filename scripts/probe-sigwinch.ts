@@ -212,26 +212,44 @@ const main = async (): Promise<void> => {
   });
   try {
     if (pi !== null) {
-      console.log(JSON.stringify(await probe(client, home, env, {
-        name: "pi-startup",
-        command: [pi, "--offline", "--no-session"],
-        warmupMs: 1000,
-      }), null, 2));
+      console.log(
+        JSON.stringify(
+          await probe(client, home, env, {
+            name: "pi-startup",
+            command: [pi, "--offline", "--no-session"],
+            warmupMs: 1000,
+          }),
+          null,
+          2,
+        ),
+      );
       const history = await makePiHistory(home);
-      console.log(JSON.stringify(await probe(client, home, env, {
-        name: "pi-history",
-        command: [pi, "--offline", "--session", history],
-        warmupMs: 1000,
-      }), null, 2));
+      console.log(
+        JSON.stringify(
+          await probe(client, home, env, {
+            name: "pi-history",
+            command: [pi, "--offline", "--session", history],
+            warmupMs: 1000,
+          }),
+          null,
+          2,
+        ),
+      );
     } else {
       console.log(JSON.stringify({ state: "pi", skipped: "not found on PATH" }));
     }
     if (opencode !== null) {
-      console.log(JSON.stringify(await probe(client, home, env, {
-        name: "opencode-startup",
-        command: [opencode, "--pure"],
-        warmupMs: 6000,
-      }), null, 2));
+      console.log(
+        JSON.stringify(
+          await probe(client, home, env, {
+            name: "opencode-startup",
+            command: [opencode, "--pure"],
+            warmupMs: 6000,
+          }),
+          null,
+          2,
+        ),
+      );
     } else {
       console.log(JSON.stringify({ state: "opencode", skipped: "not found on PATH" }));
     }

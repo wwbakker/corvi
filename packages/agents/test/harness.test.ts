@@ -12,7 +12,16 @@ test("pi is launched with the session id, name, model and thinking level", () =>
   });
   expect(launch).toEqual({
     command: "pi",
-    args: ["--session-id", "reviewer-123", "--name", "Reviewer", "--model", "zai/glm-5.3-flash", "--thinking", "high"],
+    args: [
+      "--session-id",
+      "reviewer-123",
+      "--name",
+      "Reviewer",
+      "--model",
+      "zai/glm-5.3-flash",
+      "--thinking",
+      "high",
+    ],
   });
 });
 
@@ -22,6 +31,12 @@ test("pi omits the model and effort when the profile does not set them", () => {
 });
 
 test("opencode is launched with --session and --model, and no thinking flag", () => {
-  const launch = launchOf({ harness: "opencode", sessionId: "s", label: "L", model: "zai/glm-5.3-flash", effort: "high" });
+  const launch = launchOf({
+    harness: "opencode",
+    sessionId: "s",
+    label: "L",
+    model: "zai/glm-5.3-flash",
+    effort: "high",
+  });
   expect(launch).toEqual({ command: "opencode", args: ["--session", "s", "--model", "zai/glm-5.3-flash"] });
 });

@@ -68,7 +68,9 @@ export const presentWindow = (raw: RawWindow): PresentedWindow => {
   const base = raw.named ? raw.name : raw.directory || raw.name;
   const what = said.running ?? raw.command;
   const composed =
-    raw.title ?? said.label ?? (what && !SHELLS.includes(what) && what !== base ? `${base} - (${what})` : base);
+    raw.title ??
+    said.label ??
+    (what && !SHELLS.includes(what) && what !== base ? `${base} - (${what})` : base);
   return {
     index: raw.index,
     id: raw.id,

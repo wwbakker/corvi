@@ -26,7 +26,7 @@ const scripted = (options: {
   readonly nexts: readonly unknown[];
   readonly turnFailsOnce?: boolean;
   readonly reply?: string;
-}): { readonly harness: RelayHarness; readonly submitted: string[]; readonly turns: string[][]; } => {
+}): { readonly harness: RelayHarness; readonly submitted: string[]; readonly turns: string[][] } => {
   const controller = new AbortController();
   const submitted: string[] = [];
   const turns: string[][] = [];
@@ -95,10 +95,7 @@ test("the turn is retried after a failed relay", async () => {
 
 test("an interrupted turn is not submitted", async () => {
   const { harness, submitted } = scripted({
-    nexts: [
-      { status: "interrupted" },
-      { status: "message", message: { number: 2, body: "later" } },
-    ],
+    nexts: [{ status: "interrupted" }, { status: "message", message: { number: 2, body: "later" } }],
   });
   await relayLoop("s1", harness);
   expect(submitted).toEqual(["later"]);
@@ -292,7 +289,11 @@ test("aborting while a run is in flight leaves the loop rather than parking", as
     exec: async (args) => {
       calls.push(args[1] ?? "");
       if (args[1] === "next") {
-        return { code: 0, stdout: JSON.stringify({ status: "message", message: { number: 1, body: "hi" } }), stderr: "" };
+        return {
+          code: 0,
+          stdout: JSON.stringify({ status: "message", message: { number: 1, body: "hi" } }),
+          stderr: "",
+        };
       }
       return { code: 0, stdout: "{}", stderr: "" };
     },
@@ -310,7 +311,9 @@ test("aborting while a run is in flight leaves the loop rather than parking", as
 
 /** A fake pi runtime: its own handlers, its own parked `next`, its own poll count. Two of these
  * stand in for a `/reload`, which invokes the extension factory again for a fresh runtime. */
-const runtime = (options: { readonly execRejects?: boolean } = {}): {
+const runtime = (
+  options: { readonly execRejects?: boolean } = {},
+): {
   readonly pi: ExtensionAPI;
   readonly start: () => Promise<void>;
   readonly shutdown: () => Promise<void>;

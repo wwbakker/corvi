@@ -137,28 +137,28 @@ export const events = (req: Request): Effect.Effect<Response> =>
     // keeps Bun's idle timeout from closing a stream that is quiet by nature.
     const fiber = yield* Effect.forkDetach(
       Effect.scoped(
-      Effect.gen(function* () {
-        yield* Effect.addFinalizer(() => Effect.sync(() => forget(client)));
-        clients.add(client);
-        startWatcher();
-        // Says the stream is open, and gives the browser something to receive: an EventSource
-        // that has had nothing at all is indistinguishable from one that never connected. The
-        // page refetches on open; the watcher's first look covers everything that moves after.
-        client.send("open", "");
-        return yield* Effect.forever(
-          Effect.gen(function* () {
-            yield* Effect.sleep(HEARTBEAT);
-            // Writing to a stream nobody is reading throws: the connection is gone, whatever we
-            // were told, so forget the client and end this fiber's loop.
-            yield* Effect.sync(() => client.ping()).pipe(
-              Effect.catchDefect(() => {
-                forget(client);
-                return Effect.interrupt;
-              }),
-            );
-          }),
-        );
-      }),
+        Effect.gen(function* () {
+          yield* Effect.addFinalizer(() => Effect.sync(() => forget(client)));
+          clients.add(client);
+          startWatcher();
+          // Says the stream is open, and gives the browser something to receive: an EventSource
+          // that has had nothing at all is indistinguishable from one that never connected. The
+          // page refetches on open; the watcher's first look covers everything that moves after.
+          client.send("open", "");
+          return yield* Effect.forever(
+            Effect.gen(function* () {
+              yield* Effect.sleep(HEARTBEAT);
+              // Writing to a stream nobody is reading throws: the connection is gone, whatever we
+              // were told, so forget the client and end this fiber's loop.
+              yield* Effect.sync(() => client.ping()).pipe(
+                Effect.catchDefect(() => {
+                  forget(client);
+                  return Effect.interrupt;
+                }),
+              );
+            }),
+          );
+        }),
       ),
     );
     req.signal.addEventListener("abort", () => {

@@ -26,9 +26,9 @@ const badRequest = (message: string): BadRequestError => new BadRequestError({ m
 const shResult = (cmd: string[], cwd?: string): Effect.Effect<ShellResult, never, Shell | Workspace> =>
   Effect.gen(function* () {
     const shell = yield* Shell;
-    return yield* shell.run(cmd, { cwd }).pipe(
-      Effect.catch((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
-    );
+    return yield* shell
+      .run(cmd, { cwd })
+      .pipe(Effect.catch((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })));
   });
 
 /**
@@ -45,7 +45,11 @@ const gitKind = (path: string): Effect.Effect<"worktree" | "repository" | undefi
 /** The repository a worktree belongs to, read from the `gitdir:` line git leaves in it. */
 const repositoryOf = (worktree: string): Effect.Effect<string | undefined> =>
   Effect.map(
-    Effect.promise(() => file(join(worktree, ".git")).text().catch(() => "")),
+    Effect.promise(() =>
+      file(join(worktree, ".git"))
+        .text()
+        .catch(() => ""),
+    ),
     (text) => {
       const gitdir = /^gitdir:\s*(.+)$/m.exec(text)?.[1]?.trim();
       // .../<repo>/.git/worktrees/<name> — the repository is what comes before /.git/.
@@ -60,54 +64,50 @@ const isChangeDir = (path: string): Effect.Effect<boolean> =>
 /** The active roots across every scope: where a leftover can be sitting. */
 const activeRoots = (): string[] => [...new Set(changePairs().map(({ root }) => root))];
 
-export const listLeftovers: Effect.Effect<Leftover[], never, Shell | Workspace> = Effect.gen(
-  function* () {
-    const perRoot = yield* Effect.forEach(
-      activeRoots(),
-      (root): Effect.Effect<Leftover[], never, Shell | Workspace> =>
-        Effect.gen(function* () {
-          const names = yield* Effect.promise(() =>
-            readdir(root, { withFileTypes: true }).catch(() => []),
-          );
-          const candidates = names.filter((e) => e.isDirectory());
-          const found = yield* Effect.forEach(
-            candidates,
-            (entry): Effect.Effect<Leftover | undefined, never, Shell | Workspace> =>
-              Effect.gen(function* () {
-                const path = join(root, entry.name);
-                if (yield* isChangeDir(path)) return undefined;
-                const [entries, du] = yield* Effect.all([
-                  Effect.promise(() => readdir(path, { withFileTypes: true }).catch(() => [])),
-                  shResult(["du", "-sk", path]),
-                ]);
-                const inner = yield* Effect.forEach(
-                  entries,
-                  (e): Effect.Effect<Leftover["entries"][number]> =>
-                    e.isDirectory()
-                      ? Effect.map(gitKind(join(path, e.name)), (git) => ({
-                          name: e.name,
-                          directory: true,
-                          git,
-                        }))
-                      : Effect.succeed({ name: e.name, directory: false, git: undefined }),
-                  { concurrency: "unbounded" },
-                );
-                return {
-                  name: entry.name,
-                  path,
-                  entries: inner,
-                  kilobytes: Number(du.stdout.split(/\s+/)[0] ?? 0),
-                };
-              }),
-            { concurrency: "unbounded" },
-          );
-          return found.filter((l): l is Leftover => l !== undefined);
-        }),
-      { concurrency: "unbounded" },
-    );
-    return perRoot.flat().sort((a, b) => b.kilobytes - a.kilobytes);
-  },
-);
+export const listLeftovers: Effect.Effect<Leftover[], never, Shell | Workspace> = Effect.gen(function* () {
+  const perRoot = yield* Effect.forEach(
+    activeRoots(),
+    (root): Effect.Effect<Leftover[], never, Shell | Workspace> =>
+      Effect.gen(function* () {
+        const names = yield* Effect.promise(() => readdir(root, { withFileTypes: true }).catch(() => []));
+        const candidates = names.filter((e) => e.isDirectory());
+        const found = yield* Effect.forEach(
+          candidates,
+          (entry): Effect.Effect<Leftover | undefined, never, Shell | Workspace> =>
+            Effect.gen(function* () {
+              const path = join(root, entry.name);
+              if (yield* isChangeDir(path)) return undefined;
+              const [entries, du] = yield* Effect.all([
+                Effect.promise(() => readdir(path, { withFileTypes: true }).catch(() => [])),
+                shResult(["du", "-sk", path]),
+              ]);
+              const inner = yield* Effect.forEach(
+                entries,
+                (e): Effect.Effect<Leftover["entries"][number]> =>
+                  e.isDirectory()
+                    ? Effect.map(gitKind(join(path, e.name)), (git) => ({
+                        name: e.name,
+                        directory: true,
+                        git,
+                      }))
+                    : Effect.succeed({ name: e.name, directory: false, git: undefined }),
+                { concurrency: "unbounded" },
+              );
+              return {
+                name: entry.name,
+                path,
+                entries: inner,
+                kilobytes: Number(du.stdout.split(/\s+/)[0] ?? 0),
+              };
+            }),
+          { concurrency: "unbounded" },
+        );
+        return found.filter((l): l is Leftover => l !== undefined);
+      }),
+    { concurrency: "unbounded" },
+  );
+  return perRoot.flat().sort((a, b) => b.kilobytes - a.kilobytes);
+});
 
 /**
  * Delete one leftover directory. Refuses anything that is still a change, and anything outside
@@ -116,9 +116,7 @@ export const listLeftovers: Effect.Effect<Leftover[], never, Shell | Workspace> 
  * refused rather than guessed at. The Effect fails with a `BadRequestError` carrying a
  * human-readable message.
  */
-export const removeLeftover = (
-  name: string,
-): Effect.Effect<void, BadRequestError, Shell | Workspace> =>
+export const removeLeftover = (name: string): Effect.Effect<void, BadRequestError, Shell | Workspace> =>
   Effect.gen(function* () {
     if (name === "" || name.includes("/") || name.startsWith(".")) {
       return yield* badRequest(`not a change directory: ${name}`);
@@ -136,9 +134,7 @@ export const removeLeftover = (
       }
     }
     if (existing.length > 1) {
-      return yield* badRequest(
-        `${name} exists in ${existing.length} changes roots: not removing either`,
-      );
+      return yield* badRequest(`${name} exists in ${existing.length} changes roots: not removing either`);
     }
     const path = existing[0];
     // Already gone: nothing left to remove.
@@ -146,9 +142,7 @@ export const removeLeftover = (
 
     // Worktrees inside it stay registered with their repositories after the directory goes, and
     // git then refuses to reuse the name until someone prunes. Ask them first, tidy up after.
-    const entries = yield* Effect.promise(() =>
-      readdir(path, { withFileTypes: true }).catch(() => []),
-    );
+    const entries = yield* Effect.promise(() => readdir(path, { withFileTypes: true }).catch(() => []));
     const repositories = yield* Effect.forEach(
       entries.filter((e) => e.isDirectory()),
       (e) =>

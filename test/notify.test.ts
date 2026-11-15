@@ -75,9 +75,7 @@ test("a local notify and a remote source envelope both read as a notice", () => 
     source: "remote-client",
   });
   // Another event in the envelope, and anything unreadable, is no notice.
-  expect(
-    noticeOf("source", JSON.stringify({ source: "x", event: "changes", data: "" })),
-  ).toBeUndefined();
+  expect(noticeOf("source", JSON.stringify({ source: "x", event: "changes", data: "" }))).toBeUndefined();
   expect(noticeOf("notify", "not json")).toBeUndefined();
   expect(noticeOf("source", "{")).toBeUndefined();
 });

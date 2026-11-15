@@ -15,13 +15,7 @@ import {
 import { guard } from "../capabilities/web.ts";
 import { isFinished } from "@corvi/changes/record";
 import { workspaceById, workspaceOf, settingsOf } from "../workspace/server/index.ts";
-import {
-  bodyAs,
-  json,
-  withChange,
-  withWorkspaceParam,
-  workspaceParam,
-} from "../capabilities/web.ts";
+import { bodyAs, json, withChange, withWorkspaceParam, workspaceParam } from "../capabilities/web.ts";
 
 /** The card action's argument: the repository the action is applied to, when it takes one. */
 const ActionBody = Schema.Struct({ arg: Schema.optional(Schema.String) });
@@ -55,10 +49,7 @@ export const integrationRoutes = guard({
   // elsewhere. A context without the extension has no entry, not an empty one.
   "/api/pages": {
     GET: (req) =>
-      withWorkspaceParam(
-        req,
-        Effect.succeed(json({ pages: pagesFor(workspaceById(workspaceParam(req))) })),
-      ),
+      withWorkspaceParam(req, Effect.succeed(json({ pages: pagesFor(workspaceById(workspaceParam(req))) }))),
   },
 
   // The tabs this change's page offers: the core's own plus the extensions' for its workspace.
@@ -66,17 +57,14 @@ export const integrationRoutes = guard({
   // wizard with steps — so a workspace without an extension has no tab for it, not an empty one.
   "/api/changes/:id/tabs": {
     GET: (req) =>
-      withChange(req.params.id, (c) =>
-        Effect.succeed(json({ tabs: changeTabsFor(workspaceOf(c)) })),
-      ),
+      withChange(req.params.id, (c) => Effect.succeed(json({ tabs: changeTabsFor(workspaceOf(c)) }))),
   },
 
   // The client-drawn widgets this change's dashboard shows: the extensions' for its
   // workspace, resolved the same way. A workspace without an extension has no widget for it,
   // not an empty one.
   "/api/changes/:id/widgets": {
-    GET: (req) =>
-      withChange(req.params.id, (c) => Effect.succeed(json({ widgets: widgetsFor(c) }))),
+    GET: (req) => withChange(req.params.id, (c) => Effect.succeed(json({ widgets: widgetsFor(c) }))),
   },
 
   // Extension routes: whatever the extensions registered, under one namespace, with the same

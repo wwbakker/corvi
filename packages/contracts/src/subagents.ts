@@ -4,16 +4,16 @@
  * prompt. Like an action, it is one Markdown file with YAML frontmatter; the page edits the file
  * itself, so what it sends is the file's text. The profile's own parsed shape is
  * `@corvi/agents/profile`'s; this file is what the browser and the server share. */
-import { Schema } from "effect"
+import { Schema } from "effect";
 
 /** The harness a profile starts. */
-export const SubagentHarness = Schema.Literals(["pi", "opencode"])
-export type SubagentHarness = typeof SubagentHarness.Type
+export const SubagentHarness = Schema.Literals(["pi", "opencode"]);
+export type SubagentHarness = typeof SubagentHarness.Type;
 
 /** Where the profile's file was discovered. Built-in files are shipped with Corvi; repository
  * files live in one of the change's checkouts. */
-export const SubagentSource = Schema.Literals(["builtin", "global", "workspace", "repository"])
-export type SubagentSource = typeof SubagentSource.Type
+export const SubagentSource = Schema.Literals(["builtin", "global", "workspace", "repository"]);
+export type SubagentSource = typeof SubagentSource.Type;
 
 /** One profile file as the page lists it: the file as written, and what it parses to — or why it
  * does not, shown so it can be fixed right there. */
@@ -31,14 +31,14 @@ export const SubagentProfileFileSchema = Schema.Struct({
   text: Schema.String,
   label: Schema.optional(Schema.String),
   problems: Schema.optional(Schema.Array(Schema.String)),
-})
-export type SubagentProfileFileDto = typeof SubagentProfileFileSchema.Type
+});
+export type SubagentProfileFileDto = typeof SubagentProfileFileSchema.Type;
 
 export const SubagentFilesResponseSchema = Schema.Struct({
   workspaces: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })),
   files: Schema.Array(SubagentProfileFileSchema),
-})
-export type SubagentFilesResponseDto = typeof SubagentFilesResponseSchema.Type
+});
+export type SubagentFilesResponseDto = typeof SubagentFilesResponseSchema.Type;
 
 /** Where a write lands: the global and workspace scopes beside the config file. A repository
  * file is written through the change-scoped routes (`…/subagent-files`) instead, and a built-in
@@ -48,15 +48,15 @@ export const SubagentFileWriteSchema = Schema.Struct({
   workspace: Schema.optional(Schema.String),
   id: Schema.String,
   text: Schema.String,
-})
-export type SubagentFileWriteDto = typeof SubagentFileWriteSchema.Type
+});
+export type SubagentFileWriteDto = typeof SubagentFileWriteSchema.Type;
 
 export const SubagentFileRefSchema = Schema.Struct({
   scope: Schema.Literals(["global", "workspace"]),
   workspace: Schema.optional(Schema.String),
   id: Schema.String,
-})
-export type SubagentFileRefDto = typeof SubagentFileRefSchema.Type
+});
+export type SubagentFileRefDto = typeof SubagentFileRefSchema.Type;
 
 /** A repository file's address: the repository name as the discovery key spells it
  * (`repository:orders-api:reviewer`) inside the change the route names. The scope is the route —
@@ -65,14 +65,14 @@ export const SubagentRepositoryFileWriteSchema = Schema.Struct({
   repository: Schema.String,
   id: Schema.String,
   text: Schema.String,
-})
-export type SubagentRepositoryFileWriteDto = typeof SubagentRepositoryFileWriteSchema.Type
+});
+export type SubagentRepositoryFileWriteDto = typeof SubagentRepositoryFileWriteSchema.Type;
 
 export const SubagentRepositoryFileRefSchema = Schema.Struct({
   repository: Schema.String,
   id: Schema.String,
-})
-export type SubagentRepositoryFileRefDto = typeof SubagentRepositoryFileRefSchema.Type
+});
+export type SubagentRepositoryFileRefDto = typeof SubagentRepositoryFileRefSchema.Type;
 
 /** What the Repositories view lists: one block per repository of the change's checkouts, its
  * `.corvi/subagents` files parsed exactly as the other scopes are. */
@@ -83,8 +83,8 @@ export const SubagentRepositoryFilesResponseSchema = Schema.Struct({
       files: Schema.Array(SubagentProfileFileSchema),
     }),
   ),
-})
-export type SubagentRepositoryFilesResponseDto = typeof SubagentRepositoryFilesResponseSchema.Type
+});
+export type SubagentRepositoryFilesResponseDto = typeof SubagentRepositoryFilesResponseSchema.Type;
 
 /** What a change can run, on the wire: discovery's answer (`@corvi/agents/discovery`) as the
  * CLI reads it. The `key` is what `subagent create` takes (`repository:orders-api:reviewer`).
@@ -104,22 +104,22 @@ export const SubagentProfileSummarySchema = Schema.Struct({
   model: Schema.optional(Schema.String),
   effort: Schema.optional(Schema.String),
   body: Schema.String,
-})
-export type SubagentProfileSummaryDto = typeof SubagentProfileSummarySchema.Type
+});
+export type SubagentProfileSummaryDto = typeof SubagentProfileSummarySchema.Type;
 
 /** The runnable profiles and, as everywhere else, the files that did not make it — with their
  * reasons, never hidden. */
 export const SubagentProfilesResponseSchema = Schema.Struct({
   profiles: Schema.Array(SubagentProfileSummarySchema),
   skipped: Schema.Array(Schema.Struct({ key: Schema.String, reasons: Schema.Array(Schema.String) })),
-})
-export type SubagentProfilesResponseDto = typeof SubagentProfilesResponseSchema.Type
+});
+export type SubagentProfilesResponseDto = typeof SubagentProfilesResponseSchema.Type;
 
 // --- Instances -------------------------------------------------------------------------------
 
 /** Who a message is from. A turn's reply is always `subagent`; the other two are inbound. */
-export const SubagentRole = Schema.Literals(["orchestrator", "user", "subagent"])
-export type SubagentRole = typeof SubagentRole.Type
+export const SubagentRole = Schema.Literals(["orchestrator", "user", "subagent"]);
+export type SubagentRole = typeof SubagentRole.Type;
 
 /** One entry in an instance's system log. */
 export const SubagentSystemEventSchema = Schema.Struct({
@@ -134,16 +134,16 @@ export const SubagentSystemEventSchema = Schema.Struct({
   ]),
   at: Schema.String,
   note: Schema.optional(Schema.String),
-})
-export type SubagentSystemEventDto = typeof SubagentSystemEventSchema.Type
+});
+export type SubagentSystemEventDto = typeof SubagentSystemEventSchema.Type;
 
 /** A message number: a positive safe integer. A message's own `number`, the in-flight claim and a
  * reply's `inReplyTo` are all one, so `0`, negatives, fractions and non-numbers are never valid. */
-const MessageNumber = Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0)))
+const MessageNumber = Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0)));
 
 /** The delivery cursor: how far the relay has handed inbound messages over. `0` is the legitimate
  * "nothing delivered yet", so the cursor is non-negative where a message number is positive. */
-const MessageCursor = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)))
+const MessageCursor = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 
 /** The stored record: `session.json`. `deliveredThrough` is the durable delivery cursor `next`
  * reads; `inFlight` is the one thing not derivable after a reboot. */
@@ -165,8 +165,8 @@ export const SubagentRecordSchema = Schema.Struct({
    * rather than minting a second one. */
   createdKey: Schema.optional(Schema.String),
   log: Schema.mutable(Schema.Array(SubagentSystemEventSchema)),
-})
-export type SubagentRecordDto = typeof SubagentRecordSchema.Type
+});
+export type SubagentRecordDto = typeof SubagentRecordSchema.Type;
 
 /** One message, as a file and on the wire. */
 export const SubagentMessageSchema = Schema.Struct({
@@ -182,8 +182,8 @@ export const SubagentMessageSchema = Schema.Struct({
    * existed; such a reply settles only under the legacy rule (the latest message, nothing newer in
    * the way). */
   inReplyTo: Schema.optional(MessageNumber),
-})
-export type SubagentMessageDto = typeof SubagentMessageSchema.Type
+});
+export type SubagentMessageDto = typeof SubagentMessageSchema.Type;
 
 /** One instance as the list and show routes answer: the record, the derived view, and the whole
  * conversation. */
@@ -210,13 +210,13 @@ export const SubagentInstanceSchema = Schema.Struct({
   paneId: Schema.optional(Schema.String),
   log: Schema.mutable(Schema.Array(SubagentSystemEventSchema)),
   messages: Schema.mutable(Schema.Array(SubagentMessageSchema)),
-})
-export type SubagentInstanceDto = typeof SubagentInstanceSchema.Type
+});
+export type SubagentInstanceDto = typeof SubagentInstanceSchema.Type;
 
 export const SubagentListResponseSchema = Schema.Struct({
   instances: Schema.mutable(Schema.Array(SubagentInstanceSchema)),
-})
-export type SubagentListResponseDto = typeof SubagentListResponseSchema.Type
+});
+export type SubagentListResponseDto = typeof SubagentListResponseSchema.Type;
 
 /** Create an instance from a profile key, optionally with the orchestrator's task text. `from`
  * records who asked (the CLI's orchestrator by default, the UI's user when the page creates it). */
@@ -224,14 +224,14 @@ export const SubagentCreateRequestSchema = Schema.Struct({
   profile: Schema.String,
   prompt: Schema.optional(Schema.String),
   from: Schema.optional(Schema.Literals(["orchestrator", "user"])),
-})
-export type SubagentCreateRequestDto = typeof SubagentCreateRequestSchema.Type
+});
+export type SubagentCreateRequestDto = typeof SubagentCreateRequestSchema.Type;
 
 export const SubagentSendRequestSchema = Schema.Struct({
   text: Schema.String,
   from: Schema.optional(Schema.Literals(["orchestrator", "user"])),
-})
-export type SubagentSendRequestDto = typeof SubagentSendRequestSchema.Type
+});
+export type SubagentSendRequestDto = typeof SubagentSendRequestSchema.Type;
 
 /** A settled turn's reply, relayed by the harness extension. */
 export const SubagentTurnRequestSchema = Schema.Struct({
@@ -241,8 +241,8 @@ export const SubagentTurnRequestSchema = Schema.Struct({
   /** The inbound message `next` handed over that this settled run answers. The relay echoes the
    * submitted number, so later work cannot be mistaken for this turn's completion. */
   inReplyTo: Schema.optional(MessageNumber),
-})
-export type SubagentTurnRequestDto = typeof SubagentTurnRequestSchema.Type
+});
+export type SubagentTurnRequestDto = typeof SubagentTurnRequestSchema.Type;
 
 /** One awaited target's answer. `ready` carries why it is ready, and for `reason: "replied"` the
  * inbound turn and the reply that settled it; `lost` and `interrupted` carry the turn they were
@@ -257,8 +257,8 @@ export const SubagentAwaitOutcomeSchema = Schema.Struct({
   turn: Schema.optional(MessageNumber),
   /** The reply that settles `turn`, when `reason` is "replied". */
   reply: Schema.optional(MessageNumber),
-})
-export type SubagentAwaitOutcomeDto = typeof SubagentAwaitOutcomeSchema.Type
+});
+export type SubagentAwaitOutcomeDto = typeof SubagentAwaitOutcomeSchema.Type;
 
 /** What an `await` ended as, per target. `any` returns the one target that settled; `all` returns
  * one outcome per target, with the aggregate `status` ordered `lost` > `interrupted` > `ready`;
@@ -266,13 +266,13 @@ export type SubagentAwaitOutcomeDto = typeof SubagentAwaitOutcomeSchema.Type
 export const SubagentAwaitResponseSchema = Schema.Struct({
   status: Schema.Literals(["ready", "lost", "interrupted", "timeout"]),
   outcomes: Schema.Array(SubagentAwaitOutcomeSchema),
-})
-export type SubagentAwaitResponseDto = typeof SubagentAwaitResponseSchema.Type
+});
+export type SubagentAwaitResponseDto = typeof SubagentAwaitResponseSchema.Type;
 
 /** What the extension's `next` got: an inbound message to submit, an interrupted turn to leave
  * alone, or nothing yet (the poll's own deadline). */
 export const SubagentNextResponseSchema = Schema.Struct({
   status: Schema.Literals(["message", "interrupted", "none"]),
   message: Schema.optional(SubagentMessageSchema),
-})
-export type SubagentNextResponseDto = typeof SubagentNextResponseSchema.Type
+});
+export type SubagentNextResponseDto = typeof SubagentNextResponseSchema.Type;

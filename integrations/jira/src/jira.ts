@@ -109,7 +109,10 @@ export type WorkspaceSource = {
  * A bag value that is not a string, or an empty one, is not set: empty means unset.
  */
 // Pure and synchronous: nothing for an Effect to wrap.
-export function globalOf(settings: GlobalSettings, workspace?: WorkspaceSource): {
+export function globalOf(
+  settings: GlobalSettings,
+  workspace?: WorkspaceSource,
+): {
   assignee: string;
   startTransition: string;
   doneTransition: string;
@@ -135,8 +138,7 @@ export function globalOf(settings: GlobalSettings, workspace?: WorkspaceSource):
  * one site can see different issues. Exported, because both halves key their caches from it and
  * two spellings of one namespace is how they drift apart. */
 export const siteKey = (site: Site): string =>
-  [site.server, site.email, site.project, site.board, site.tokenEnv].filter(Boolean).join("|") ||
-  "default";
+  [site.server, site.email, site.project, site.board, site.tokenEnv].filter(Boolean).join("|") || "default";
 
 /** Which sprints the board view covers. Closed sprints are finished work, so they are excluded
  * by default. Override with CORVI_JIRA_SPRINT_STATES (e.g. "active,future,closed"). */
@@ -239,10 +241,8 @@ const onlyOne = (project: string, boards: readonly BoardJson[]): BoardChoice | u
  * is when the filter is asked. Not re-filtered by `location`: Jira already answered that question,
  * and a project configured by numeric id would match no `projectKey`. */
 // Pure and synchronous: nothing for an Effect to wrap.
-export const chooseLocatedBoard = (
-  project: string,
-  located: readonly BoardJson[],
-): BoardChoice | undefined => onlyOne(project, located);
+export const chooseLocatedBoard = (project: string, located: readonly BoardJson[]): BoardChoice | undefined =>
+  onlyOne(project, located);
 
 /** The boards whose filter mentions the project, as `projectKeyOrId` answers them. A board located
  * in another project is never picked: on a real site the filter names other projects' boards as
@@ -253,9 +253,7 @@ export const chooseFilteredBoard = (project: string, filtered: readonly BoardJso
   const elsewhere = (board: BoardJson): boolean => {
     const location = board.location;
     if (location?.projectKey === undefined) return false;
-    return (
-      location.projectKey.toUpperCase() !== project && String(location.projectId) !== project
-    );
+    return location.projectKey.toUpperCase() !== project && String(location.projectId) !== project;
   };
   const own = filtered.filter((board) => !elsewhere(board));
   const chosen = onlyOne(project, own);
@@ -280,10 +278,10 @@ const boardsWhere = (
   Effect.gen(function* () {
     const boards: BoardJson[] = [];
     for (;;) {
-      const page = yield* jiraFetch<{ values?: BoardJson[]; isLast?: boolean }>(
-        "/rest/agile/1.0/board",
-        { site, query: { ...query, startAt: String(boards.length) } },
-      );
+      const page = yield* jiraFetch<{ values?: BoardJson[]; isLast?: boolean }>("/rest/agile/1.0/board", {
+        site,
+        query: { ...query, startAt: String(boards.length) },
+      });
       const values = page.values ?? [];
       boards.push(...values);
       // An empty page that claims there is more would otherwise ask forever.
@@ -325,13 +323,9 @@ const boardId = (site: Site): Effect.Effect<string, BadRequestError, Cache> =>
       `jira:${siteKey(site)}:board-id`,
       ISSUE_TTL,
       Effect.gen(function* () {
-        const located = chooseLocatedBoard(
-          project,
-          yield* boardsWhere(site, { projectLocation: project }),
-        );
+        const located = chooseLocatedBoard(project, yield* boardsWhere(site, { projectLocation: project }));
         const choice =
-          located ??
-          chooseFilteredBoard(project, yield* boardsWhere(site, { projectKeyOrId: project }));
+          located ?? chooseFilteredBoard(project, yield* boardsWhere(site, { projectKeyOrId: project }));
         if ("problem" in choice) return yield* new BadRequestError({ message: choice.problem });
         return choice.id;
       }),
@@ -370,8 +364,7 @@ export const moveIssueToActiveSprint = (
     // Active sprints only, read fresh: this is a click, and the choice must be today's sprints.
     const active = yield* listSprints(site, "active");
     const [picked] = [...active].sort(
-      (a, b) =>
-        (b.startDate ?? "").localeCompare(a.startDate ?? "") || Number(b.id) - Number(a.id),
+      (a, b) => (b.startDate ?? "").localeCompare(a.startDate ?? "") || Number(b.id) - Number(a.id),
     );
     if (!picked) return { detail: "left in the backlog: no active sprint" };
     yield* jiraFetch(`/rest/agile/1.0/sprint/${picked.id}/issue`, {
@@ -382,7 +375,6 @@ export const moveIssueToActiveSprint = (
     yield* invalidate(boardViewKey(site));
     return { detail: `moved to ${picked.name}` };
   });
-
 
 /** The issues of one sprint, named after it: the board view groups by sprint, and the sprint an
  * issue is in is the query that found it. */
@@ -435,7 +427,8 @@ const readBoard = (site: Site): Effect.Effect<Board, never, Cache> =>
         const board: Board = { issues, sprints: sprintNames(issues) };
         return board;
       }),
-      (e): Effect.Effect<Board, never, Cache> => Effect.succeed({ issues: [], sprints: [], error: messageOf(e) }),
+      (e): Effect.Effect<Board, never, Cache> =>
+        Effect.succeed({ issues: [], sprints: [], error: messageOf(e) }),
     ),
     (board): Board => ({ ...board, baseUrl: siteBaseUrl(site) }),
   );
@@ -459,10 +452,7 @@ export const boardIssues = (
     return yield* swr(key, ISSUE_TTL, readBoard(site));
   });
 
-
-const sprintNames = (issues: Issue[]): string[] => [
-  ...new Set(issues.map((i) => i.sprint).filter(Boolean)),
-];
+const sprintNames = (issues: Issue[]): string[] => [...new Set(issues.map((i) => i.sprint).filter(Boolean))];
 
 /** Plain text as Jira Cloud wants it: v3 takes a document, not a string. One paragraph per line
  * is the whole of what a description typed into a form needs. */
@@ -541,7 +531,6 @@ export const createIssue = (input: {
     return { key: created.key, summary, assignee: "", status: "", type, sprint: "" };
   });
 
-
 /**
  * Move an issue to another status.
  *
@@ -594,15 +583,11 @@ export const issuesByKeys = (
     return yield* swr(
       `jira:${siteKey(site)}:keys:${[...keys].sort().join(",")}`,
       ISSUE_TTL,
-      Effect.catch(
-        search(`key in (${keys.join(",")})`, site, keys.length),
-        () => Effect.succeed([] as Issue[]),
-      ).pipe(
-        Effect.map((issues) => new Map(issues.map((i) => [i.key, i]))),
-      ),
+      Effect.catch(search(`key in (${keys.join(",")})`, site, keys.length), () =>
+        Effect.succeed([] as Issue[]),
+      ).pipe(Effect.map((issues) => new Map(issues.map((i) => [i.key, i])))),
     );
   });
-
 
 /** One issue by key, whatever its type: used for the widget, the status check and descriptions. */
 export const issueByKey = (key: string, site: Site = {}): Effect.Effect<Issue | undefined> =>

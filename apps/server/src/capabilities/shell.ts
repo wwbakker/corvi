@@ -41,8 +41,7 @@ const nodeShell = makeNodeShell({
   trace,
 });
 
-const expand = (value: string): string =>
-  value.startsWith("~") ? homedir() + value.slice(1) : value;
+const expand = (value: string): string => (value.startsWith("~") ? homedir() + value.slice(1) : value);
 
 /** What to add to a subprocess's environment: the scope's `env` setting — the global entries
  * and the workspace's own, the workspace's winning per key — `~` expanded, since these are
@@ -79,12 +78,11 @@ export const sh = (cmd: readonly string[], cwd?: string): Effect.Effect<ShellRes
     const shell = yield* Effect.serviceOption(Shell);
     const workspace = yield* Effect.serviceOption(Workspace);
     if (Option.isSome(shell)) {
-      return yield* shell.value.run(cmd, { cwd }).pipe(
-        Effect.provideService(
-          Workspace,
-          Option.isSome(workspace) ? workspace.value : DEFAULT_WORKSPACE,
-        ),
-      );
+      return yield* shell.value
+        .run(cmd, { cwd })
+        .pipe(
+          Effect.provideService(Workspace, Option.isSome(workspace) ? workspace.value : DEFAULT_WORKSPACE),
+        );
     }
     const variables = envOf(Option.isSome(workspace) ? workspace.value : undefined);
     return yield* nodeShell.run(cmd, { cwd, env: variables });

@@ -56,8 +56,7 @@ const live = (collector: Collector): string =>
   Buffer.concat(collector.chunks.map((chunk) => Buffer.from(chunk))).toString("utf8");
 const saw = (collector: Collector, text: string): boolean => live(collector).includes(text);
 /** The screen as the last snapshot handed to a collector. */
-const screenOf = (collector: Collector): string =>
-  collector.snapshots.map((frame) => frame.data).join("");
+const screenOf = (collector: Collector): string => collector.snapshots.map((frame) => frame.data).join("");
 
 /** The host's emitted byte offset for a session (monotonic). */
 const lastSeq = async (sessionId: string): Promise<number> =>
@@ -120,7 +119,11 @@ test("the screen is fed with no page attached", async () => {
   // The screen was fed with no page, so the output is in the snapshot; if the host's last bytes
   // were still in flight to the server when the attach serialized, they arrive as the immediate
   // live bytes, which is the same screen. Either way the page sees it without a replay.
-  await waitFor("the mark on the screen", async () => (screenOf(first) + live(first)).includes("PRE_1_MARK"), 15_000);
+  await waitFor(
+    "the mark on the screen",
+    async () => (screenOf(first) + live(first)).includes("PRE_1_MARK"),
+    15_000,
+  );
   expect(screenOf(first) + live(first)).toContain("PRE_1_MARK");
   expect(hubStats().attached).toBe(1);
   expect(hubStats().subscribers).toBe(1);
@@ -151,7 +154,9 @@ test("detaching never kills the shell or the screen, and re-attaching resumes fr
   session.kill(); // detach, not kill
   // The screen belongs to the session: the host listener stays while it exists.
   expect(hubStats().attached).toBe(1);
-  const alive = (await (await hostClient()).list()).filter((entry) => entry.metadata?.change === "HUB-2" && entry.alive);
+  const alive = (await (await hostClient()).list()).filter(
+    (entry) => entry.metadata?.change === "HUB-2" && entry.alive,
+  );
   expect(alive).toHaveLength(1);
 
   // Produced while detached, then served to the new page from the screen.

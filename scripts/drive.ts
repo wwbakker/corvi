@@ -56,9 +56,7 @@ page.on("dialog", (dialog) => {
 await page.waitForSelector(".sidebar", { timeout: 30_000 });
 console.log(`window: ${await page.title()}`);
 console.log(`  url:  ${page.url()}`);
-console.log(
-  `  host: ${await page.evaluate(() => typeof (window as { corviHost?: unknown }).corviHost)}`,
-);
+console.log(`  host: ${await page.evaluate(() => typeof (window as { corviHost?: unknown }).corviHost)}`);
 
 if (process.argv.includes("--notify")) {
   // Exercise the host path (the app's own notification, not the browser fallback) and give it a

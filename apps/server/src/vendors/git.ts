@@ -2,11 +2,7 @@ import { basename, join } from "node:path";
 import { symlink, lstat, unlink } from "node:fs/promises";
 import { Effect } from "effect";
 import type { Change, CheckoutSpec } from "@corvi/changes/record";
-import {
-  effectiveBranchOf,
-  specFor,
-  targetOf,
-} from "@corvi/changes/record";
+import { effectiveBranchOf, specFor, targetOf } from "@corvi/changes/record";
 import type {
   WidgetDto as Widget,
   WidgetItemDto as WidgetItem,
@@ -54,8 +50,7 @@ export type WorktreeEntry = {
  * computed here so every caller — provisioning, removal, the card — agrees on one answer.
  * Worktrees created before Corvi owned the path (when wt's `worktree-path` config wrote it) are at
  * exactly this path, so nothing needs migrating. */
-export const worktreePath = (change: Change, repo: string): string =>
-  join(changeDir(change), basename(repo));
+export const worktreePath = (change: Change, repo: string): string => join(changeDir(change), basename(repo));
 
 // Pure and synchronous: nothing for an Effect to wrap.
 export const findWorktree = (entries: WorktreeEntry[], branch: string): WorktreeEntry | undefined =>
@@ -106,11 +101,7 @@ export function parseStatus(status: string): NonNullable<WorktreeEntry["working_
  * the content landed. Assumes the branch has commits beyond `base`; `contentInMain` establishes
  * that. A non-zero exit or unparseable output is "not proven", not an error — this only ever
  * adds a ready path, so doubt reads as blocked. */
-const cherryInMain = (
-  repo: string,
-  branch: string,
-  base: string,
-): Effect.Effect<boolean> =>
+const cherryInMain = (repo: string, branch: string, base: string): Effect.Effect<boolean> =>
   Effect.gen(function* () {
     const cherry = yield* shSoft(["git", "cherry", base, branch], repo);
     if (cherry.code !== 0) return false;
@@ -127,11 +118,7 @@ const cherryInMain = (
  * reader that acts on it treats it as not integrated. Local refs only, so callers that need the
  * truth fetch first; routed through `sh` like the rest, so a test scripts it like any other
  * command. */
-const cheaplyIntegrated = (
-  repo: string,
-  branch: string,
-  base: string,
-): Effect.Effect<boolean | undefined> =>
+const cheaplyIntegrated = (repo: string, branch: string, base: string): Effect.Effect<boolean | undefined> =>
   Effect.gen(function* () {
     // Nothing beyond the base: the branch is contained outright, no cherry needed. An empty or
     // unparseable count is "not proven", not zero — `Number("")` is 0, which would read
@@ -149,9 +136,7 @@ export const contentInMain = (
   branch: string,
   base: string | undefined,
 ): Effect.Effect<boolean> =>
-  base
-    ? Effect.map(cheaplyIntegrated(repo, branch, base), (proof) => proof === true)
-    : Effect.succeed(false);
+  base ? Effect.map(cheaplyIntegrated(repo, branch, base), (proof) => proof === true) : Effect.succeed(false);
 
 /** Whether a simulated merge of `base` and `branch` lands on the tree `base` already has: the
  * branch's changes are already in `base`'s content. This is the multi-commit squash merge —
@@ -161,11 +146,7 @@ export const contentInMain = (
  * A conflict exits non-zero and is "not proven", not an error: doubt keeps a branch, it never
  * deletes one. `--write-tree` writes the merged tree into the object database; nothing points at it
  * and `git gc` reclaims it — the price of asking the question wt asked. */
-const mergeAddsNothing = (
-  repo: string,
-  branch: string,
-  base: string,
-): Effect.Effect<boolean> =>
+const mergeAddsNothing = (repo: string, branch: string, base: string): Effect.Effect<boolean> =>
   Effect.gen(function* () {
     const merged = yield* shSoft(["git", "merge-tree", "--write-tree", base, branch], repo);
     if (merged.code !== 0) return false;
@@ -202,11 +183,7 @@ const tipPair = (
  * to ask about commits nobody else has. The card's label stays on the cheap half (`contentInMain`),
  * because it is painted on every refresh and a merge writes into the repository; the disagreement
  * that leaves is a label that is cautious, never a deletion that guesses. */
-export const integrated = (
-  repo: string,
-  branch: string,
-  base: string,
-): Effect.Effect<boolean> =>
+export const integrated = (repo: string, branch: string, base: string): Effect.Effect<boolean> =>
   Effect.gen(function* () {
     const cheap = yield* cheaplyIntegrated(repo, branch, base);
     if (cheap === true) return true;
@@ -279,9 +256,7 @@ export const entryFor = (change: Change, repo: string): Effect.Effect<WorktreeEn
       branch: found.branch,
       path: found.path,
       working_tree: { staged: tree.staged, modified: tree.modified, untracked: tree.untracked },
-      remote: tree.upstream
-        ? { branch: tree.upstream, ahead: tree.ahead, behind: tree.behind }
-        : null,
+      remote: tree.upstream ? { branch: tree.upstream, ahead: tree.ahead, behind: tree.behind } : null,
       ...(base_state ? { base_state } : {}),
       // "diverged" for commits the default branch does not have, which is what makes them worth
       // warning about before a removal. Unknown — no default branch to compare with, or a failed
@@ -378,9 +353,7 @@ const askDefaultBranch = (repo: string): Effect.Effect<string | undefined, CliEr
  *
  * Never fails: a timed-out `git` reads as "no default branch", and that tolerance is explicit
  * here rather than surfacing the timeout through every caller. */
-export const remoteDefaultBranch = (
-  repo: string,
-): Effect.Effect<string | undefined> =>
+export const remoteDefaultBranch = (repo: string): Effect.Effect<string | undefined> =>
   Effect.suspend(() => {
     const known = defaultBranches.get(repo);
     if (known) return known;
@@ -409,10 +382,7 @@ const localDefaultBranches = new Map<string, Effect.Effect<string | undefined>>(
 const askLocalDefaultBranch = (repo: string): Effect.Effect<string | undefined> =>
   Effect.gen(function* () {
     for (const name of ["main", "master"]) {
-      const found = yield* shSoft(
-        ["git", "show-ref", "--verify", "--quiet", `refs/heads/${name}`],
-        repo,
-      );
+      const found = yield* shSoft(["git", "show-ref", "--verify", "--quiet", `refs/heads/${name}`], repo);
       if (found.code === 0) return name;
     }
     return undefined;
@@ -448,10 +418,7 @@ export const defaultBranch = (repo: string): Effect.Effect<string | undefined> =
 
 /** The branch this repository's work starts from: what the change chose for it, or the
  * repository's default branch — the remote's, or its own main/master when there is no remote. */
-export const baseFor = (
-  change: Change,
-  repo: string,
-): Effect.Effect<string | undefined> =>
+export const baseFor = (change: Change, repo: string): Effect.Effect<string | undefined> =>
   Effect.suspend(() => {
     const chosen = specFor(change, repo)?.base;
     return chosen !== undefined ? Effect.succeed(chosen) : defaultBranch(repo);
@@ -460,10 +427,7 @@ export const baseFor = (
 /** What a pull request merges into: the spec's `target`, else the `base` its branch started
  * from — one field served both roles before they were split, so a spec without `target` still
  * means it — else the repository's default branch. */
-export const targetFor = (
-  change: Change,
-  repo: string,
-): Effect.Effect<string | undefined> =>
+export const targetFor = (change: Change, repo: string): Effect.Effect<string | undefined> =>
   Effect.suspend(() => {
     const spec = specFor(change, repo);
     const chosen = spec ? targetOf(spec) : undefined;
@@ -518,9 +482,7 @@ export const openers: Opener[] = isMac
     ];
 
 const openMenu = (repo: string): { id: string; label: string; arg: string }[] =>
-  openers
-    .filter((o) => o.available?.() ?? true)
-    .map(({ id, label }) => ({ id, label, arg: repo }));
+  openers.filter((o) => o.available?.() ?? true).map(({ id, label }) => ({ id, label, arg: repo }));
 
 /** Whether this change's checkout of `repo` is the repository's own, rather than a worktree. */
 export const isInPlace = (change: Change, repo: string): boolean =>
@@ -541,12 +503,18 @@ export const isDirty = (repo: string): Effect.Effect<boolean> =>
 export const browseRepo = (change: Change, repo: string): Effect.Effect<void> =>
   Effect.gen(function* () {
     const path = worktreePath(change, repo);
-    if (yield* fs(() => lstat(path).then(() => true, () => false))) return;
+    if (
+      yield* fs(() =>
+        lstat(path).then(
+          () => true,
+          () => false,
+        ),
+      )
+    )
+      return;
     yield* fs(() => symlink(repo, path)).pipe(
       Effect.catchDefect((e) =>
-        Effect.sync(() =>
-          console.error(`could not link ${repo} into ${changeDir(change)}:`, messageOf(e)),
-        ),
+        Effect.sync(() => console.error(`could not link ${repo} into ${changeDir(change)}:`, messageOf(e))),
       ),
     );
   });
@@ -560,7 +528,12 @@ export const unlinkRepo = (change: Change, repo: string): Effect.Effect<void> =>
     // Only a symlink is Corvi's link to remove. A real worktree directory at this path is not ours
     // to unlink — removing that is `removeWorktree`'s git command. A link that is already gone is
     // the wanted end state: two runs racing both see it, and the loser must not fail over it.
-    const linked = yield* fs(() => lstat(path).then((s) => s.isSymbolicLink(), () => false));
+    const linked = yield* fs(() =>
+      lstat(path).then(
+        (s) => s.isSymbolicLink(),
+        () => false,
+      ),
+    );
     if (linked)
       yield* fs(() =>
         unlink(path).then(
@@ -580,10 +553,7 @@ export const unlinkRepo = (change: Change, repo: string): Effect.Effect<void> =>
 const inPlaceItem = (change: Change, repo: string, spec: CheckoutSpec): Effect.Effect<WidgetItem> =>
   Effect.gen(function* () {
     const label = basename(repo);
-    const [branch, dirty] = yield* Effect.all([
-      currentBranch(repo),
-      isDirty(repo),
-    ]);
+    const [branch, dirty] = yield* Effect.all([currentBranch(repo), isDirty(repo)]);
     if (spec.branch.kind === "change" && branch !== change.branch) {
       return {
         label,
@@ -613,9 +583,9 @@ const inPlaceItem = (change: Change, repo: string, spec: CheckoutSpec): Effect.E
     const described = entry
       ? describe(entry)
       : {
-        detail: dirty ? "uncommitted changes" : "clean",
-        state: (dirty ? "pending" : "ok") as WidgetState,
-      };
+          detail: dirty ? "uncommitted changes" : "clean",
+          state: (dirty ? "pending" : "ok") as WidgetState,
+        };
     const way = spec.branch.kind === "current" ? "current branch" : "in place";
     return {
       label,
@@ -634,16 +604,14 @@ export type Unsafe = { kind: "dirty" | "untracked" | "unpushed"; text: string };
  * shares (`Repositories.assessRemoval`): the completion menu, the repository editor, and the
  * lifecycle's own fresh check ask the same question and get the same answer. A checkout that
  * cannot be read is treated as holding work: a removal nobody can assess does not go ahead. */
-export const unsafeToRemove = (
-  change: Change,
-  repo: string,
-): Effect.Effect<Unsafe | undefined> =>
+export const unsafeToRemove = (change: Change, repo: string): Effect.Effect<Unsafe | undefined> =>
   Effect.gen(function* () {
     const path = yield* checkoutFor(change, repo);
     if (!path) return undefined; // nothing to lose
     const branch = yield* branchNameOf(change, repo);
     const assessed = yield* removalSafety(path, branch).pipe(Effect.result);
-    if (assessed._tag === "Failure") return { kind: "dirty", text: assessed.failure.message } satisfies Unsafe;
+    if (assessed._tag === "Failure")
+      return { kind: "dirty", text: assessed.failure.message } satisfies Unsafe;
     const assessment = assessed.success;
     if (assessment._tag === "Safe") return undefined;
     const text = assessment.reasons.map((reason) => reason.text).join("; ");
@@ -684,10 +652,7 @@ export const repoStates = (
  * deleted is not an error — the worktree is gone, and the caller reports what is left (cancel's
  * "the branch X is kept in …") rather than failing a removal that happened.
  */
-export const removeWorktree = (
-  change: Change,
-  repo: string,
-): Effect.Effect<void, CliError> =>
+export const removeWorktree = (change: Change, repo: string): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
     const spec = specFor(change, repo);
     if (spec?.location === "original") return yield* unlinkRepo(change, repo);

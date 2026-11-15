@@ -22,8 +22,7 @@ export function RemoteAvailabilityBanner({
   return (
     <div className="remote-unavailable" role="status" aria-live="polite">
       <span className="remote-unavailable-text">
-        {name === undefined || name === "" ? "This workspace" : name} is unavailable:{" "}
-        {status.reason.message}
+        {name === undefined || name === "" ? "This workspace" : name} is unavailable: {status.reason.message}
       </span>
       <span className="spacer" />
       <button onClick={retry}>Retry now</button>

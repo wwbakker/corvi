@@ -66,12 +66,12 @@ export const pathOf = (view: View): string =>
         : view.name === "subagents"
           ? "/subagents"
           : view.name === "settings"
-          ? "/settings"
-          : view.name === "change"
-            ? `/changes/${encodeURIComponent(view.id)}${view.page === "plan" ? "" : `/${view.page}`}${
-                view.source === "" ? "" : `?source=${encodeURIComponent(view.source)}`
-              }`
-            : "/";
+            ? "/settings"
+            : view.name === "change"
+              ? `/changes/${encodeURIComponent(view.id)}${view.page === "plan" ? "" : `/${view.page}`}${
+                  view.source === "" ? "" : `?source=${encodeURIComponent(view.source)}`
+                }`
+              : "/";
 
 /**
  * A page's leave guard: the view it guards, what it has unsaved, and the one save that ends it.

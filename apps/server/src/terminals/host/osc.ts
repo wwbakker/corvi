@@ -123,7 +123,9 @@ export const parseOsc = (input: Buffer, carry: Buffer): OscParse => {
       return { clean: Buffer.concat(out), carry: buf.subarray(start), statuses };
     }
     try {
-      const json = JSON.parse(Buffer.from(buf.subarray(after, end).toString("ascii"), "base64").toString("utf8"));
+      const json = JSON.parse(
+        Buffer.from(buf.subarray(after, end).toString("ascii"), "base64").toString("utf8"),
+      );
       const status = sanitizeStatus(json);
       if (status) statuses.push(status);
     } catch {

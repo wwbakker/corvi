@@ -11,17 +11,12 @@ import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 
 import { InternalError } from "@corvi/contracts/errors";
-import {
-  mergeActionFiles,
-  type ActionFileInput,
-  type Discovery,
-} from "../discovery.ts";
+import { mergeActionFiles, type ActionFileInput, type Discovery } from "../discovery.ts";
 import { splitFrontmatter } from "../model.ts";
 
 /** Where the shipped default actions live: the package's own `builtins/`, read-only files in
  * the same format as user files. */
-export const builtinActionsDir = (): string =>
-  fileURLToPath(new URL("../../builtins/", import.meta.url));
+export const builtinActionsDir = (): string => fileURLToPath(new URL("../../builtins/", import.meta.url));
 
 /** The body of a shipped action (`brief`), as the legacy `ideationPrompt` fallback chain needs
  * it. Synchronous and tiny: it is read when a setting is composed, not per request. */

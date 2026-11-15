@@ -44,8 +44,7 @@ import type { Workspace as WorkspaceShape } from "@corvi/configuration/config";
 export const ShellLive = Layer.effect(
   Shell,
   Effect.succeed({
-    run: (cmd, opts) =>
-      Effect.flatMap(Workspace, (workspace) => shWithEnv(cmd, opts?.cwd, envOf(workspace))),
+    run: (cmd, opts) => Effect.flatMap(Workspace, (workspace) => shWithEnv(cmd, opts?.cwd, envOf(workspace))),
   }),
 );
 
@@ -54,8 +53,7 @@ export const ShellLive = Layer.effect(
  * the entrypoint; `cacheLive(cache)` is the seam). */
 export const cacheLive = (cache: CacheStore = defaultCache): Layer.Layer<Cache> =>
   Layer.succeed(Cache, {
-    swr: <A, E, R>(key: string, ttlMs: number, work: Effect.Effect<A, E, R>) =>
-      cache.swr(key, ttlMs, work),
+    swr: <A, E, R>(key: string, ttlMs: number, work: Effect.Effect<A, E, R>) => cache.swr(key, ttlMs, work),
     invalidate: (prefix) => Effect.sync(() => cache.invalidate(prefix)),
   });
 
@@ -88,8 +86,12 @@ export const ChangesLive = Layer.succeed(Changes, {
   // The store's own files (change.json, completion.json) are refused too, so the read cannot be
   // turned on the change record or the completion journal.
   readSidecar: (change: Change, name: string) =>
-    name === "" || name === "." || name === ".." || name.includes("/") || name.includes("\\") ||
-      CORE_SIDECARS.has(name)
+    name === "" ||
+    name === "." ||
+    name === ".." ||
+    name.includes("/") ||
+    name.includes("\\") ||
+    CORE_SIDECARS.has(name)
       ? Effect.succeed("")
       : readSidecar(change.id, name),
 });
@@ -115,8 +117,7 @@ export const extensionStoreLayer = (extension: string | undefined): Layer.Layer<
             ),
           )
         : unbound(),
-    read: (change, path) =>
-      extension ? readExtensionFile(change, extension, path) : unbound(),
+    read: (change, path) => (extension ? readExtensionFile(change, extension, path) : unbound()),
     write: (change, path, text) =>
       extension
         ? writeExtensionFile(change, extension, path, text).pipe(
@@ -144,10 +145,7 @@ export const GitFactsLive = Layer.succeed(GitFacts, {
   contentInMain,
 });
 
-export const capabilitiesLayer = (
-  workspace: WorkspaceShape,
-  extension?: string,
-): Layer.Layer<Capabilities> =>
+export const capabilitiesLayer = (workspace: WorkspaceShape, extension?: string): Layer.Layer<Capabilities> =>
   Layer.mergeAll(
     ShellLive,
     GitFactsLive,

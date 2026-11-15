@@ -1,9 +1,5 @@
 import { Effect, Schema } from "effect";
-import {
-  BadRequestError,
-  DecodeError,
-  NotFoundError,
-} from "@corvi/contracts/errors";
+import { BadRequestError, DecodeError, NotFoundError } from "@corvi/contracts/errors";
 import { Changes } from "../api/capabilities.ts";
 import type { IncludedIntegration } from "../types.ts";
 import type { Change } from "@corvi/changes/record";
@@ -48,9 +44,7 @@ export default {
       method: "GET",
       path: "/changes/:id/notes",
       handler: (req, params) =>
-        withChange(params.id!, (change) =>
-          Effect.map(readNotes(change), (text) => Response.json({ text })),
-        ),
+        withChange(params.id!, (change) => Effect.map(readNotes(change), (text) => Response.json({ text }))),
     },
     {
       // Saving the notes. The write is always the extension's own file; the legacy sidecar is

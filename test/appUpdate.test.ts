@@ -16,13 +16,7 @@ import {
   webBase,
   type AppUpdateOptions,
 } from "../apps/server/src/app-update/update.ts";
-import {
-  fakeShell,
-  runSh,
-  runWithShell,
-  testTempDir,
-  type FakeShell,
-} from "./helpers.ts";
+import { fakeShell, runSh, runWithShell, testTempDir, type FakeShell } from "./helpers.ts";
 
 /**
  * The app updating itself: what makes it eligible, what a check finds, and the update's three
@@ -178,9 +172,7 @@ test("the dialog's rows link to GitHub when the remote lives there", async () =>
   expect(status.behind).toBe(1);
   expect(status.commits[0]?.sha).toBe(sha);
   expect(status.commits[0]?.url).toBe(`https://github.com/acme/app/commit/${sha}`);
-  expect(status.compareUrl).toBe(
-    `https://github.com/acme/app/compare/${(await headOf(f.app))}...${sha}`,
-  );
+  expect(status.compareUrl).toBe(`https://github.com/acme/app/compare/${await headOf(f.app)}...${sha}`);
 });
 
 test("the update is refused — with the reason — for uncommitted and unpushed work", async () => {
@@ -306,7 +298,11 @@ test("a second update while one runs is refused, not raced", async () => {
   const inner = fakeShell();
   const gated: FakeShell = {
     calls: inner.calls,
-    run: (cmd, opts) => Effect.andThen(Effect.promise(() => gate), inner.run(cmd, opts)),
+    run: (cmd, opts) =>
+      Effect.andThen(
+        Effect.promise(() => gate),
+        inner.run(cmd, opts),
+      ),
   };
   // The start answers at once; the background run is held at the first Bun command.
   const started = await run(gated, startUpdate(options(f)));

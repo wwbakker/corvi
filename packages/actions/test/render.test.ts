@@ -25,7 +25,9 @@ test("every placeholder fills with the change's facts", () => {
 
 test("a placeholder typo leaves no hole: title falls back to branch then id, state to its phase", () => {
   expect(renderActionBody("{title}", { ...facts, title: undefined }, "text")).toBe("PROJ-1-title");
-  expect(renderActionBody("{title}", { ...facts, title: undefined, branch: undefined }, "text")).toBe("PROJ-1");
+  expect(renderActionBody("{title}", { ...facts, title: undefined, branch: undefined }, "text")).toBe(
+    "PROJ-1",
+  );
   expect(renderActionBody("{state}", { ...facts, state: undefined }, "text")).toBe("Implementation");
   expect(renderActionBody("{repos}", { ...facts, repos: undefined }, "text")).toBe("");
 });

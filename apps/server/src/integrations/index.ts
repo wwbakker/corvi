@@ -29,19 +29,13 @@ import { runtimeConfig } from "../workspace/server/index.ts";
 // saying once at startup rather than a silently dead surface.
 for (const workspace of runtimeConfig().workspaces) {
   for (const name of unknownIntegrationNames(workspace.settings?.extensions)) {
-    console.error(
-      `workspace "${workspace.id}" enables "${name}", which is not an included integration`,
-    );
+    console.error(`workspace "${workspace.id}" enables "${name}", which is not an included integration`);
   }
 }
 
 // The public surface: every symbol the rest of the server imports from here, whichever module
 // implements it.
-export {
-  loaded,
-  type CompiledRoute,
-  type LoadedIntegration,
-} from "./loaded.ts";
+export { loaded, type CompiledRoute, type LoadedIntegration } from "./loaded.ts";
 export {
   cardForExtension,
   cardsFor,
@@ -55,11 +49,7 @@ export {
   type PageInfo,
   type WizardStepInfo,
 } from "./selectors.ts";
-export {
-  repoStatusOf,
-  runCard,
-  statusOne,
-} from "./effects.ts";
+export { repoStatusOf, runCard, statusOne } from "./effects.ts";
 export { dispatchIntegrationRoute } from "./dispatch.ts";
 
 /** Re-exported for the contributors' convenience; the type lives in `@corvi/changes/record`

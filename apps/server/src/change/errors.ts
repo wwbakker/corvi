@@ -8,28 +8,19 @@ import { Schema } from "effect";
 
 /** A creation draft the core refuses: an invalid id, a state that is not a creation state, no
  * repository where one is needed, or two repositories sharing one name. */
-export class InvalidChangeDraft extends Schema.TaggedError<InvalidChangeDraft>()(
-  "InvalidChangeDraft",
-  {
-    message: Schema.String,
-  },
-) {}
+export class InvalidChangeDraft extends Schema.TaggedError<InvalidChangeDraft>()("InvalidChangeDraft", {
+  message: Schema.String,
+}) {}
 
 /** A change with this id already exists. */
-export class ChangeAlreadyExists extends Schema.TaggedError<ChangeAlreadyExists>()(
-  "ChangeAlreadyExists",
-  {
-    changeId: Schema.String,
-    message: Schema.String,
-  },
-) {}
+export class ChangeAlreadyExists extends Schema.TaggedError<ChangeAlreadyExists>()("ChangeAlreadyExists", {
+  changeId: Schema.String,
+  message: Schema.String,
+}) {}
 
 /** A hand edit the core refuses. `conflict` marks the refusals that conflict with where the
  * change stands — a terminal state, or a return to Ideation — rather than an unknown value. */
-export class InvalidChangeEdit extends Schema.TaggedError<InvalidChangeEdit>()(
-  "InvalidChangeEdit",
-  {
-    message: Schema.String,
-    conflict: Schema.Boolean,
-  },
-) {}
+export class InvalidChangeEdit extends Schema.TaggedError<InvalidChangeEdit>()("InvalidChangeEdit", {
+  message: Schema.String,
+  conflict: Schema.Boolean,
+}) {}

@@ -1,11 +1,11 @@
 /** Wire schemas shared by the server routes and the browser client. */
-import { Schema } from "effect"
+import { Schema } from "effect";
 
-import { BranchPlan, Change, ChangePhase, CheckoutLocation, DirectoryName, RepositoryId } from "./changes.ts"
-import { ConfigFile, Resolved, Workspace } from "./config.ts"
-import { DeviceViewSchema, PairingCodeSchema } from "./devices.ts"
-import { WINDOW_TITLE_MAX } from "./terminal.ts"
-import { ApplyShelfResultSchema } from "./shelves.ts"
+import { BranchPlan, Change, ChangePhase, CheckoutLocation, DirectoryName, RepositoryId } from "./changes.ts";
+import { ConfigFile, Resolved, Workspace } from "./config.ts";
+import { DeviceViewSchema, PairingCodeSchema } from "./devices.ts";
+import { WINDOW_TITLE_MAX } from "./terminal.ts";
+import { ApplyShelfResultSchema } from "./shelves.ts";
 
 export const RepositoryViewSchema = Schema.Struct({
   repositoryId: RepositoryId,
@@ -19,8 +19,8 @@ export const RepositoryViewSchema = Schema.Struct({
       head: Schema.optional(Schema.String),
     }),
   ]),
-})
-export type RepositoryViewDto = typeof RepositoryViewSchema.Type
+});
+export type RepositoryViewDto = typeof RepositoryViewSchema.Type;
 
 /** What one provisioning target reported, shown after a create or a start: the integration,
  * whether it worked, and the first error when it did not. */
@@ -29,8 +29,8 @@ export const ProvisionResultSchema = Schema.Struct({
   ok: Schema.Boolean,
   error: Schema.optional(Schema.String),
   detail: Schema.optional(Schema.String),
-})
-export type ProvisionResultDto = typeof ProvisionResultSchema.Type
+});
+export type ProvisionResultDto = typeof ProvisionResultSchema.Type;
 
 /** What one repository's freshness step reported after a create or a start: the checkout is
  * advanced only by fast-forward, and everything else says why it stands where it does. */
@@ -39,19 +39,19 @@ export const RefreshOutcomeSchema = Schema.Struct({
   directoryName: DirectoryName,
   state: Schema.Literals(["advanced", "current", "left-alone", "fetch-failed", "none"]),
   detail: Schema.optional(Schema.String),
-})
-export type RefreshOutcomeDto = typeof RefreshOutcomeSchema.Type
+});
+export type RefreshOutcomeDto = typeof RefreshOutcomeSchema.Type;
 
 // --- The change record and the change page's reads -------------------------------------------
 
-export const WidgetStateSchema = Schema.Literals(["ok", "pending", "warn", "none", "error"])
-export type WidgetStateDto = typeof WidgetStateSchema.Type
+export const WidgetStateSchema = Schema.Literals(["ok", "pending", "warn", "none", "error"]);
+export type WidgetStateDto = typeof WidgetStateSchema.Type;
 
 /** Where a change stands. One vocabulary everywhere — record, code, and page (the phase names
  * were renamed in record format v2: "In Progress" is "Implementation", "Awaiting Review" is
  * "Verification"). */
-export const ChangeStateSchema = ChangePhase
-export type ChangeStateDto = ChangePhase
+export const ChangeStateSchema = ChangePhase;
+export type ChangeStateDto = ChangePhase;
 
 /** One repository's checkout spec: where it lives, which branch it uses, and the two branch
  * questions split apart — `base` is where a created branch starts, `target` is what a pull
@@ -63,8 +63,8 @@ export const CheckoutSpecSchema = Schema.Struct({
   branch: BranchPlan,
   base: Schema.optional(Schema.String),
   target: Schema.optional(Schema.String),
-})
-export type CheckoutSpecDto = typeof CheckoutSpecSchema.Type
+});
+export type CheckoutSpecDto = typeof CheckoutSpecSchema.Type;
 
 /** The change record: what change.json holds (record format `FORMAT_VERSION`), what the store
  * decodes, and what the routes serve. Decode keeps unknown keys (the shared decode-then-merge at
@@ -90,24 +90,24 @@ export const ChangeWireSchema = Schema.Struct({
   /** The record format's version. A record without it is read as the current shape; a record
    * from a newer Corvi is read best-effort and never written. */
   formatVersion: Schema.optional(Schema.Number),
-})
-export type ChangeWireDto = typeof ChangeWireSchema.Type
+});
+export type ChangeWireDto = typeof ChangeWireSchema.Type;
 
 /** One fact on the overview's card: a coloured dot and a phrase. */
 export const SummaryFactSchema = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
   state: Schema.optional(WidgetStateSchema),
-})
-export type SummaryFactDto = typeof SummaryFactSchema.Type
+});
+export type SummaryFactDto = typeof SummaryFactSchema.Type;
 
 /** The overview's card: the core's terminal fact plus what the integrations add, and the worst
  * verdict among them. */
 export const ChangeSummarySchema = Schema.Struct({
   facts: Schema.mutable(Schema.Array(SummaryFactSchema)),
   state: WidgetStateSchema,
-})
-export type ChangeSummaryDto = typeof ChangeSummarySchema.Type
+});
+export type ChangeSummaryDto = typeof ChangeSummarySchema.Type;
 
 /** One server-drawn card of a change: what the dashboard fetches to know what to render. */
 export const CardInfoSchema = Schema.Struct({
@@ -117,33 +117,33 @@ export const CardInfoSchema = Schema.Struct({
   column: Schema.Literals(["left", "right"]),
   /** The card declares an editor (`Card.editable`); the editor itself is client code. */
   editable: Schema.optional(Schema.Boolean),
-})
-export type CardInfoDto = typeof CardInfoSchema.Type
+});
+export type CardInfoDto = typeof CardInfoSchema.Type;
 
 export const ChangeTabInfoSchema = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
   extension: Schema.String,
-})
-export type ChangeTabInfoDto = typeof ChangeTabInfoSchema.Type
+});
+export type ChangeTabInfoDto = typeof ChangeTabInfoSchema.Type;
 
 export const ChangeTabsResponseSchema = Schema.Struct({
   tabs: Schema.mutable(Schema.Array(ChangeTabInfoSchema)),
-})
-export type ChangeTabsResponseDto = typeof ChangeTabsResponseSchema.Type
+});
+export type ChangeTabsResponseDto = typeof ChangeTabsResponseSchema.Type;
 
 export const WidgetInfoSchema = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
   extension: Schema.String,
   column: Schema.optional(Schema.Literals(["left", "right"])),
-})
-export type WidgetInfoDto = typeof WidgetInfoSchema.Type
+});
+export type WidgetInfoDto = typeof WidgetInfoSchema.Type;
 
 export const ChangeWidgetsResponseSchema = Schema.Struct({
   widgets: Schema.mutable(Schema.Array(WidgetInfoSchema)),
-})
-export type ChangeWidgetsResponseDto = typeof ChangeWidgetsResponseSchema.Type
+});
+export type ChangeWidgetsResponseDto = typeof ChangeWidgetsResponseSchema.Type;
 
 export const RepoStateSchema = Schema.Struct({
   path: Schema.String,
@@ -153,26 +153,26 @@ export const RepoStateSchema = Schema.Struct({
   target: Schema.optional(Schema.String),
   name: Schema.String,
   unsafe: Schema.optional(Schema.Struct({ kind: Schema.String, text: Schema.String })),
-})
-export type RepoStateDto = typeof RepoStateSchema.Type
+});
+export type RepoStateDto = typeof RepoStateSchema.Type;
 
 /** A sidecar read or written as text (a pull-request description): absent is a missing
  * document, not a malformed one. */
-export const TextSchema = Schema.Struct({ text: Schema.optional(Schema.String) })
-export type TextDto = typeof TextSchema.Type
+export const TextSchema = Schema.Struct({ text: Schema.optional(Schema.String) });
+export type TextDto = typeof TextSchema.Type;
 
 /** The plan document: its text and the revision that text had. An edit is based on a revision,
  * so a save against a file that changed underneath is refused instead of overwriting it. */
-export const PlanDocSchema = Schema.Struct({ text: Schema.String, revision: Schema.String })
-export type PlanDocDto = typeof PlanDocSchema.Type
+export const PlanDocSchema = Schema.Struct({ text: Schema.String, revision: Schema.String });
+export type PlanDocDto = typeof PlanDocSchema.Type;
 
 /** A plan write: the new text and the revision it was edited from. An absent `baseRevision`
  * writes unconditionally — creation and a deliberate "overwrite" know what they are doing. */
 export const PlanWriteBodySchema = Schema.Struct({
   text: Schema.optional(Schema.String),
   baseRevision: Schema.optional(Schema.String),
-})
-export type PlanWriteBodyDto = typeof PlanWriteBodySchema.Type
+});
+export type PlanWriteBodyDto = typeof PlanWriteBodySchema.Type;
 
 // --- One card's widget, and the completion's state -------------------------------------------------
 
@@ -182,41 +182,40 @@ export const WidgetActionSchema = Schema.Struct({
   label: Schema.String,
   arg: Schema.optional(Schema.String),
   confirm: Schema.optional(Schema.String),
-})
-export type WidgetActionDto = typeof WidgetActionSchema.Type
+});
+export type WidgetActionDto = typeof WidgetActionSchema.Type;
 
 /** One row inside a widget: a repository, a pull request, a build, with nested rows. Declared as
  * an interface because the schema is recursive (children are rows too). */
 export interface WidgetItemDto {
-  label: string
-  detail?: string
-  detailTone?: WidgetStateDto
-  url?: string
-  state?: WidgetStateDto
-  actions?: WidgetActionDto[]
-  menu?: WidgetActionDto[]
-  progress?: { startedAt: string; expectedMs?: number }
-  at?: string
-  children?: WidgetItemDto[]
+  label: string;
+  detail?: string;
+  detailTone?: WidgetStateDto;
+  url?: string;
+  state?: WidgetStateDto;
+  actions?: WidgetActionDto[];
+  menu?: WidgetActionDto[];
+  progress?: { startedAt: string; expectedMs?: number };
+  at?: string;
+  children?: WidgetItemDto[];
 }
 
-export const WidgetItemSchema: Schema.Codec<WidgetItemDto> = Schema.suspend(
-  (): Schema.Codec<WidgetItemDto> =>
-    Schema.Struct({
-      label: Schema.String,
-      detail: Schema.optional(Schema.String),
-      detailTone: Schema.optional(WidgetStateSchema),
-      url: Schema.optional(Schema.String),
-      state: Schema.optional(WidgetStateSchema),
-      actions: Schema.optional(Schema.mutable(Schema.Array(WidgetActionSchema))),
-      menu: Schema.optional(Schema.mutable(Schema.Array(WidgetActionSchema))),
-      progress: Schema.optional(
-        Schema.Struct({ startedAt: Schema.String, expectedMs: Schema.optional(Schema.Number) }),
-      ),
-      at: Schema.optional(Schema.String),
-      children: Schema.optional(Schema.mutable(Schema.Array(WidgetItemSchema))),
-    }),
-)
+export const WidgetItemSchema: Schema.Codec<WidgetItemDto> = Schema.suspend((): Schema.Codec<WidgetItemDto> =>
+  Schema.Struct({
+    label: Schema.String,
+    detail: Schema.optional(Schema.String),
+    detailTone: Schema.optional(WidgetStateSchema),
+    url: Schema.optional(Schema.String),
+    state: Schema.optional(WidgetStateSchema),
+    actions: Schema.optional(Schema.mutable(Schema.Array(WidgetActionSchema))),
+    menu: Schema.optional(Schema.mutable(Schema.Array(WidgetActionSchema))),
+    progress: Schema.optional(
+      Schema.Struct({ startedAt: Schema.String, expectedMs: Schema.optional(Schema.Number) }),
+    ),
+    at: Schema.optional(Schema.String),
+    children: Schema.optional(Schema.mutable(Schema.Array(WidgetItemSchema))),
+  }),
+);
 
 /** What one integration reports about one change, as the dashboard renders it. */
 export const WidgetSchema = Schema.Struct({
@@ -225,13 +224,13 @@ export const WidgetSchema = Schema.Struct({
   state: WidgetStateSchema,
   summary: Schema.String,
   items: Schema.mutable(Schema.Array(WidgetItemSchema)),
-})
-export type WidgetDto = typeof WidgetSchema.Type
+});
+export type WidgetDto = typeof WidgetSchema.Type;
 
 export const RepoItemsSchema = Schema.Struct({
   items: Schema.mutable(Schema.Array(WidgetItemSchema)),
-})
-export type RepoItemsDto = typeof RepoItemsSchema.Type
+});
+export type RepoItemsDto = typeof RepoItemsSchema.Type;
 
 /** One step of an operation that can stop half way, as the journal writes it while it runs. */
 export const OperationStepSchema = Schema.Struct({
@@ -239,8 +238,8 @@ export const OperationStepSchema = Schema.Struct({
   label: Schema.String,
   state: Schema.Literals(["waiting", "running", "done", "failed"]),
   detail: Schema.optional(Schema.String),
-})
-export type OperationStepDto = typeof OperationStepSchema.Type
+});
+export type OperationStepDto = typeof OperationStepSchema.Type;
 
 /** What an operation that can stop half way did: the steps it planned and where it stopped. The
  * one journal shape — a completion and an app update both write one. */
@@ -249,16 +248,16 @@ export const OperationProgressSchema = Schema.Struct({
   finishedAt: Schema.optional(Schema.String),
   steps: Schema.mutable(Schema.Array(OperationStepSchema)),
   error: Schema.optional(Schema.String),
-})
-export type OperationProgressDto = typeof OperationProgressSchema.Type
+});
+export type OperationProgressDto = typeof OperationProgressSchema.Type;
 
 /** A completion's journal: the shared operation shape, plus the mode it ran in and what it
  * overrode. */
 export const CompletionProgressSchema = Schema.fieldsAssign({
   forced: Schema.optional(Schema.Boolean),
   overridden: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
-})(OperationProgressSchema)
-export type CompletionProgressDto = typeof CompletionProgressSchema.Type
+})(OperationProgressSchema);
+export type CompletionProgressDto = typeof CompletionProgressSchema.Type;
 
 // --- Updating the app itself -----------------------------------------------------------------------
 
@@ -268,8 +267,8 @@ export const IncomingCommitSchema = Schema.Struct({
   subject: Schema.String,
   /** The forge's page for the commit, when the remote lives at one that can be linked to. */
   url: Schema.optional(Schema.String),
-})
-export type IncomingCommitDto = typeof IncomingCommitSchema.Type
+});
+export type IncomingCommitDto = typeof IncomingCommitSchema.Type;
 
 /** What the app knows about updating itself: whether it can, what is new, why taking the update
  * is refused right now, and where a running or stopped update got to. */
@@ -292,25 +291,23 @@ export const AppUpdateStatusSchema = Schema.Struct({
   /** An update finished in this running app: the new code lands when the app restarts. False
    * again after the restart, however old the journal it finished is. */
   restartPending: Schema.Boolean,
-})
-export type AppUpdateStatusDto = typeof AppUpdateStatusSchema.Type
+});
+export type AppUpdateStatusDto = typeof AppUpdateStatusSchema.Type;
 
 export const CompletionReasonSchema = Schema.Struct({
   text: Schema.String,
   kind: Schema.Literals(["forceable", "hard"]),
-})
-export type CompletionReasonDto = typeof CompletionReasonSchema.Type
+});
+export type CompletionReasonDto = typeof CompletionReasonSchema.Type;
 
 /** Whether a change can be completed right now: what blocks it, tagged, and what would merge. */
 export const CompletionSchema = Schema.Struct({
   ready: Schema.Boolean,
   reasons: Schema.mutable(Schema.Array(Schema.String)),
   tagged: Schema.mutable(Schema.Array(CompletionReasonSchema)),
-  toMerge: Schema.mutable(
-    Schema.Array(Schema.Struct({ repo: Schema.String, number: Schema.Number })),
-  ),
-})
-export type CompletionDto = typeof CompletionSchema.Type
+  toMerge: Schema.mutable(Schema.Array(Schema.Struct({ repo: Schema.String, number: Schema.Number }))),
+});
+export type CompletionDto = typeof CompletionSchema.Type;
 
 // --- Terminals, wizard steps, pages, and the directory browser -------------------------------------
 
@@ -331,15 +328,18 @@ export const TerminalWindowSchema = Schema.Struct({
   panes: Schema.Array(Schema.String),
   /** The focused pane's session id. */
   activePane: Schema.String,
-})
-export type TerminalWindowDto = typeof TerminalWindowSchema.Type
+});
+export type TerminalWindowDto = typeof TerminalWindowSchema.Type;
 
 /** Every change's windows, keyed by change id: one read for the navigation's terminals. */
-export const TerminalsResponseSchema = Schema.Record(Schema.String, Schema.mutableKey(Schema.mutable(Schema.Array(TerminalWindowSchema))))
-export type TerminalsResponseDto = typeof TerminalsResponseSchema.Type
+export const TerminalsResponseSchema = Schema.Record(
+  Schema.String,
+  Schema.mutableKey(Schema.mutable(Schema.Array(TerminalWindowSchema))),
+);
+export type TerminalsResponseDto = typeof TerminalsResponseSchema.Type;
 
-export const UrlSchema = Schema.Struct({ url: Schema.String })
-export type UrlDto = typeof UrlSchema.Type
+export const UrlSchema = Schema.Struct({ url: Schema.String });
+export type UrlDto = typeof UrlSchema.Type;
 
 /** An agent status for one host session, set by the CLI/HTTP reporter transport. The session and
  * its incarnation come from the pty environment (`CORVI_SESSION_ID`/`CORVI_SESSION_INCARNATION`). */
@@ -350,67 +350,67 @@ export const TerminalStatusSchema = Schema.Struct({
   name: Schema.optional(Schema.String.pipe(Schema.check(Schema.isMaxLength(120)))),
   sessionName: Schema.optional(Schema.String.pipe(Schema.check(Schema.isMaxLength(120)))),
   message: Schema.optional(Schema.String.pipe(Schema.check(Schema.isMaxLength(400)))),
-})
-export type TerminalStatusDto = typeof TerminalStatusSchema.Type
+});
+export type TerminalStatusDto = typeof TerminalStatusSchema.Type;
 
-export const TerminalStatusResponseSchema = Schema.Struct({ ok: Schema.Boolean })
-export type TerminalStatusResponseDto = typeof TerminalStatusResponseSchema.Type
+export const TerminalStatusResponseSchema = Schema.Struct({ ok: Schema.Boolean });
+export type TerminalStatusResponseDto = typeof TerminalStatusResponseSchema.Type;
 
 export const WizardStepInfoSchema = Schema.Struct({
   id: Schema.String,
   extension: Schema.String,
   title: Schema.String,
   phase: Schema.Literals(["issue", "repos"]),
-})
-export type WizardStepInfoDto = typeof WizardStepInfoSchema.Type
+});
+export type WizardStepInfoDto = typeof WizardStepInfoSchema.Type;
 
 export const WizardResponseSchema = Schema.Struct({
   steps: Schema.mutable(Schema.Array(WizardStepInfoSchema)),
   /** The plan template in effect for the asked workspace: the wizard's plan editor opens on
    * it. Literal Markdown; the empty string means "start empty". */
   planTemplate: Schema.String,
-})
-export type WizardResponseDto = typeof WizardResponseSchema.Type
+});
+export type WizardResponseDto = typeof WizardResponseSchema.Type;
 
 export const PageInfoSchema = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
   extension: Schema.String,
-})
-export type PageInfoDto = typeof PageInfoSchema.Type
+});
+export type PageInfoDto = typeof PageInfoSchema.Type;
 
 export const PagesResponseSchema = Schema.Struct({
   pages: Schema.mutable(Schema.Array(PageInfoSchema)),
-})
-export type PagesResponseDto = typeof PagesResponseSchema.Type
+});
+export type PagesResponseDto = typeof PagesResponseSchema.Type;
 
 /** One directory in the repository browser. */
 export const DirectoryEntrySchema = Schema.Struct({
   path: Schema.String,
   name: Schema.String,
   isRepo: Schema.Boolean,
-})
-export type DirectoryEntryDto = typeof DirectoryEntrySchema.Type
+});
+export type DirectoryEntryDto = typeof DirectoryEntrySchema.Type;
 
 export const DirectoryListingSchema = Schema.Struct({
   path: Schema.String,
   entries: Schema.mutable(Schema.Array(DirectoryEntrySchema)),
-})
-export type DirectoryListingDto = typeof DirectoryListingSchema.Type
+});
+export type DirectoryListingDto = typeof DirectoryListingSchema.Type;
 
 /** The query a listing request may name: an explicit path, a context's start directory, and
  * whether dot-directories are wanted. */
 export type DirectoryListingSpec = {
-  readonly path?: string
-  readonly workspace?: string
-  readonly hidden?: boolean
-}
+  readonly path?: string;
+  readonly workspace?: string;
+  readonly hidden?: boolean;
+};
 
 export const BranchesSchema = Schema.Struct({
   branches: Schema.mutable(Schema.Array(Schema.String)),
   default: Schema.optional(Schema.String),
-})
-export type BranchesDto = typeof BranchesSchema.Type
+});
+export type BranchesDto = typeof BranchesSchema.Type;
 
 // --- Request bodies and the write responses -------------------------------------------------------
 
@@ -425,19 +425,19 @@ export const CreateChangeBodySchema = Schema.Struct({
   state: Schema.optional(ChangeStateSchema),
   extensions: Schema.optional(Schema.Record(Schema.String, Schema.mutableKey(Schema.Unknown))),
   plan: Schema.optional(Schema.String),
-})
-export type CreateChangeBodyDto = typeof CreateChangeBodySchema.Type
+});
+export type CreateChangeBodyDto = typeof CreateChangeBodySchema.Type;
 
 /** The repository list of a change, edited as a whole: the dialog sends the specs it wants. */
 export const ReposBodySchema = Schema.Struct({
   checkouts: Schema.mutable(Schema.Array(CheckoutSpecSchema)),
   force: Schema.optional(Schema.Boolean),
-})
-export type ReposBodyDto = typeof ReposBodySchema.Type
+});
+export type ReposBodyDto = typeof ReposBodySchema.Type;
 
 /** `force` on a completion, cancel or repository removal: ask once, repeat with force. */
-export const ForceBodySchema = Schema.Struct({ force: Schema.optional(Schema.Boolean) })
-export type ForceBodyDto = typeof ForceBodySchema.Type
+export const ForceBodySchema = Schema.Struct({ force: Schema.optional(Schema.Boolean) });
+export type ForceBodyDto = typeof ForceBodySchema.Type;
 
 /** The window actions the terminal bar offers. `split`/`close-pane`/`focus-pane`/`rename` name
  * the window and, where it matters, the pane session; `select`/`move` keep their index. */
@@ -452,8 +452,8 @@ export const WindowActionBodySchema = Schema.Struct({
   /** A window's new name. Required for `rename`; an empty string clears the name back to the
    * default. */
   title: Schema.optional(Schema.String.pipe(Schema.check(Schema.isMaxLength(WINDOW_TITLE_MAX)))),
-})
-export type WindowActionBodyDto = typeof WindowActionBodySchema.Type
+});
+export type WindowActionBodyDto = typeof WindowActionBodySchema.Type;
 
 /** A change with what its checkout run reported: the create, start and repository-edit
  * responses all answer in this one shape. */
@@ -464,8 +464,8 @@ export const ProvisionedChangeSchema = Schema.Struct({
   // Where the change lives on disk: its workspace's changes root joined with its id. Optional
   // because `start` and the repository edit share this shape and do not derive it.
   changeDir: Schema.optional(Schema.String),
-})
-export type ProvisionedChangeDto = typeof ProvisionedChangeSchema.Type
+});
+export type ProvisionedChangeDto = typeof ProvisionedChangeSchema.Type;
 
 /** A reopened change's answer: the record back in its phase, what its checkouts reported, and
  * what applying each repository's cancel shelf did. */
@@ -474,22 +474,22 @@ export const ReopenedResponseSchema = Schema.Struct({
   provision: Schema.mutable(Schema.Array(ProvisionResultSchema)),
   refresh: Schema.mutable(Schema.Array(RefreshOutcomeSchema)),
   restored: Schema.Array(Schema.Struct({ repository: Schema.String, outcome: ApplyShelfResultSchema })),
-})
-export type ReopenedResponseDto = typeof ReopenedResponseSchema.Type
+});
+export type ReopenedResponseDto = typeof ReopenedResponseSchema.Type;
 
 /** A completed change's answer: the record and the notes its steps left. */
 
 export const CompletedResponseSchema = Schema.Struct({
   change: ChangeWireSchema,
   notes: Schema.mutable(Schema.Array(Schema.String)),
-})
-export type CompletedResponseDto = typeof CompletedResponseSchema.Type
+});
+export type CompletedResponseDto = typeof CompletedResponseSchema.Type;
 
 export const CancelledResponseSchema = Schema.Struct({
   change: ChangeWireSchema,
   loose: Schema.mutable(Schema.Array(Schema.String)),
-})
-export type CancelledResponseDto = typeof CancelledResponseSchema.Type
+});
+export type CancelledResponseDto = typeof CancelledResponseSchema.Type;
 
 // --- Settings and workspaces ---------------------------------------------------------------------
 
@@ -502,8 +502,8 @@ export const ExtensionSettingSchema = Schema.Struct({
   list: Schema.optional(Schema.Boolean),
   secret: Schema.optional(Schema.Boolean),
   env: Schema.optional(Schema.String),
-})
-export type ExtensionSettingDto = typeof ExtensionSettingSchema.Type
+});
+export type ExtensionSettingDto = typeof ExtensionSettingSchema.Type;
 
 /** The external listener's runtime status: the config says whether it should be on, this says
  * whether it actually is. `error` explains a bind that failed, so the settings page can show why
@@ -515,8 +515,8 @@ export const RemoteAccessStatusSchema = Schema.Struct({
   port: Schema.optional(Schema.Number),
   url: Schema.optional(Schema.String),
   error: Schema.optional(Schema.String),
-})
-export type RemoteAccessStatusDto = typeof RemoteAccessStatusSchema.Type
+});
+export type RemoteAccessStatusDto = typeof RemoteAccessStatusSchema.Type;
 
 /** The settings page's read: the file as written, what is in effect, what is locked. */
 export const SettingsViewSchema = Schema.Struct({
@@ -526,7 +526,10 @@ export const SettingsViewSchema = Schema.Struct({
   /** Whether the external listener the config asks for is actually running. */
   remoteAccessStatus: RemoteAccessStatusSchema,
   overridden: Schema.Record(Schema.String, Schema.mutableKey(Schema.String)),
-  overriddenExtensions: Schema.Record(Schema.String, Schema.mutableKey(Schema.Record(Schema.String, Schema.mutableKey(Schema.String)))),
+  overriddenExtensions: Schema.Record(
+    Schema.String,
+    Schema.mutableKey(Schema.Record(Schema.String, Schema.mutableKey(Schema.String))),
+  ),
   toolingDefault: Schema.mutable(Schema.Array(Schema.String)),
   extensions: Schema.mutable(
     Schema.Array(
@@ -537,15 +540,15 @@ export const SettingsViewSchema = Schema.Struct({
       }),
     ),
   ),
-})
-export type SettingsViewDto = typeof SettingsViewSchema.Type
+});
+export type SettingsViewDto = typeof SettingsViewSchema.Type;
 
 /** The contexts to switch between, and which desktop the server runs on. */
 export const WorkspacesResponseSchema = Schema.Struct({
   workspaces: Schema.mutable(Schema.Array(Workspace)),
   platform: Schema.Literals(["mac", "linux", "other"]),
-})
-export type WorkspacesResponseDto = typeof WorkspacesResponseSchema.Type
+});
+export type WorkspacesResponseDto = typeof WorkspacesResponseSchema.Type;
 
 /** The pairing helper's request: which remote server to pair with, and the code minted on it.
  * The editor sends the url it is about to store, so a typo fails here rather than on save. */
@@ -554,16 +557,16 @@ export const PairRemoteWorkspaceRequestSchema = Schema.Struct({
   code: PairingCodeSchema,
   /** What the paired machine is called on the remote; absent or blank means a default. */
   name: Schema.optional(Schema.String),
-})
-export type PairRemoteWorkspaceRequestDto = typeof PairRemoteWorkspaceRequestSchema.Type
+});
+export type PairRemoteWorkspaceRequestDto = typeof PairRemoteWorkspaceRequestSchema.Type;
 
 /** One workspace a remote server offers, for the editor's picker. Ids and names only: the
  * editor is choosing a target, not reading the remote's configuration. */
 export const RemoteWorkspaceRefSchema = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
-})
-export type RemoteWorkspaceRefDto = typeof RemoteWorkspaceRefSchema.Type
+});
+export type RemoteWorkspaceRefDto = typeof RemoteWorkspaceRefSchema.Type;
 
 /** What pairing answers: the device created on the remote, its raw token — which the editor
  * puts into its draft, the only place it is ever shown — and the workspaces the remote offers. */
@@ -571,13 +574,13 @@ export const PairRemoteWorkspaceResponseSchema = Schema.Struct({
   device: DeviceViewSchema,
   token: Schema.String,
   workspaces: Schema.mutable(Schema.Array(RemoteWorkspaceRefSchema)),
-})
-export type PairRemoteWorkspaceResponseDto = typeof PairRemoteWorkspaceResponseSchema.Type
+});
+export type PairRemoteWorkspaceResponseDto = typeof PairRemoteWorkspaceResponseSchema.Type;
 
 /** What a server knows, for discovery: the changes in its root. The CLI probes this before it
  * trusts a candidate URL, and uses it to prefer the server that owns the change it was asked
  * about. Ids only: the answer is a routing hint, not a page's data. */
 export const IdentityResponseSchema = Schema.Struct({
   changeIds: Schema.mutable(Schema.Array(Schema.String)),
-})
-export type IdentityResponseDto = typeof IdentityResponseSchema.Type
+});
+export type IdentityResponseDto = typeof IdentityResponseSchema.Type;

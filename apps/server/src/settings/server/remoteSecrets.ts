@@ -77,15 +77,12 @@ export const keepStoredRemoteTokens = <T extends WithRemoteWorkspaces>(
         workspaces: next.workspaces.map((workspace) => {
           const remote = workspace?.remote;
           if (remote === undefined) return workspace;
-          const before = stored.workspaces?.find((candidate) => candidate?.id === workspace.id)
-            ?.remote;
+          const before = stored.workspaces?.find((candidate) => candidate?.id === workspace.id)?.remote;
           // The token is only an answer about a target. Restoring it across a different url or a
           // different remote workspace would be handing the old host's credential to the new one;
           // a changed target must be paired again.
           const sameTarget =
-            before !== undefined &&
-            before.url === remote.url &&
-            before.workspace === remote.workspace;
+            before !== undefined && before.url === remote.url && before.workspace === remote.workspace;
           // What the page's answer means: an omitted or masked token keeps what is stored when the
           // target is unchanged, and anything else is the page's own value. An empty value, or a
           // mask with nothing behind it, removes the field.

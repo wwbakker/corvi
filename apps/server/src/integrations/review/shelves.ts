@@ -5,7 +5,13 @@ import { Effect } from "effect";
 
 import { ChangeId, DirectoryName } from "@corvi/contracts/changes";
 import { BadRequestError, ConflictError, NotFoundError, type IweError } from "@corvi/contracts/errors";
-import { ShelfId, type ApplyShelfResultDto, type ShelfDto, type ShelveBodyDto, type ShelveResultDto } from "@corvi/contracts/shelves";
+import {
+  ShelfId,
+  type ApplyShelfResultDto,
+  type ShelfDto,
+  type ShelveBodyDto,
+  type ShelveResultDto,
+} from "@corvi/contracts/shelves";
 import { ChangeShelves } from "@corvi/workflows/shelves";
 import type { Change } from "@corvi/changes/record";
 import { changeShelvesLayer } from "../../change/lifecycle-layer.ts";
@@ -28,14 +34,13 @@ const asIwe = (error: { readonly _tag: string; readonly message: string }): IweE
 };
 
 const withShelves = <A>(
-  work: (shelves: ChangeShelves["Service"]) => Effect.Effect<A, { readonly _tag: string; readonly message: string }>,
+  work: (
+    shelves: ChangeShelves["Service"],
+  ) => Effect.Effect<A, { readonly _tag: string; readonly message: string }>,
 ): Effect.Effect<A, IweError> =>
   Effect.gen(function* () {
     return yield* work(yield* ChangeShelves);
-  }).pipe(
-    Effect.mapError(asIwe),
-    Effect.provide(changeShelvesLayer(changePairs())),
-  );
+  }).pipe(Effect.mapError(asIwe), Effect.provide(changeShelvesLayer(changePairs())));
 
 /** A finished change's shelves are a record: they are read, never applied or removed from here. */
 const editable = (change: Change): Effect.Effect<void, BadRequestError> =>
@@ -46,7 +51,10 @@ const editable = (change: Change): Effect.Effect<void, BadRequestError> =>
 export const listShelves = (change: Change): Effect.Effect<readonly ShelfDto[], IweError> =>
   withShelves((shelves) => shelves.listShelves(ChangeId.make(change.id)));
 
-export const shelveRepository = (change: Change, body: ShelveBodyDto): Effect.Effect<ShelveResultDto, IweError> =>
+export const shelveRepository = (
+  change: Change,
+  body: ShelveBodyDto,
+): Effect.Effect<ShelveResultDto, IweError> =>
   Effect.andThen(
     editable(change),
     withShelves((shelves) =>
@@ -63,14 +71,20 @@ export const shelveRepository = (change: Change, body: ShelveBodyDto): Effect.Ef
 export const applyShelf = (change: Change, shelf: string): Effect.Effect<ApplyShelfResultDto, IweError> =>
   Effect.andThen(
     editable(change),
-    withShelves((shelves) => shelves.applyShelf({ changeId: ChangeId.make(change.id), shelfId: ShelfId.make(shelf) })),
+    withShelves((shelves) =>
+      shelves.applyShelf({ changeId: ChangeId.make(change.id), shelfId: ShelfId.make(shelf) }),
+    ),
   );
 
 export const deleteShelf = (change: Change, shelf: string): Effect.Effect<void, IweError> =>
   Effect.andThen(
     editable(change),
-    withShelves((shelves) => shelves.deleteShelf({ changeId: ChangeId.make(change.id), shelfId: ShelfId.make(shelf) })),
+    withShelves((shelves) =>
+      shelves.deleteShelf({ changeId: ChangeId.make(change.id), shelfId: ShelfId.make(shelf) }),
+    ),
   );
 
 export const shelfPatch = (change: Change, shelf: string): Effect.Effect<string, IweError> =>
-  withShelves((shelves) => shelves.readShelfPatch({ changeId: ChangeId.make(change.id), shelfId: ShelfId.make(shelf) }));
+  withShelves((shelves) =>
+    shelves.readShelfPatch({ changeId: ChangeId.make(change.id), shelfId: ShelfId.make(shelf) }),
+  );

@@ -17,8 +17,7 @@ import { ActionsMenu, type Action } from "../app-root/ActionsMenu.tsx";
  * presenters read pi's own `@agent_status` for it. */
 export type WindowKind = "agent" | "plain";
 
-export const kindOf = (window?: TerminalWindow): WindowKind =>
-  window?.icon === "agent" ? "agent" : "plain";
+export const kindOf = (window?: TerminalWindow): WindowKind => (window?.icon === "agent" ? "agent" : "plain");
 
 /** Which actions this window may run. `agent` and `new` targets are offered anywhere; an
  * `active` target only where its delivery makes sense — a prompt into the agent you are looking
@@ -43,9 +42,7 @@ export const noticeFor = (label: string, result: RunActionResultDto): string => 
       : `Started a window and pasted "${label}"`;
   }
   if (result.kind === "command") return `Running "${label}" in ${where}`;
-  return result.submitted
-    ? `Sent to ${where}`
-    : `Pasted into ${where} — read it and send it`;
+  return result.submitted ? `Sent to ${where}` : `Pasted into ${where} — read it and send it`;
 };
 
 export function RunMenu({
@@ -77,8 +74,8 @@ export function RunMenu({
 
   const run = (found: ActionSummaryDto): void => {
     onRan();
-    client
-      .actions.run(ChangeId.make(changeId), found.key, active?.id)
+    client.actions
+      .run(ChangeId.make(changeId), found.key, active?.id)
       .then((result) => say(noticeFor(found.label, result)))
       .catch((e: Error) => say(e.message));
   };
@@ -113,8 +110,8 @@ export function RunMenu({
       <ActionsMenu
         actions={items}
         onOpen={() =>
-          client
-            .actions.list(ChangeId.make(changeId))
+          client.actions
+            .list(ChangeId.make(changeId))
             .then(setActions)
             .catch((e: Error) => say(e.message))
         }

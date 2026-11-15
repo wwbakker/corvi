@@ -47,21 +47,15 @@ test("the page lists the shipped actions and the workspaces that can hold files"
 });
 
 test("a written file is listed with its label; one that is not an action is refused with reasons", async () => {
-  const after = await runEffect(
-    writeActionFile({ scope: "global", id: "say-hello", text: sayHello }),
-  );
+  const after = await runEffect(writeActionFile({ scope: "global", id: "say-hello", text: sayHello }));
   const found = after.files.find((f) => f.id === "say-hello");
   expect(found?.label).toBe("Say hello");
   expect(found?.scope).toBe("global");
   // The list is read from disk, not from memory.
-  expect(await readFile(join(dirname(configPath()), "actions", "say-hello.md"), "utf8")).toBe(
-    sayHello,
-  );
+  expect(await readFile(join(dirname(configPath()), "actions", "say-hello.md"), "utf8")).toBe(sayHello);
 
   await expect(
-    runEffect(
-      writeActionFile({ scope: "global", id: "broken", text: "---\nkind: command\n---\nrm -rf\n" }),
-    ),
+    runEffect(writeActionFile({ scope: "global", id: "broken", text: "---\nkind: command\n---\nrm -rf\n" })),
   ).rejects.toThrow("label: required");
   const listing = await runEffect(actionFiles());
   expect(listing.files.find((f) => f.id === "broken")).toBeUndefined();
@@ -125,9 +119,9 @@ test("the built-in brief shows the text that runs, and a shadowing brief.md repl
 
   // Deleting the shadow brings the chain back — and the page shows the running text again.
   const restored = await runEffect(deleteActionFile({ scope: "global", id: "brief" }));
-  expect(
-    restored.files.find((f) => f.id === "brief" && f.scope === "builtin")?.text,
-  ).toContain("legacy briefing {id}");
+  expect(restored.files.find((f) => f.id === "brief" && f.scope === "builtin")?.text).toContain(
+    "legacy briefing {id}",
+  );
 
   await writeFile(configPath(), "{}");
   await runEffect(reloadConfig);

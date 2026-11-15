@@ -12,14 +12,14 @@
   /* Three surfaces, and only three: the window, what sits on it, and what is cut into it. The
      navigation column and the window's own rows are the same level — one surface across the top
      of the window, down to where the content begins. */
-  --bg: #14161a;      /* level 0: the window and the page */
+  --bg: #14161a; /* level 0: the window and the page */
   --surface: #1c1f25; /* level 1: cards, the chrome rows, menus, dialogs, the navigation column */
-  --well: #0d1117;    /* level -1: what you type into or read raw — fields, the terminal */
+  --well: #0d1117; /* level -1: what you type into or read raw — fields, the terminal */
 
   /* What is written on them. */
   --text: #dfe3ea;
   --muted: #8b93a1;
-  --faint: #565f6c;   /* nothing there: a disabled control, "no builds", a cancelled change */
+  --faint: #565f6c; /* nothing there: a disabled control, "no builds", a cancelled change */
   --on-accent: #ffffff;
 
   /* The accents: the app's own, and the states a change reports. */
@@ -28,9 +28,9 @@
   --ok: #3fb950;
   --warn: #d29922;
   --error: #f85149;
-  --purple: #a371f7;  /* Blocked: apart from the amber of a change in progress and the blue of one
+  --purple: #a371f7; /* Blocked: apart from the amber of a change in progress and the blue of one
                          awaiting review. */
-  --ideation: #4cc2c4;/* Ideation: a question, not a job, and it should not read as one of the
+  --ideation: #4cc2c4; /* Ideation: a question, not a job, and it should not read as one of the
                          attention colours. */
   /* A diff is read at a glance, so its two directions are their own lighter pair rather than
      --ok and --error at a size that turns them grey. */
@@ -41,23 +41,27 @@
      source. Seeded from the palette above — the info blue, the diff green, the purple, the two
      greys — so these are the theme's own colors until someone deliberately retunes them. */
   --md-heading: #6cb6ff; /* headings, and keywords in code */
-  --md-code: #7ee787;    /* code as written: inline code, a fence without a language */
-  --md-link: #a371f7;    /* links and labels, strings and entities */
-  --md-quote: #8b93a1;   /* quotes and comments */
-  --md-mark: #565f6c;    /* the marks: # ** []() fence lines, punctuation */
+  --md-code: #7ee787; /* code as written: inline code, a fence without a language */
+  --md-link: #a371f7; /* links and labels, strings and entities */
+  --md-quote: #8b93a1; /* quotes and comments */
+  --md-mark: #565f6c; /* the marks: # ** []() fence lines, punctuation */
 
   /* Edges, and the tones derived rather than named: a rule that wants something between two
      surfaces mixes here instead of choosing a hex of its own. The percentages are what put each
      one where it was — a control's face has to be visible on a card. */
   --line: #2b3038;
-  --raise: color-mix(in srgb, var(--surface) 94%, var(--text));   /* a control's face, a hovered row */
-  --hover: color-mix(in srgb, var(--surface) 89%, var(--text));   /* and that control hovered */
-  --selection: color-mix(in srgb, var(--accent) 35%, transparent);/* the row or tab you are on */
-  --ok-wash: color-mix(in srgb, var(--ok) 15%, transparent);      /* a notice, a diff's added line */
-  --error-wash: color-mix(in srgb, var(--error) 15%, transparent);/* a failure, a removed line */
-  --active-wash: color-mix(in srgb, var(--text) 5%, transparent); /* the caret's line, an echo of
+  --raise: color-mix(in srgb, var(--surface) 94%, var(--text)); /* a control's face, a hovered row */
+  --hover: color-mix(in srgb, var(--surface) 89%, var(--text)); /* and that control hovered */
+  --selection: color-mix(in srgb, var(--accent) 35%, transparent); /* the row or tab you are on */
+  --ok-wash: color-mix(in srgb, var(--ok) 15%, transparent); /* a notice, a diff's added line */
+  --error-wash: color-mix(in srgb, var(--error) 15%, transparent); /* a failure, a removed line */
+  --active-wash: color-mix(
+    in srgb,
+    var(--text) 5%,
+    transparent
+  ); /* the caret's line, an echo of
                                                                     a selection, a trailing space */
-  --scrim: rgb(0 0 0 / 0.5);                                      /* behind a dialog */
+  --scrim: rgb(0 0 0 / 0.5); /* behind a dialog */
   --shadow: 0 8px 24px rgb(0 0 0 / 0.4);
 }
 
@@ -69,7 +73,11 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font:
+    14px/1.5 ui-sans-serif,
+    system-ui,
+    -apple-system,
+    sans-serif;
 }
 
 button,

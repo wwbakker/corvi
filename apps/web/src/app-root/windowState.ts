@@ -274,7 +274,12 @@ export const makeWindowsStore = (transport: WindowsTransport): WindowsStore => {
       // Re-check before the write leaves: a queued send must not reach the transport, and its
       // outcome is known — nothing was sent.
       if (!isCurrent(sourceId, facts)) {
-        markError(sourceId, changeId, generation, "the workspace became unavailable before saving; nothing was sent");
+        markError(
+          sourceId,
+          changeId,
+          generation,
+          "the workspace became unavailable before saving; nothing was sent",
+        );
         return;
       }
       // From here the write may reach the remote; if the target is retired before it settles, its
@@ -316,7 +321,12 @@ export const makeWindowsStore = (transport: WindowsTransport): WindowsStore => {
         // If retireSource already reported this write, the entry is gone and it is not repeated.
         const tracked = inflightWrites.delete(writeKey);
         if (sent && tracked && !isCurrent(sourceId, facts)) {
-          markError(sourceId, changeId, generation, "the workspace changed while saving; the outcome is unknown");
+          markError(
+            sourceId,
+            changeId,
+            generation,
+            "the workspace changed while saving; the outcome is unknown",
+          );
         }
         reconcileIfSettled(sourceId, facts);
       }

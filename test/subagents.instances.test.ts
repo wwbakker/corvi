@@ -24,7 +24,13 @@ import { closeHostClient, hostClient } from "../apps/server/src/terminals/server
 import { liveSubagents, newSubagentWindow } from "../apps/server/src/terminals/server/index.ts";
 import { setStatus } from "../apps/server/src/terminals/server/status.ts";
 import { listWindowsAsync, newWindowAsync } from "../apps/server/src/terminals/server/windows.ts";
-import { createInstance, readInstance, instanceDir, appendMessageAndPatch, writeRecord } from "@corvi/agents/node";
+import {
+  createInstance,
+  readInstance,
+  instanceDir,
+  appendMessageAndPatch,
+  writeRecord,
+} from "@corvi/agents/node";
 import { pendingInbound, type SubagentRecord } from "@corvi/agents/instance";
 import { BadRequestError } from "@corvi/contracts/errors";
 import { waiterCount } from "../apps/server/src/subagents/server/waiters.ts";
@@ -81,11 +87,14 @@ afterAll(async () => {
   await rm(tmp, { recursive: true, force: true });
 });
 
-const run = <A>(effect: Effect.Effect<A, unknown>): Promise<A> => Effect.runPromise(effect as Effect.Effect<A>);
+const run = <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
+  Effect.runPromise(effect as Effect.Effect<A>);
 
 /** A fresh instance with the built-in reviewer profile and one orchestrator message. */
 const fresh = async (): Promise<string> => {
-  const created = await run(createSubagent(change, { profile: "builtin:reviewer", prompt: "Review it" }, fakeLauncher));
+  const created = await run(
+    createSubagent(change, { profile: "builtin:reviewer", prompt: "Review it" }, fakeLauncher),
+  );
   return created.id;
 };
 
@@ -182,7 +191,9 @@ test("a settled turn is appended, clears the open turn, and becomes the result",
 
 test("await wakes on a relayed reply and reports it parked", async () => {
   const own = await isolatedChange();
-  const created = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher));
+  const created = await run(
+    createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher),
+  );
   try {
     // The live turn is working, so the await is not ready until its reply lands; the relayed
     // reply names turn 1 and is what wakes the await.
@@ -191,7 +202,10 @@ test("await wakes on a relayed reply and reports it parked", async () => {
       Effect.all(
         [
           awaitReady(own, { ids: [created.id], mode: "any" }),
-          Effect.andThen(Effect.sleep("30 millis"), recordTurn(own, created.id, { text: "Here is my answer", inReplyTo: 1 })),
+          Effect.andThen(
+            Effect.sleep("30 millis"),
+            recordTurn(own, created.id, { text: "Here is my answer", inReplyTo: 1 }),
+          ),
         ],
         { concurrency: "unbounded" },
       ),
@@ -217,7 +231,10 @@ test("await on a closed subagent resolves lost rather than blocking", async () =
   const id = await fresh();
   const [awaited] = await Effect.runPromise(
     Effect.all(
-      [awaitReady(change, { ids: [id], mode: "any" }), Effect.andThen(Effect.sleep("30 millis"), closeSubagent(change, id))],
+      [
+        awaitReady(change, { ids: [id], mode: "any" }),
+        Effect.andThen(Effect.sleep("30 millis"), closeSubagent(change, id)),
+      ],
       { concurrency: "unbounded" },
     ),
   );
@@ -428,7 +445,13 @@ test("await --any resolves on whichever subagent becomes ready first", async () 
     );
     expect(awaited.status).toBe("ready");
     expect(awaited.outcomes).toHaveLength(1);
-    expect(awaited.outcomes[0]).toMatchObject({ id: b.id, status: "ready", reason: "replied", turn: 1, reply: 2 });
+    expect(awaited.outcomes[0]).toMatchObject({
+      id: b.id,
+      status: "ready",
+      reason: "replied",
+      turn: 1,
+      reply: 2,
+    });
     expect(a.id).not.toBe(b.id);
   } finally {
     await closeAndWait(own, a.id);
@@ -464,7 +487,9 @@ test("await --all waits for every subagent to be ready", async () => {
 
 test("await --turn returns an earlier reply while a newer turn is in flight", async () => {
   const own = await isolatedChange();
-  const created = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher));
+  const created = await run(
+    createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher),
+  );
   try {
     await run(nextForSubagent(own, created.id)); // claim #1
     await run(recordTurn(own, created.id, { text: "first answer", inReplyTo: 1 })); // reply #2
@@ -482,7 +507,9 @@ test("await --turn returns an earlier reply while a newer turn is in flight", as
 
 test("await --turn waits for an unsettled turn and wakes on its reply", async () => {
   const own = await isolatedChange();
-  const created = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher));
+  const created = await run(
+    createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher),
+  );
   const savedPollMs = process.env.CORVI_SUBAGENT_POLL_MS;
   try {
     await run(nextForSubagent(own, created.id)); // claim #1
@@ -498,7 +525,10 @@ test("await --turn waits for an unsettled turn and wakes on its reply", async ()
       Effect.all(
         [
           awaitReady(own, { ids: [created.id], mode: "any", turn: 3 }),
-          Effect.andThen(Effect.sleep("30 millis"), recordTurn(own, created.id, { text: "second answer", inReplyTo: 3 })),
+          Effect.andThen(
+            Effect.sleep("30 millis"),
+            recordTurn(own, created.id, { text: "second answer", inReplyTo: 3 }),
+          ),
         ],
         { concurrency: "unbounded" },
       ),
@@ -548,9 +578,7 @@ test("await --turn keeps waiting for an earlier turn while the default answers t
     expect(held.outcomes).toEqual([]);
     // The default target is the latest inbound turn, 2, whose reply is parked.
     const latest = await run(awaitReady(change, { ids: [id], mode: "any" }));
-    expect(latest.outcomes).toEqual([
-      { id, status: "ready", reason: "replied", turn: 2, reply: 3 },
-    ]);
+    expect(latest.outcomes).toEqual([{ id, status: "ready", reason: "replied", turn: 2, reply: 3 }]);
   } finally {
     if (savedPollMs === undefined) delete process.env.CORVI_SUBAGENT_POLL_MS;
     else process.env.CORVI_SUBAGENT_POLL_MS = savedPollMs;
@@ -568,9 +596,7 @@ test("await --turn returns a parked earlier reply even while a newer claim is de
   // A reply on disk is a fact: it wins over the detached claim on the newer turn.
   const awaited = await run(awaitReady(change, { ids: [id], mode: "any", turn: 1 }));
   expect(awaited.status).toBe("ready");
-  expect(awaited.outcomes).toEqual([
-    { id, status: "ready", reason: "replied", turn: 1, reply: 2 },
-  ]);
+  expect(awaited.outcomes).toEqual([{ id, status: "ready", reason: "replied", turn: 1, reply: 2 }]);
 });
 
 test("an interrupted wait names the in-flight turn, never a newer pending message", async () => {
@@ -642,8 +668,12 @@ test("await --all discards a settled sibling when the horizon expires", async ()
   const savedPollMs = process.env.CORVI_SUBAGENT_POLL_MS;
   try {
     const own = await isolatedChange();
-    const settled = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "a" }, fakeLauncher));
-    const waiting = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "b" }, fakeLauncher));
+    const settled = await run(
+      createSubagent(own, { profile: "builtin:reviewer", prompt: "a" }, fakeLauncher),
+    );
+    const waiting = await run(
+      createSubagent(own, { profile: "builtin:reviewer", prompt: "b" }, fakeLauncher),
+    );
     await deliveredThrough(own, settled.id, 1);
     await run(recordTurn(own, settled.id, { text: "a", inReplyTo: 1 })); // ready
     process.env.CORVI_SUBAGENT_POLL_MS = "60";
@@ -716,7 +746,9 @@ test("await and result are read-only: repeated calls leave the record unchanged"
 
 test("closing and reopening a subagent resumes the same pinned harness session", async () => {
   const own = await isolatedChange();
-  const created = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher));
+  const created = await run(
+    createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher),
+  );
 
   // The launch contract: the harness pinned to the subagent id, in the subagent's own directory.
   const record = (await run(readInstance(changeDir(own), created.id)))!;
@@ -753,7 +785,9 @@ test("explicit open selects the subagent's window; create leaves the current one
   const own = await isolatedChange();
   // An interactive shell the user is looking at before any subagent exists.
   const shell = await newWindowAsync(own.id, changeDir(own));
-  const created = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher));
+  const created = await run(
+    createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher),
+  );
   expect(created.presence).toBe("attached");
   // Creation is background work: it must not steal the active terminal from the shell.
   expect((await listWindowsAsync(own.id)).find((window) => window.active)?.id).toBe(shell.id);
@@ -770,7 +804,9 @@ test("explicit open selects the subagent's window; create leaves the current one
 
 test("a subagent on a host session is discovered, presented, relays, and closes", async () => {
   const own = await isolatedChange();
-  const created = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher));
+  const created = await run(
+    createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher),
+  );
   expect(created.presence).toBe("attached");
 
   // Discovery is the host session's metadata, keyed by subagent id.
@@ -827,7 +863,9 @@ test("a subagent on a host session is discovered, presented, relays, and closes"
 
 test("an attributed reply for turn 1 does not settle the claimed turn 3", async () => {
   const own = await isolatedChange();
-  const created = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher));
+  const created = await run(
+    createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher),
+  );
   const savedPollMs = process.env.CORVI_SUBAGENT_POLL_MS;
   try {
     await run(nextForSubagent(own, created.id)); // claim #1
@@ -844,7 +882,10 @@ test("an attributed reply for turn 1 does not settle the claimed turn 3", async 
       Effect.all(
         [
           awaitReady(own, { ids: [created.id], mode: "any" }),
-          Effect.andThen(Effect.sleep("30 millis"), recordTurn(own, created.id, { text: "second answer", inReplyTo: 3 })),
+          Effect.andThen(
+            Effect.sleep("30 millis"),
+            recordTurn(own, created.id, { text: "second answer", inReplyTo: 3 }),
+          ),
         ],
         { concurrency: "unbounded" },
       ),
@@ -867,7 +908,9 @@ test("an attributed reply for turn 1 does not settle the claimed turn 3", async 
 
 test("await times out, never ready, while a claimed turn's reporter is still waiting", async () => {
   const own = await isolatedChange();
-  const created = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher));
+  const created = await run(
+    createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher),
+  );
   const savedPollMs = process.env.CORVI_SUBAGENT_POLL_MS;
   try {
     expect(created.presence).toBe("attached");

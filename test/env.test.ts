@@ -31,10 +31,13 @@ test("the launcher's variables do not reach a child", () => {
 });
 
 test("the caller's additions are applied after the scrub, so a workspace can set these on purpose", () => {
-  const env = childEnv({ PATH: "/bin", NODE_ENV: "production" }, {
-    NODE_ENV: "development",
-    CORVI_CHANGE_ID: "PROJ-1",
-  });
+  const env = childEnv(
+    { PATH: "/bin", NODE_ENV: "production" },
+    {
+      NODE_ENV: "development",
+      CORVI_CHANGE_ID: "PROJ-1",
+    },
+  );
   expect(env.NODE_ENV).toBe("development");
   expect(env.CORVI_CHANGE_ID).toBe("PROJ-1");
   expect(env.PATH).toBe("/bin");
@@ -47,7 +50,9 @@ test("undefined values are dropped rather than passed as the string 'undefined'"
 test("the CLI shim is put in front of PATH only when no corvi already resolves", () => {
   // A launcher-installed corvi keeps winning: the shim never shadows it.
   expect(cliAwarePath({ root: "/repo", path: "/usr/bin", corviAvailable: true })).toBeUndefined();
-  expect(cliAwarePath({ root: "/repo", path: "/usr/bin", corviAvailable: false })).toBe("/repo/apps/cli/bin:/usr/bin");
+  expect(cliAwarePath({ root: "/repo", path: "/usr/bin", corviAvailable: false })).toBe(
+    "/repo/apps/cli/bin:/usr/bin",
+  );
   // No PATH at all is the shim alone, with no trailing separator.
   expect(cliAwarePath({ root: "/repo", path: undefined, corviAvailable: false })).toBe("/repo/apps/cli/bin");
 });

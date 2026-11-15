@@ -43,7 +43,9 @@ const program = Effect.gen(function* () {
       if (existsSync(join(archived, TRANSCRIPTS_DIRECTORY))) continue;
       const from = AbsolutePath.make(join(root, id));
       // A dry run collects into a scratch directory, so what it reports is what --write copies.
-      const scratch = write ? undefined : yield* Effect.promise(() => mkdtemp(join(tmpdir(), "backfill-transcripts-")));
+      const scratch = write
+        ? undefined
+        : yield* Effect.promise(() => mkdtemp(join(tmpdir(), "backfill-transcripts-")));
       const to = AbsolutePath.make(scratch ?? join(archived, TRANSCRIPTS_DIRECTORY));
       const collected = yield* transcripts.collect({ from, to });
       if (scratch) yield* Effect.promise(() => rm(scratch, { recursive: true, force: true }));

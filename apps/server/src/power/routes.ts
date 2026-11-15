@@ -22,9 +22,7 @@ const readState = (): Effect.Effect<Response, InternalError> =>
   powerState().pipe(
     Effect.map(json),
     Effect.catch((error) => Effect.fail(new InternalError({ message: messageOf(error) }))),
-    Effect.catchDefect((defect) =>
-      Effect.fail(new InternalError({ message: messageOf(defect) })),
-    ),
+    Effect.catchDefect((defect) => Effect.fail(new InternalError({ message: messageOf(defect) }))),
   );
 
 /** Arm or disarm this machine and fan the command out to the remote targets, one result per
@@ -37,8 +35,7 @@ const handle = (req: Request, verb: PowerVerb): Effect.Effect<Response, IweError
     // One request per distinct remote, however many times it is named.
     const remotes = [...new Set(body.targets.filter((source) => source !== ""))];
     if (local) yield* verb === "arm" ? armLocal() : disarmLocal();
-    const remoteResults =
-      remotes.length === 0 ? [] : yield* Effect.promise(() => fanOut(verb, remotes));
+    const remoteResults = remotes.length === 0 ? [] : yield* Effect.promise(() => fanOut(verb, remotes));
     const bySource = new Map(remoteResults.map((result) => [result.source, result]));
     const results = body.targets.map((source): PowerTargetResultDto =>
       source === ""

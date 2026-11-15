@@ -1,6 +1,16 @@
 import { test, expect } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { closeSync, constants, lstatSync, mkdirSync, openSync, readFileSync, readSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {

@@ -76,8 +76,8 @@ export const decodePreserving = <S extends Schema.Constraint>(
 /** Render a schema issue the way the v3 ArrayFormatter did: one `path: message` line per issue,
  * joined with `; `, so the detail strings callers already show do not change. */
 export const formatIssues = (error: Schema.SchemaError): string =>
-  SchemaIssue.makeFormatterStandardSchemaV1()(error.issue).issues
-    .map((issue) => {
+  SchemaIssue.makeFormatterStandardSchemaV1()(error.issue)
+    .issues.map((issue) => {
       const path = issue.path ?? [];
       return path.length ? `${path.join(".")}: ${issue.message}` : issue.message;
     })

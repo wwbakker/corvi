@@ -34,9 +34,7 @@ export function WidgetCard({
   // A blocked workspace is not asked: the card keeps what it has, and `blocked` in the load's
   // identity restarts the poll the moment the source recovers instead of waiting the interval.
   const blocked = availability.status._tag !== "available";
-  const [widget, setWidget] = useCached<Widget>(
-    `${changeKey(source, changeId)}@${generation}:${info.name}`,
-  );
+  const [widget, setWidget] = useCached<Widget>(`${changeKey(source, changeId)}@${generation}:${info.name}`);
   const [busy, setBusy] = useState(false);
   // The newest load and action, so a slow answer that belongs to an older attempt (or an older
   // target) cannot set the card back.
@@ -48,8 +46,8 @@ export function WidgetCard({
     (signal?: AbortSignal): Promise<void> => {
       if (blocked) return Promise.resolve();
       const seq = ++loadSeq.current;
-      return client
-        .dashboard.card(ChangeId.make(changeId), info.name, { signal })
+      return client.dashboard
+        .card(ChangeId.make(changeId), info.name, { signal })
         .then((next) => {
           if (loadSeq.current === seq) setWidget(next);
         })
@@ -81,8 +79,8 @@ export function WidgetCard({
     if (blocked) return Promise.resolve();
     const seq = ++actSeq.current;
     setBusy(true);
-    return client
-      .dashboard.cardAction(ChangeId.make(changeId), info.name, actionId, arg)
+    return client.dashboard
+      .cardAction(ChangeId.make(changeId), info.name, actionId, arg)
       .then((next) => {
         if (actSeq.current === seq) setWidget(next);
       })

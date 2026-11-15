@@ -44,7 +44,12 @@ test("the external listener starts, stops and restarts with the config", async (
     runtimeConfig().remoteAccess = { enabled: false, port: 0 };
     await Effect.runPromise(controller.reconcile());
     expect(runtimeRemoteAccessStatus().listening).toBe(false);
-    expect(await fetch(up.url!).then(() => false, () => true)).toBe(true);
+    expect(
+      await fetch(up.url!).then(
+        () => false,
+        () => true,
+      ),
+    ).toBe(true);
 
     // A changed port restarts: the old listener is gone and the new one answers.
     const port = await freePort();

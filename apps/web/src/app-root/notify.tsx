@@ -40,11 +40,8 @@ export type Notice = {
 /** The suppression rule, pure so it can be pinned: notify unless you are actually looking at the
  * window that wants you — its change, its terminals page, that window, and a document that is
  * visible and focused. Backgrounded, minimized, another change or another page: notify. */
-export const shouldNotify = (looking: {
-  viewing: boolean;
-  visible: boolean;
-  focused: boolean;
-}): boolean => !(looking.viewing && looking.visible && looking.focused);
+export const shouldNotify = (looking: { viewing: boolean; visible: boolean; focused: boolean }): boolean =>
+  !(looking.viewing && looking.visible && looking.focused);
 
 /** Whether the page is showing exactly the window that wants you. Both halves of a change's
  * identity are compared: a local change and a remote one sharing an id are different changes, so
@@ -85,8 +82,7 @@ export const noticeOf = (
 
 /** Whether this page has the keyboard. The terminal focuses its own iframe, and focusing a
  * frame still means the page around it is the one you are looking at. */
-const pageFocused = (): boolean =>
-  document.hasFocus() || document.activeElement?.tagName === "IFRAME";
+const pageFocused = (): boolean => document.hasFocus() || document.activeElement?.tagName === "IFRAME";
 
 /** The notification key: stable per (source, change, window), so two servers that mint the same
  * change id and window id do not replace each other's banner. The separator is the one
@@ -97,10 +93,7 @@ const noticeKey = (notice: Notice): string =>
 
 /** The payload the host shows, and the click-back it carries. Pure, so the source a remote notice
  * carries — and the key that keeps two sources' banners apart — is pinned. */
-export const hostNotice = (
-  notice: Notice,
-  text: { title: string; body: string },
-): HostNotice => ({
+export const hostNotice = (notice: Notice, text: { title: string; body: string }): HostNotice => ({
   kind: "notify",
   id: noticeKey(notice),
   title: text.title,
@@ -184,9 +177,7 @@ export function Notifier({
     ) {
       return;
     }
-    deliver(notice, noticeText(notice), () =>
-      now.onOpen(parsed.source, notice.change, notice.window),
-    );
+    deliver(notice, noticeText(notice), () => now.onOpen(parsed.source, notice.change, notice.window));
     setToast(notice);
   }, []);
 

@@ -71,8 +71,14 @@ export class HostClient {
     number,
     { resolve: (value: Record<string, unknown>) => void; reject: (error: Error) => void }
   >();
-  private readonly dataListeners = new Map<string, ((data: Buffer, incarnation: number, seq: number) => void)[]>();
-  private readonly exitListeners = new Map<string, ((exitCode: number, signal: number, incarnation: number) => void)[]>();
+  private readonly dataListeners = new Map<
+    string,
+    ((data: Buffer, incarnation: number, seq: number) => void)[]
+  >();
+  private readonly exitListeners = new Map<
+    string,
+    ((exitCode: number, signal: number, incarnation: number) => void)[]
+  >();
   /** Errors the host sent that are not a reply to a pending call (e.g. a parse failure). */
   private readonly errorListeners = new Set<(error: { request: string; message: string }) => void>();
   /** Highest byte offset received per `(id, incarnation)`. */
@@ -232,7 +238,9 @@ export class HostClient {
   /** Every session the host retains, live or dead, with the metadata a restarting server needs to
    * re-associate its registry. */
   async list(): Promise<SessionInfo[]> {
-    return (expectOk(await this.call({ type: "session.list" }), "session.list").sessions as SessionInfo[]) ?? [];
+    return (
+      (expectOk(await this.call({ type: "session.list" }), "session.list").sessions as SessionInfo[]) ?? []
+    );
   }
 
   async detach(id: string): Promise<void> {
@@ -258,7 +266,9 @@ export class HostClient {
 
   async resize(id: string, cols: number, rows: number): Promise<boolean> {
     try {
-      return Boolean(expectOk(await this.call({ type: "session.resize", id, cols, rows }), `resize ${id}`).applied);
+      return Boolean(
+        expectOk(await this.call({ type: "session.resize", id, cols, rows }), `resize ${id}`).applied,
+      );
     } catch {
       return false;
     }
@@ -495,7 +505,10 @@ const withLock = async <T>(socketPath: string, body: () => Promise<T>): Promise<
   }
 };
 
-const spawnHost = async (options: EnsureOptions, depth = 0): Promise<{ client: HostClient; adopted: boolean }> => {
+const spawnHost = async (
+  options: EnsureOptions,
+  depth = 0,
+): Promise<{ client: HostClient; adopted: boolean }> => {
   if (depth > 2) throw new Error(`could not start a host of our own at ${options.socket}`);
   // Bun loads node-pty but never delivers a byte of pty output; a host spawned by it would look
   // alive and be silent. The server runs on Node, so this only catches a caller that forgot.
@@ -508,9 +521,12 @@ const spawnHost = async (options: EnsureOptions, depth = 0): Promise<{ client: H
     options.runtime ?? process.execPath,
     [
       hostScript,
-      "--socket", options.socket,
-      "--checkout", options.checkout,
-      "--build-id", options.buildId,
+      "--socket",
+      options.socket,
+      "--checkout",
+      options.checkout,
+      "--build-id",
+      options.buildId,
       ...(options.idleMs !== undefined && options.idleMs > 0 ? ["--idle-ms", String(options.idleMs)] : []),
     ],
     { detached: true, stdio: "ignore", env },

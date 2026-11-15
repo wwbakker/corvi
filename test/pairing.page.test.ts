@@ -6,7 +6,15 @@ import { join } from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
 import { instanceRecords } from "../apps/cli/src/discovery.ts";
 import { DEVICE_COOKIE } from "../apps/server/src/devices/server/index.ts";
-import { closePages, requireFreshWebBundle, serverEnv, testRun, testTempDir, waitForUrl, stopRunHost } from "./helpers.ts";
+import {
+  closePages,
+  requireFreshWebBundle,
+  serverEnv,
+  testRun,
+  testTempDir,
+  waitForUrl,
+  stopRunHost,
+} from "./helpers.ts";
 
 /**
  * Pairing and device management through the page.
@@ -102,12 +110,11 @@ test.skipIf(!usable)(
     // The host mines a code on the local listener and the remote page redeems it. The response
     // is captured inside the route because the page reloads as soon as it resolves, which would
     // otherwise take the body with it.
-    const created = (await (
-      await fetch(`${url}/api/devices/pairing-codes`, { method: "POST" })
-    ).json()) as { code: string };
+    const created = (await (await fetch(`${url}/api/devices/pairing-codes`, { method: "POST" })).json()) as {
+      code: string;
+    };
     let paired:
-      | { status: number; body: { device: { name: string }; token?: string }; setCookie: string }
-      | undefined;
+      { status: number; body: { device: { name: string }; token?: string }; setCookie: string } | undefined;
     await page.route("**/api/devices/pair", async (route) => {
       const response = await route.fetch();
       const text = await response.text();
@@ -131,9 +138,11 @@ test.skipIf(!usable)(
     // stored on this plain-HTTP loopback origin, so the test carries it explicitly, as the
     // browser would over the tailnet's HTTPS.
     const value = paired!.setCookie.split(";")[0]!.split("=").slice(1).join("=");
-    await page.context().addCookies([
-      { name: DEVICE_COOKIE, value, url: remoteUrl, httpOnly: true, secure: true, sameSite: "Strict" },
-    ]);
+    await page
+      .context()
+      .addCookies([
+        { name: DEVICE_COOKIE, value, url: remoteUrl, httpOnly: true, secure: true, sameSite: "Strict" },
+      ]);
     await page.goto(remoteUrl, { waitUntil: "domcontentloaded" });
     await page.locator(".sidebar").waitFor();
     expect(await page.getByRole("heading", { name: "Pair this device" }).count()).toBe(0);
@@ -200,44 +209,48 @@ test.skipIf(!usable)("the local origin renders the app, never the pairing screen
   await page.close();
 });
 
-test.skipIf(!usable)("the Devices section mines a code, lists a paired device, and revokes it", async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector("nav.tabs");
-  await page.getByRole("button", { name: "Devices" }).click();
+test.skipIf(!usable)(
+  "the Devices section mines a code, lists a paired device, and revokes it",
+  async () => {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("nav.tabs");
+    await page.getByRole("button", { name: "Devices" }).click();
 
-  // No code yet, and no devices beyond whatever earlier tests paired.
-  await page.getByRole("button", { name: "Create a pairing code" }).click();
-  const code = (await page.locator(".pairing-code").textContent())?.trim() ?? "";
-  expect(code).toMatch(/^[0-9A-F]{16}$/);
+    // No code yet, and no devices beyond whatever earlier tests paired.
+    await page.getByRole("button", { name: "Create a pairing code" }).click();
+    const code = (await page.locator(".pairing-code").textContent())?.trim() ?? "";
+    expect(code).toMatch(/^[0-9A-F]{16}$/);
 
-  // Pair a device with it through the external browser endpoint.
-  const paired = await fetch(`${remoteUrl}/api/devices/pair`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ code, name: "Listed device" }),
-  });
-  expect(paired.status).toBe(201);
+    // Pair a device with it through the external browser endpoint.
+    const paired = await fetch(`${remoteUrl}/api/devices/pair`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code, name: "Listed device" }),
+    });
+    expect(paired.status).toBe(201);
 
-  // Leaving and returning remounts the section, which refetches the list.
-  await page.getByRole("button", { name: "Locations" }).click();
-  await page.getByRole("button", { name: "Devices" }).click();
-  const row = page.locator("tr", { hasText: "Listed device" });
-  await row.waitFor();
-  await row.getByRole("button", { name: "Revoke" }).click();
-  await row.getByText("revoked").waitFor();
-  // The revoke button is gone once revoked.
-  expect(await row.getByRole("button", { name: "Revoke" }).count()).toBe(0);
-  await page.close();
-}, 60_000);
+    // Leaving and returning remounts the section, which refetches the list.
+    await page.getByRole("button", { name: "Locations" }).click();
+    await page.getByRole("button", { name: "Devices" }).click();
+    const row = page.locator("tr", { hasText: "Listed device" });
+    await row.waitFor();
+    await row.getByRole("button", { name: "Revoke" }).click();
+    await row.getByText("revoked").waitFor();
+    // The revoke button is gone once revoked.
+    expect(await row.getByRole("button", { name: "Revoke" }).count()).toBe(0);
+    await page.close();
+  },
+  60_000,
+);
 
 test.skipIf(!usable)(
   "revoking a device clears the pairing code on display",
   async () => {
     // A device paired before the section opens, so the list already holds something to revoke.
-    const seed = (await (
-      await fetch(`${url}/api/devices/pairing-codes`, { method: "POST" })
-    ).json()) as { code: string };
+    const seed = (await (await fetch(`${url}/api/devices/pairing-codes`, { method: "POST" })).json()) as {
+      code: string;
+    };
     const paired = await fetch(`${remoteUrl}/api/devices/pair`, {
       method: "POST",
       headers: { "content-type": "application/json" },

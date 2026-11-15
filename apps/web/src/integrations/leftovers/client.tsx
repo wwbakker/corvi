@@ -76,8 +76,7 @@ export function LeftoversPage({ workspace }: PageProps): JSX.Element {
           Left behind
           <span className="spacer" />
           <span className="summary">
-            {leftovers?.length} director{leftovers?.length === 1 ? "y" : "ies"} from changes that are
-            done
+            {leftovers?.length} director{leftovers?.length === 1 ? "y" : "ies"} from changes that are done
           </span>
         </h3>
         {error && <div className="error-banner">{error}</div>}

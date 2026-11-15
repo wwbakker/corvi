@@ -226,8 +226,7 @@ test("a strict subagent read failure skips the tick and never fires", async () =
   let failing = true;
   const storeError = new SubagentStoreError({ operation: "read", message: "subagents" });
   const monitor = makeMonitor({
-    agents: () =>
-      failing ? Effect.fail(storeError) : Effect.succeed([] as readonly PowerAgent[]),
+    agents: () => (failing ? Effect.fail(storeError) : Effect.succeed([] as readonly PowerAgent[])),
     power: {
       powerOff: () =>
         Effect.sync(() => {

@@ -176,9 +176,7 @@ export const changeRoutes = guard({
   "/api/changes/:id/plan": {
     GET: (req) =>
       withChange(req.params.id, (c) =>
-        Effect.map(readSidecar(c.id, PLAN_FILE), (text) =>
-          json({ text, revision: textRevision(text) }),
-        ),
+        Effect.map(readSidecar(c.id, PLAN_FILE), (text) => json({ text, revision: textRevision(text) })),
       ),
     PUT: (req) =>
       withChange(req.params.id, (c) =>
@@ -217,9 +215,7 @@ export const changeRoutes = guard({
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
           const body = yield* bodyAs(req, ReposBodySchema);
-          const result = yield* setRepos(c, body.checkouts, body.force).pipe(
-            Effect.mapError(changeError),
-          );
+          const result = yield* setRepos(c, body.checkouts, body.force).pipe(Effect.mapError(changeError));
           // 409: nothing was changed, the browser should ask about the work left behind first.
           // Otherwise the answer is the same shape a create or a start gives: the change, and
           // what its checkouts reported.
@@ -232,8 +228,7 @@ export const changeRoutes = guard({
 
   // Text for a pull request, built here because the ticket summary comes from the Jira CLI.
   "/api/changes/:id/description": {
-    GET: (req) =>
-      withChange(req.params.id, (c) => Effect.map(prDescription(c), (text) => json({ text }))),
+    GET: (req) => withChange(req.params.id, (c) => Effect.map(prDescription(c), (text) => json({ text }))),
   },
 
   // How far a completion got: written as it happens, so this answers even after a restart.
@@ -307,12 +302,8 @@ export const changeRoutes = guard({
     // same live check; that one forgets the cached reads and fetches first, this one does not.
     GET: (req) =>
       withChange(req.params.id, (c) =>
-        Effect.catch(
-          Effect.map(completionOf(c), json),
-          (e) =>
-            Effect.succeed(
-              json({ ready: false, reasons: [messageOf(e)], tagged: [], toMerge: [] }),
-            ),
+        Effect.catch(Effect.map(completionOf(c), json), (e) =>
+          Effect.succeed(json({ ready: false, reasons: [messageOf(e)], tagged: [], toMerge: [] })),
         ),
       ),
   },

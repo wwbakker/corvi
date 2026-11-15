@@ -2,14 +2,10 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { lstat, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import {
-  changeDir,
-  createChange,
-  startChangeWithWorkflow,
-} from "../apps/server/src/change/server/index.ts";
+import { changeDir, createChange, startChangeWithWorkflow } from "../apps/server/src/change/server/index.ts";
 import { provisionRepositories } from "../apps/server/src/change/provisioning.ts";
 import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
-import { checkoutsOf, runEffect, runSh  } from "./helpers.ts";
+import { checkoutsOf, runEffect, runSh } from "./helpers.ts";
 
 /**
  * Starting an idea through the workflow: the browse link goes, the real checkout arrives, and a
@@ -86,9 +82,7 @@ test("a failed repository leaves the start partially done, and says so", async (
   const started = await runEffect(startChangeWithWorkflow(idea));
   expect(started.change.state).toBe("Implementation");
   expect(started.provision.some((result) => !result.ok)).toBe(true);
-  expect(await Bun.file(join(changeDir(idea), basename(good), "README.md")).exists()).toBe(
-    true,
-  );
+  expect(await Bun.file(join(changeDir(idea), basename(good), "README.md")).exists()).toBe(true);
 });
 
 test("a change that already started cannot start again", async () => {

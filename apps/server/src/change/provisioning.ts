@@ -68,11 +68,7 @@ export type ProvisionRun = {
 /** What can fail around the checkout work itself: the record's own store truths. A repository's
  * checkout problem is never here — those are reported per repository, in the run. */
 export type CheckoutRunError =
-  | ChangeFormatTooNew
-  | ChangeNotFound
-  | ChangeStoreError
-  | RepositoryNotFound
-  | RepositoryStoreError;
+  ChangeFormatTooNew | ChangeNotFound | ChangeStoreError | RepositoryNotFound | RepositoryStoreError;
 
 // Pure and synchronous: nothing for an Effect to wrap.
 const refreshStateOf = (refresh: RefreshReport): RefreshOutcome["state"] => {
@@ -120,10 +116,7 @@ const refreshOutcomeOf = (report: CheckoutOutcome): RefreshOutcome => {
  * destination as the checkout the run is about to create — exactly the "agent on the main
  * worktree" failure this replaces.
  */
-export const prepareCheckouts = (
-  change: Change,
-  specs: readonly CheckoutSpec[],
-): Effect.Effect<void> =>
+export const prepareCheckouts = (change: Change, specs: readonly CheckoutSpec[]): Effect.Effect<void> =>
   Effect.forEach(
     specs.filter((spec) => spec.location === "new"),
     (spec) => unlinkRepo(change, spec.path),
@@ -222,10 +215,10 @@ const runCheckouts = (
  */
 export type SetReposResult =
   | {
-      readonly _tag: "Done"
-      readonly change: Change
-      readonly provision: readonly ProvisionResult[]
-      readonly refresh: readonly RefreshOutcome[]
+      readonly _tag: "Done";
+      readonly change: Change;
+      readonly provision: readonly ProvisionResult[];
+      readonly refresh: readonly RefreshOutcome[];
     }
   | { readonly _tag: "NeedsForce"; readonly needsForce: string[]; readonly reasons: ForceReason[] };
 
@@ -238,9 +231,7 @@ const sameSpec = (a: CheckoutSpec, b: CheckoutSpec): boolean =>
   a.path === b.path &&
   a.location === b.location &&
   a.branch.kind === b.branch.kind &&
-  (a.branch.kind === "existing" && b.branch.kind === "existing"
-    ? a.branch.name === b.branch.name
-    : true) &&
+  (a.branch.kind === "existing" && b.branch.kind === "existing" ? a.branch.name === b.branch.name : true) &&
   (a.base ?? "") === (b.base ?? "") &&
   (a.target ?? "") === (b.target ?? "");
 
@@ -254,9 +245,7 @@ export const setRepos = (
     // repositories: the first mention wins.
     const wanted = [
       ...new Map(
-        specs
-          .map((spec) => ({ ...spec, path: spec.path.trim() }))
-          .map((spec) => [spec.path, spec] as const),
+        specs.map((spec) => ({ ...spec, path: spec.path.trim() })).map((spec) => [spec.path, spec] as const),
       ).values(),
     ].filter((spec) => spec.path);
     for (const spec of wanted) {
@@ -323,9 +312,10 @@ export const setRepos = (
         for (const spec of teardown) yield* removeWorktree(change, spec.path);
         const updated: Change = { ...change, checkouts: wanted };
         yield* writeChange(updated);
-        const run = yield* runCheckouts(updated, setup.map((spec) => spec.path)).pipe(
-          Effect.provide(changeWorkLayer(changePairs())),
-        );
+        const run = yield* runCheckouts(
+          updated,
+          setup.map((spec) => spec.path),
+        ).pipe(Effect.provide(changeWorkLayer(changePairs())));
         return {
           _tag: "Done",
           change: updated,

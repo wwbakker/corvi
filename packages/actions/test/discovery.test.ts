@@ -2,7 +2,9 @@ import { expect, test } from "bun:test";
 
 import { keyOf, mergeActionFiles, resolveBriefTemplate, type ActionFileInput } from "../src/discovery.ts";
 
-const file = (input: Partial<ActionFileInput> & { id: string; source: ActionFileInput["source"] }): ActionFileInput => ({
+const file = (
+  input: Partial<ActionFileInput> & { id: string; source: ActionFileInput["source"] },
+): ActionFileInput => ({
   text: "---\nlabel: Run\nclass: ignored\nkind: command\ntarget: new\n---\nbun test\n",
   ...input,
 });
@@ -37,7 +39,11 @@ test("the shadowing and fallback chain the product keeps", () => {
 test("a brief.md anywhere shadows the built-in brief whole", () => {
   const merged = mergeActionFiles([
     file({ id: "brief", source: "builtin" }),
-    file({ id: "brief", source: "global", text: "---\nlabel: Mine\nkind: prompt\ntarget: agent\n---\nmy text\n" }),
+    file({
+      id: "brief",
+      source: "global",
+      text: "---\nlabel: Mine\nkind: prompt\ntarget: agent\n---\nmy text\n",
+    }),
   ]);
   expect(merged.actions.map((a) => a.key)).toEqual(["global:brief"]);
   expect(
@@ -47,11 +53,20 @@ test("a brief.md anywhere shadows the built-in brief whole", () => {
 
 test("the brief chain: shadow, then the legacy setting, then the shipped body", () => {
   const shadow = mergeActionFiles([
-    file({ id: "brief", source: "workspace", origin: "personal", text: "---\nlabel: Mine\nkind: prompt\ntarget: agent\n---\nshadow\n" }),
+    file({
+      id: "brief",
+      source: "workspace",
+      origin: "personal",
+      text: "---\nlabel: Mine\nkind: prompt\ntarget: agent\n---\nshadow\n",
+    }),
   ]).actions;
-  expect(resolveBriefTemplate({ actions: shadow, ideationPrompt: "legacy", shippedBody: "shipped" })).toBe("shadow");
+  expect(resolveBriefTemplate({ actions: shadow, ideationPrompt: "legacy", shippedBody: "shipped" })).toBe(
+    "shadow",
+  );
   const none = mergeActionFiles([file({ id: "brief", source: "builtin" })]).actions;
-  expect(resolveBriefTemplate({ actions: none, ideationPrompt: "legacy", shippedBody: "shipped" })).toBe("legacy");
+  expect(resolveBriefTemplate({ actions: none, ideationPrompt: "legacy", shippedBody: "shipped" })).toBe(
+    "legacy",
+  );
   expect(resolveBriefTemplate({ actions: none, ideationPrompt: "", shippedBody: "shipped" })).toBe("shipped");
 });
 

@@ -15,10 +15,8 @@ export const remoteOf = (workspace: {
 }): RemoteWorkspaceDto | undefined => workspace.remote;
 
 /** The workspace with this id, or the first one — where every change without one belongs. */
-export const workspaceById = (
-  workspaces: readonly WorkspaceDto[],
-  id?: string,
-): WorkspaceDto => workspaces.find((workspace) => workspace.id === id) ?? workspaces[0]!;
+export const workspaceById = (workspaces: readonly WorkspaceDto[], id?: string): WorkspaceDto =>
+  workspaces.find((workspace) => workspace.id === id) ?? workspaces[0]!;
 
 export const workspaceOf = (
   workspaces: readonly WorkspaceDto[],

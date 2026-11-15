@@ -12,54 +12,41 @@ import {
   type ActionRepositoryFilesResponseDto,
   type ActionSummaryDto,
   type RunActionResultDto,
-} from "@corvi/contracts/actions"
-import type { ChangeId } from "@corvi/contracts/changes"
+} from "@corvi/contracts/actions";
+import type { ChangeId } from "@corvi/contracts/changes";
 
-import {
-  changePath,
-  decode,
-  mutableArray,
-  type Send,
-} from "./transport.ts"
+import { changePath, decode, mutableArray, type Send } from "./transport.ts";
 
 export interface ActionsApi {
-  readonly list: (changeId: ChangeId) => Promise<readonly ActionSummaryDto[]>
-  readonly run: (
-    changeId: ChangeId,
-    key: string,
-    window?: string,
-  ) => Promise<RunActionResultDto>
-  readonly files: () => Promise<ActionFilesResponseDto>
-  readonly writeFile: (file: ActionFileWriteDto) => Promise<ActionFilesResponseDto>
-  readonly deleteFile: (ref: ActionFileRefDto) => Promise<ActionFilesResponseDto>
+  readonly list: (changeId: ChangeId) => Promise<readonly ActionSummaryDto[]>;
+  readonly run: (changeId: ChangeId, key: string, window?: string) => Promise<RunActionResultDto>;
+  readonly files: () => Promise<ActionFilesResponseDto>;
+  readonly writeFile: (file: ActionFileWriteDto) => Promise<ActionFilesResponseDto>;
+  readonly deleteFile: (ref: ActionFileRefDto) => Promise<ActionFilesResponseDto>;
   /** The repository-scope files of one change's checkouts — the Repositories view. */
-  readonly repositoryFiles: (changeId: ChangeId) => Promise<ActionRepositoryFilesResponseDto>
+  readonly repositoryFiles: (changeId: ChangeId) => Promise<ActionRepositoryFilesResponseDto>;
   readonly writeRepositoryFile: (
     changeId: ChangeId,
     file: ActionRepositoryFileWriteDto,
-  ) => Promise<ActionRepositoryFilesResponseDto>
+  ) => Promise<ActionRepositoryFilesResponseDto>;
   readonly deleteRepositoryFile: (
     changeId: ChangeId,
     ref: ActionRepositoryFileRefDto,
-  ) => Promise<ActionRepositoryFilesResponseDto>
+  ) => Promise<ActionRepositoryFilesResponseDto>;
 }
 
 export const makeActionsApi = (send: Send): ActionsApi => {
-  const change = changePath
+  const change = changePath;
 
   return {
     list: async (changeId) =>
-      decode(
-        mutableArray(ActionSummarySchema),
-        await send("GET", `${change(changeId)}/actions`),
-      ),
+      decode(mutableArray(ActionSummarySchema), await send("GET", `${change(changeId)}/actions`)),
     run: async (changeId, key, window) =>
       decode(
         RunActionResultSchema,
         await send("POST", `${change(changeId)}/actions`, { body: { key, window } }),
       ),
-    files: async () =>
-      decode(ActionFilesResponseSchema, await send("GET", "/actions/files")),
+    files: async () => decode(ActionFilesResponseSchema, await send("GET", "/actions/files")),
     writeFile: async (file) =>
       decode(ActionFilesResponseSchema, await send("PUT", "/actions/files", { body: file })),
     deleteFile: async (ref) =>
@@ -73,10 +60,7 @@ export const makeActionsApi = (send: Send): ActionsApi => {
         ),
       ),
     repositoryFiles: async (changeId) =>
-      decode(
-        ActionRepositoryFilesResponseSchema,
-        await send("GET", `${change(changeId)}/action-files`),
-      ),
+      decode(ActionRepositoryFilesResponseSchema, await send("GET", `${change(changeId)}/action-files`)),
     writeRepositoryFile: async (changeId, file) =>
       decode(
         ActionRepositoryFilesResponseSchema,
@@ -90,5 +74,5 @@ export const makeActionsApi = (send: Send): ActionsApi => {
           `${change(changeId)}/action-files?repository=${encodeURIComponent(ref.repository)}&id=${encodeURIComponent(ref.id)}`,
         ),
       ),
-  }
-}
+  };
+};

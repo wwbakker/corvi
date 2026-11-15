@@ -138,7 +138,7 @@ export function DeployDialog({
             buildNumber: "",
             version: preset.version,
             branch: "",
-            deployedTo: environments.slice(0, Math.max(0, environments.indexOf(preset.environment ?? "") )),
+            deployedTo: environments.slice(0, Math.max(0, environments.indexOf(preset.environment ?? ""))),
           },
           ...versions,
         ]
@@ -197,9 +197,7 @@ export function DeployDialog({
         {offered.map((v) => (
           <label
             key={v.runId || v.version}
-            className={
-              v.running ? "pick building" : version === v.version ? "pick current" : "pick"
-            }
+            className={v.running ? "pick building" : version === v.version ? "pick current" : "pick"}
           >
             <input
               type="radio"
@@ -216,9 +214,7 @@ export function DeployDialog({
             {v.finishedAt && <span className="when">{moment(v.finishedAt)}</span>}
             {/* A build in flight gets the same bar the CI widget draws for a run: how far into
                 the pipeline's usual duration this one already is. */}
-            {v.running && v.startedAt && (
-              <Progress startedAt={v.startedAt} expectedMs={v.expectedMs} />
-            )}
+            {v.running && v.startedAt && <Progress startedAt={v.startedAt} expectedMs={v.expectedMs} />}
             {/* Where it already is, coloured by how far it got: green once it has reached the
                 last environment, amber while it is only part of the way. */}
             {v.deployedTo.length > 0 && (
@@ -232,9 +228,7 @@ export function DeployDialog({
                 on {v.deployedTo.join(" and ")}
               </span>
             )}
-            <span className="detail">
-              {[v.buildNumber, v.branch].filter(Boolean).join(" · ")}
-            </span>
+            <span className="detail">{[v.buildNumber, v.branch].filter(Boolean).join(" · ")}</span>
           </label>
         ))}
         {versions?.length === 0 && offered.length === 0 && (

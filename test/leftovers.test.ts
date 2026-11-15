@@ -3,12 +3,17 @@ import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import { Effect } from "effect";
-import { createChange, archiveChange, changeDir, readChange } from "../apps/server/src/change/server/index.ts";
+import {
+  createChange,
+  archiveChange,
+  changeDir,
+  readChange,
+} from "../apps/server/src/change/server/index.ts";
 import { checkoutFor } from "../apps/server/src/vendors/git.ts";
 import { provisionRepositories } from "../apps/server/src/change/provisioning.ts";
 import { dispatchIntegrationRoute } from "../apps/server/src/integrations/index.ts";
 import type { Leftover } from "@corvi/contracts/integrations/leftovers";
-import { checkoutsOf, runEffect, runSh  } from "./helpers.ts";
+import { checkoutsOf, runEffect, runSh } from "./helpers.ts";
 
 /**
  * The leftovers extension, through the dispatcher the server uses: `/api/ext/leftovers/…` is
@@ -36,9 +41,7 @@ afterAll(async () => {
 
 /** The page's read, through the dispatcher; the request is the one the client makes. */
 const list = async (): Promise<Leftover[]> => {
-  const response = (await dispatchIntegrationRoute(
-    new Request("http://localhost/api/ext/leftovers/list"),
-  ))!;
+  const response = (await dispatchIntegrationRoute(new Request("http://localhost/api/ext/leftovers/list")))!;
   return (await response.json()) as Leftover[];
 };
 
@@ -82,7 +85,9 @@ test("the extension lists directories left by finished changes, and only those",
 });
 
 test("deleting a leftover with a worktree in it prunes the repository afterwards", async () => {
-  const change = await runEffect(createChange({ id: "PROJ-WT-LEFT", branch: "PROJ-WT-LEFT-x", checkouts: checkoutsOf([repo]) }));
+  const change = await runEffect(
+    createChange({ id: "PROJ-WT-LEFT", branch: "PROJ-WT-LEFT-x", checkouts: checkoutsOf([repo]) }),
+  );
   // The same checkouts the git extension's change:created hook creates.
   await Effect.runPromise(provisionRepositories(change));
   // Resolved: the temporary directory is a symlink on macOS, and git reports where it lands.

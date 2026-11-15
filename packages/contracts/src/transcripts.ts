@@ -1,9 +1,9 @@
 /** Agent transcripts kept with a change: the sessions an agent ran in the change, copied into
  * `transcripts/` when the change is archived, and their rendering vocabulary. */
-import { Schema } from "effect"
+import { Schema } from "effect";
 
-export const TranscriptHarness = Schema.Literals(["pi", "opencode"])
-export type TranscriptHarness = typeof TranscriptHarness.Type
+export const TranscriptHarness = Schema.Literals(["pi", "opencode"]);
+export type TranscriptHarness = typeof TranscriptHarness.Type;
 
 export const TranscriptSummarySchema = Schema.Struct({
   /** Where the copy is, relative to the change's `transcripts/` directory. */
@@ -18,8 +18,8 @@ export const TranscriptSummarySchema = Schema.Struct({
   startedAt: Schema.optional(Schema.String),
   /** How many entries the conversation has. */
   entries: Schema.Number,
-})
-export type TranscriptSummaryDto = typeof TranscriptSummarySchema.Type
+});
+export type TranscriptSummaryDto = typeof TranscriptSummarySchema.Type;
 
 /** One step of a conversation, harness-neutral. Long tool output is shortened for reading; the
  * copied file stays whole. */
@@ -43,13 +43,13 @@ export const TranscriptEntrySchema = Schema.Union([
   }),
   /** Everything else worth a line: a model switch, a compaction summary, a shell command. */
   Schema.TaggedStruct("Note", { text: Schema.String, at: Schema.optional(Schema.String) }),
-])
-export type TranscriptEntryDto = typeof TranscriptEntrySchema.Type
+]);
+export type TranscriptEntryDto = typeof TranscriptEntrySchema.Type;
 
 export const TranscriptSchema = Schema.Struct({
   summary: TranscriptSummarySchema,
   entries: Schema.Array(TranscriptEntrySchema),
-})
-export type TranscriptDto = typeof TranscriptSchema.Type
+});
+export type TranscriptDto = typeof TranscriptSchema.Type;
 
-export const TranscriptListSchema = Schema.Array(TranscriptSummarySchema)
+export const TranscriptListSchema = Schema.Array(TranscriptSummarySchema);

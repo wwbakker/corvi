@@ -51,6 +51,7 @@ From the repository root:
 ```sh
 bun run typecheck
 bun run lint
+bun run format:check
 bun run test
 ```
 

@@ -35,5 +35,4 @@ export const refOf = (change: ChangeWireDto): IssueRef | undefined =>
   change.extensions?.[KEY] as IssueRef | undefined;
 
 /** How the issue is spoken about: `owner/name#123`. */
-export const refLabel = (nameWithOwner: string, ref: IssueRef): string =>
-  `${nameWithOwner}#${ref.number}`;
+export const refLabel = (nameWithOwner: string, ref: IssueRef): string => `${nameWithOwner}#${ref.number}`;

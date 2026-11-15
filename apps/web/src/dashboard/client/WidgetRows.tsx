@@ -88,13 +88,7 @@ export function Item({
       </div>
       {open &&
         children.map((child) => (
-          <Item
-            key={child.label}
-            item={child}
-            busy={busy}
-            onAction={onAction}
-            depth={depth + 1}
-          />
+          <Item key={child.label} item={child} busy={busy} onAction={onAction} depth={depth + 1} />
         ))}
     </>
   );

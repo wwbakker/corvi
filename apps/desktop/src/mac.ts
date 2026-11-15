@@ -42,8 +42,7 @@ async function electronVersion(): Promise<string> {
 /** Whatever this app needs the user to be told about the microphone: macOS refuses the request
  * outright, with no prompt, unless the bundle declares why — which is what made a voice
  * extension work in iTerm and fail silently in the old WKWebView app. */
-const MIC_USAGE =
-  `${NAME} asks for the microphone on behalf of whatever is running in its terminal — a voice extension, for instance — the same way any terminal app does.`;
+const MIC_USAGE = `${NAME} asks for the microphone on behalf of whatever is running in its terminal — a voice extension, for instance — the same way any terminal app does.`;
 
 /** The Dock icon, from the same SVG everything else is drawn from. Skipped when `rsvg-convert`
  * is missing: an app with the wrong icon still works, and refusing to build would be theatre. */

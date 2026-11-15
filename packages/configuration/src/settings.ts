@@ -73,9 +73,7 @@ export const envOverride = (variable: string | undefined): string | undefined =>
 /** The flat settings the settings page shows locked, by field: only the variables that are
  * actually set — an override nobody has made is not one. The override names come from the app
  * (`ENV_OVERRIDES`), so this stays a pure reader of the map it is handed. */
-export function overriddenSettings(
-  overrides: Readonly<Record<string, string>>,
-): Record<string, string> {
+export function overriddenSettings(overrides: Readonly<Record<string, string>>): Record<string, string> {
   const found: Record<string, string> = {};
   for (const [field, variable] of Object.entries(overrides)) {
     const override = envOverride(variable);
@@ -123,10 +121,8 @@ export function overriddenExtensionSettings(
 
 /** The record-shaped settings resolve per key: a workspace entry beats the global entry for its
  * key and leaves the others inherited. */
-const merged = <T extends Record<string, unknown>>(
-  global: T | undefined,
-  workspace: T | undefined,
-): T => ({ ...global, ...workspace }) as T;
+const merged = <T extends Record<string, unknown>>(global: T | undefined, workspace: T | undefined): T =>
+  ({ ...global, ...workspace }) as T;
 
 /**
  * What applies in one scope: every setting, resolved down the chain (environment variable >
@@ -140,12 +136,15 @@ export function settingsFor(
   envOverrides: Readonly<Record<string, string>>,
 ): EffectiveSettings {
   const own = workspace?.settings;
-  const at = <T>(key: string, spec: {
-    workspace?: T;
-    global?: T;
-    fallback: T;
-    parse?: (raw: string) => T | undefined;
-  }): T => resolveSetting({ ...spec, env: envOverrides[key] });
+  const at = <T>(
+    key: string,
+    spec: {
+      workspace?: T;
+      global?: T;
+      fallback: T;
+      parse?: (raw: string) => T | undefined;
+    },
+  ): T => resolveSetting({ ...spec, env: envOverrides[key] });
   return {
     changesRoot: at("changesRoot", {
       workspace: own?.changesRoot,

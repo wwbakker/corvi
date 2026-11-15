@@ -11,7 +11,7 @@ import {
   isInPlace,
 } from "../apps/server/src/vendors/git.ts";
 import { setRepos, provisionRepositories } from "../apps/server/src/change/provisioning.ts";
-import { checkoutsOf, runEffect, runFileDiff, runLocalChanges, runSetRepos, runSh  } from "./helpers.ts";
+import { checkoutsOf, runEffect, runFileDiff, runLocalChanges, runSetRepos, runSh } from "./helpers.ts";
 import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
 import type { Change } from "@corvi/changes/record";
 import type { FileChange } from "@corvi/contracts/integrations/review";
@@ -234,12 +234,12 @@ test("a change may be emptied and filled again, which is how a worktree is repla
   const emptied = await runSetRepos(change, checkoutsOf([]));
   expect("change" in emptied).toBe(true);
   const none = (emptied as { change: Change }).change;
-  expect(((none).checkouts ?? []).map((spec) => spec.path)).toEqual([]);
+  expect((none.checkouts ?? []).map((spec) => spec.path)).toEqual([]);
   expect(await runEffect(checkoutFor(none, repo))).toBeUndefined();
 
   const refilled = await runSetRepos(none, checkoutsOf([repo]));
   const again = (refilled as { change: Change }).change;
-  expect(((again).checkouts ?? []).map((spec) => spec.path)).toEqual([repo]);
+  expect((again.checkouts ?? []).map((spec) => spec.path)).toEqual([repo]);
   // The same place, but a new checkout: this is what re-worktreeing gets you.
   expect(await runEffect(checkoutFor(again, repo))).toBe(before);
   expect(await Bun.file(join(before, "README.md")).exists()).toBe(true);
@@ -256,7 +256,9 @@ test("switching modes with unpushed commits asks first, and keeps them when forc
   await commit(worktree, "work nobody else has");
 
   // The worktree goes either way, so the question is asked, exactly as for a removal.
-  expect(await runSetRepos(change, checkoutsOf([repo], [repo]), false)).toEqual({ needsForce: ["switch-unpushed"] });
+  expect(await runSetRepos(change, checkoutsOf([repo], [repo]), false)).toEqual({
+    needsForce: ["switch-unpushed"],
+  });
 
   // Forced, the mode changes and the commit survives: the branch is kept and checked out in the
   // repository itself, which is the whole point of the switch.
@@ -332,10 +334,7 @@ test("a removal deletes a branch whose content landed and keeps one whose did no
   const emptied = await runSetRepos(remaining, checkoutsOf([]), true);
   expect("change" in emptied).toBe(true);
   expect(await runEffect(checkoutFor(change, open))).toBeUndefined();
-  const kept = await runSh(
-    ["git", "branch", "--list", "--format=%(refname:short)", change.branch],
-    open,
-  );
+  const kept = await runSh(["git", "branch", "--list", "--format=%(refname:short)", change.branch], open);
   expect(kept.stdout.trim()).toBe(change.branch);
 });
 
@@ -361,10 +360,7 @@ test("a branch whose merge conflicts with main is kept, not forced away", async 
   expect(await runEffect(checkoutFor(change, repo))).toBeUndefined();
   // Doubt keeps the branch: the commit exists only there, and a removal that guessed would
   // delete the only pointer to it.
-  const kept = await runSh(
-    ["git", "branch", "--list", "--format=%(refname:short)", change.branch],
-    repo,
-  );
+  const kept = await runSh(["git", "branch", "--list", "--format=%(refname:short)", change.branch], repo);
   expect(kept.stdout.trim()).toBe(change.branch);
 });
 
@@ -415,7 +411,9 @@ test("two repositories with the same name are refused, at creation and at an edi
   // Both would be filed in the change directory as `clash`, one on top of the other, so the list
   // is refused before anything is created or moved.
   expect(
-    runEffect(createChange({ id: "PROJ-CLASH", branch: "PROJ-CLASH", checkouts: checkoutsOf([first, second]) })),
+    runEffect(
+      createChange({ id: "PROJ-CLASH", branch: "PROJ-CLASH", checkouts: checkoutsOf([first, second]) }),
+    ),
   ).rejects.toThrow(/share the name clash/);
 
   const single = await changeFor("PROJ-CLASH-ONE", [first]);

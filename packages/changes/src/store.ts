@@ -1,5 +1,5 @@
 /** The change-owned store dependency: records and repository links together. */
-import { Context, type Effect } from "effect"
+import { Context, type Effect } from "effect";
 
 import type {
   AddRepositoryInput,
@@ -8,39 +8,44 @@ import type {
   ChangePhase,
   Repository,
   RepositoryId,
-} from "@corvi/contracts/changes"
+} from "@corvi/contracts/changes";
 import type {
   ChangeConflict,
   ChangeFormatTooNew,
   ChangeNotFound,
   ChangeStoreError,
   RepositoryStoreError,
-} from "./errors.ts"
+} from "./errors.ts";
 
 export interface StoreInterface {
-  readonly read: (changeId: ChangeId) => Effect.Effect<Change | undefined, ChangeStoreError>
-  readonly list: () => Effect.Effect<readonly Change[], ChangeStoreError>
-  readonly create: (change: Change, repositories: readonly Repository[]) => Effect.Effect<void, ChangeStoreError>
+  readonly read: (changeId: ChangeId) => Effect.Effect<Change | undefined, ChangeStoreError>;
+  readonly list: () => Effect.Effect<readonly Change[], ChangeStoreError>;
+  readonly create: (
+    change: Change,
+    repositories: readonly Repository[],
+  ) => Effect.Effect<void, ChangeStoreError>;
   readonly patch: (
     changeId: ChangeId,
     patch: { readonly phase: ChangePhase; readonly completedAt?: string; readonly expectedRevision?: number },
-  ) => Effect.Effect<Change, ChangeNotFound | ChangeConflict | ChangeFormatTooNew | ChangeStoreError>
+  ) => Effect.Effect<Change, ChangeNotFound | ChangeConflict | ChangeFormatTooNew | ChangeStoreError>;
   /** Bring an archived change back into its changes root in `phase`: the directory moves back
    * and the record forgets that it ended. A directory already standing at the destination is
    * never overwritten. */
   readonly reopen: (
     changeId: ChangeId,
     input: { readonly phase: ChangePhase; readonly expectedRevision?: number },
-  ) => Effect.Effect<Change, ChangeNotFound | ChangeConflict | ChangeFormatTooNew | ChangeStoreError>
+  ) => Effect.Effect<Change, ChangeNotFound | ChangeConflict | ChangeFormatTooNew | ChangeStoreError>;
   /** A missing change reads as no links; the workflow reads the change first. */
-  readonly listRepositories: (changeId: ChangeId) => Effect.Effect<readonly Repository[], RepositoryStoreError>
+  readonly listRepositories: (
+    changeId: ChangeId,
+  ) => Effect.Effect<readonly Repository[], RepositoryStoreError>;
   readonly addRepository: (
     input: AddRepositoryInput,
-  ) => Effect.Effect<Repository, ChangeFormatTooNew | RepositoryStoreError>
+  ) => Effect.Effect<Repository, ChangeFormatTooNew | RepositoryStoreError>;
   readonly removeRepository: (
     changeId: ChangeId,
     repositoryId: RepositoryId,
-  ) => Effect.Effect<boolean, ChangeFormatTooNew | RepositoryStoreError>
+  ) => Effect.Effect<boolean, ChangeFormatTooNew | RepositoryStoreError>;
 }
 
 export class ChangeStore extends Context.Service<ChangeStore, StoreInterface>()("corvi/ChangeStore") {}

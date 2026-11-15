@@ -42,22 +42,25 @@ const flush = (): Promise<void> => Bun.sleep(0);
 
 const transport = (over: Partial<WindowsTransport> = {}): WindowsTransport => ({
   list: async () => ({}),
-  act: async (_sourceId, _generation, _changeId, action) =>
-    [terminalWindow(`w${action.index ?? 0}`, true)],
+  act: async (_sourceId, _generation, _changeId, action) => [terminalWindow(`w${action.index ?? 0}`, true)],
   ...over,
 });
 
-const activeId = (sourceId: string, changeId: string, store: ReturnType<typeof makeWindowsStore>): string | undefined =>
-  store
-    .snapshot()
-    .bySource[sourceId]?.byChange[changeId]?.find((window) => window.active)?.id;
+const activeId = (
+  sourceId: string,
+  changeId: string,
+  store: ReturnType<typeof makeWindowsStore>,
+): string | undefined =>
+  store.snapshot().bySource[sourceId]?.byChange[changeId]?.find((window) => window.active)?.id;
 
 test("a local answer is published while a remote read is still pending", async () => {
   const remote = deferred<Record<string, TerminalWindow[]>>();
   const store = makeWindowsStore(
     transport({
       list: (sourceId) =>
-        sourceId === "remote" ? remote.promise : Promise.resolve({ "LOCAL-1": [terminalWindow("w-local", true)] }),
+        sourceId === "remote"
+          ? remote.promise
+          : Promise.resolve({ "LOCAL-1": [terminalWindow("w-local", true)] }),
     }),
   );
   store.setSources(["", "remote"]);
@@ -148,7 +151,8 @@ test("a mutation on one change does not suppress another change's mutation", asy
   const store = makeWindowsStore(
     transport({
       list: async () => ({}),
-      act: (_sourceId, _generation, changeId) => (changeId === "A" ? heldA.promise : Promise.resolve([terminalWindow("b1", true)])),
+      act: (_sourceId, _generation, changeId) =>
+        changeId === "A" ? heldA.promise : Promise.resolve([terminalWindow("b1", true)]),
     }),
   );
   store.setSources([""]);
@@ -494,7 +498,9 @@ test("a queued write retired by a retarget does not stamp its error on the repla
   // must not appear under the replacement's error map.
   expect(store.snapshot().errors.r?.["C1"] ?? "").not.toContain("nothing was sent");
   // Only the retired target's in-flight write is reported, by retireSource itself.
-  expect(store.snapshot().errors.r?.["C1"]).toBe("the workspace changed while saving; the outcome is unknown");
+  expect(store.snapshot().errors.r?.["C1"]).toBe(
+    "the workspace changed while saving; the outcome is unknown",
+  );
   // The replacement target's windows are its own: the retired target's selection did not leak in.
   expect(store.snapshot().bySource.r?.byChange["C1"]).toBeUndefined();
 });

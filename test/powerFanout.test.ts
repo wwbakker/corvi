@@ -84,9 +84,7 @@ test("an armed remote answers under the requested source, with the token and the
   const upstream = await newUpstream();
   writeConfig([remoteWorkspace("remote-client", upstream.url)]);
 
-  expect(await fanOut("arm", ["remote-client"])).toEqual([
-    { source: "remote-client", status: "armed" },
-  ]);
+  expect(await fanOut("arm", ["remote-client"])).toEqual([{ source: "remote-client", status: "armed" }]);
   expect(upstream.seen).toHaveLength(1);
   const seen = upstream.seen[0]!;
   expect(seen.method).toBe("POST");

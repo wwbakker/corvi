@@ -1,9 +1,9 @@
-import { expect, test } from "bun:test"
-import { Deferred, Effect, Result, Fiber, Layer } from "effect"
+import { expect, test } from "bun:test";
+import { Deferred, Effect, Result, Fiber, Layer } from "effect";
 
-import { ChangeService } from "@corvi/changes/changes"
-import { ChangeRepositories } from "@corvi/changes/repositories"
-import { OperationProgress, type OperationStep } from "@corvi/changes/progress"
+import { ChangeService } from "@corvi/changes/changes";
+import { ChangeRepositories } from "@corvi/changes/repositories";
+import { OperationProgress, type OperationStep } from "@corvi/changes/progress";
 import {
   Change,
   ChangeId,
@@ -11,11 +11,11 @@ import {
   Repository,
   RepositoryId,
   type RepositoryRef,
-} from "@corvi/contracts/changes"
-import { Repositories, type CheckoutInspection, type RemovalAssessment } from "@corvi/repositories"
-import { AgentTranscripts, TranscriptError } from "@corvi/agents/transcripts"
-import { ShelfId, type ShelveResultDto } from "@corvi/contracts/shelves"
-import { ChangeShelves } from "../src/shelves.ts"
+} from "@corvi/contracts/changes";
+import { Repositories, type CheckoutInspection, type RemovalAssessment } from "@corvi/repositories";
+import { AgentTranscripts, TranscriptError } from "@corvi/agents/transcripts";
+import { ShelfId, type ShelveResultDto } from "@corvi/contracts/shelves";
+import { ChangeShelves } from "../src/shelves.ts";
 import {
   ChangeLifecycle,
   Issues,
@@ -27,31 +27,31 @@ import {
   type LifecycleOutcome,
   type PullRequestState,
   type Readiness,
-} from "../src/lifecycle.ts"
+} from "../src/lifecycle.ts";
 
 interface Script {
-  change: Change
-  links: Repository[]
-  calls: string[]
-  steps: OperationStep[]
-  readiness: PullRequestState[]
-  removal: RemovalAssessment | (() => RemovalAssessment)
-  checkout?: CheckoutInspection
-  assessedBranches: Array<string | undefined>
-  deletedBranches: string[]
-  branchCleanup?: "deleted" | "kept" | "absent"
-  loose: readonly { readonly repository: RepositoryRef; readonly number: number }[]
-  issueSteps?: readonly OperationStep[]
-  issueNote?: string
-  looseIssues?: readonly string[]
-  mergeFailure?: string
-  looseFailure: boolean
+  change: Change;
+  links: Repository[];
+  calls: string[];
+  steps: OperationStep[];
+  readiness: PullRequestState[];
+  removal: RemovalAssessment | (() => RemovalAssessment);
+  checkout?: CheckoutInspection;
+  assessedBranches: Array<string | undefined>;
+  deletedBranches: string[];
+  branchCleanup?: "deleted" | "kept" | "absent";
+  loose: readonly { readonly repository: RepositoryRef; readonly number: number }[];
+  issueSteps?: readonly OperationStep[];
+  issueNote?: string;
+  looseIssues?: readonly string[];
+  mergeFailure?: string;
+  looseFailure: boolean;
   /** What shelving a worktree answers; nothing uncommitted by default. */
-  shelve?: ShelveResultDto
-  transcriptsFailure?: string
+  shelve?: ShelveResultDto;
+  transcriptsFailure?: string;
   /** Signalled by the merge port when the operation is provably in flight. */
-  started?: Deferred.Deferred<void>
-  hold?: Deferred.Deferred<void>
+  started?: Deferred.Deferred<void>;
+  hold?: Deferred.Deferred<void>;
 }
 
 const change = (phase: Change["phase"]): Change =>
@@ -62,7 +62,7 @@ const change = (phase: Change["phase"]): Change =>
     branch: "demo",
     phase,
     createdAt: "2026-01-01T00:00:00.000Z",
-  })
+  });
 
 const link = (
   directoryName: string,
@@ -76,12 +76,12 @@ const link = (
     originalLocation: `/sources/${directoryName}`,
     location,
     branch,
-  })
+  });
 
 const ref = (repositoryId: string): RepositoryRef => ({
   changeId: ChangeId.make("demo"),
   repositoryId: RepositoryId.make(repositoryId),
-})
+});
 
 const script = (overrides: Partial<Script> = {}): Script => ({
   change: change("Implementation"),
@@ -99,7 +99,7 @@ const script = (overrides: Partial<Script> = {}): Script => ({
   looseIssues: [],
   looseFailure: false,
   ...overrides,
-})
+});
 
 const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
   lifecycleLayer.pipe(
@@ -110,18 +110,21 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
           listChanges: () => Effect.succeed([]),
           createChange: () => Effect.succeed(state.change),
           transitionTo: (_changeId, phase) => {
-            state.calls.push(`transition ${phase}`)
+            state.calls.push(`transition ${phase}`);
             state.change = new Change({
               ...state.change,
               phase,
               ...(phase === "Completed" || phase === "Cancelled" ? { completedAt: "then" } : {}),
-            })
-            return Effect.succeed(state.change)
+            });
+            return Effect.succeed(state.change);
           },
           reopen: () => {
-            state.calls.push("reopen")
-            state.change = new Change({ ...state.change, phase: state.change.cancelledFrom ?? "Implementation" })
-            return Effect.succeed(state.change)
+            state.calls.push("reopen");
+            state.change = new Change({
+              ...state.change,
+              phase: state.change.cancelledFrom ?? "Implementation",
+            });
+            return Effect.succeed(state.change);
           },
         }),
         Layer.succeed(ChangeRepositories, {
@@ -139,18 +142,20 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
         Layer.succeed(Repositories, {
           inspectCheckout: () => Effect.succeed(state.checkout ?? { _tag: "Missing" as const }),
           assessRemoval: (input) => {
-            state.assessedBranches.push(input.branch)
-            const assessed = typeof state.removal === "function" ? state.removal() : state.removal
-            if (!input.uncommittedWorkCaptured || assessed._tag === "Safe") return Effect.succeed(assessed)
+            state.assessedBranches.push(input.branch);
+            const assessed = typeof state.removal === "function" ? state.removal() : state.removal;
+            if (!input.uncommittedWorkCaptured || assessed._tag === "Safe") return Effect.succeed(assessed);
             // The files are captured before the removal: only the commits are still a question.
-            const commits = assessed.reasons.filter((reason) => reason.code === "unpushed")
+            const commits = assessed.reasons.filter((reason) => reason.code === "unpushed");
             return Effect.succeed(
-              commits.length === 0 ? { _tag: "Safe" as const } : { _tag: "NeedsAcknowledgement" as const, reasons: commits },
-            )
+              commits.length === 0
+                ? { _tag: "Safe" as const }
+                : { _tag: "NeedsAcknowledgement" as const, reasons: commits },
+            );
           },
           removeBranchIfIntegrated: (input) => {
-            state.deletedBranches.push(input.branch)
-            return Effect.succeed(state.branchCleanup ?? "deleted")
+            state.deletedBranches.push(input.branch);
+            return Effect.succeed(state.branchCleanup ?? "deleted");
           },
           // The update-only facts are not this workflow's subject: called by mistake, they fail
           // visibly rather than answering an empty success.
@@ -176,22 +181,20 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
           provisionLinkedWorktree: () => Effect.void,
           provisionInPlace: () => Effect.succeed("created" as const),
           removeWorktree: (input) => {
-            state.calls.push(`remove ${input.worktree}`)
-            return Effect.void
+            state.calls.push(`remove ${input.worktree}`);
+            return Effect.void;
           },
         }),
         Layer.succeed(OperationProgress, {
           record: ({ step }) => {
-            state.steps.push(step)
-            return Effect.void
+            state.steps.push(step);
+            return Effect.void;
           },
         }),
         Layer.succeed(PullRequests, {
           readiness: ({ repository }) =>
             Effect.succeed(
-              state.readiness.find(
-                (entry) => entry.repository.repositoryId === repository.repositoryId,
-              ) ?? {
+              state.readiness.find((entry) => entry.repository.repositoryId === repository.repositoryId) ?? {
                 repository,
                 number: 0,
                 ready: false,
@@ -201,16 +204,16 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
             ),
           merge: ({ number }) =>
             Effect.gen(function* () {
-              state.calls.push(`merge #${number}`)
+              state.calls.push(`merge #${number}`);
               if (state.mergeFailure)
                 return yield* new ProviderError({
                   provider: "github",
                   operation: "merge",
                   message: state.mergeFailure,
-                })
-              if (state.started) yield* Deferred.succeed(state.started, undefined)
-              if (state.hold) yield* Deferred.await(state.hold)
-              return `merged #${number}`
+                });
+              if (state.started) yield* Deferred.succeed(state.started, undefined);
+              if (state.hold) yield* Deferred.await(state.hold);
+              return `merged #${number}`;
             }),
           outstanding: () =>
             state.looseFailure
@@ -222,24 +225,24 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
         Layer.succeed(Issues, {
           plan: () => Effect.succeed(state.issueSteps ?? []),
           run: ({ stepId }) => {
-            state.calls.push(`issue ${stepId}`)
-            return Effect.succeed(state.issueNote)
+            state.calls.push(`issue ${stepId}`);
+            return Effect.succeed(state.issueNote);
           },
           current: () => Effect.succeed(state.looseIssues ?? []),
         }),
         Layer.succeed(TerminalSessions, {
           stop: () => {
-            state.calls.push("stop terminal")
-            return Effect.void
+            state.calls.push("stop terminal");
+            return Effect.void;
           },
         }),
         Layer.succeed(ChangeShelves, {
           shelveRepository: ({ repository, reason }) => {
-            state.calls.push(`shelve ${repository} (${reason})`)
-            const answer = state.shelve ?? { _tag: "Clean" as const }
+            state.calls.push(`shelve ${repository} (${reason})`);
+            const answer = state.shelve ?? { _tag: "Clean" as const };
             // A real shelf leaves the checkout clean: the removal recheck sees no files.
-            if (answer._tag === "Shelved") state.removal = { _tag: "Safe" }
-            return Effect.succeed(answer)
+            if (answer._tag === "Shelved") state.removal = { _tag: "Safe" };
+            return Effect.succeed(answer);
           },
           listShelves: () => Effect.die(new Error("listShelves is not scripted")),
           applyShelf: () => Effect.die(new Error("applyShelf is not scripted")),
@@ -249,25 +252,25 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
         }),
         Layer.succeed(AgentTranscripts, {
           collect: ({ from, to }) => {
-            state.calls.push(`keep transcripts of ${from} in ${to}`)
+            state.calls.push(`keep transcripts of ${from} in ${to}`);
             return state.transcriptsFailure
               ? Effect.fail(new TranscriptError({ message: state.transcriptsFailure }))
-              : Effect.succeed({ copied: 2, notes: [] })
+              : Effect.succeed({ copied: 2, notes: [] });
           },
           list: () => Effect.die(new Error("list is not scripted")),
           read: () => Effect.die(new Error("read is not scripted")),
         }),
       ),
     ),
-  )
+  );
 
 const run = <A, E>(
   state: Script,
   program: Effect.Effect<A, E, ChangeLifecycle>,
 ): Promise<Result.Result<A, E>> =>
-  Effect.runPromise(program.pipe(Effect.result, Effect.provide(layerFor(state))))
+  Effect.runPromise(program.pipe(Effect.result, Effect.provide(layerFor(state))));
 
-const lifecycle = ChangeLifecycle
+const lifecycle = ChangeLifecycle;
 
 const assessment = (
   state: Script,
@@ -276,21 +279,21 @@ const assessment = (
   run(
     state,
     Effect.gen(function* () {
-      const service = yield* lifecycle
+      const service = yield* lifecycle;
       return operation === "completion"
         ? yield* service.assessCompletion(ChangeId.make("demo"))
-        : yield* service.assessCancellation(ChangeId.make("demo"))
+        : yield* service.assessCancellation(ChangeId.make("demo"));
     }),
-  )
+  );
 
 test("an idea cannot be completed", async () => {
-  const result = await assessment(script({ change: change("Ideation") }), "completion")
-  expect(Result.isSuccess(result)).toBe(true)
+  const result = await assessment(script({ change: change("Ideation") }), "completion");
+  expect(Result.isSuccess(result)).toBe(true);
   if (Result.isSuccess(result)) {
-    expect(result.success._tag).toBe("Blocked")
-    if (result.success._tag === "Blocked") expect(result.success.reasons[0]?.code).toBe("idea")
+    expect(result.success._tag).toBe("Blocked");
+    if (result.success._tag === "Blocked") expect(result.success.reasons[0]?.code).toBe("idea");
   }
-})
+});
 
 test("an unready pull request needs an acknowledgement", async () => {
   const result = await assessment(
@@ -300,19 +303,19 @@ test("an unready pull request needs an acknowledgement", async () => {
       ],
     }),
     "completion",
-  )
-  expect(Result.isSuccess(result)).toBe(true)
+  );
+  expect(Result.isSuccess(result)).toBe(true);
   if (Result.isSuccess(result)) {
-    expect(result.success._tag).toBe("AcknowledgementRequired")
+    expect(result.success._tag).toBe("AcknowledgementRequired");
     if (result.success._tag === "AcknowledgementRequired")
-      expect(result.success.reasons[0]?.code).toBe("review-pending")
+      expect(result.success.reasons[0]?.code).toBe("review-pending");
   }
-})
+});
 
 test("a hard readiness reason blocks, force does not waive it, and ten repositories say it once", async () => {
   const rateLimited = (minutes: number): string =>
-    `GitHub rate limit reached; resets at 12:32 UTC (in ${minutes} minutes)`
-  const links = Array.from({ length: 10 }, (_, index) => link(`repo-${index}`))
+    `GitHub rate limit reached; resets at 12:32 UTC (in ${minutes} minutes)`;
+  const links = Array.from({ length: 10 }, (_, index) => link(`repo-${index}`));
   const state = script({
     links,
     readiness: links.map((entry, index) => ({
@@ -325,19 +328,19 @@ test("a hard readiness reason blocks, force does not waive it, and ten repositor
       reason: rateLimited(8 - (index % 2)),
       kind: "hard" as const,
     })),
-  })
+  });
 
   // A token at its limit is a fact no acknowledgement changes: Blocked, not a dialog.
-  const assessed = await assessment(state, "completion")
-  expect(Result.isSuccess(assessed)).toBe(true)
+  const assessed = await assessment(state, "completion");
+  expect(Result.isSuccess(assessed)).toBe(true);
   if (Result.isSuccess(assessed)) {
-    expect(assessed.success._tag).toBe("Blocked")
+    expect(assessed.success._tag).toBe("Blocked");
     if (assessed.success._tag === "Blocked") {
       // Ten repositories share one token, so they say it once — and the reason belongs to the
       // change rather than to any one of them.
-      expect(assessed.success.reasons.map((reason) => reason.text)).toEqual([rateLimited(8)])
-      expect(assessed.success.reasons[0]?.kind).toBe("hard")
-      expect(assessed.success.reasons[0]?.subject).toBeUndefined()
+      expect(assessed.success.reasons.map((reason) => reason.text)).toEqual([rateLimited(8)]);
+      expect(assessed.success.reasons[0]?.kind).toBe("hard");
+      expect(assessed.success.reasons[0]?.subject).toBeUndefined();
     }
   }
 
@@ -346,16 +349,16 @@ test("a hard readiness reason blocks, force does not waive it, and ten repositor
   const completed = await run(
     state,
     Effect.gen(function* () {
-      const service = yield* lifecycle
+      const service = yield* lifecycle;
       return yield* service.completeChange({
         changeId: ChangeId.make("demo"),
         acknowledgements: [{ code: "review-pending", facts: "review:x:0:" }],
-      })
+      });
     }),
-  )
-  expect(Result.isSuccess(completed)).toBe(true)
-  if (Result.isSuccess(completed)) expect(completed.success._tag).toBe("Blocked")
-})
+  );
+  expect(Result.isSuccess(completed)).toBe(true);
+  if (Result.isSuccess(completed)) expect(completed.success._tag).toBe("Blocked");
+});
 
 test("a dirty checkout blocks completion", async () => {
   const result = await assessment(
@@ -366,10 +369,10 @@ test("a dirty checkout blocks completion", async () => {
       },
     }),
     "completion",
-  )
-  expect(Result.isSuccess(result)).toBe(true)
-  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Blocked")
-})
+  );
+  expect(Result.isSuccess(result)).toBe(true);
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Blocked");
+});
 
 for (const operation of ["complete", "cancel"] as const) {
   test(`${operation} assesses the attached local branch and retains a remote-qualified borrowed branch`, async () => {
@@ -377,18 +380,21 @@ for (const operation of ["complete", "cancel"] as const) {
       links: [link("existing", "new", { kind: "existing", name: "origin/feature" })],
       checkout: { _tag: "Present", branch: "feature", head: "local-work" },
       readiness: [{ repository: ref("existing"), number: 7, ready: true, merged: true }],
-    })
-    const result = await run(state, Effect.gen(function* () {
-      const service = yield* lifecycle
-      const input = { changeId: ChangeId.make("demo") }
-      return yield* (operation === "complete" ? service.completeChange(input) : service.cancelChange(input))
-    }))
-    expect(Result.isSuccess(result)).toBe(true)
-    if (Result.isSuccess(result)) expect(result.success._tag).toBe("Done")
-    expect(state.assessedBranches.length).toBeGreaterThan(0)
-    expect(state.assessedBranches.every((branch) => branch === "feature")).toBe(true)
-    expect(state.deletedBranches).toEqual([])
-  })
+    });
+    const result = await run(
+      state,
+      Effect.gen(function* () {
+        const service = yield* lifecycle;
+        const input = { changeId: ChangeId.make("demo") };
+        return yield* operation === "complete" ? service.completeChange(input) : service.cancelChange(input);
+      }),
+    );
+    expect(Result.isSuccess(result)).toBe(true);
+    if (Result.isSuccess(result)) expect(result.success._tag).toBe("Done");
+    expect(state.assessedBranches.length).toBeGreaterThan(0);
+    expect(state.assessedBranches.every((branch) => branch === "feature")).toBe(true);
+    expect(state.deletedBranches).toEqual([]);
+  });
 }
 
 test("unpushed commits need an acknowledgement", async () => {
@@ -396,14 +402,16 @@ test("unpushed commits need an acknowledgement", async () => {
     script({
       removal: {
         _tag: "NeedsAcknowledgement",
-        reasons: [{ code: "unpushed", kind: "forceable", text: "2 unpushed commit(s)", facts: "unpushed:abc:2" }],
+        reasons: [
+          { code: "unpushed", kind: "forceable", text: "2 unpushed commit(s)", facts: "unpushed:abc:2" },
+        ],
       },
     }),
     "completion",
-  )
-  expect(Result.isSuccess(result)).toBe(true)
-  if (Result.isSuccess(result)) expect(result.success._tag).toBe("AcknowledgementRequired")
-})
+  );
+  expect(Result.isSuccess(result)).toBe(true);
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("AcknowledgementRequired");
+});
 
 test("completion is ready when the pull request is merged and the checkout is safe", async () => {
   const result = await assessment(
@@ -414,44 +422,46 @@ test("completion is ready when the pull request is merged and the checkout is sa
       ],
     }),
     "completion",
-  )
-  expect(Result.isSuccess(result)).toBe(true)
-  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Ready")
-})
+  );
+  expect(Result.isSuccess(result)).toBe(true);
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Ready");
+});
 
 test("completion refuses before any step runs when nothing is acknowledged", async () => {
   const state = script({
     removal: {
       _tag: "NeedsAcknowledgement",
-      reasons: [{ code: "unpushed", kind: "forceable", text: "2 unpushed commit(s)", facts: "unpushed:abc:2" }],
+      reasons: [
+        { code: "unpushed", kind: "forceable", text: "2 unpushed commit(s)", facts: "unpushed:abc:2" },
+      ],
     },
-  })
+  });
   const result = await run(
     state,
     Effect.gen(function* () {
-      const service = yield* lifecycle
-      return yield* service.completeChange({ changeId: ChangeId.make("demo") })
+      const service = yield* lifecycle;
+      return yield* service.completeChange({ changeId: ChangeId.make("demo") });
     }),
-  )
-  expect(Result.isSuccess(result)).toBe(true)
-  if (Result.isSuccess(result)) expect(result.success._tag).toBe("NeedsAcknowledgement")
-  expect(state.calls).toEqual([])
-  expect(state.steps).toEqual([])
-})
+  );
+  expect(Result.isSuccess(result)).toBe(true);
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("NeedsAcknowledgement");
+  expect(state.calls).toEqual([]);
+  expect(state.steps).toEqual([]);
+});
 
 test("completion merges, removes only the created checkout, stops the terminal and completes", async () => {
-  const state = script()
+  const state = script();
   const result = await run(
     state,
     Effect.gen(function* () {
-      const service = yield* lifecycle
-      return yield* service.completeChange({ changeId: ChangeId.make("demo") })
+      const service = yield* lifecycle;
+      return yield* service.completeChange({ changeId: ChangeId.make("demo") });
     }),
-  )
-  expect(Result.isSuccess(result)).toBe(true)
+  );
+  expect(Result.isSuccess(result)).toBe(true);
   if (Result.isSuccess(result)) {
-    expect(result.success._tag).toBe("Done")
-    if (result.success._tag === "Done") expect(result.success.change.phase).toBe("Completed")
+    expect(result.success._tag).toBe("Done");
+    if (result.success._tag === "Done") expect(result.success.change.phase).toBe("Completed");
   }
   expect(state.calls).toEqual([
     "merge #7",
@@ -459,33 +469,35 @@ test("completion merges, removes only the created checkout, stops the terminal a
     "stop terminal",
     "keep transcripts of /workspace/demo in /workspace/demo/transcripts",
     "transition Completed",
-  ])
-  expect(state.steps.map((step) => `${step.id}:${step.state}`)).toContain("archive:done")
-  expect(state.steps.find((step) => step.id === "transcripts" && step.state === "done")?.detail).toBe("2 sessions")
+  ]);
+  expect(state.steps.map((step) => `${step.id}:${step.state}`)).toContain("archive:done");
+  expect(state.steps.find((step) => step.id === "transcripts" && step.state === "done")?.detail).toBe(
+    "2 sessions",
+  );
   expect(state.steps.filter((step) => step.state === "waiting").map((step) => step.id)).toEqual([
     "merge:/sources/created",
     "worktrees",
     "terminal",
     "transcripts",
     "archive",
-  ])
-})
+  ]);
+});
 
 test("planned integration steps are journaled and run in order", async () => {
   const state = script({
     issueSteps: [{ id: "jira", label: "move PROJ-1 to Done", state: "waiting" }],
     issueNote: "moved PROJ-1",
-  })
+  });
   const result = await run(
     state,
     Effect.gen(function* () {
-      const service = yield* lifecycle
-      return yield* service.completeChange({ changeId: ChangeId.make("demo") })
+      const service = yield* lifecycle;
+      return yield* service.completeChange({ changeId: ChangeId.make("demo") });
     }),
-  )
-  expect(Result.isSuccess(result)).toBe(true)
+  );
+  expect(Result.isSuccess(result)).toBe(true);
   if (Result.isSuccess(result) && result.success._tag === "Done")
-    expect(result.success.notes).toEqual(["merged #7", "moved PROJ-1"])
+    expect(result.success.notes).toEqual(["merged #7", "moved PROJ-1"]);
   expect(state.calls).toEqual([
     "merge #7",
     "issue jira",
@@ -493,13 +505,13 @@ test("planned integration steps are journaled and run in order", async () => {
     "stop terminal",
     "keep transcripts of /workspace/demo in /workspace/demo/transcripts",
     "transition Completed",
-  ])
+  ]);
   expect(state.steps.filter((step) => step.id === "jira").map((step) => step.state)).toEqual([
     "waiting",
     "running",
     "done",
-  ])
-})
+  ]);
+});
 
 test("a refusal carries what completion would merge", async () => {
   const state = script({
@@ -507,97 +519,104 @@ test("a refusal carries what completion would merge", async () => {
       { repository: ref("created"), number: 7, ready: true, merged: false },
       { repository: ref("borrowed"), number: 8, ready: false, merged: false, reason: "waiting for review" },
     ],
-  })
+  });
   const result = await run(
     state,
     Effect.gen(function* () {
-      const service = yield* lifecycle
-      return yield* service.completeChange({ changeId: ChangeId.make("demo") })
+      const service = yield* lifecycle;
+      return yield* service.completeChange({ changeId: ChangeId.make("demo") });
     }),
-  )
-  expect(Result.isSuccess(result)).toBe(true)
+  );
+  expect(Result.isSuccess(result)).toBe(true);
   if (Result.isSuccess(result)) {
-    expect(result.success._tag).toBe("NeedsAcknowledgement")
+    expect(result.success._tag).toBe("NeedsAcknowledgement");
     if (result.success._tag === "NeedsAcknowledgement")
-      expect(result.success.toMerge).toEqual([{ repository: ref("created"), number: 7 }])
+      expect(result.success.toMerge).toEqual([{ repository: ref("created"), number: 7 }]);
   }
-})
+});
 
 test("a stale acknowledgement does not authorize the removal", async () => {
   const state = script({
     removal: {
       _tag: "NeedsAcknowledgement",
-      reasons: [{ code: "unpushed", kind: "forceable", text: "2 unpushed commit(s)", facts: "unpushed:abc:2" }],
+      reasons: [
+        { code: "unpushed", kind: "forceable", text: "2 unpushed commit(s)", facts: "unpushed:abc:2" },
+      ],
     },
-  })
+  });
   const stale: readonly Acknowledgement[] = [
     { code: "unpushed", subject: ref("created"), facts: "unpushed:def:2" },
-  ]
+  ];
   const result = await run(
     state,
     Effect.gen(function* () {
-      const service = yield* lifecycle
-      return yield* service.completeChange({ changeId: ChangeId.make("demo"), acknowledgements: stale })
+      const service = yield* lifecycle;
+      return yield* service.completeChange({ changeId: ChangeId.make("demo"), acknowledgements: stale });
     }),
-  )
-  expect(Result.isSuccess(result)).toBe(true)
-  if (Result.isSuccess(result)) expect(result.success._tag).toBe("NeedsAcknowledgement")
-  expect(state.calls).toEqual([])
-})
+  );
+  expect(Result.isSuccess(result)).toBe(true);
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("NeedsAcknowledgement");
+  expect(state.calls).toEqual([]);
+});
 
 test("a matching acknowledgement lets completion proceed", async () => {
   const state = script({
     removal: {
       _tag: "NeedsAcknowledgement",
-      reasons: [{ code: "unpushed", kind: "forceable", text: "2 unpushed commit(s)", facts: "unpushed:abc:2" }],
+      reasons: [
+        { code: "unpushed", kind: "forceable", text: "2 unpushed commit(s)", facts: "unpushed:abc:2" },
+      ],
     },
-  })
+  });
   const acknowledged: readonly Acknowledgement[] = [
     { code: "unpushed", subject: ref("created"), facts: "unpushed:abc:2" },
-  ]
+  ];
   const result = await run(
     state,
     Effect.gen(function* () {
-      const service = yield* lifecycle
-      return yield* service.completeChange({ changeId: ChangeId.make("demo"), acknowledgements: acknowledged })
+      const service = yield* lifecycle;
+      return yield* service.completeChange({
+        changeId: ChangeId.make("demo"),
+        acknowledgements: acknowledged,
+      });
     }),
-  )
-  expect(Result.isSuccess(result)).toBe(true)
-  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Done")
-})
+  );
+  expect(Result.isSuccess(result)).toBe(true);
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Done");
+});
 
 test("the checkout is rechecked before removal and a changed fact blocks", async () => {
-  let calls = 0
+  let calls = 0;
   const state = script({
     removal: () => {
-      calls += 1
+      calls += 1;
       return calls === 1
         ? { _tag: "Safe" }
         : {
             _tag: "NeedsAcknowledgement",
-            reasons: [{ code: "unpushed", kind: "forceable", text: "1 unpushed commit(s)", facts: "unpushed:new:1" }],
-          }
+            reasons: [
+              { code: "unpushed", kind: "forceable", text: "1 unpushed commit(s)", facts: "unpushed:new:1" },
+            ],
+          };
     },
-  })
+  });
   const result = await run(
     state,
     Effect.gen(function* () {
-      const service = yield* lifecycle
-      return yield* service.completeChange({ changeId: ChangeId.make("demo") })
+      const service = yield* lifecycle;
+      return yield* service.completeChange({ changeId: ChangeId.make("demo") });
     }),
-  )
-  expect(Result.isSuccess(result)).toBe(true)
-  if (Result.isSuccess(result)) expect(result.success._tag).toBe("NeedsAcknowledgement")
-  expect(state.calls).not.toContain("remove /workspace/demo/created")
-})
+  );
+  expect(Result.isSuccess(result)).toBe(true);
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("NeedsAcknowledgement");
+  expect(state.calls).not.toContain("remove /workspace/demo/created");
+});
 
 test("two dirty worktrees are two problems, both named", async () => {
   const dirty: RemovalAssessment = {
     _tag: "Unsafe",
-    reasons: [
-      { code: "dirty-worktree", kind: "hard", text: "uncommitted changes", facts: "dirty:abc" },
-    ],
-  }
+    reasons: [{ code: "dirty-worktree", kind: "hard", text: "uncommitted changes", facts: "dirty:abc" }],
+  };
   const state = script({
     links: [link("one"), link("two")],
     readiness: [
@@ -605,26 +624,26 @@ test("two dirty worktrees are two problems, both named", async () => {
       { repository: ref("two"), number: 2, ready: true, merged: true },
     ],
     removal: dirty,
-  })
+  });
 
-  const result = await assessment(state, "completion")
-  expect(Result.isSuccess(result)).toBe(true)
+  const result = await assessment(state, "completion");
+  expect(Result.isSuccess(result)).toBe(true);
   if (Result.isSuccess(result) && result.success._tag !== "Ready") {
-    const reasons = result.success.reasons
+    const reasons = result.success.reasons;
     // The same sentence twice would collapse if the rule keyed on text: these are two
     // repositories' own problems, told apart by their subject.
-    expect(reasons.map((reason) => reason.text)).toEqual(["uncommitted changes", "uncommitted changes"])
+    expect(reasons.map((reason) => reason.text)).toEqual(["uncommitted changes", "uncommitted changes"]);
     expect(reasons.map((reason) => reason.subject?.repositoryId)).toEqual([
       ref("one").repositoryId,
       ref("two").repositoryId,
-    ])
+    ]);
   }
-})
+});
 
 test("a dirty worktree and a limited token are different facts, and both are said", async () => {
-  const rateLimited = "GitHub rate limit reached; resets at 12:32 UTC (in 8 minutes)"
+  const rateLimited = "GitHub rate limit reached; resets at 12:32 UTC (in 8 minutes)";
   // The links are asked in order: the first is dirty, the second is clean.
-  let asked = 0
+  let asked = 0;
   const state = script({
     links: [link("dirty"), link("limited")],
     readiness: [
@@ -639,7 +658,7 @@ test("a dirty worktree and a limited token are different facts, and both are sai
       },
     ],
     removal: () => {
-      asked += 1
+      asked += 1;
       return asked === 1
         ? {
             _tag: "Unsafe",
@@ -652,24 +671,21 @@ test("a dirty worktree and a limited token are different facts, and both are sai
               },
             ],
           }
-        : { _tag: "Safe" }
+        : { _tag: "Safe" };
     },
-  })
+  });
 
-  const result = await assessment(state, "completion")
-  expect(Result.isSuccess(result)).toBe(true)
+  const result = await assessment(state, "completion");
+  expect(Result.isSuccess(result)).toBe(true);
   if (Result.isSuccess(result) && result.success._tag !== "Ready") {
-    expect(result.success.reasons.map((reason) => reason.text)).toEqual([
-      "uncommitted changes",
-      rateLimited,
-    ])
-    expect(result.success.reasons.map((reason) => reason.kind)).toEqual(["hard", "hard"])
+    expect(result.success.reasons.map((reason) => reason.text)).toEqual(["uncommitted changes", rateLimited]);
+    expect(result.success.reasons.map((reason) => reason.kind)).toEqual(["hard", "hard"]);
     expect(result.success.reasons.map((reason) => reason.subject?.repositoryId)).toEqual([
       ref("dirty").repositoryId,
       undefined,
-    ])
+    ]);
   }
-})
+});
 
 const shelved = (repository: string): ShelveResultDto => ({
   _tag: "Shelved",
@@ -683,118 +699,120 @@ const shelved = (repository: string): ShelveResultDto => ({
     files: [{ path: "a.txt", change: "modified", bytes: 3 }],
     patchBytes: 40,
   },
-})
+});
 
 test("cancelling a dirty checkout shelves the work instead of refusing, then removes the clean worktree", async () => {
   const dirty: RemovalAssessment = {
     _tag: "Unsafe",
     reasons: [{ code: "dirty-worktree", kind: "hard", text: "uncommitted changes", facts: "dirty:abc" }],
-  }
-  const assessed = await assessment(script({ removal: dirty }), "cancellation")
-  expect(Result.isSuccess(assessed) && assessed.success._tag).toBe("Ready")
+  };
+  const assessed = await assessment(script({ removal: dirty }), "cancellation");
+  expect(Result.isSuccess(assessed) && assessed.success._tag).toBe("Ready");
 
-  const state = script({ removal: dirty, shelve: shelved("created") })
+  const state = script({ removal: dirty, shelve: shelved("created") });
   const result = await run(
     state,
     Effect.gen(function* () {
-      const service = yield* lifecycle
-      return yield* service.cancelChange({ changeId: ChangeId.make("demo") })
+      const service = yield* lifecycle;
+      return yield* service.cancelChange({ changeId: ChangeId.make("demo") });
     }),
-  )
-  expect(Result.isSuccess(result) && result.success._tag).toBe("Done")
+  );
+  expect(Result.isSuccess(result) && result.success._tag).toBe("Done");
   if (Result.isSuccess(result) && result.success._tag === "Done")
     expect(result.success.loose).toContain(
       "the uncommitted work in created is shelved; reopening the change applies it",
-    )
+    );
   expect(state.calls).toEqual([
     "shelve created (cancel)",
     "remove /workspace/demo/created",
     "stop terminal",
     "keep transcripts of /workspace/demo in /workspace/demo/transcripts",
     "transition Cancelled",
-  ])
+  ]);
   expect(state.steps.find((step) => step.id === "shelve:created" && step.state === "done")?.detail).toBe(
     "1 file shelved",
-  )
-})
+  );
+});
 
 test("a checkout in the middle of a merge is not cancelled: nothing is removed", async () => {
-  const state = script({ shelve: { _tag: "Conflicted", files: ["a.txt"] } })
+  const state = script({ shelve: { _tag: "Conflicted", files: ["a.txt"] } });
   const result = await run(
     state,
     Effect.gen(function* () {
-      const service = yield* lifecycle
-      return yield* service.cancelChange({ changeId: ChangeId.make("demo") })
+      const service = yield* lifecycle;
+      return yield* service.cancelChange({ changeId: ChangeId.make("demo") });
     }),
-  )
-  expect(Result.isSuccess(result) && result.success._tag).toBe("Blocked")
+  );
+  expect(Result.isSuccess(result) && result.success._tag).toBe("Blocked");
   if (Result.isSuccess(result) && result.success._tag === "Blocked")
-    expect(result.success.reasons[0]?.text).toBe("conflicts in a.txt: resolve them before cancelling")
-  expect(state.calls).toEqual(["shelve created (cancel)"])
-})
+    expect(result.success.reasons[0]?.text).toBe("conflicts in a.txt: resolve them before cancelling");
+  expect(state.calls).toEqual(["shelve created (cancel)"]);
+});
 
 test("transcripts that cannot be kept are journaled, and the change is archived regardless", async () => {
-  const state = script({ transcriptsFailure: "pi's sessions are unreadable" })
+  const state = script({ transcriptsFailure: "pi's sessions are unreadable" });
   const result = await run(
     state,
     Effect.gen(function* () {
-      const service = yield* lifecycle
-      return yield* service.cancelChange({ changeId: ChangeId.make("demo") })
+      const service = yield* lifecycle;
+      return yield* service.cancelChange({ changeId: ChangeId.make("demo") });
     }),
-  )
-  expect(Result.isSuccess(result) && result.success._tag).toBe("Done")
+  );
+  expect(Result.isSuccess(result) && result.success._tag).toBe("Done");
   expect(state.steps.find((step) => step.id === "transcripts" && step.state === "failed")?.detail).toBe(
     "pi's sessions are unreadable",
-  )
-  expect(state.calls).toContain("transition Cancelled")
-})
+  );
+  expect(state.calls).toContain("transition Cancelled");
+});
 
 test("a cancelled change reopens in the phase it was cancelled from", async () => {
   const state = script({
     change: new Change({ ...change("Cancelled"), completedAt: "then", cancelledFrom: "Verification" }),
-  })
+  });
   const result = await run(
     state,
     Effect.gen(function* () {
-      const service = yield* lifecycle
-      return yield* service.reopenChange(ChangeId.make("demo"))
+      const service = yield* lifecycle;
+      return yield* service.reopenChange(ChangeId.make("demo"));
     }),
-  )
-  expect(Result.isSuccess(result) && result.success.phase).toBe("Verification")
-  expect(state.calls).toEqual(["reopen"])
-  expect(state.steps.map((step) => `${step.id}:${step.state}`)).toEqual(["reopen:done"])
-})
+  );
+  expect(Result.isSuccess(result) && result.success.phase).toBe("Verification");
+  expect(state.calls).toEqual(["reopen"]);
+  expect(state.steps.map((step) => `${step.id}:${step.state}`)).toEqual(["reopen:done"]);
+});
 
 test("cancelling with an acknowledgement removes the checkout and lists the loose ends", async () => {
   const state = script({
     removal: {
       _tag: "NeedsAcknowledgement",
-      reasons: [{ code: "unpushed", kind: "forceable", text: "2 unpushed commit(s)", facts: "unpushed:abc:2" }],
+      reasons: [
+        { code: "unpushed", kind: "forceable", text: "2 unpushed commit(s)", facts: "unpushed:abc:2" },
+      ],
     },
     branchCleanup: "kept",
     loose: [{ repository: ref("created"), number: 3 }],
     looseIssues: ["PROJ-1 is still open"],
-  })
+  });
   const acknowledged: readonly Acknowledgement[] = [
     { code: "unpushed", subject: ref("created"), facts: "unpushed:abc:2" },
-  ]
+  ];
   const result = await run(
     state,
     Effect.gen(function* () {
-      const service = yield* lifecycle
-      return yield* service.cancelChange({ changeId: ChangeId.make("demo"), acknowledgements: acknowledged })
+      const service = yield* lifecycle;
+      return yield* service.cancelChange({ changeId: ChangeId.make("demo"), acknowledgements: acknowledged });
     }),
-  )
-  expect(Result.isSuccess(result)).toBe(true)
+  );
+  expect(Result.isSuccess(result)).toBe(true);
   if (Result.isSuccess(result)) {
-    expect(result.success._tag).toBe("Done")
+    expect(result.success._tag).toBe("Done");
     if (result.success._tag === "Done") {
-      expect(result.success.change.phase).toBe("Cancelled")
+      expect(result.success.change.phase).toBe("Cancelled");
       expect(result.success.loose).toEqual([
         "pull request #3 is still open in created",
         "PROJ-1 is still open",
         "the branch demo is kept in created",
-      ])
+      ]);
     }
   }
   expect(state.calls).toEqual([
@@ -803,8 +821,8 @@ test("cancelling with an acknowledgement removes the checkout and lists the loos
     "stop terminal",
     "keep transcripts of /workspace/demo in /workspace/demo/transcripts",
     "transition Cancelled",
-  ])
-})
+  ]);
+});
 
 test("untracked files are shelved rather than asked about, and the checkout goes", async () => {
   const untracked: RemovalAssessment = {
@@ -817,91 +835,90 @@ test("untracked files are shelved rather than asked about, and the checkout goes
         facts: "untracked:abc:tests/__pycache__/",
       },
     ],
-  }
+  };
   const cancel = (
     acknowledgements: readonly Acknowledgement[],
   ): Effect.Effect<LifecycleOutcome, unknown, ChangeLifecycle> =>
     Effect.gen(function* () {
-      const service = yield* lifecycle
-      return yield* service.cancelChange({ changeId: ChangeId.make("demo"), acknowledgements })
-    })
+      const service = yield* lifecycle;
+      return yield* service.cancelChange({ changeId: ChangeId.make("demo"), acknowledgements });
+    });
 
-  const state = script({ removal: untracked, shelve: shelved("created") })
-  const done = await run(state, cancel([]))
-  expect(Result.isSuccess(done) && done.success._tag).toBe("Done")
-  expect(state.calls.slice(0, 2)).toEqual(["shelve created (cancel)", "remove /workspace/demo/created"])
-})
+  const state = script({ removal: untracked, shelve: shelved("created") });
+  const done = await run(state, cancel([]));
+  expect(Result.isSuccess(done) && done.success._tag).toBe("Done");
+  expect(state.calls.slice(0, 2)).toEqual(["shelve created (cancel)", "remove /workspace/demo/created"]);
+});
 
 test("a failed loose-end lookup is a note, not a failure", async () => {
-  const state = script({ looseFailure: true })
+  const state = script({ looseFailure: true });
   const result = await run(
     state,
     Effect.gen(function* () {
-      const service = yield* lifecycle
-      return yield* service.cancelChange({ changeId: ChangeId.make("demo") })
+      const service = yield* lifecycle;
+      return yield* service.cancelChange({ changeId: ChangeId.make("demo") });
     }),
-  )
-  expect(Result.isSuccess(result)).toBe(true)
+  );
+  expect(Result.isSuccess(result)).toBe(true);
   if (Result.isSuccess(result) && result.success._tag === "Done")
-    expect(result.success.loose).toContain("could not read the open pull requests")
-})
+    expect(result.success.loose).toContain("could not read the open pull requests");
+});
 
 test("an idea can be cancelled", async () => {
-  const state = script({ change: change("Ideation"), links: [] })
+  const state = script({ change: change("Ideation"), links: [] });
   const result = await run(
     state,
     Effect.gen(function* () {
-      const service = yield* lifecycle
-      return yield* service.cancelChange({ changeId: ChangeId.make("demo") })
+      const service = yield* lifecycle;
+      return yield* service.cancelChange({ changeId: ChangeId.make("demo") });
     }),
-  )
-  expect(Result.isSuccess(result)).toBe(true)
-  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Done")
+  );
+  expect(Result.isSuccess(result)).toBe(true);
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Done");
   expect(state.calls).toEqual([
     "stop terminal",
     "keep transcripts of /workspace/demo in /workspace/demo/transcripts",
     "transition Cancelled",
-  ])
-})
+  ]);
+});
 
 test("one lifecycle operation per change at a time", async () => {
-  const started = await Effect.runPromise(Deferred.make<void>())
-  const gate = await Effect.runPromise(Deferred.make<void>())
-  const state = script({ started, hold: gate })
+  const started = await Effect.runPromise(Deferred.make<void>());
+  const gate = await Effect.runPromise(Deferred.make<void>());
+  const state = script({ started, hold: gate });
   const result = await Effect.runPromise(
     Effect.gen(function* () {
-      const service = yield* lifecycle
-      const first = yield* Effect.forkChild(service.completeChange({ changeId: ChangeId.make("demo") }))
-      yield* Deferred.await(started)
-      const second = yield* service.completeChange({ changeId: ChangeId.make("demo") }).pipe(Effect.result)
-      yield* Deferred.succeed(gate, undefined)
-      yield* Fiber.join(first)
-      return second
+      const service = yield* lifecycle;
+      const first = yield* Effect.forkChild(service.completeChange({ changeId: ChangeId.make("demo") }));
+      yield* Deferred.await(started);
+      const second = yield* service.completeChange({ changeId: ChangeId.make("demo") }).pipe(Effect.result);
+      yield* Deferred.succeed(gate, undefined);
+      yield* Fiber.join(first);
+      return second;
     }).pipe(Effect.provide(layerFor(state))),
-  )
-  expect(Result.isFailure(result)).toBe(true)
+  );
+  expect(Result.isFailure(result)).toBe(true);
   if (Result.isFailure(result)) {
-    const failure = result.failure
-    expect((failure as { _tag?: string })._tag).toBe("ChangeOperationInProgress")
+    const failure = result.failure;
+    expect((failure as { _tag?: string })._tag).toBe("ChangeOperationInProgress");
   }
-})
+});
 
 test("a failed merge is journaled before the completion stops", async () => {
-  const state = script({ mergeFailure: "Pull request is not mergeable" })
+  const state = script({ mergeFailure: "Pull request is not mergeable" });
   const result = await run(
     state,
     Effect.gen(function* () {
-      const service = yield* lifecycle
-      return yield* service.completeChange({ changeId: ChangeId.make("demo") })
+      const service = yield* lifecycle;
+      return yield* service.completeChange({ changeId: ChangeId.make("demo") });
     }),
-  )
-  expect(Result.isFailure(result)).toBe(true)
-  const merge = state.steps.filter((step) => step.id === "merge:/sources/created").at(-1)
-  expect(merge?.state).toBe("failed")
-  expect(merge?.detail).toContain("not mergeable")
-  const byId = (id: string): OperationStep | undefined =>
-    state.steps.filter((step) => step.id === id).at(-1)
-  expect(byId("worktrees")?.state).toBe("waiting")
-  expect(byId("terminal")?.state).toBe("waiting")
-  expect(byId("archive")?.state).toBe("waiting")
-})
+  );
+  expect(Result.isFailure(result)).toBe(true);
+  const merge = state.steps.filter((step) => step.id === "merge:/sources/created").at(-1);
+  expect(merge?.state).toBe("failed");
+  expect(merge?.detail).toContain("not mergeable");
+  const byId = (id: string): OperationStep | undefined => state.steps.filter((step) => step.id === id).at(-1);
+  expect(byId("worktrees")?.state).toBe("waiting");
+  expect(byId("terminal")?.state).toBe("waiting");
+  expect(byId("archive")?.state).toBe("waiting");
+});

@@ -49,16 +49,12 @@ export const archiveRoot = (): string => settingsOf(workspaceById()).archiveRoot
  * workspace's changes root, named after the change. A change that already exists and predates a
  * root override stays where it is: the writers prefer `existingDir`, and only fall back to this
  * when creating. */
-export const changeDir = (change: {
-  readonly id: string;
-  readonly workspace?: string;
-}): string => join(settingsOf(workspaceById(change.workspace)).changesRoot, change.id);
+export const changeDir = (change: { readonly id: string; readonly workspace?: string }): string =>
+  join(settingsOf(workspaceById(change.workspace)).changesRoot, change.id);
 
 /** Where one change travels to when it is done: its workspace's archive root. */
-export const archiveDir = (change: {
-  readonly id: string;
-  readonly workspace?: string;
-}): string => join(settingsOf(workspaceById(change.workspace)).archiveRoot, change.id);
+export const archiveDir = (change: { readonly id: string; readonly workspace?: string }): string =>
+  join(settingsOf(workspaceById(change.workspace)).archiveRoot, change.id);
 
 /** File-backed change records and associated documents. */
 
@@ -69,11 +65,7 @@ const fileExists = (path: string): Effect.Effect<boolean> => fs(() => file(path)
  * journal; a legacy sidecar from a former feature (notes.md) stays reachable. `wt.toml` is
  * deliberately not here any more: Corvi computes the worktree path itself (apps/server/src/vendors/git.ts),
  * so a file left by the days when wt owned it is an ordinary leftover. */
-export const CORE_SIDECARS: ReadonlySet<string> = new Set([
-  "change.json",
-  "completion.json",
-  PLAN_FILE,
-]);
+export const CORE_SIDECARS: ReadonlySet<string> = new Set(["change.json", "completion.json", PLAN_FILE]);
 
 /** Every directory this change may live in: each scope's active root first — the active copy
  * wins — then each scope's archive. */
@@ -110,9 +102,9 @@ const guardFormat = (id: string): Effect.Effect<void, ChangeFormatTooNew> =>
           Effect.catchDefect(() => Effect.succeed("")),
         )
       : "";
-    const raw = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)))(
-      text,
-    ).pipe(Effect.orElseSucceed(() => ({}) as Record<string, unknown>));
+    const raw = yield* Schema.decodeUnknownEffect(
+      Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
+    )(text).pipe(Effect.orElseSucceed(() => ({}) as Record<string, unknown>));
     const recordFormat = typeof raw.formatVersion === "number" ? raw.formatVersion : 1;
     if (recordFormat > FORMAT_VERSION)
       return yield* new ChangeFormatTooNew({
@@ -152,9 +144,7 @@ export const readChange = (id: string): Effect.Effect<Change | null, DecodeError
   Effect.gen(function* () {
     const dir = yield* existingDir(id);
     if (!dir) return null;
-    const text = yield* Effect.tryPromise(() => file(join(dir, "change.json")).text()).pipe(
-      Effect.orDie,
-    );
+    const text = yield* Effect.tryPromise(() => file(join(dir, "change.json")).text()).pipe(Effect.orDie);
     return yield* decodeChange(text, dir);
   });
 
@@ -180,9 +170,7 @@ export const writeChange = (change: Change): Effect.Effect<void, ChangeFormatToo
     // is authoritative; a fresh record starts at 1.
     const prior = yield* readChange(change.id).pipe(
       Effect.map((current) => Number((current as { revision?: unknown } | null)?.revision ?? 0)),
-      Effect.catch(() =>
-        Effect.succeed(Number((change as { revision?: unknown }).revision ?? 0)),
-      ),
+      Effect.catch(() => Effect.succeed(Number((change as { revision?: unknown }).revision ?? 0))),
     );
     const record = { ...change, revision: prior + 1, formatVersion: FORMAT_VERSION };
     yield* fs(() => writeAtomic(join(dir, "change.json"), JSON.stringify(record, null, 2) + "\n"));
@@ -195,13 +183,14 @@ export const readSidecar = (id: string, name: string): Effect.Effect<string> =>
   Effect.gen(function* () {
     const dir = yield* existingDir(id);
     if (!dir) return "";
-    return yield* fs(() => file(join(dir, name)).text()).pipe(
-      Effect.catchDefect(() => Effect.succeed("")),
-    );
+    return yield* fs(() => file(join(dir, name)).text()).pipe(Effect.catchDefect(() => Effect.succeed("")));
   });
 
-
-export const writeSidecar = (id: string, name: string, text: string): Effect.Effect<void, ChangeFormatTooNew> =>
+export const writeSidecar = (
+  id: string,
+  name: string,
+  text: string,
+): Effect.Effect<void, ChangeFormatTooNew> =>
   Effect.gen(function* () {
     yield* guardFormat(id);
     const dir = (yield* existingDir(id)) ?? changeDir({ id });
@@ -330,10 +319,7 @@ const directoriesIn = (dir: string): Effect.Effect<string[]> =>
 export const listChanges = (): Effect.Effect<Change[]> =>
   Effect.gen(function* () {
     const listings = yield* Effect.all(
-      changePairs().flatMap(({ root, archiveRoot }) => [
-        directoriesIn(root),
-        directoriesIn(archiveRoot),
-      ]),
+      changePairs().flatMap(({ root, archiveRoot }) => [directoriesIn(root), directoriesIn(archiveRoot)]),
     );
     // A completed change can leave its directory behind — a terminal writing in it, a build
     // dropping target/ into it — while change.json has already moved to the archive. Both names
@@ -357,8 +343,7 @@ export const listChanges = (): Effect.Effect<Change[]> =>
 const isMissing = (cause: unknown): boolean =>
   typeof cause === "object" && cause !== null && (cause as { code?: unknown }).code === "ENOENT";
 
-const describeCause = (cause: unknown): string =>
-  cause instanceof Error ? cause.message : String(cause);
+const describeCause = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause));
 
 /** The directory names under one root, read strictly: a root that does not exist yet is empty,
  * any other read failure propagates. */

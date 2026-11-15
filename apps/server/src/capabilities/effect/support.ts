@@ -10,13 +10,11 @@ import { sh, type ShellResult } from "../shell.ts";
  * sh can raise — surfaces as exit code 124 with its message, which ShellResult-branching callers
  * branch on. */
 export const shSoft = (cmd: string[], cwd?: string): Effect.Effect<ShellResult> =>
-  Effect.catch(sh(cmd, cwd), (e) =>
-    Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr }));
+  Effect.catch(sh(cmd, cwd), (e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr }));
 
 /** `--json` output through the Schema, re-exported from `@corvi/shell/cli` so the app's
  * callers keep one import while the helpers become package-owned. */
 export { cliJson, messageOf } from "@corvi/shell/cli";
-
 
 /** Filesystem failures are defects, not domain errors — the directories we read and write are
  * ours, so the raw rejection escapes as a defect. */

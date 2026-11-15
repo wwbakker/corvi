@@ -67,7 +67,11 @@ export class RemoteGateAbort extends Error {
 }
 
 const isGateCode = (value: unknown): value is GateKind =>
-  value === "checking" || value === "unavailable" || value === "cancelled" || value === "uncertain" || value === "stale-target";
+  value === "checking" ||
+  value === "unavailable" ||
+  value === "cancelled" ||
+  value === "uncertain" ||
+  value === "stale-target";
 
 /** Classify a failed client call as a gate outcome, or undefined for an ordinary error. */
 export const gateFailureOf = (error: unknown): GateFailure | undefined => {
@@ -176,7 +180,11 @@ export const makeSourceOwner = (deps: SourceOwnerDeps): SourceOwner => {
   const entriesOf = (snapshot: RemoteAvailabilitySnapshotDto): Record<string, OwnerAvailabilityEntry> => {
     const entries: Record<string, OwnerAvailabilityEntry> = {};
     for (const entry of snapshot.availability) {
-      entries[entry.source] = { status: entry.status, generation: entry.generation, revision: entry.revision };
+      entries[entry.source] = {
+        status: entry.status,
+        generation: entry.generation,
+        revision: entry.revision,
+      };
     }
     return entries;
   };
@@ -244,100 +252,94 @@ export const makeSourceOwner = (deps: SourceOwnerDeps): SourceOwner => {
    * wire held across a retarget must not carry the old target's request to the new one. */
   const capabilityKey = (sourceId: string, generation: string): string => `${sourceId}\u0000${generation}`;
 
-  const gatedFetch = (sourceId: string, generation: string): FetchLike => async (input, init) => {
-    if (disposed) return refused(sourceId);
-    // The capability belongs to the target it was acquired for. After a retarget it is spent: the
-    // same stale-target answer the gate gives retired work, and no request leaves the browser.
-    if (generationOf(sourceId) !== generation) {
-      return gateResponse(
-        503,
-        { kind: "stale-target", message: "this request belongs to a workspace target that has changed" },
-        sourceId,
-      );
-    }
-    const entry = current.entries[sourceId];
-    if (entry === undefined || entry.status._tag !== "available") {
-      const failure: GateFailure =
-        entry?.status._tag === "unavailable"
-          ? { kind: "unavailable", message: entry.status.reason.message, reason: entry.status.reason }
-          : { kind: "checking", message: "checking this workspace's availability" };
-      return gateResponse(503, failure, sourceId);
-    }
-    const outer = init?.signal;
-    // An already-aborted client never reaches the network, and never becomes a transport
-    // observation of the remote.
-    if (outer?.aborted === true) throw new RemoteGateAbort("cancelled", "the request was aborted before it was sent");
-    const method = (init?.method ?? "GET").toUpperCase();
-    const kind: "read" | "write" = method === "GET" || method === "HEAD" ? "read" : "write";
-    const controller = new AbortController();
-    if (outer != null) outer.addEventListener("abort", () => controller.abort(outer.reason), { once: true });
-    const id = ++requestSeq;
-    const record: { sourceId: string; controller: AbortController; kind: "read" | "write"; retired: boolean } = {
-      sourceId,
-      controller,
-      kind,
-      retired: false,
-    };
-    // The abort reason owns the classification (cancelled vs stale-target vs uncertain); the
-    // retired flag only makes a non-cooperative body notice it.
-    const retiredFailure = (): RemoteGateAbort => {
-      const reason = controller.signal.reason;
-      return reason instanceof RemoteGateAbort
-        ? reason
-        : new RemoteGateAbort(kind === "write" ? "uncertain" : "stale-target", "the target was retired");
-    };
-    inflight.set(id, record);
-    try {
-      const response = await innerFetch(input, { ...init, signal: controller.signal });
-      if (response.body === null || record.retired) {
-        inflight.delete(id);
-        if (record.retired) {
-          // Headers arrived, but the target was gone before the body was handed out: drop the
-          // body rather than leave it for whoever would have read it to consume old bytes.
-          void response.body?.cancel().catch(() => undefined);
-          throw retiredFailure();
-        }
-        return response;
+  const gatedFetch =
+    (sourceId: string, generation: string): FetchLike =>
+    async (input, init) => {
+      if (disposed) return refused(sourceId);
+      // The capability belongs to the target it was acquired for. After a retarget it is spent: the
+      // same stale-target answer the gate gives retired work, and no request leaves the browser.
+      if (generationOf(sourceId) !== generation) {
+        return gateResponse(
+          503,
+          { kind: "stale-target", message: "this request belongs to a workspace target that has changed" },
+          sourceId,
+        );
       }
-      // The request stays registered until its body is consumed, so a target change between the
-      // headers and the body still reaches the read. The retired flag is checked on every pull:
-      // a body that ignores the abort signal must not deliver old-target bytes.
-      const reader = response.body.getReader();
-      // One abort deferral for the whole request, not one per pull: a non-cooperative body may
-      // ignore the abort and never send another byte, and racing its read against this is what
-      // unsticks it. The listener is removed as soon as the body ends, cancels, or errors, so a
-      // consumed request leaves nothing attached to the signal.
-      let settleAbort: ((reason: RemoteGateAbort) => void) | undefined;
-      const unstuck = new Promise<never>((_resolve, reject) => {
-        settleAbort = reject;
-      });
-      // Nothing races it if the body is never pulled; that must not surface as an unhandled
-      // rejection when the request is eventually retired.
-      unstuck.catch(() => undefined);
-      const onAbort = (): void => settleAbort?.(retiredFailure());
-      if (controller.signal.aborted) onAbort();
-      else controller.signal.addEventListener("abort", onAbort, { once: true });
-      const release = (): void => {
-        settleAbort = undefined;
-        controller.signal.removeEventListener("abort", onAbort);
+      const entry = current.entries[sourceId];
+      if (entry === undefined || entry.status._tag !== "available") {
+        const failure: GateFailure =
+          entry?.status._tag === "unavailable"
+            ? { kind: "unavailable", message: entry.status.reason.message, reason: entry.status.reason }
+            : { kind: "checking", message: "checking this workspace's availability" };
+        return gateResponse(503, failure, sourceId);
+      }
+      const outer = init?.signal;
+      // An already-aborted client never reaches the network, and never becomes a transport
+      // observation of the remote.
+      if (outer?.aborted === true)
+        throw new RemoteGateAbort("cancelled", "the request was aborted before it was sent");
+      const method = (init?.method ?? "GET").toUpperCase();
+      const kind: "read" | "write" = method === "GET" || method === "HEAD" ? "read" : "write";
+      const controller = new AbortController();
+      if (outer != null)
+        outer.addEventListener("abort", () => controller.abort(outer.reason), { once: true });
+      const id = ++requestSeq;
+      const record: {
+        sourceId: string;
+        controller: AbortController;
+        kind: "read" | "write";
+        retired: boolean;
+      } = {
+        sourceId,
+        controller,
+        kind,
+        retired: false,
       };
-      const body = new ReadableStream<Uint8Array>({
-        pull: async (controllerStream) => {
+      // The abort reason owns the classification (cancelled vs stale-target vs uncertain); the
+      // retired flag only makes a non-cooperative body notice it.
+      const retiredFailure = (): RemoteGateAbort => {
+        const reason = controller.signal.reason;
+        return reason instanceof RemoteGateAbort
+          ? reason
+          : new RemoteGateAbort(kind === "write" ? "uncertain" : "stale-target", "the target was retired");
+      };
+      inflight.set(id, record);
+      try {
+        const response = await innerFetch(input, { ...init, signal: controller.signal });
+        if (response.body === null || record.retired) {
+          inflight.delete(id);
           if (record.retired) {
-            inflight.delete(id);
-            release();
-            void reader.cancel().catch(() => undefined);
-            controllerStream.error(retiredFailure());
-            return;
+            // Headers arrived, but the target was gone before the body was handed out: drop the
+            // body rather than leave it for whoever would have read it to consume old bytes.
+            void response.body?.cancel().catch(() => undefined);
+            throw retiredFailure();
           }
-          try {
-            const { value, done } = await Promise.race([reader.read(), unstuck]);
-            if (done) {
-              inflight.delete(id);
-              release();
-              controllerStream.close();
-              return;
-            }
+          return response;
+        }
+        // The request stays registered until its body is consumed, so a target change between the
+        // headers and the body still reaches the read. The retired flag is checked on every pull:
+        // a body that ignores the abort signal must not deliver old-target bytes.
+        const reader = response.body.getReader();
+        // One abort deferral for the whole request, not one per pull: a non-cooperative body may
+        // ignore the abort and never send another byte, and racing its read against this is what
+        // unsticks it. The listener is removed as soon as the body ends, cancels, or errors, so a
+        // consumed request leaves nothing attached to the signal.
+        let settleAbort: ((reason: RemoteGateAbort) => void) | undefined;
+        const unstuck = new Promise<never>((_resolve, reject) => {
+          settleAbort = reject;
+        });
+        // Nothing races it if the body is never pulled; that must not surface as an unhandled
+        // rejection when the request is eventually retired.
+        unstuck.catch(() => undefined);
+        const onAbort = (): void => settleAbort?.(retiredFailure());
+        if (controller.signal.aborted) onAbort();
+        else controller.signal.addEventListener("abort", onAbort, { once: true });
+        const release = (): void => {
+          settleAbort = undefined;
+          controller.signal.removeEventListener("abort", onAbort);
+        };
+        const body = new ReadableStream<Uint8Array>({
+          pull: async (controllerStream) => {
             if (record.retired) {
               inflight.delete(id);
               release();
@@ -345,28 +347,47 @@ export const makeSourceOwner = (deps: SourceOwnerDeps): SourceOwner => {
               controllerStream.error(retiredFailure());
               return;
             }
-            controllerStream.enqueue(value);
-          } catch (error) {
+            try {
+              const { value, done } = await Promise.race([reader.read(), unstuck]);
+              if (done) {
+                inflight.delete(id);
+                release();
+                controllerStream.close();
+                return;
+              }
+              if (record.retired) {
+                inflight.delete(id);
+                release();
+                void reader.cancel().catch(() => undefined);
+                controllerStream.error(retiredFailure());
+                return;
+              }
+              controllerStream.enqueue(value);
+            } catch (error) {
+              inflight.delete(id);
+              release();
+              // The body is over (errored or retired mid-stream): release the underlying stream
+              // too, so it is not left producing bytes for a read nobody will consume.
+              void reader.cancel(error).catch(() => undefined);
+              controllerStream.error(error);
+            }
+          },
+          cancel: (reason) => {
             inflight.delete(id);
             release();
-            // The body is over (errored or retired mid-stream): release the underlying stream
-            // too, so it is not left producing bytes for a read nobody will consume.
-            void reader.cancel(error).catch(() => undefined);
-            controllerStream.error(error);
-          }
-        },
-        cancel: (reason) => {
-          inflight.delete(id);
-          release();
-          void reader.cancel(reason);
-        },
-      });
-      return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
-    } catch (error) {
-      inflight.delete(id);
-      throw error;
-    }
-  };
+            void reader.cancel(reason);
+          },
+        });
+        return new Response(body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        });
+      } catch (error) {
+        inflight.delete(id);
+        throw error;
+      }
+    };
 
   // Local traffic is never gated on availability, but it must still refuse after disposal and it
   // still uses the injected transport, so a test can drive both halves of the owner.
@@ -377,7 +398,8 @@ export const makeSourceOwner = (deps: SourceOwnerDeps): SourceOwner => {
    * cannot grow one client per retarget. Local is `""` and always the same entry. */
   const dropSuperseded = (cache: Map<string, unknown>, sourceId: string, keep: string): void => {
     const prefix = `${sourceId}\u0000`;
-    for (const known of [...cache.keys()]) if (known !== keep && known.startsWith(prefix)) cache.delete(known);
+    for (const known of [...cache.keys()])
+      if (known !== keep && known.startsWith(prefix)) cache.delete(known);
   };
 
   const clientAt = (sourceId: string, generation: string): CorviClient => {
@@ -457,7 +479,10 @@ export const makeSourceOwner = (deps: SourceOwnerDeps): SourceOwner => {
           inflight.delete(id);
           request.retired = true;
           request.controller.abort(
-            new RemoteGateAbort(request.kind === "write" ? "uncertain" : "cancelled", "the event stream reconnected"),
+            new RemoteGateAbort(
+              request.kind === "write" ? "uncertain" : "cancelled",
+              "the event stream reconnected",
+            ),
           );
         }
         refresh();
@@ -497,7 +522,9 @@ export const makeSourceOwner = (deps: SourceOwnerDeps): SourceOwner => {
       for (const [id, request] of inflight) {
         inflight.delete(id);
         request.retired = true;
-        request.controller.abort(new RemoteGateAbort(request.kind === "write" ? "uncertain" : "cancelled", "the page is gone"));
+        request.controller.abort(
+          new RemoteGateAbort(request.kind === "write" ? "uncertain" : "cancelled", "the page is gone"),
+        );
       }
       listeners.clear();
       clients.clear();
@@ -516,5 +543,7 @@ export const availabilitySuffix = (status: RemoteAvailabilityStatusDto): string 
   status._tag === "unavailable" ? " (Unavailable)" : "";
 
 /** Whether the availability state changed in a way that retires a source's cached data. */
-export const generationChanged = (before: OwnerAvailabilityEntry | undefined, after: OwnerAvailabilityEntry | undefined): boolean =>
-  before !== undefined && after !== undefined && before.generation !== after.generation;
+export const generationChanged = (
+  before: OwnerAvailabilityEntry | undefined,
+  after: OwnerAvailabilityEntry | undefined,
+): boolean => before !== undefined && after !== undefined && before.generation !== after.generation;

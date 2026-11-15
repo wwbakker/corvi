@@ -37,7 +37,10 @@ const globSource = (glob: string): string => {
       if (end < 0) {
         source += "\\{";
       } else {
-        const alternatives = glob.slice(index + 1, end).split(",").map(escapeRegex);
+        const alternatives = glob
+          .slice(index + 1, end)
+          .split(",")
+          .map(escapeRegex);
         source += `(?:${alternatives.join("|")})`;
         index = end;
       }
@@ -51,8 +54,11 @@ const globSource = (glob: string): string => {
 /** The union of the `files` globs the configured blocks declare. A block without `files` (the
  * global ignore) matches nothing and contributes no coverage. */
 const lintPatterns: readonly RegExp[] = config.flatMap((block) => {
-  const globs = typeof block.files === "string" ? [block.files] : Array.isArray(block.files) ? block.files : [];
-  return globs.filter((glob): glob is string => typeof glob === "string").map((glob) => new RegExp(globSource(glob)));
+  const globs =
+    typeof block.files === "string" ? [block.files] : Array.isArray(block.files) ? block.files : [];
+  return globs
+    .filter((glob): glob is string => typeof glob === "string")
+    .map((glob) => new RegExp(globSource(glob)));
 });
 
 /** The workspace groups named in the root manifest's `workspaces` patterns. */

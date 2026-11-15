@@ -288,9 +288,7 @@ describe("the tailscale operations", () => {
         "tailscale serve status --json": served(4110),
       });
       await runWithShell(shell, unpublishTailscale());
-      expect(shell.calls.map((call) => call.cmd.join(" "))).toContain(
-        "tailscale serve --https=443 off",
-      );
+      expect(shell.calls.map((call) => call.cmd.join(" "))).toContain("tailscale serve --https=443 off");
     });
   });
 
@@ -344,9 +342,7 @@ describe("the tailscale operations", () => {
         "tailscale serve status --json": served(4110),
       });
       await runWithShell(shell, unpublishTailscale());
-      expect(shell.calls.map((call) => call.cmd.join(" "))).toContain(
-        "tailscale serve --https=443 off",
-      );
+      expect(shell.calls.map((call) => call.cmd.join(" "))).toContain("tailscale serve --https=443 off");
       expect(runtimeTailscalePublishedPort()).toBeUndefined();
     });
   });
@@ -399,9 +395,7 @@ describe("the tailscale operations", () => {
           "tailscale serve status --json": "{}",
         });
         await runWithShell(shell, publishTailscale());
-        expect(shell.calls.map((call) => call.cmd.join(" "))).toContain(
-          "tailscale serve --bg 5000",
-        );
+        expect(shell.calls.map((call) => call.cmd.join(" "))).toContain("tailscale serve --bg 5000");
         expect(runtimeTailscalePublishedPort()).toBe(5000);
       });
     });
@@ -493,12 +487,7 @@ describe("the tailscale operations", () => {
       );
       // Serialized: the click read what the save left, not the stale 4110 it would have seen
       // inside the save's window.
-      expect(events).toEqual([
-        "save:saw=4110",
-        "save:cleared",
-        "click:saw=undefined",
-        "click:published",
-      ]);
+      expect(events).toEqual(["save:saw=4110", "save:cleared", "click:saw=undefined", "click:published"]);
     } finally {
       setTailscalePublishedPort(undefined);
     }

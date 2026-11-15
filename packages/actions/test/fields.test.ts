@@ -84,10 +84,14 @@ test("the documented values are the ones the parser accepts, and no others", () 
     const lines =
       name === "notify" || name === "keepOpen"
         ? ["label: A", "kind: command", `${name}: soon`]
-        : ["label: A", ...(name === "kind" ? [] : ["kind: prompt"]), `${name}: ${name === "phases" ? "[Soon]" : "soon"}`];
-    expect(
-      reasonsOf(promptFile(lines.join("\n"))).some((reason) => reason.startsWith(`${name}:`)),
-    ).toBe(true);
+        : [
+            "label: A",
+            ...(name === "kind" ? [] : ["kind: prompt"]),
+            `${name}: ${name === "phases" ? "[Soon]" : "soon"}`,
+          ];
+    expect(reasonsOf(promptFile(lines.join("\n"))).some((reason) => reason.startsWith(`${name}:`))).toBe(
+      true,
+    );
   }
 });
 

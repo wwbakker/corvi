@@ -2,13 +2,7 @@ import type { Change } from "@corvi/changes/record";
 import type { Workspace } from "@corvi/configuration/config";
 import { extensionNamesFor, workspaceOf } from "../workspace/server/index.ts";
 import { loaded, type LoadedIntegration } from "./loaded.ts";
-import type {
-  Card,
-  ChangeTab,
-  DashboardWidget,
-  Page,
-  WizardStep,
-} from "../integrations/types.ts";
+import type { Card, ChangeTab, DashboardWidget, Page, WizardStep } from "../integrations/types.ts";
 
 /**
  * The workspace queries: which extensions exist for a workspace, and one flat list per surface
@@ -34,14 +28,11 @@ export const extensionsFor = (workspace: Workspace): LoadedIntegration[] => {
 
 /** The enablement list in effect for this workspace: its own, the global one when it names
  * none. The one rule, from `@corvi/configuration/workspaces`. */
-const namesFor = (workspace: Workspace): readonly string[] | undefined =>
-  extensionNamesFor(workspace);
+const namesFor = (workspace: Workspace): readonly string[] | undefined => extensionNamesFor(workspace);
 
 /** One surface across a workspace's extensions, concatenated in load order. */
-const contributed = <T>(
-  workspace: Workspace,
-  pick: (ext: LoadedIntegration) => readonly T[],
-): T[] => extensionsFor(workspace).flatMap(pick);
+const contributed = <T>(workspace: Workspace, pick: (ext: LoadedIntegration) => readonly T[]): T[] =>
+  extensionsFor(workspace).flatMap(pick);
 
 /** The cards a change's dashboard shows, with the extension each belongs to — the extension's
  * name is the card's identity on the routes. */
@@ -58,9 +49,7 @@ export const cardForExtension = (name: string): Card | undefined =>
 export type WizardStepInfo = WizardStep & { extension: string };
 
 export const wizardStepsFor = (workspace: Workspace): WizardStepInfo[] => {
-  const steps = contributed(workspace, (e) =>
-    e.wizardSteps.map((s) => ({ ...s, extension: e.name })),
-  );
+  const steps = contributed(workspace, (e) => e.wizardSteps.map((s) => ({ ...s, extension: e.name })));
   return [...steps.filter((s) => s.phase === "issue"), ...steps.filter((s) => s.phase === "repos")];
 };
 
@@ -110,8 +99,4 @@ export const visibleChangeTabs = (tabs: readonly ChangeTabInfo[]): ChangeTabInfo
  * address: the first integration to declare an id keeps it and a later one's is skipped. The
  * core's own ids are reserved and never offered. */
 export const changeTabsFor = (workspace: Workspace): ChangeTabInfo[] =>
-  visibleChangeTabs(
-    contributed(workspace, (e) =>
-      e.changeTabs.map((t) => ({ ...t, extension: e.name })),
-    ),
-  );
+  visibleChangeTabs(contributed(workspace, (e) => e.changeTabs.map((t) => ({ ...t, extension: e.name }))));

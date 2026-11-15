@@ -115,10 +115,7 @@ test("a more specific scope shadows a less specific one, and repositories are al
   ]);
   const found = merged.profiles.map((profile) => profile.key).sort();
   // A repository file shadows the more general scopes outright; each repository keeps its own.
-  expect(found).toEqual([
-    "repository:billing:reviewer",
-    "repository:orders-api:reviewer",
-  ]);
+  expect(found).toEqual(["repository:billing:reviewer", "repository:orders-api:reviewer"]);
 });
 
 test("without a repository file, the most specific scope wins", () => {

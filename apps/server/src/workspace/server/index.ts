@@ -41,11 +41,7 @@ export {
   repositoriesDirectoryOf,
 } from "./workspaces.ts";
 
-export {
-  resolveDirectory,
-  browse,
-  remoteBranches,
-} from "./repos.ts";
+export { resolveDirectory, browse, remoteBranches } from "./repos.ts";
 
 export { pairRemoteWorkspace, type PairedRemote } from "./pairRemote.ts";
 

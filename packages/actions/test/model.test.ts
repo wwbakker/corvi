@@ -30,9 +30,7 @@ test("a prompt file parses, with the documented defaults", () => {
 });
 
 test("a prompt for an agent defaults its start to pi, and phases are kept", () => {
-  const parsed = parseActionFile(
-    promptFile("label: Brief\nkind: prompt\ntarget: agent\nphases: [Ideation]"),
-  );
+  const parsed = parseActionFile(promptFile("label: Brief\nkind: prompt\ntarget: agent\nphases: [Ideation]"));
   expect(Result.isSuccess(parsed)).toBe(true);
   if (Result.isFailure(parsed)) return;
   expect(parsed.success.start).toBe("pi");
@@ -78,7 +76,10 @@ test("contradictions are refused rather than ignored", () => {
 
 test("a command that keeps its window parses, and unknown keys ride along", () => {
   const parsed = parseActionFile(
-    promptFile("label: Run the tests\nkind: command\ntarget: new\nnotify: true\ndescription: pi's own", "bun test"),
+    promptFile(
+      "label: Run the tests\nkind: command\ntarget: new\nnotify: true\ndescription: pi's own",
+      "bun test",
+    ),
   );
   expect(Result.isSuccess(parsed)).toBe(true);
   if (Result.isFailure(parsed)) return;

@@ -104,9 +104,7 @@ test("the view derives presence, activity and interruption", () => {
     awaitingReply: false,
   });
   // A claimed turn is working even while the reporter's last status is a stale waiting.
-  expect(
-    viewOf({ ...base, inFlight: 1 }, { attached: true, agentStatus: "waiting" }, []),
-  ).toMatchObject({
+  expect(viewOf({ ...base, inFlight: 1 }, { attached: true, agentStatus: "waiting" }, [])).toMatchObject({
     presence: "attached",
     activity: "working",
     interrupted: false,
@@ -181,10 +179,7 @@ test("awaitingReply tracks the latest inbound turn, not the latest message", () 
   // A reply naming a turn the relay never delivered credits nothing: a bogus high number cannot
   // pin readiness, now or for a later turn.
   expect(
-    viewOf({ ...record(), deliveredThrough: 1 }, attached, [
-      message(1, "orchestrator"),
-      reply(2, 9999),
-    ]),
+    viewOf({ ...record(), deliveredThrough: 1 }, attached, [message(1, "orchestrator"), reply(2, 9999)]),
   ).toMatchObject({ awaitingReply: false });
 
   // A legacy reply (no inReplyTo) alone, with nothing pending and nothing in flight: parked.
@@ -329,9 +324,12 @@ test("awaitDecisionOf's explicit target is gated by the delivery cursor", () => 
     awaitDecisionOf({ ...record(), window: "@w", deliveredThrough: 1, messages }, attached, 2),
   ).toBeUndefined();
   // Once the cursor reaches turn 2, the same reply settles the explicit target.
-  expect(
-    awaitDecisionOf({ ...record(), window: "@w", deliveredThrough: 2, messages }, attached, 2),
-  ).toEqual({ status: "ready", reason: "replied", turn: 2, reply: 3 });
+  expect(awaitDecisionOf({ ...record(), window: "@w", deliveredThrough: 2, messages }, attached, 2)).toEqual({
+    status: "ready",
+    reason: "replied",
+    turn: 2,
+    reply: 3,
+  });
 });
 
 test("the inbound and answered-through numbers are the highest of each kind", () => {
@@ -339,9 +337,9 @@ test("the inbound and answered-through numbers are the highest of each kind", ()
   expect(latestInboundNumber([message(1, "orchestrator"), message(4, "subagent")])).toBe(1);
   expect(latestInboundNumber([message(1, "user"), message(5, "orchestrator")])).toBe(5);
   expect(answeredThrough([], 5)).toBe(0);
-  expect(
-    answeredThrough([message(1, "orchestrator"), { ...message(2, "subagent"), inReplyTo: 1 }], 1),
-  ).toBe(1);
+  expect(answeredThrough([message(1, "orchestrator"), { ...message(2, "subagent"), inReplyTo: 1 }], 1)).toBe(
+    1,
+  );
   expect(answeredThrough([{ ...message(3, "subagent"), inReplyTo: 2 }], 5)).toBe(2);
   // Only subagent messages attribute; an inbound message's inReplyTo is not a settlement.
   expect(answeredThrough([{ ...message(2, "orchestrator"), inReplyTo: 1 }], 5)).toBe(0);
@@ -350,7 +348,10 @@ test("the inbound and answered-through numbers are the highest of each kind", ()
   expect(answeredThrough([{ ...message(2, "subagent"), inReplyTo: 9999 }], 1)).toBe(0);
   expect(
     answeredThrough(
-      [{ ...message(4, "subagent"), inReplyTo: 3 }, { ...message(5, "subagent"), inReplyTo: 1 }],
+      [
+        { ...message(4, "subagent"), inReplyTo: 3 },
+        { ...message(5, "subagent"), inReplyTo: 1 },
+      ],
       2,
     ),
   ).toBe(1);

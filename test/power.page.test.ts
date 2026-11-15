@@ -199,48 +199,45 @@ test.skipIf(!usable)(
   },
 );
 
-test.skipIf(!usable)(
-  "a local power event and a remote source power event each refetch",
-  async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-    let localReads = 0;
-    await page.route(
-      (u) => u.pathname === "/api/power",
-      async (route) => {
-        localReads += 1;
-        await route.continue();
-      },
-    );
-    await page.goto(url, { waitUntil: "domcontentloaded" });
-    await page.locator(".sidebar .icon-entry[aria-label='Power']").click();
-    const dialog = page.locator("dialog.power-dialog");
-    await dialog.waitFor();
-    await waitForRemote(dialog);
+test.skipIf(!usable)("a local power event and a remote source power event each refetch", async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  let localReads = 0;
+  await page.route(
+    (u) => u.pathname === "/api/power",
+    async (route) => {
+      localReads += 1;
+      await route.continue();
+    },
+  );
+  await page.goto(url, { waitUntil: "domcontentloaded" });
+  await page.locator(".sidebar .icon-entry[aria-label='Power']").click();
+  const dialog = page.locator("dialog.power-dialog");
+  await dialog.waitFor();
+  await waitForRemote(dialog);
 
-    // A local `power` event (this server's state changed) refetches the machines.
-    const beforeLocal = localReads;
-    await fetch(`${url}/api/power/arm`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ targets: [""] }),
-    });
-    expect(await until(async () => localReads > beforeLocal, true)).toBe(true);
+  // A local `power` event (this server's state changed) refetches the machines.
+  const beforeLocal = localReads;
+  await fetch(`${url}/api/power/arm`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ targets: [""] }),
+  });
+  expect(await until(async () => localReads > beforeLocal, true)).toBe(true);
 
-    const beforeDisarm = localReads;
-    await fetch(`${url}/api/power/disarm`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ targets: [""] }),
-    });
-    expect(await until(async () => localReads > beforeDisarm, true)).toBe(true);
+  const beforeDisarm = localReads;
+  await fetch(`${url}/api/power/disarm`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ targets: [""] }),
+  });
+  expect(await until(async () => localReads > beforeDisarm, true)).toBe(true);
 
-    // A remote `power` event arrives on the local stream as a `source` envelope, and the page
-    // refetches the remote machine through the gateway.
-    expect(await until(async () => pushRemote !== undefined, true)).toBe(true);
-    const beforeRemote = remotePowerReads;
-    pushRemote!("event: power\ndata: \n\n");
-    expect(await until(async () => remotePowerReads > beforeRemote, true)).toBe(true);
+  // A remote `power` event arrives on the local stream as a `source` envelope, and the page
+  // refetches the remote machine through the gateway.
+  expect(await until(async () => pushRemote !== undefined, true)).toBe(true);
+  const beforeRemote = remotePowerReads;
+  pushRemote!("event: power\ndata: \n\n");
+  expect(await until(async () => remotePowerReads > beforeRemote, true)).toBe(true);
 
-    await page.close();
-  },
-);
+  await page.close();
+});

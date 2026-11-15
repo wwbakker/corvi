@@ -442,11 +442,7 @@ export function ExtensionToggles({
     >
       {known.map(({ name, title }) => (
         <label className="switch" key={name}>
-          <input
-            type="checkbox"
-            checked={enabled(name)}
-            onChange={(e) => toggle(name, e.target.checked)}
-          />
+          <input type="checkbox" checked={enabled(name)} onChange={(e) => toggle(name, e.target.checked)} />
           <span>{title}</span>
         </label>
       ))}

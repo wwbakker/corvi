@@ -163,9 +163,7 @@ test("the server is chosen by what it knows, and ambiguity is an error, not a gu
   };
 
   // No change named: the first server that answers at all.
-  expect(
-    (await resolveServer({ candidates, probe: probeWith({ "http://b": [] }) })).url,
-  ).toBe("http://b");
+  expect((await resolveServer({ candidates, probe: probeWith({ "http://b": [] }) })).url).toBe("http://b");
 
   // A change named: exactly the server that owns it.
   expect(
@@ -207,7 +205,9 @@ test("the server is chosen by what it knows, and ambiguity is an error, not a gu
   ).rejects.toThrow(/several servers own change/);
 
   // Nobody answered: refused as unreachable, not as "no change".
-  await expect(resolveServer({ candidates, probe: probeWith({}) })).rejects.toThrow(/no Corvi server answered/);
+  await expect(resolveServer({ candidates, probe: probeWith({}) })).rejects.toThrow(
+    /no Corvi server answered/,
+  );
 });
 
 // --- Against a real server -------------------------------------------------------------------
@@ -283,7 +283,9 @@ test("change list and show answer with the change record", async () => {
   expect(parsed.map((change) => change.id)).toContain(CHANGE_ID);
 
   const show = capture();
-  expect(await run(["--server", baseUrl, "--change", CHANGE_ID, "change", "show", "--json"], show.io)).toBe(0);
+  expect(await run(["--server", baseUrl, "--change", CHANGE_ID, "change", "show", "--json"], show.io)).toBe(
+    0,
+  );
   expect((JSON.parse(show.out.join("")) as { state: string }).state).toBe("Ideation");
 });
 
@@ -292,19 +294,28 @@ test("change phase sets the state, and the transition rules still refuse the ill
   // a jump straight to Verification (the same `allowedTransition` the lifecycle workflow uses).
   const illegal = capture();
   expect(
-    await run(["--server", baseUrl, "--change", CHANGE_ID, "change", "phase", "Verification", "--json"], illegal.io),
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "change", "phase", "Verification", "--json"],
+      illegal.io,
+    ),
   ).toBe(4);
 
   const phase = capture();
   expect(
-    await run(["--server", baseUrl, "--change", CHANGE_ID, "change", "phase", "Implementation", "--json"], phase.io),
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "change", "phase", "Implementation", "--json"],
+      phase.io,
+    ),
   ).toBe(0);
   expect((JSON.parse(phase.out.join("")) as { state: string }).state).toBe("Implementation");
 
   // From Implementation the manual phases move among themselves.
   const verify = capture();
   expect(
-    await run(["--server", baseUrl, "--change", CHANGE_ID, "change", "phase", "Verification", "--json"], verify.io),
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "change", "phase", "Verification", "--json"],
+      verify.io,
+    ),
   ).toBe(0);
 
   const bad = capture();
@@ -318,8 +329,18 @@ test("change create maps argv to the body, always as an idea, with the recipe", 
   const created = capture();
   const code = await run(
     [
-      "--server", baseUrl, "change", "create", "CLI-NEW",
-      "--title", "A new idea", "--branch", "CLI-NEW-work", "--workspace", "default", "--json",
+      "--server",
+      baseUrl,
+      "change",
+      "create",
+      "CLI-NEW",
+      "--title",
+      "A new idea",
+      "--branch",
+      "CLI-NEW-work",
+      "--workspace",
+      "default",
+      "--json",
     ],
     created.io,
   );
@@ -366,9 +387,9 @@ test("change create needs an id and a title (usage 2)", async () => {
   expect(noId.err.join("")).toContain("needs an id");
 
   const noTitle = capture();
-  expect(
-    await run(["--server", baseUrl, "change", "create", "CLI-NOTITLE"], noTitle.io, { env: {} }),
-  ).toBe(2);
+  expect(await run(["--server", baseUrl, "change", "create", "CLI-NOTITLE"], noTitle.io, { env: {} })).toBe(
+    2,
+  );
   expect(noTitle.err.join("")).toContain("--title");
 });
 
@@ -377,18 +398,27 @@ test("change create ignores an ambient change when choosing the server", async (
   // only proves create is not blocked by an ambient id; the real gate is `needsChange`, asserted
   // below. Both the env and the flag form funnel through it.
   const ambient = capture();
-  const code = await run(
-    ["change", "create", "CLI-EXEMPT", "--title", "No ambient", "--json"],
-    ambient.io,
-    { env: { CORVI_CHANGE_ID: "NOT-MINE" } },
-  );
+  const code = await run(["change", "create", "CLI-EXEMPT", "--title", "No ambient", "--json"], ambient.io, {
+    env: { CORVI_CHANGE_ID: "NOT-MINE" },
+  });
   expect(code).toBe(0);
   expect((JSON.parse(ambient.out.join("")) as { change: { id: string } }).change.id).toBe("CLI-EXEMPT");
 
   const flagged = capture();
   expect(
     await run(
-      ["--server", baseUrl, "--change", "NOT-MINE", "change", "create", "CLI-EXEMPT-FLAG", "--title", "No ambient", "--json"],
+      [
+        "--server",
+        baseUrl,
+        "--change",
+        "NOT-MINE",
+        "change",
+        "create",
+        "CLI-EXEMPT-FLAG",
+        "--title",
+        "No ambient",
+        "--json",
+      ],
       flagged.io,
       { env: {} },
     ),
@@ -416,9 +446,7 @@ test("a 409 is rewritten only when it carries a force question", () => {
     ),
   ).toBeUndefined();
   expect(
-    forceRefusal(
-      new ClientError({ status: 409, message: "Conflict", body: { needsForce: [] } }),
-    ),
+    forceRefusal(new ClientError({ status: 409, message: "Conflict", body: { needsForce: [] } })),
   ).toBeUndefined();
 
   // A genuine force question names the checkouts and says `--force`; add can ask too.
@@ -484,7 +512,10 @@ test("change create validates before discovery: usage 2 beats an unreachable ser
 test("change create refuses an id that is taken (4)", async () => {
   const taken = capture();
   expect(
-    await run(["--server", baseUrl, "change", "create", CHANGE_ID, "--title", "Duplicate", "--json"], taken.io),
+    await run(
+      ["--server", baseUrl, "change", "create", CHANGE_ID, "--title", "Duplicate", "--json"],
+      taken.io,
+    ),
   ).toBe(4);
   expect(taken.err.join("")).toContain(CHANGE_ID);
 });
@@ -496,13 +527,18 @@ test("a created change is listable afterwards", async () => {
   ).toBe(0);
   const list = capture();
   expect(await run(["--server", baseUrl, "change", "list", "--json"], list.io)).toBe(0);
-  expect((JSON.parse(list.out.join("")) as { id: string }[]).map((change) => change.id)).toContain("CLI-LISTED");
+  expect((JSON.parse(list.out.join("")) as { id: string }[]).map((change) => change.id)).toContain(
+    "CLI-LISTED",
+  );
 });
 
 test("change repository list shows the seeded checkout", async () => {
   const list = capture();
   expect(
-    await run(["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "list", "--json"], list.io),
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "list", "--json"],
+      list.io,
+    ),
   ).toBe(0);
   const states = JSON.parse(list.out.join("")) as {
     name: string;
@@ -544,7 +580,10 @@ test("change repository add then list shows it, and remove by name drops it", as
 
   const listed = capture();
   expect(
-    await run(["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "list", "--json"], listed.io),
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "list", "--json"],
+      listed.io,
+    ),
   ).toBe(0);
   expect((JSON.parse(listed.out.join("")) as { name: string }[]).map((state) => state.name)).toContain(
     basename(second),
@@ -553,13 +592,26 @@ test("change repository add then list shows it, and remove by name drops it", as
   const removed = capture();
   expect(
     await run(
-      ["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "remove", basename(second), "--json"],
+      [
+        "--server",
+        baseUrl,
+        "--change",
+        CHANGE_ID,
+        "change",
+        "repository",
+        "remove",
+        basename(second),
+        "--json",
+      ],
       removed.io,
     ),
   ).toBe(0);
   const after = capture();
   expect(
-    await run(["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "list", "--json"], after.io),
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "list", "--json"],
+      after.io,
+    ),
   ).toBe(0);
   expect((JSON.parse(after.out.join("")) as { name: string }[]).map((state) => state.name)).not.toContain(
     basename(second),
@@ -570,7 +622,17 @@ test("change repository remove refuses an unknown name (4)", async () => {
   const missing = capture();
   expect(
     await run(
-      ["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "remove", "no-such-repo", "--json"],
+      [
+        "--server",
+        baseUrl,
+        "--change",
+        CHANGE_ID,
+        "change",
+        "repository",
+        "remove",
+        "no-such-repo",
+        "--json",
+      ],
       missing.io,
     ),
   ).toBe(4);
@@ -600,7 +662,17 @@ test("change repository remove asks to force when the worktree has unpushed work
   const refused = capture();
   expect(
     await run(
-      ["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "remove", basename(third), "--json"],
+      [
+        "--server",
+        baseUrl,
+        "--change",
+        CHANGE_ID,
+        "change",
+        "repository",
+        "remove",
+        basename(third),
+        "--json",
+      ],
       refused.io,
     ),
   ).toBe(4);
@@ -609,7 +681,18 @@ test("change repository remove asks to force when the worktree has unpushed work
   const forced = capture();
   expect(
     await run(
-      ["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "remove", basename(third), "--force", "--json"],
+      [
+        "--server",
+        baseUrl,
+        "--change",
+        CHANGE_ID,
+        "change",
+        "repository",
+        "remove",
+        basename(third),
+        "--force",
+        "--json",
+      ],
       forced.io,
     ),
   ).toBe(0);
@@ -621,7 +704,16 @@ test("change repository flag rules are usage errors before any probe", async () 
   const saved = process.env.XDG_STATE_HOME;
   process.env.XDG_STATE_HOME = state;
   try {
-    const base = ["--server", "http://127.0.0.1:1", "--change", CHANGE_ID, "change", "repository", "add", repo];
+    const base = [
+      "--server",
+      "http://127.0.0.1:1",
+      "--change",
+      CHANGE_ID,
+      "change",
+      "repository",
+      "add",
+      repo,
+    ];
     const cases: readonly (readonly [string[], string])[] = [
       [[...base, "--location", "sideways"], "--location"],
       [[...base, "--branch", "existing"], "--branch-name"],
@@ -657,14 +749,29 @@ test("change repository add upserts a path, and list prints the five fields", as
   // The same path again with a base: it replaces the entry rather than appending a second one.
   expect(
     await run(
-      ["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "add", upsert, "--base", "main", "--json"],
+      [
+        "--server",
+        baseUrl,
+        "--change",
+        CHANGE_ID,
+        "change",
+        "repository",
+        "add",
+        upsert,
+        "--base",
+        "main",
+        "--json",
+      ],
       capture().io,
     ),
   ).toBe(0);
 
   const listed = capture();
   expect(
-    await run(["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "list", "--json"], listed.io),
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "list", "--json"],
+      listed.io,
+    ),
   ).toBe(0);
   const matching = (JSON.parse(listed.out.join("")) as { name: string; base?: string }[]).filter(
     (state) => state.name === basename(upsert),
@@ -684,8 +791,23 @@ test("change repository list prints name, location, branch, base and target", as
   expect(
     await run(
       [
-        "--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "add", existing,
-        "--branch", "existing", "--branch-name", "feature", "--base", "main", "--target", "main", "--json",
+        "--server",
+        baseUrl,
+        "--change",
+        CHANGE_ID,
+        "change",
+        "repository",
+        "add",
+        existing,
+        "--branch",
+        "existing",
+        "--branch-name",
+        "feature",
+        "--base",
+        "main",
+        "--target",
+        "main",
+        "--json",
       ],
       capture().io,
     ),
@@ -708,8 +830,20 @@ test("change repository add supports the original/current pairing", async () => 
   expect(
     await run(
       [
-        "--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "add", repo,
-        "--location", "original", "--branch", "current", "--force", "--json",
+        "--server",
+        baseUrl,
+        "--change",
+        CHANGE_ID,
+        "change",
+        "repository",
+        "add",
+        repo,
+        "--location",
+        "original",
+        "--branch",
+        "current",
+        "--force",
+        "--json",
       ],
       capture().io,
     ),
@@ -717,7 +851,10 @@ test("change repository add supports the original/current pairing", async () => 
 
   const listed = capture();
   expect(
-    await run(["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "list", "--json"], listed.io),
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "list", "--json"],
+      listed.io,
+    ),
   ).toBe(0);
   const state = (
     JSON.parse(listed.out.join("")) as { name: string; location: string; branch: { kind: string } }[]
@@ -727,7 +864,9 @@ test("change repository add supports the original/current pairing", async () => 
 
 test("action list answers with the discoverable actions", async () => {
   const list = capture();
-  expect(await run(["--server", baseUrl, "--change", CHANGE_ID, "action", "list", "--json"], list.io)).toBe(0);
+  expect(await run(["--server", baseUrl, "--change", CHANGE_ID, "action", "list", "--json"], list.io)).toBe(
+    0,
+  );
   expect(Array.isArray(JSON.parse(list.out.join("")))).toBe(true);
 });
 
@@ -739,9 +878,9 @@ test("an unknown change is a refusal (4), not a crash", async () => {
 
 test("a --json refusal is a JSON envelope on stderr with the status", async () => {
   const missing = capture();
-  expect(
-    await run(["--server", baseUrl, "--change", "NOPE", "change", "show", "--json"], missing.io),
-  ).toBe(4);
+  expect(await run(["--server", baseUrl, "--change", "NOPE", "change", "show", "--json"], missing.io)).toBe(
+    4,
+  );
   const envelope = JSON.parse(missing.err.join("")) as { error: string; exitCode: number; status: number };
   expect(envelope.exitCode).toBe(4);
   expect(envelope.status).toBe(404);
@@ -799,26 +938,37 @@ test("subagent commands drive an instance over the HTTP API", async () => {
   );
 
   const listed = capture();
-  expect(await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "list", "--json"], listed.io)).toBe(0);
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "list", "--json"], listed.io),
+  ).toBe(0);
   expect((JSON.parse(listed.out.join("")) as { id: string }[]).map((one) => one.id)).toContain("seed-1");
 
   const first = capture();
   expect(
-    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "next", "--subagent", "seed-1", "--json"], first.io),
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "next", "--subagent", "seed-1", "--json"],
+      first.io,
+    ),
   ).toBe(0);
   expect((JSON.parse(first.out.join("")) as { status: string }).status).toBe("message");
 
   // The turn is in flight: a second next says so, with the lost/interrupted exit code.
   const second = capture();
   expect(
-    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "next", "--subagent", "seed-1", "--json"], second.io),
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "next", "--subagent", "seed-1", "--json"],
+      second.io,
+    ),
   ).toBe(5);
 
   // An in-flight turn with no live window is interrupted to `await` too (exit 5), with the turn
   // it concerns in the outcome.
   const waited = capture();
   expect(
-    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-1", "--json"], waited.io),
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-1", "--json"],
+      waited.io,
+    ),
   ).toBe(5);
   const interrupted = JSON.parse(waited.out.join("")) as {
     status: string;
@@ -829,7 +979,10 @@ test("subagent commands drive an instance over the HTTP API", async () => {
   // The human line names the in-flight turn too.
   const interruptedHuman = capture();
   expect(
-    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-1"], interruptedHuman.io),
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-1"],
+      interruptedHuman.io,
+    ),
   ).toBe(5);
   expect(interruptedHuman.out.join("\n")).toBe("interrupted seed-1 (turn 1)");
 
@@ -846,7 +999,20 @@ test("subagent commands drive an instance over the HTTP API", async () => {
   const turned = capture();
   expect(
     await run(
-      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "turn", "--subagent", "seed-1", "--in-reply-to", "1", "Looks good", "--json"],
+      [
+        "--server",
+        baseUrl,
+        "--change",
+        CHANGE_ID,
+        "subagent",
+        "turn",
+        "--subagent",
+        "seed-1",
+        "--in-reply-to",
+        "1",
+        "Looks good",
+        "--json",
+      ],
       turned.io,
     ),
   ).toBe(0);
@@ -854,7 +1020,10 @@ test("subagent commands drive an instance over the HTTP API", async () => {
 
   const result = capture();
   expect(
-    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "result", "seed-1", "--json"], result.io),
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "result", "seed-1", "--json"],
+      result.io,
+    ),
   ).toBe(0);
   expect((JSON.parse(result.out.join("")) as { body: string }).body).toBe("Looks good");
   // The plain result prints the same "answers turn" header the manual documents.
@@ -888,17 +1057,26 @@ test("subagent commands drive an instance over the HTTP API", async () => {
   // that names no inbound message is refused (4), mirroring `await --turn`.
   const noReply = capture();
   expect(
-    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "result", "seed-1", "--turn", "2", "--json"], noReply.io),
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "result", "seed-1", "--turn", "2", "--json"],
+      noReply.io,
+    ),
   ).toBe(0);
   expect(noReply.out.join("")).toBe("null");
   const noReplyHuman = capture();
   expect(
-    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "result", "seed-1", "--turn", "2"], noReplyHuman.io),
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "result", "seed-1", "--turn", "2"],
+      noReplyHuman.io,
+    ),
   ).toBe(0);
   expect(noReplyHuman.out.join("\n")).toBe("(no reply for turn 2 yet)");
   const unknown = capture();
   expect(
-    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "result", "seed-1", "--turn", "9", "--json"], unknown.io),
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "result", "seed-1", "--turn", "9", "--json"],
+      unknown.io,
+    ),
   ).toBe(EXIT.refused);
 });
 
@@ -932,7 +1110,17 @@ test("subagent create prints the first message number it sent", async () => {
   const created = capture();
   expect(
     await run(
-      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "create", "global:reviewer", "--idempotency-key", "create-receipt"],
+      [
+        "--server",
+        baseUrl,
+        "--change",
+        CHANGE_ID,
+        "subagent",
+        "create",
+        "global:reviewer",
+        "--idempotency-key",
+        "create-receipt",
+      ],
       created.io,
     ),
   ).toBe(0);
@@ -988,7 +1176,9 @@ test("subagent await prints one line per outcome, with the turn and reply", asyn
   );
 
   const single = capture();
-  expect(await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-3"], single.io)).toBe(0);
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-3"], single.io),
+  ).toBe(0);
   expect(single.out.join("\n")).toBe("ready seed-3 (replied turn 1, reply 2)");
 
   const all = capture();
@@ -1023,7 +1213,9 @@ test("subagent await prints one line per outcome, with the turn and reply", asyn
     "utf8",
   );
   const lost = capture();
-  expect(await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-5"], lost.io)).toBe(5);
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-5"], lost.io),
+  ).toBe(5);
   expect(lost.out.join("\n")).toBe("lost seed-5 (turn 1)");
 });
 
@@ -1032,7 +1224,17 @@ test("subagent await --turn refuses a bad number or several targets (usage 2)", 
     const bad = capture();
     expect(
       await run(
-        ["--server", "http://127.0.0.1:1", "--change", CHANGE_ID, "subagent", "await", "seed-1", "--turn", value],
+        [
+          "--server",
+          "http://127.0.0.1:1",
+          "--change",
+          CHANGE_ID,
+          "subagent",
+          "await",
+          "seed-1",
+          "--turn",
+          value,
+        ],
         bad.io,
       ),
     ).toBe(EXIT.usage);
@@ -1050,7 +1252,18 @@ test("subagent await --turn refuses a bad number or several targets (usage 2)", 
   const every = capture();
   expect(
     await run(
-      ["--server", "http://127.0.0.1:1", "--change", CHANGE_ID, "subagent", "await", "a", "--all", "--turn", "1"],
+      [
+        "--server",
+        "http://127.0.0.1:1",
+        "--change",
+        CHANGE_ID,
+        "subagent",
+        "await",
+        "a",
+        "--all",
+        "--turn",
+        "1",
+      ],
       every.io,
     ),
   ).toBe(EXIT.usage);
@@ -1121,7 +1334,10 @@ test("an await that finds nothing ready answers timeout with its own exit code (
 
   const waited = capture();
   expect(
-    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-2", "--json"], waited.io),
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-2", "--json"],
+      waited.io,
+    ),
   ).toBe(6);
   const timedOut = JSON.parse(waited.out.join("")) as { status: string; outcomes: readonly unknown[] };
   expect(timedOut.status).toBe("timeout");
@@ -1129,7 +1345,9 @@ test("an await that finds nothing ready answers timeout with its own exit code (
   expect(timedOut.outcomes).toEqual([]);
   // The human line is just `timeout`.
   const human = capture();
-  expect(await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-2"], human.io)).toBe(6);
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-2"], human.io),
+  ).toBe(6);
   expect(human.out.join("\n")).toBe("timeout");
 });
 
@@ -1142,8 +1360,21 @@ test("a repository profile is written and deleted through the checkout, and an u
   expect(
     await run(
       [
-        "--server", baseUrl, "--change", CHANGE_ID, "action", "profile", "write", "repo-action",
-        "--scope", "repository", "--repository", basename(repo), "--from", from, "--json",
+        "--server",
+        baseUrl,
+        "--change",
+        CHANGE_ID,
+        "action",
+        "profile",
+        "write",
+        "repo-action",
+        "--scope",
+        "repository",
+        "--repository",
+        basename(repo),
+        "--from",
+        from,
+        "--json",
       ],
       wrote.io,
     ),
@@ -1155,8 +1386,21 @@ test("a repository profile is written and deleted through the checkout, and an u
   expect(
     await run(
       [
-        "--server", baseUrl, "--change", CHANGE_ID, "action", "profile", "write", "x",
-        "--scope", "repository", "--repository", "nope", "--from", from, "--json",
+        "--server",
+        baseUrl,
+        "--change",
+        CHANGE_ID,
+        "action",
+        "profile",
+        "write",
+        "x",
+        "--scope",
+        "repository",
+        "--repository",
+        "nope",
+        "--from",
+        from,
+        "--json",
       ],
       refused.io,
     ),
@@ -1167,8 +1411,19 @@ test("a repository profile is written and deleted through the checkout, and an u
   expect(
     await run(
       [
-        "--server", baseUrl, "--change", CHANGE_ID, "action", "profile", "delete", "repo-action",
-        "--scope", "repository", "--repository", basename(repo), "--json",
+        "--server",
+        baseUrl,
+        "--change",
+        CHANGE_ID,
+        "action",
+        "profile",
+        "delete",
+        "repo-action",
+        "--scope",
+        "repository",
+        "--repository",
+        basename(repo),
+        "--json",
       ],
       deleted.io,
     ),
@@ -1182,9 +1437,7 @@ test("the repository scope's flag pairings are usage errors, named before any pr
   const base = ["--server", baseUrl, "--change", CHANGE_ID, "action", "profile", "write", "x"];
 
   const noRepository = capture();
-  expect(
-    await run([...base, "--scope", "repository", "--from", from], noRepository.io),
-  ).toBe(2);
+  expect(await run([...base, "--scope", "repository", "--from", from], noRepository.io)).toBe(2);
   expect(noRepository.err.join("")).toContain("--repository");
 
   const mispaired = capture();
@@ -1241,9 +1494,13 @@ test("profile write states its scope, and a repository file names its checkout",
   // A repository file names its checkout — the scope is real now, and the repository with it.
   const noRepository = capture();
   expect(
-    await run(["subagent", "profile", "write", "x", "--scope", "repository", "--from", file], noRepository.io, {
-      env: {},
-    }),
+    await run(
+      ["subagent", "profile", "write", "x", "--scope", "repository", "--from", file],
+      noRepository.io,
+      {
+        env: {},
+      },
+    ),
   ).toBe(2);
   expect(noRepository.err.join("")).toContain("--repository <name>");
 });
@@ -1251,10 +1508,7 @@ test("profile write states its scope, and a repository file names its checkout",
 test("subagent profile list names the keys create takes, shipped profiles included", async () => {
   const list = capture();
   expect(
-    await run(
-      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "profile", "list", "--json"],
-      list.io,
-    ),
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "profile", "list", "--json"], list.io),
   ).toBe(0);
   const discovery = JSON.parse(list.out.join("")) as {
     profiles: { key: string; label: string; harness: string; body: string }[];
@@ -1275,7 +1529,19 @@ test("subagent profile write and delete round-trip a file, and a bad one is refu
   const written = capture();
   expect(
     await run(
-      ["--server", baseUrl, "subagent", "profile", "write", "writer-test", "--scope", "global", "--from", file, "--json"],
+      [
+        "--server",
+        baseUrl,
+        "subagent",
+        "profile",
+        "write",
+        "writer-test",
+        "--scope",
+        "global",
+        "--from",
+        file,
+        "--json",
+      ],
       written.io,
     ),
   ).toBe(0);
@@ -1292,7 +1558,9 @@ test("subagent profile write and delete round-trip a file, and a bad one is refu
       listed.io,
     ),
   ).toBe(0);
-  const keys = (JSON.parse(listed.out.join("")) as { profiles: { key: string }[] }).profiles.map((p) => p.key);
+  const keys = (JSON.parse(listed.out.join("")) as { profiles: { key: string }[] }).profiles.map(
+    (p) => p.key,
+  );
   expect(keys).toContain("global:writer-test");
 
   // What is not a profile is a refusal (4), carrying the parser's reasons.
@@ -1300,7 +1568,19 @@ test("subagent profile write and delete round-trip a file, and a bad one is refu
   const broken = capture();
   expect(
     await run(
-      ["--server", baseUrl, "subagent", "profile", "write", "broken", "--scope", "global", "--from", file, "--json"],
+      [
+        "--server",
+        baseUrl,
+        "subagent",
+        "profile",
+        "write",
+        "broken",
+        "--scope",
+        "global",
+        "--from",
+        file,
+        "--json",
+      ],
       broken.io,
     ),
   ).toBe(4);
@@ -1339,7 +1619,19 @@ test("action profile files round-trip and show up as runnable actions", async ()
   const written = capture();
   expect(
     await run(
-      ["--server", baseUrl, "action", "profile", "write", "test-action", "--scope", "global", "--from", file, "--json"],
+      [
+        "--server",
+        baseUrl,
+        "action",
+        "profile",
+        "write",
+        "test-action",
+        "--scope",
+        "global",
+        "--from",
+        file,
+        "--json",
+      ],
       written.io,
     ),
   ).toBe(0);
@@ -1401,13 +1693,28 @@ test("a workspace-scoped file round-trips, and the workspace flag has rules", as
   const ws = workspaces[0]!.id;
 
   const file = join(tmp, "ws-action.md");
-  await writeFile(file, "---\nlabel: WS action\nkind: prompt\ntarget: agent\nsubmit: true\n---\nDo it.\n", "utf8");
+  await writeFile(
+    file,
+    "---\nlabel: WS action\nkind: prompt\ntarget: agent\nsubmit: true\n---\nDo it.\n",
+    "utf8",
+  );
   const written = capture();
   expect(
     await run(
       [
-        "--server", baseUrl, "action", "profile", "write", "ws-test", "--scope", "workspace",
-        "--workspace", ws, "--from", file, "--json",
+        "--server",
+        baseUrl,
+        "action",
+        "profile",
+        "write",
+        "ws-test",
+        "--scope",
+        "workspace",
+        "--workspace",
+        ws,
+        "--from",
+        file,
+        "--json",
       ],
       written.io,
     ),
@@ -1415,14 +1722,27 @@ test("a workspace-scoped file round-trips, and the workspace flag has rules", as
 
   const listed = capture();
   expect(await run(["--server", baseUrl, "action", "profile", "list", "--json"], listed.io)).toBe(0);
-  const keys = (JSON.parse(listed.out.join("")) as { files: { scope: string; workspace?: string; id: string }[] }).files
-    .map((one) => `${one.scope}:${one.workspace === undefined ? "" : `${one.workspace}:`}${one.id}`);
+  const keys = (
+    JSON.parse(listed.out.join("")) as { files: { scope: string; workspace?: string; id: string }[] }
+  ).files.map((one) => `${one.scope}:${one.workspace === undefined ? "" : `${one.workspace}:`}${one.id}`);
   expect(keys).toContain(`workspace:${ws}:ws-test`);
 
   const deleted = capture();
   expect(
     await run(
-      ["--server", baseUrl, "action", "profile", "delete", "ws-test", "--scope", "workspace", "--workspace", ws, "--json"],
+      [
+        "--server",
+        baseUrl,
+        "action",
+        "profile",
+        "delete",
+        "ws-test",
+        "--scope",
+        "workspace",
+        "--workspace",
+        ws,
+        "--json",
+      ],
       deleted.io,
     ),
   ).toBe(0);
@@ -1430,15 +1750,21 @@ test("a workspace-scoped file round-trips, and the workspace flag has rules", as
   // The flag rules are usage errors, locally — never a round trip to the server.
   const missing = capture();
   expect(
-    await run(["action", "profile", "write", "x", "--scope", "workspace", "--from", file], missing.io, { env: {} }),
+    await run(["action", "profile", "write", "x", "--scope", "workspace", "--from", file], missing.io, {
+      env: {},
+    }),
   ).toBe(2);
   expect(missing.err.join("")).toContain("--workspace");
 
   const mixed = capture();
   expect(
-    await run(["action", "profile", "write", "x", "--scope", "global", "--workspace", ws, "--from", file], mixed.io, {
-      env: {},
-    }),
+    await run(
+      ["action", "profile", "write", "x", "--scope", "global", "--workspace", ws, "--from", file],
+      mixed.io,
+      {
+        env: {},
+      },
+    ),
   ).toBe(2);
   expect(mixed.err.join("")).toContain("only goes with");
 });
@@ -1451,14 +1777,20 @@ test("profile write reads a piped file's text from stdin", async () => {
   );
   proc.stdin.write("---\nlabel: Stdin test\nharness: pi\n---\nCheck it.\n");
   proc.stdin.end();
-  const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
   expect(await proc.exited).toBe(0);
   expect(stderr).toBe("");
   expect((JSON.parse(stdout) as { id: string }).id).toBe("stdin-test");
 
   const deleted = capture();
   expect(
-    await run(["--server", baseUrl, "subagent", "profile", "delete", "stdin-test", "--scope", "global", "--json"], deleted.io),
+    await run(
+      ["--server", baseUrl, "subagent", "profile", "delete", "stdin-test", "--scope", "global", "--json"],
+      deleted.io,
+    ),
   ).toBe(0);
 });
 

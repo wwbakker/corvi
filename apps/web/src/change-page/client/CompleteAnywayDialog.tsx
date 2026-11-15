@@ -5,11 +5,7 @@ import { type CompletionReason, type CompletionRefusal } from "../../app-root/ap
  * Pure so the test pins the gating without clicking. */
 // Pure and synchronous: nothing for an Effect to wrap.
 export function canCompleteAnyway(reasons: CompletionReason[], acked: boolean[]): boolean {
-  return (
-    reasons.length > 0 &&
-    acked.every(Boolean) &&
-    reasons.every((r) => r.kind !== "hard")
-  );
+  return reasons.length > 0 && acked.every(Boolean) && reasons.every((r) => r.kind !== "hard");
 }
 
 /**
@@ -48,13 +44,10 @@ export function CompleteAnywayDialog({
   const hard = refusal.reasons.filter((r) => r.kind === "hard");
   const allAcked = canCompleteAnyway(refusal.reasons, acked);
 
-  const toggle = (index: number): void =>
-    setAcked(acked.map((a, i) => (i === index ? !a : a)));
+  const toggle = (index: number): void => setAcked(acked.map((a, i) => (i === index ? !a : a)));
 
   const describe = (reason: CompletionReason): string =>
-    reason.kind === "hard"
-      ? `${reason.text} — this cannot be overridden`
-      : reason.text;
+    reason.kind === "hard" ? `${reason.text} — this cannot be overridden` : reason.text;
 
   return (
     <dialog ref={ref} className="wide" onCancel={onClose} onClose={onClose}>
@@ -92,12 +85,7 @@ export function CompleteAnywayDialog({
           Cancel
         </button>
         {hard.length === 0 && (
-          <button
-            type="button"
-            className="primary"
-            disabled={busy || !allAcked}
-            onClick={onComplete}
-          >
+          <button type="button" className="primary" disabled={busy || !allAcked} onClick={onComplete}>
             {busy ? "Completing…" : "Complete anyway"}
           </button>
         )}

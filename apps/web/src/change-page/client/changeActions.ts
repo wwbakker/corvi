@@ -83,10 +83,7 @@ export function changeActions(spec: {
     ? actions.map((action) => ({
         ...action,
         disabled: true,
-        title:
-          action.title === undefined
-            ? UNAVAILABLE_REASON
-            : `${action.title}\n${UNAVAILABLE_REASON}`,
+        title: action.title === undefined ? UNAVAILABLE_REASON : `${action.title}\n${UNAVAILABLE_REASON}`,
       }))
     : actions;
 }

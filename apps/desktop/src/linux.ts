@@ -279,16 +279,17 @@ async function install(): Promise<void> {
   console.log(`  window:   ${appDir()}`);
   console.log(`  serves:   ${root} on a fresh port at each launch (bun run dev keeps 4000)`);
   if (!drawn) console.log("  no icon:  install librsvg for one (sudo pacman -S librsvg)");
-  console.log("  lifecycle: the window starts its own server and stops it again when it closes — 'corvi stop' cleans up after a window that died harder");
-  console.log("  the app may take a moment to appear in your launcher — the desktop database refreshes on its own");
+  console.log(
+    "  lifecycle: the window starts its own server and stops it again when it closes — 'corvi stop' cleans up after a window that died harder",
+  );
+  console.log(
+    "  the app may take a moment to appear in your launcher — the desktop database refreshes on its own",
+  );
 }
 
 async function uninstall(): Promise<void> {
   const entry = entryPath();
-  if (
-    !(await Bun.file(entry).exists()) &&
-    !(await Bun.file(launcherPath()).exists())
-  ) {
+  if (!(await Bun.file(entry).exists()) && !(await Bun.file(launcherPath()).exists())) {
     console.log(`not installed: ${entry}`);
     return;
   }

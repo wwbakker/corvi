@@ -43,8 +43,7 @@ export function UnsavedChangesDialog({
     >
       <h3>{subject}</h3>
       <p className="hint">
-        The edits are not written to the file yet. Save them on the way out, leave them behind,
-        or stay here.
+        The edits are not written to the file yet. Save them on the way out, leave them behind, or stay here.
       </p>
       <div className="dialog-actions">
         <button type="button" onClick={onStay} disabled={busy}>

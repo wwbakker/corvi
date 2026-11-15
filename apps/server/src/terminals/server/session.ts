@@ -37,7 +37,13 @@ import type { HostClient } from "../host/client.ts";
 import { appendFileSync } from "node:fs";
 import { hostClient } from "./host.ts";
 import { makeScreen, type Screen, type ScreenSnapshot } from "./screen.ts";
-import { SNAPSHOT_MAX_BYTES, forgetSnapshot, setSnapshots, snapshotOf, type SnapshotInput } from "./snapshots.ts";
+import {
+  SNAPSHOT_MAX_BYTES,
+  forgetSnapshot,
+  setSnapshots,
+  snapshotOf,
+  type SnapshotInput,
+} from "./snapshots.ts";
 import { ensureActiveHostWindow, isKeptOpen } from "./windows.ts";
 
 /** How often a dirty screen is written to the store. Serializing a 5,000-row screen is ~17 ms and
@@ -760,8 +766,7 @@ const WS_BACKPRESSURE_BYTES = 1 << 20;
  * than removing it. Once the queue has been under the bound, or the grace passes, the steady-state
  * bound applies. A test can shorten it with `CORVI_BACKPRESSURE_GRACE_MS`. */
 const WS_BACKPRESSURE_GRACE_MS = 5000;
-const backpressureGraceMs = (): number =>
-  envMs("CORVI_BACKPRESSURE_GRACE_MS", WS_BACKPRESSURE_GRACE_MS);
+const backpressureGraceMs = (): number => envMs("CORVI_BACKPRESSURE_GRACE_MS", WS_BACKPRESSURE_GRACE_MS);
 
 /** Create the server screen for a host window (idempotent) and start feeding it. Called when the
  * window is *opened*, not only when a page attaches: every screen is warm for the life of its
@@ -959,7 +964,12 @@ export const setReceivedForTest = (sessionId: string, incarnation: number, seq: 
 
 /** Test seam: push a chunk into a serve's hold (the post-cutoff window). Returns false when no serve
  * is holding, so a test can poll for the window. */
-export const holdChunkForTest = (sessionId: string, incarnation: number, seq: number, data: string): boolean => {
+export const holdChunkForTest = (
+  sessionId: string,
+  incarnation: number,
+  seq: number,
+  data: string,
+): boolean => {
   const hub = hubs.get(`${sessionId}#${incarnation}`);
   if (hub === undefined || hub.hold === undefined || hub.disposed === true) return false;
   hub.hold.push({ seq, data: Buffer.from(data) });
@@ -969,7 +979,12 @@ export const holdChunkForTest = (sessionId: string, incarnation: number, seq: nu
 
 /** Test seam: let the screen reach a serve's cutoff (the bytes the host produced before the hold
  * began), so the serve proceeds and the hold window closes. */
-export const applyCutoffForTest = (sessionId: string, incarnation: number, seq: number, data: string): void => {
+export const applyCutoffForTest = (
+  sessionId: string,
+  incarnation: number,
+  seq: number,
+  data: string,
+): void => {
   const hub = hubs.get(`${sessionId}#${incarnation}`);
   if (hub === undefined) return;
   hub.screen.write(Buffer.from(data), seq);
@@ -983,7 +998,11 @@ const pageControl = (message: string): PageControl | undefined => {
   try {
     const value = JSON.parse(message) as { type?: unknown; cols?: unknown; rows?: unknown };
     if (value.type === "resize" && typeof value.cols === "number" && typeof value.rows === "number") {
-      return { type: "resize", cols: Math.max(1, Math.floor(value.cols)), rows: Math.max(1, Math.floor(value.rows)) };
+      return {
+        type: "resize",
+        cols: Math.max(1, Math.floor(value.cols)),
+        rows: Math.max(1, Math.floor(value.rows)),
+      };
     }
   } catch {
     // not a control frame: ignored
@@ -1015,10 +1034,19 @@ export const terminalSockets = {
       },
       ({ data }) => {
         if (data === "") {
-          ws.send(JSON.stringify({ type: "reset", incarnation: session.incarnation, sessionId: session.sessionId }));
+          ws.send(
+            JSON.stringify({ type: "reset", incarnation: session.incarnation, sessionId: session.sessionId }),
+          );
           return;
         }
-        ws.send(JSON.stringify({ type: "snapshot", data, incarnation: session.incarnation, sessionId: session.sessionId }));
+        ws.send(
+          JSON.stringify({
+            type: "snapshot",
+            data,
+            incarnation: session.incarnation,
+            sessionId: session.sessionId,
+          }),
+        );
       },
       (reason) => {
         // Why the page is being let go: `exit` is final (do not reconnect), `detached` means

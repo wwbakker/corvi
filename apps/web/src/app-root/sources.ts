@@ -26,12 +26,7 @@ import {
 } from "react";
 import { apiClient } from "./api.ts";
 import { useServerEvent } from "./events.ts";
-import {
-  makeSourceOwner,
-  statusOf,
-  type OwnerAvailability,
-  type SourceOwner,
-} from "./sourceOwner.ts";
+import { makeSourceOwner, statusOf, type OwnerAvailability, type SourceOwner } from "./sourceOwner.ts";
 
 /** One server the page can reach. `id` is `""` for the local server and the local workspace id
  * for a remote one. */
@@ -139,11 +134,7 @@ export function SourcesProvider({ children }: { children: ReactNode }): ReactEle
     owner.refresh();
   }, [owner]);
 
-  return createElement(
-    SourcesContext.Provider,
-    { value: { sources, ready, reload, owner } },
-    children,
-  );
+  return createElement(SourcesContext.Provider, { value: { sources, ready, reload, owner } }, children);
 }
 
 /** The provider state; throws outside the provider, because there is no defensible fallback for

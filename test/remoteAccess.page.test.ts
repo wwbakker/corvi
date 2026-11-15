@@ -4,7 +4,15 @@ import type { AddressInfo } from "node:net";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, webkit, type Browser } from "playwright";
-import { closePages, requireFreshWebBundle, serverEnv, testRun, testTempDir, waitForUrl, stopRunHost } from "./helpers.ts";
+import {
+  closePages,
+  requireFreshWebBundle,
+  serverEnv,
+  testRun,
+  testTempDir,
+  waitForUrl,
+  stopRunHost,
+} from "./helpers.ts";
 
 /**
  * The Remote access settings section in the engine the app renders in: the enable toggle and
@@ -120,8 +128,7 @@ test.skipIf(!usable)(
     };
     await page.route(
       (u) => u.pathname === "/api/tailscale",
-      (route) =>
-        route.fulfill({ contentType: "application/json", body: JSON.stringify(status) }),
+      (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(status) }),
     );
     await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("nav.tabs");
@@ -131,9 +138,7 @@ test.skipIf(!usable)(
     // spelled out, and Publish is refused.
     await page.getByText("port 443 also serves port 8080").waitFor();
     await page.getByText("tailscale serve --https=443 off").waitFor();
-    expect(await page.getByRole("button", { name: "Publish to Tailscale" }).isDisabled()).toBe(
-      true,
-    );
+    expect(await page.getByRole("button", { name: "Publish to Tailscale" }).isDisabled()).toBe(true);
 
     // The conflict state: another service holds 443. The reason is shown and Publish stays
     // refused, and no manual off command is offered — there is nothing of ours to remove.
@@ -149,9 +154,7 @@ test.skipIf(!usable)(
     await page.getByRole("button", { name: "Remote access" }).click();
     await page.getByText("port 443 already serves 8080").waitFor();
     expect(await page.getByText("tailscale serve --https=443 off").count()).toBe(0);
-    expect(await page.getByRole("button", { name: "Publish to Tailscale" }).isDisabled()).toBe(
-      true,
-    );
+    expect(await page.getByRole("button", { name: "Publish to Tailscale" }).isDisabled()).toBe(true);
     await page.close();
   },
   60_000,

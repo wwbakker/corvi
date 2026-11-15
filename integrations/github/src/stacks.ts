@@ -23,12 +23,7 @@ const STACKS_API = ["-H", "X-GitHub-Api-Version: 2026-03-10"];
  * Pull requests are given bottom to top, and each one's base must be the previous one's head —
  * which is exactly how a change based on another change's branch is already set up.
  */
-export function stackRequest(
-  repo: string,
-  below: number,
-  number: number,
-  stack?: number,
-): string[] {
+export function stackRequest(repo: string, below: number, number: number, stack?: number): string[] {
   return stack
     ? [`repos/${repo}/stacks/${stack}/add`, "-F", `pull_requests[]=${number}`]
     : [`repos/${repo}/stacks`, "-F", `pull_requests[]=${below}`, "-F", `pull_requests[]=${number}`];
@@ -200,7 +195,6 @@ export const mergeStacked = (
     return outcome.note;
   });
 
-
 /**
  * Tie a new pull request to the one it was branched off, as a GitHub stack: reviewers then see
  * the order of the work, and merging the bottom one moves the rest along.
@@ -209,17 +203,12 @@ export const mergeStacked = (
  * branch, so a repository without the preview feature, or a base branch with no pull request of
  * its own, changes nothing else.
  */
-export const stackOnBase = (
-  worktree: string,
-  baseBranch: string,
-  number: number,
-): Effect.Effect<void> =>
+export const stackOnBase = (worktree: string, baseBranch: string, number: number): Effect.Effect<void> =>
   Effect.gen(function* () {
-    const repo = (
-      yield* ghSoft(["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], worktree).pipe(
-        Effect.catchTag("GitHubRateLimited", () => Effect.succeed(noAnswer)),
-      )
-    ).stdout;
+    const repo = (yield* ghSoft(
+      ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+      worktree,
+    ).pipe(Effect.catchTag("GitHubRateLimited", () => Effect.succeed(noAnswer)))).stdout;
     const listed = yield* ghSoft(
       ["gh", "pr", "list", "--head", baseBranch, "--state", "open", "--json", "number", "--limit", "1"],
       worktree,
