@@ -36,7 +36,7 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> => {
  * top level and, recursively, inside plain objects and arrays. Known keys keep the decoded value
  * (so defaults and transformations survive) and class instances are returned untouched.
  */
-export const mergeUnknownKeys = (decoded: unknown, raw: unknown): unknown => {
+const mergeUnknownKeys = (decoded: unknown, raw: unknown): unknown => {
   if (Array.isArray(decoded) && Array.isArray(raw)) {
     return decoded.map((item, index) => (index < raw.length ? mergeUnknownKeys(item, raw[index]) : item));
   }

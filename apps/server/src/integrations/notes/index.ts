@@ -3,7 +3,7 @@ import { BadRequestError, DecodeError, NotFoundError } from "@corvi/contracts/er
 import { Changes } from "../api/capabilities.ts";
 import type { IncludedIntegration } from "../types.ts";
 import type { Change } from "@corvi/changes/record";
-import { bodyAs } from "../../capabilities/effect/body.ts";
+import { bodyAs } from "@corvi/contracts/body";
 import { readNotes, writeNotes } from "./server.ts";
 
 /**

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 
 import { Change, ChangeId, DirectoryName, Repository, RepositoryId } from "@corvi/contracts/changes";
 import { effectiveBranchOf } from "@corvi/contracts/changes";
-import { checkoutSpecProblem, targetOf } from "../src/record.ts";
+import { branchFor, checkoutSpecProblem, targetOf } from "../src/record.ts";
 import {
   allowedTransition,
   checkoutLocationOf,
@@ -113,4 +113,14 @@ test("a pull request merges into target, then into base, and both mean one thing
   // what it always meant.
   expect(targetOf({ path: "/s", location: "new", branch: { kind: "change" }, base: "b" })).toBe("b");
   expect(targetOf({ path: "/s", location: "original", branch: { kind: "current" } })).toBeUndefined();
+});
+
+test("a branch name derived from a picked issue is bounded and ASCII", () => {
+  expect(branchFor("PROJ-123", "Fix the flaky import")).toBe("PROJ-123-fix-the-flaky-import");
+  expect(branchFor("PROJ-1", "Ontwerp: knop & tekst!")).toBe("PROJ-1-ontwerp-knop-tekst");
+  expect(branchFor("PROJ-2", "Café naïve")).toBe("PROJ-2-cafe-naive");
+
+  const long = branchFor("PROJ-3", "a".repeat(200));
+  expect(long.length).toBeLessThanOrEqual(60);
+  expect(long).not.toEndWith("-");
 });

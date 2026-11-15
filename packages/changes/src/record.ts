@@ -67,7 +67,7 @@ export const PLAN_FILE = "PLAN.md";
 
 /** The states a change is over in. Both are archived and neither is worked on again; they differ
  * in what happened, which is worth keeping — a change that was abandoned is not one that landed. */
-export const FINISHED_STATES: ChangeState[] = ["Completed", "Cancelled"];
+const FINISHED_STATES: ChangeState[] = ["Completed", "Cancelled"];
 
 /** Whether this change is over. `completedAt` is the fact — it is set by finishing the change,
  * whichever way — and the state says which way. An idea is not finished: it is work you have

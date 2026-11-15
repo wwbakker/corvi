@@ -91,7 +91,7 @@ export const workspaceParam = (req: Request): string | undefined =>
 
 // The body readers live in ./effect/body.ts so integration modules can use them without
 // importing this module back into their graph.
-export { bodyAs, bodyOf, bodyOrEmpty } from "./effect/body.ts";
+export { bodyAs, bodyOf, bodyOrEmpty } from "@corvi/contracts/body";
 
 /** A sync call that throws typed errors (resolveDirectory) lifted into the error channel at the
  * route boundary. Anything that is not one of ours is reported like one, which is the same

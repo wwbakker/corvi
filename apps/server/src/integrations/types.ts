@@ -4,12 +4,16 @@
  * the features live under `src`.
  */
 
-export type { Card } from "./api/cards.ts";
-export type { WizardStep } from "./api/wizard.ts";
+export type {
+  Card,
+  ChangeTab,
+  DashboardWidget,
+  ExtensionSetting,
+  IncludedIntegration,
+  Page,
+  RequestMethod,
+  RouteError,
+  RouteHandler,
+  WizardStep,
+} from "@corvi/contracts/integration";
 export type { RawWindow, WindowPresentation, TerminalPresenter } from "@corvi/contracts/terminal";
-export type { Page } from "./api/pages.ts";
-export type { ChangeTab } from "./api/tabs.ts";
-export type { DashboardWidget } from "./api/widgets.ts";
-export type { ExtensionSetting } from "./api/settings.ts";
-export type { RouteError, RouteHandler, RequestMethod } from "./api/routes.ts";
-export type { IncludedIntegration } from "@corvi/contracts/integration";

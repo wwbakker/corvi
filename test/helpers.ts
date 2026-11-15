@@ -1,9 +1,9 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { existsSync, mkdtempSync, readdirSync, statSync } from "node:fs";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import { cpus, loadavg } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
-import { claimRunPidFile, isRunToken, pidAlive } from "../scripts/clean-test.ts";
+import { claimRunPidFile, isRunToken } from "../scripts/clean-test.ts";
 import { testTempBase } from "../scripts/test-temp.ts";
 import { Effect, Layer, Result, Schema } from "effect";
 import { TestClock, TestConsole } from "effect/testing";
@@ -301,54 +301,6 @@ export const requireFreshWebBundle = (webDir: string = join(import.meta.dir, "..
       "apps/web/dist is stale — older than apps/web/src, so the page tests would serve old UI. " +
         "Run `bun run build:web` first (or `bun run test`, which builds).",
     );
-  }
-};
-
-/** A machine-wide lock for the one piece of state every suite on the computer shares: the system
- * clipboard. The clipboard test's whole subject is that a copy reaches it and a paste comes back
- * out — and with two suites running at once (several agents on one machine routinely run this
- * suite concurrently), one run's `writeText("")` erases the other's marker mid-wait and both
- * flake. Held around that test's body, the clipboard has one user at a time no matter how many
- * suites are up.
- *
- * `mkdir` is the lock, because creating a directory is atomic; the owner's pid is kept inside
- * it, and a lock whose owner is gone is taken over — or one old enough that its owner died
- * between making it and naming itself. The name carries the uid: the lock lives under the shared
- * test temp base and is dot-prefixed, so a foreign user's lock is distinct and the
- * scripts/clean-test.ts sweep of `corvi-*` never touches either. It sits under that base, not one
- * suite's own root, so concurrent suites on the machine share it. */
-export const withMachineLock = async <T>(what: string, body: () => Promise<T>): Promise<T> => {
-  const uid = process.getuid?.() ?? "me";
-  const dir = join(testTempBase(), `.corvi-test-${uid}-${what}.lock`);
-  const deadline = Date.now() + budget(90_000);
-  for (;;) {
-    try {
-      await mkdir(dir);
-      writeFileSync(join(dir, "owner"), String(process.pid));
-      break;
-    } catch {
-      let owner = 0;
-      try {
-        owner = Number(readFileSync(join(dir, "owner"), "utf8").trim());
-      } catch {
-        // no owner named yet, or unreadable: treated as no owner
-      }
-      const ageMs = Date.now() - ((await stat(dir).catch(() => undefined))?.mtimeMs ?? Date.now());
-      if (!pidAlive(owner) && ageMs > 5_000) {
-        // A stale lock of ours, or one the sticky bit will not let us remove: either way the
-        // deadline below is what ends the wait, so every pass sleeps.
-        await rm(dir, { recursive: true, force: true }).catch(() => undefined);
-      }
-    }
-    if (Date.now() > deadline) {
-      throw new Error(`timed out waiting for the machine's ${what} lock (${dir})`);
-    }
-    await Bun.sleep(200);
-  }
-  try {
-    return await body();
-  } finally {
-    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
   }
 };
 
