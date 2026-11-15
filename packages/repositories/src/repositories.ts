@@ -291,6 +291,31 @@ const pathList = (paths: readonly string[]): string => {
 
 const isClean = (tree: Git.WorkingTree): boolean => tree.tracked.length === 0 && tree.untracked.length === 0;
 
+/** The one place a Git failure becomes a `CheckoutError`. `message` states the caller's own
+ * sentence when it has one; otherwise git's answer is the sentence (and, for a refusal, its exit
+ * code rides along). */
+const mapGitError = <A>(
+  effect: Effect.Effect<A, Git.OperationError>,
+  options: {
+    readonly directory: AbsolutePath;
+    readonly operation: CheckoutError["operation"];
+    readonly message?: string;
+    readonly exitCode?: boolean;
+  },
+): Effect.Effect<A, CheckoutError> =>
+  effect.pipe(
+    Effect.mapError(
+      (cause) =>
+        new CheckoutError({
+          operation: options.operation,
+          directory: options.directory,
+          message: options.message ?? cause.message,
+          ...(options.exitCode && cause.exitCode !== undefined ? { exitCode: cause.exitCode } : {}),
+          cause,
+        }),
+    ),
+  );
+
 export const layer = Layer.effect(
   Repositories,
   Effect.gen(function* () {
@@ -300,44 +325,25 @@ export const layer = Layer.effect(
       directory: AbsolutePath,
       operation: CheckoutError["operation"],
     ) {
-      const repository = yield* git.repo.discover(directory).pipe(
-        Effect.mapError(
-          (cause) =>
-            new CheckoutError({
-              operation,
-              directory,
-              message: "could not read the repository",
-              cause,
-            }),
-        ),
-      );
+      const repository = yield* mapGitError(git.repo.discover(directory), {
+        directory,
+        operation,
+        message: "could not read the repository",
+      });
       if (!repository) return yield* new NotARepository({ directory });
       return repository;
     });
 
     const inspectCheckout = Effect.fn("Repositories.inspectCheckout")(function* (directory: AbsolutePath) {
-      const repository = yield* git.repo.discover(directory).pipe(
-        Effect.mapError(
-          (cause) =>
-            new CheckoutError({
-              operation: "inspect",
-              directory,
-              message: "could not read the checkout",
-              cause,
-            }),
-        ),
-      );
+      const repository = yield* mapGitError(git.repo.discover(directory), {
+        directory,
+        operation: "inspect",
+        message: "could not read the checkout",
+      });
       if (!repository) return { _tag: "Missing" } satisfies CheckoutInspection;
-      const observed = yield* Effect.all([git.history.branch(repository), git.history.head(repository)]).pipe(
-        Effect.mapError(
-          (cause) =>
-            new CheckoutError({
-              operation: "inspect",
-              directory,
-              message: "could not read the checkout",
-              cause,
-            }),
-        ),
+      const observed = yield* mapGitError(
+        Effect.all([git.history.branch(repository), git.history.head(repository)]),
+        { directory, operation: "inspect", message: "could not read the checkout" },
       );
       const [branch, head] = observed;
       return { _tag: "Present", branch, head } satisfies CheckoutInspection;
@@ -348,13 +354,10 @@ export const layer = Layer.effect(
       name: string,
     ) {
       const repository = yield* discover(directory, "inspect");
-      return yield* git.history
-        .resolveExistingBranch(repository, name)
-        .pipe(
-          Effect.mapError(
-            (cause) => new CheckoutError({ operation: "inspect", directory, message: cause.message, cause }),
-          ),
-        );
+      return yield* mapGitError(git.history.resolveExistingBranch(repository, name), {
+        directory,
+        operation: "inspect",
+      });
     });
 
     const fetchRemote = Effect.fn("Repositories.fetchRemote")(function* (
@@ -364,17 +367,7 @@ export const layer = Layer.effect(
       const repository = yield* discover(directory, "fetch");
       // The Git answer is the explanation here ("could not resolve host" and friends), and it is
       // what an update's journal shows — the wrapped message would say only "fetch failed".
-      yield* git.sync.fetchRemote(repository, remote).pipe(
-        Effect.mapError(
-          (cause) =>
-            new CheckoutError({
-              operation: "fetch",
-              directory,
-              message: cause.message,
-              cause,
-            }),
-        ),
-      );
+      yield* mapGitError(git.sync.fetchRemote(repository, remote), { directory, operation: "fetch" });
     });
 
     const inspectUpstream = Effect.fn("Repositories.inspectUpstream")(function* (directory: AbsolutePath) {
@@ -411,17 +404,7 @@ export const layer = Layer.effect(
       const repository = yield* discover(directory, "pull");
       // As with the fetch above: git's own answer ("Not possible to fast-forward") is what the
       // user needs to read, and the journal is where it lands.
-      yield* git.sync.pullFastForward(repository).pipe(
-        Effect.mapError(
-          (cause) =>
-            new CheckoutError({
-              operation: "pull",
-              directory,
-              message: cause.message,
-              cause,
-            }),
-        ),
-      );
+      yield* mapGitError(git.sync.pullFastForward(repository), { directory, operation: "pull" });
     });
 
     const hasRemote = Effect.fn("Repositories.hasRemote")(function* (
@@ -451,18 +434,10 @@ export const layer = Layer.effect(
       // Git's own refusal is the explanation here — "Not possible to fast-forward", "not
       // something we can merge", "would be overwritten by merge" — and it is an outcome, not an
       // error: the checkout is left exactly as it was, which is the refresh's whole promise.
-      const merged = yield* git.sync.mergeFastForwardOnly(repository, { to: input.to }).pipe(
-        Effect.mapError(
-          (cause) =>
-            new CheckoutError({
-              operation: "merge",
-              directory: input.directory,
-              message: cause.message,
-              cause,
-            }),
-        ),
-        Effect.result,
-      );
+      const merged = yield* mapGitError(git.sync.mergeFastForwardOnly(repository, { to: input.to }), {
+        directory: input.directory,
+        operation: "merge",
+      }).pipe(Effect.result);
       if (merged._tag === "Failure") {
         // A refusal is an outcome; a fast-forward that was possible and still failed is not.
         // Ancestry decides — with the one exception the promise names: git declines to
@@ -498,17 +473,11 @@ export const layer = Layer.effect(
       readonly force: boolean;
     }) {
       const repository = yield* discover(input.worktree, "remove-worktree");
-      yield* git.worktree.remove({ repository, directory: input.worktree, force: input.force }).pipe(
-        Effect.mapError(
-          (cause) =>
-            new CheckoutError({
-              operation: "remove-worktree",
-              directory: input.worktree,
-              message: "could not remove the worktree",
-              cause,
-            }),
-        ),
-      );
+      yield* mapGitError(git.worktree.remove({ repository, directory: input.worktree, force: input.force }), {
+        directory: input.worktree,
+        operation: "remove-worktree",
+        message: "could not remove the worktree",
+      });
     });
 
     const inspect = <A>(
@@ -516,17 +485,7 @@ export const layer = Layer.effect(
       directory: AbsolutePath,
       operation: CheckoutError["operation"] = "inspect",
     ): Effect.Effect<A, CheckoutError> =>
-      effect.pipe(
-        Effect.mapError(
-          (cause) =>
-            new CheckoutError({
-              operation,
-              directory,
-              message: "could not read the checkout",
-              cause,
-            }),
-        ),
-      );
+      mapGitError(effect, { directory, operation, message: "could not read the checkout" });
 
     const assessRemoval = Effect.fn("Repositories.assessRemoval")(function* (input: {
       readonly worktree: AbsolutePath;
@@ -750,31 +709,14 @@ export const layer = Layer.effect(
       effect: Effect.Effect<A, Git.OperationError>,
       directory: AbsolutePath,
       operation: "capture" | "discard" | "apply",
-    ): Effect.Effect<A, CheckoutError> =>
-      effect.pipe(
-        Effect.mapError(
-          (cause) => new CheckoutError({ operation, directory, message: cause.message, cause }),
-        ),
-      );
+    ): Effect.Effect<A, CheckoutError> => mapGitError(effect, { directory, operation });
 
     /** A git refusal in its own words: the operation's message is what the caller shows. */
     const said = <A>(
       effect: Effect.Effect<A, Git.OperationError>,
       directory: AbsolutePath,
       operation: CheckoutError["operation"],
-    ): Effect.Effect<A, CheckoutError> =>
-      effect.pipe(
-        Effect.mapError(
-          (cause) =>
-            new CheckoutError({
-              operation,
-              directory,
-              message: cause.message,
-              ...(cause.exitCode !== undefined ? { exitCode: cause.exitCode } : {}),
-              cause,
-            }),
-        ),
-      );
+    ): Effect.Effect<A, CheckoutError> => mapGitError(effect, { directory, operation, exitCode: true });
 
     const inspectLocalChanges = Effect.fn("Repositories.inspectLocalChanges")(function* (
       directory: AbsolutePath,
