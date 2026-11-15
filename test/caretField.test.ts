@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { fieldAtLine } from "../apps/web/src/actions/caretField.ts";
+import { fieldAtLine } from "../apps/web/src/app-root/caretField.ts";
 
 /** A file as the editor holds it, indexed for the cases below. */
 const file = [
