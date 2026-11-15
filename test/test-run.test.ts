@@ -61,16 +61,19 @@ test("the modes are the documented set; a typo is not a mode", () => {
   expect(isMode(undefined)).toBe(false);
 });
 
-test("classification is the line-oriented Playwright import", () => {
+test("classification is the line-oriented Playwright import or the shared openEngine", () => {
   expect(importsBrowserAtRuntime('import { chromium } from "playwright";')).toBe(true);
   expect(importsBrowserAtRuntime('  import { chromium, webkit } from "playwright";')).toBe(true);
   expect(importsBrowserAtRuntime('import {\n  chromium,\n} from "playwright";')).toBe(false);
   expect(importsBrowserAtRuntime('import type { Browser } from "playwright";')).toBe(false);
   expect(importsBrowserAtRuntime('import { chromium } from "playwright-core";')).toBe(false);
+  // The page tests launch through the shared helper, so that import is the browser signal now.
+  expect(importsBrowserAtRuntime('import {\n  openEngine,\n} from "./helpers.ts";')).toBe(true);
   expect(isTerminalGroup("test/terminal.test.ts")).toBe(true);
   expect(isTerminalGroup("test/terminalAcceptance.test.ts")).toBe(true);
   expect(isTerminalGroup("test/pages.test.ts")).toBe(false);
   expect(classify("test/pages.test.ts", 'import { chromium } from "playwright";')).toBe("e2e-rest");
+  expect(classify("test/pages.test.ts", 'import {\n  openEngine,\n} from "./helpers.ts";')).toBe("e2e-rest");
   expect(classify("test/terminal.test.ts", 'import { chromium } from "playwright";')).toBe("e2e-terminal");
   expect(classify("test/terminal.test.ts", "// no browser import")).toBe("unit");
 });
@@ -84,12 +87,13 @@ test("a temp fixture: a single-line import is e2e, multi-line and type-only are 
     writeFileSync(join(root, "test/type-only.test.ts"), 'import type { Page } from "playwright";\n');
     writeFileSync(join(root, "test/terminalThing.test.ts"), 'import { chromium } from "playwright";\n');
     writeFileSync(join(root, "test/other.test.ts"), "// not a browser file\n");
+    writeFileSync(join(root, "test/engine.test.ts"), 'import {\n  openEngine,\n} from "./helpers.ts";\n');
 
     const groups = discoverGroups(root);
     expect(groups.e2eTerminal).toEqual(["test/terminalThing.test.ts"]);
-    expect(groups.e2eRest).toEqual(["test/single.test.ts"]);
+    expect(groups.e2eRest).toEqual(["test/engine.test.ts", "test/single.test.ts"]);
     expect(groups.unit).toEqual(["test/multi.test.ts", "test/other.test.ts", "test/type-only.test.ts"]);
-    expect(groups.e2e).toEqual(["test/terminalThing.test.ts", "test/single.test.ts"]);
+    expect(groups.e2e).toEqual(["test/terminalThing.test.ts", "test/engine.test.ts", "test/single.test.ts"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

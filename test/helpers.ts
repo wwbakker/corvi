@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, statSync } from "node:fs";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { cpus, loadavg } from "node:os";
 import { join } from "node:path";
-import type { Browser } from "playwright";
+import { chromium, webkit, type Browser } from "playwright";
 import { claimRunPidFile, isRunToken } from "../scripts/clean-test.ts";
 import { testTempBase } from "../scripts/test-temp.ts";
 import { Effect, Layer, Result, Schema } from "effect";
@@ -301,6 +301,25 @@ export const requireFreshWebBundle = (webDir: string = join(import.meta.dir, "..
       "apps/web/dist is stale — older than apps/web/src, so the page tests would serve old UI. " +
         "Run `bun run build:web` first (or `bun run test`, which builds).",
     );
+  }
+};
+
+/** The engine the page tests drive. Chromium is the app's own engine (Electron); `CORVI_ENGINE`
+ * runs the same file in WebKit where Playwright's bundle supports it. A missing engine is a skip,
+ * not a failure, and a bundle older than the web sources is refused before the browser starts —
+ * a page test must not read yesterday's UI. The caller keeps its `let browser: Browser` and this
+ * fills it; tests guard on `usable` before using it. */
+export const openEngine = async (assign: (browser: Browser) => void): Promise<boolean> => {
+  const engineName = process.env.CORVI_ENGINE === "webkit" ? "webkit" : "chromium";
+  const engine = engineName === "webkit" ? webkit : chromium;
+  if (!(await Bun.file(engine.executablePath()).exists())) return false;
+  // A stale bundle is a failure, not a skip: the engine is there and the page would be old.
+  requireFreshWebBundle();
+  try {
+    assign(await engine.launch());
+    return true;
+  } catch {
+    return false;
   }
 };
 

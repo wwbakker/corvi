@@ -2,13 +2,13 @@ import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { chromium, webkit, type Browser, type Locator } from "playwright";
+import { type Browser, type Locator } from "playwright";
 
 import { serve, type Serving } from "../apps/server/src/capabilities/serve.ts";
 import { guard, json } from "../apps/server/src/capabilities/web.ts";
 import {
   closePages,
-  requireFreshWebBundle,
+  openEngine,
   serverEnv,
   stopRunHost,
   testRun,
@@ -27,19 +27,9 @@ import {
  * stream, so the remote path goes through the real gateway and fan-in.
  */
 let browser: Browser;
-const engineName = process.env.CORVI_ENGINE === "webkit" ? "webkit" : "chromium";
-const usable = await (async (): Promise<boolean> => {
-  try {
-    const engine = engineName === "webkit" ? webkit : chromium;
-    if (!(await Bun.file(engine.executablePath()).exists())) return false;
-    browser = await engine.launch();
-    return true;
-  } catch {
-    return false;
-  }
-})();
-
-if (usable) requireFreshWebBundle();
+const usable = await openEngine((opened) => {
+  browser = opened;
+});
 
 let tmp: string;
 let url: string;

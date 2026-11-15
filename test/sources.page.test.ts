@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { chromium, webkit, type Browser } from "playwright";
+import { type Browser } from "playwright";
 
 import { serve, type Serving } from "../apps/server/src/capabilities/serve.ts";
 import { guard, json } from "../apps/server/src/capabilities/web.ts";
@@ -10,7 +10,7 @@ import {
   budget,
   checkoutsOf,
   closePages,
-  requireFreshWebBundle,
+  openEngine,
   runSh,
   serverEnv,
   stopRunHost,
@@ -28,19 +28,9 @@ import {
  * `/remote/<source>/…`.
  */
 let browser: Browser;
-const engineName = process.env.CORVI_ENGINE === "webkit" ? "webkit" : "chromium";
-const usable = await (async (): Promise<boolean> => {
-  try {
-    const engine = engineName === "webkit" ? webkit : chromium;
-    if (!(await Bun.file(engine.executablePath()).exists())) return false;
-    browser = await engine.launch();
-    return true;
-  } catch {
-    return false;
-  }
-})();
-
-if (usable) requireFreshWebBundle();
+const usable = await openEngine((opened) => {
+  browser = opened;
+});
 
 const REMOTE_CHANGE = {
   id: "REMOTE-1",

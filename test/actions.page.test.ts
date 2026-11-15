@@ -1,10 +1,10 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { chromium, webkit, type Browser, type Page } from "playwright";
+import { type Browser, type Page } from "playwright";
 import {
   closePages,
-  requireFreshWebBundle,
+  openEngine,
   runSh,
   serverEnv,
   stopRunHost,
@@ -28,21 +28,9 @@ import { editorText, fillEditor } from "./editor.ts";
  * installed the page checks skip; the fixture's API assertions still run.
  */
 let browser: Browser;
-const engineName = process.env.CORVI_ENGINE === "webkit" ? "webkit" : "chromium";
-const usable = await (async (): Promise<boolean> => {
-  try {
-    const engine = engineName === "webkit" ? webkit : chromium;
-    if (!(await Bun.file(engine.executablePath()).exists())) return false;
-    browser = await engine.launch();
-    return true;
-  } catch {
-    return false;
-  }
-})();
-
-// The assertions below read the built bundle: a bundle older than the sources would be
-// yesterday's UI, and is refused here (test/helpers.ts, docs/guides/testing.md).
-if (usable) requireFreshWebBundle();
+const usable = await openEngine((opened) => {
+  browser = opened;
+});
 
 let tmp: string;
 let url: string;

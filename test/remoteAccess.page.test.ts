@@ -3,10 +3,10 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { chromium, webkit, type Browser } from "playwright";
+import { type Browser } from "playwright";
 import {
   closePages,
-  requireFreshWebBundle,
+  openEngine,
   serverEnv,
   testRun,
   testTempDir,
@@ -21,19 +21,9 @@ import {
  * depend on whether this machine runs Tailscale.
  */
 let browser: Browser;
-const engineName = process.env.CORVI_ENGINE === "webkit" ? "webkit" : "chromium";
-const usable = await (async (): Promise<boolean> => {
-  try {
-    const engine = engineName === "webkit" ? webkit : chromium;
-    if (!(await Bun.file(engine.executablePath()).exists())) return false;
-    browser = await engine.launch();
-    return true;
-  } catch {
-    return false;
-  }
-})();
-
-if (usable) requireFreshWebBundle();
+const usable = await openEngine((opened) => {
+  browser = opened;
+});
 
 let tmp: string;
 let url: string;

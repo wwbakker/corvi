@@ -1,11 +1,11 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { chromium, webkit, type Browser } from "playwright";
+import { type Browser } from "playwright";
 import { MASK } from "../apps/server/src/settings/server/secrets.ts";
 import {
   closePages,
-  requireFreshWebBundle,
+  openEngine,
   serverEnv,
   stopRunHost,
   testRun,
@@ -20,19 +20,9 @@ import {
  * masked, then edit and remove it. No hand-editing `config.json`.
  */
 let browser: Browser;
-const engineName = process.env.CORVI_ENGINE === "webkit" ? "webkit" : "chromium";
-const usable = await (async (): Promise<boolean> => {
-  try {
-    const engine = engineName === "webkit" ? webkit : chromium;
-    if (!(await Bun.file(engine.executablePath()).exists())) return false;
-    browser = await engine.launch();
-    return true;
-  } catch {
-    return false;
-  }
-})();
-
-if (usable) requireFreshWebBundle();
+const usable = await openEngine((opened) => {
+  browser = opened;
+});
 
 let tmp: string;
 let url: string;

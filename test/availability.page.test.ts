@@ -4,13 +4,13 @@ import { rm } from "node:fs/promises";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
-import { chromium, webkit, type Browser } from "playwright";
+import { type Browser } from "playwright";
 
 import {
   budget,
   checkoutsOf,
   closePages,
-  requireFreshWebBundle,
+  openEngine,
   runSh,
   serverEnv,
   stopRunHost,
@@ -30,19 +30,9 @@ import {
  * - when it comes up and Retry now is pressed, it recovers without a reload.
  */
 let browser: Browser;
-const engineName = process.env.CORVI_ENGINE === "webkit" ? "webkit" : "chromium";
-const usable = await (async (): Promise<boolean> => {
-  try {
-    const engine = engineName === "webkit" ? webkit : chromium;
-    if (!(await Bun.file(engine.executablePath()).exists())) return false;
-    browser = await engine.launch();
-    return true;
-  } catch {
-    return false;
-  }
-})();
-
-if (usable) requireFreshWebBundle();
+const usable = await openEngine((opened) => {
+  browser = opened;
+});
 
 const REMOTE = "OFFLINE-1";
 const LOCAL = "LOCAL-1";

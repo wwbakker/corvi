@@ -1,9 +1,9 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
-import { chromium, webkit, type Browser, type Page } from "playwright";
+import { type Browser, type Page } from "playwright";
 import {
   closePages,
-  requireFreshWebBundle,
+  openEngine,
   serverEnv,
   testRun,
   testTempDir,
@@ -22,19 +22,9 @@ import {
  * the server's schema declares (packages/client's test pins the encoding).
  */
 let browser: Browser;
-const engineName = process.env.CORVI_ENGINE === "webkit" ? "webkit" : "chromium";
-const usable = await (async (): Promise<boolean> => {
-  try {
-    const engine = engineName === "webkit" ? webkit : chromium;
-    if (!(await Bun.file(engine.executablePath()).exists())) return false;
-    browser = await engine.launch();
-    return true;
-  } catch {
-    return false;
-  }
-})();
-
-if (usable) requireFreshWebBundle();
+const usable = await openEngine((opened) => {
+  browser = opened;
+});
 
 let tmp: string;
 let url: string;

@@ -4,12 +4,12 @@ import { rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
-import { chromium, webkit, type Browser } from "playwright";
+import { type Browser } from "playwright";
 
 import {
   budget,
   closePages,
-  requireFreshWebBundle,
+  openEngine,
   serverEnv,
   stopRunHost,
   testRun,
@@ -24,19 +24,9 @@ import {
  * detail and plan without a reload.
  */
 let browser: Browser;
-const engineName = process.env.CORVI_ENGINE === "webkit" ? "webkit" : "chromium";
-const usable = await (async (): Promise<boolean> => {
-  try {
-    const engine = engineName === "webkit" ? webkit : chromium;
-    if (!(await Bun.file(engine.executablePath()).exists())) return false;
-    browser = await engine.launch();
-    return true;
-  } catch {
-    return false;
-  }
-})();
-
-if (usable) requireFreshWebBundle();
+const usable = await openEngine((opened) => {
+  browser = opened;
+});
 
 const REMOTE = "REMOTE-1";
 const CHANGE = {
