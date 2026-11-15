@@ -1020,6 +1020,12 @@ test.skipIf(!usable)(
     await page.locator(".window-tab.new").click();
     // The change's windows accumulate across the tests in this file, so assert the delta, not 2.
     expect(await until(() => tabs.count(), tabsBefore + 1)).toBe(tabsBefore + 1);
+    // The new tab becomes current and its pane attaches only after the switch; typing before the
+    // visible pane is attached lands in the old shell (which the marker guard then ignores).
+    await page.waitForSelector(".terminal-screen:not([hidden])[data-attached]", {
+      timeout: budget(20_000),
+    });
+    await page.locator(".terminal-screen:not([hidden])").click();
 
     // Retry until the command reaches the NEW shell (the marker is absent) and it writes its tty
     // size; the old shell writes nothing, so a stray early keystroke cannot satisfy the check.
