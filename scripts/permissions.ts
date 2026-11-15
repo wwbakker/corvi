@@ -15,6 +15,9 @@
  *   - screen:        screenshots of the app, so a layout can be looked at rather than described
  *   - accessibility: clicking buttons and reading labels, so the app can be driven end to end
  */
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { sh } from "./sh.ts";
 
 /** The terminal this is being run from, which is what the permission is granted to — not `bun`
@@ -24,7 +27,7 @@ const host = (): string => process.env.TERM_PROGRAM ?? "your terminal";
 async function screenRecording(): Promise<boolean> {
   // A capture of one pixel: it succeeds when the permission is there and writes nothing when it
   // is not, which is the only reliable way to ask.
-  const shot = "/tmp/corvi-permission-probe.png";
+  const shot = join(tmpdir(), `permission-probe-${process.pid}.png`);
   await sh(["rm", "-f", shot]);
   await sh(["screencapture", "-x", "-R", "0,0,1,1", shot]);
   const taken = await Bun.file(shot).exists();

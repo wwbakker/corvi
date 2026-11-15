@@ -32,7 +32,8 @@ const WebSocket = require("../apps/server/node_modules/ws/index.js") as typeof i
 /** A temp dir whose name says it is this benchmark's, so `clean-test` can sweep what it leaves.
  * Under the test temp base: its state holds the terminal host's unix socket, which must fit a
  * `sun_path` (scripts/test-temp.ts). */
-const benchTempDir = (label: string): Promise<string> => mkdtemp(join(testTempBase(), `corvi-${label}-`));
+const benchTempDir = (token: string, label: string): Promise<string> =>
+  mkdtemp(join(testTempBase(), `corvi-${token}-${label}-`));
 
 /** The environment a spawned server gets: isolated roots in the temp dir, a random port. */
 const serverEnv = (tmp: string, extra: Record<string, string> = {}): Record<string, string | undefined> => ({
@@ -296,12 +297,17 @@ const mib = (kb: number): string => (kb / 1024).toFixed(1);
 const mibFromBytes = (bytes: number): string => (bytes / 1024 / 1024).toFixed(1);
 
 const main = async (): Promise<void> => {
-  // The run token names the temp dirs and the host, so `scripts/clean-test.ts` can sweep this.
-  process.env.CORVI_TEST_RUN =
-    process.env.CORVI_TEST_RUN ?? `${Date.now().toString(36)}.${process.pid.toString(36)}`;
-  const tmp = await benchTempDir("bench");
+  if (process.platform !== "linux") {
+    console.error("bench-screens reads /proc; it runs on Linux only");
+    process.exit(1);
+  }
+  // The run token names the temp dirs, the server and the host, so `scripts/clean-test.ts` can
+  // sweep this.
+  const token = process.env.CORVI_TEST_RUN ?? `${Date.now().toString(36)}.${process.pid.toString(36)}`;
+  process.env.CORVI_TEST_RUN = token;
+  const tmp = await benchTempDir(token, "bench");
   const traceLog = join(tmp, "terminal-trace.log");
-  const server = Bun.spawn(["node", "apps/server/src/server.ts"], {
+  const server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${token}`], {
     cwd: root,
     env: serverEnv(tmp, {
       CORVI_TERMINAL_TRACE: "1",
@@ -467,7 +473,7 @@ const main = async (): Promise<void> => {
       `sessions=${sessions} unviewed=${unviewed} viewed=${viewed} attached=${attached} seconds=${seconds} cadence=${cadenceMs}ms trace=${traceMs}ms`,
     );
     console.log(
-      `server cpu       ${cpu.toFixed(1)}%  (${(((last.ticks - first.ticks) / 100 / wall) * 100).toFixed(1)}% utime+stime; worst case: synthetic TUI plus shortened cadence)`,
+      `server cpu       ${cpu.toFixed(1)}%  (utime+stime; worst case: synthetic TUI plus shortened cadence)`,
     );
     console.log(
       `server rss       base=${mib(rssBase)} MiB  start=${mib(rssStart)} MiB  end=${mib(rssEnd)} MiB  growth=${mib(rssEnd - rssStart)} MiB (server only; measured window, includes scrollback fill, not per-open allocation)`,

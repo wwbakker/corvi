@@ -105,6 +105,11 @@ test("a positional argument is a file filter; a flag's value is not", () => {
   expect(fileFiltersOf(["--timeout", "30000", "--parallel"])).toEqual([]);
 });
 
+test("a pass-through all run keeps the browser files sequential", () => {
+  // `all` with a flag is one discovery pass, but the browser files still contend for one machine.
+  expect(runPlan("all", [], ["--retry=2"])).toEqual({ files: [], parallel: false });
+});
+
 test("a filter drops the mode's file list so Bun discovers what it names", () => {
   const files = ["test/a.test.ts", "test/b.page.test.ts"];
   // A list plus a positional runs every listed file and drops the filter, so the list has to go.

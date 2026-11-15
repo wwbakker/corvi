@@ -353,8 +353,12 @@ const runMode = async (mode: Mode, groups: Groups, passthrough: readonly string[
     }
     case "all": {
       // A pass-through argument is a filter or a flag, and the caller asked for one discovery
-      // pass, so it runs unfiltered by group and with no file list (`bun test` discovers).
-      if (passthrough.length > 0) return runTests([], passthrough, true);
+      // pass, so it runs unfiltered by group and with no file list (`bun test` discovers). The
+      // browser files still run sequentially: `runPlan` owns that rule.
+      if (passthrough.length > 0) {
+        const plan = runPlan(mode, [], passthrough);
+        return runTests(plan.files, passthrough, plan.parallel);
+      }
       if (groups.unit.length > 0) {
         const unitCode = await runTests(groups.unit, [], true);
         await stopIfTerminating();

@@ -182,8 +182,11 @@ const main = async (): Promise<void> => {
   }
 
   // Under the test temp base: the probe starts host sessions, whose unix socket must fit a
-  // `sun_path` (scripts/test-temp.ts).
-  const tmp = await mkdtemp(join(testTempBase(), "corvi-sigwinch-probe-"));
+  // `sun_path` (scripts/test-temp.ts). The run token names the directory, so a killed probe is
+  // attributable to the cleaner.
+  const token = process.env.CORVI_TEST_RUN ?? `${Date.now().toString(36)}.${process.pid.toString(36)}`;
+  process.env.CORVI_TEST_RUN = token;
+  const tmp = await mkdtemp(join(testTempBase(), `corvi-${token}-sigwinch-probe-`));
   const home = join(tmp, "home");
   await mkdir(join(home, ".config"), { recursive: true });
   await mkdir(join(home, ".local", "share"), { recursive: true });
