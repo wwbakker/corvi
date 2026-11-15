@@ -31,9 +31,9 @@ import {
   DecodeError,
   InternalError,
   type CliError,
-  type IweError,
+  type CorviError,
 } from "@corvi/contracts/errors";
-import { asIwe } from "../../capabilities/effect/http.ts";
+import { asCorviError } from "../../capabilities/effect/http.ts";
 import { errorDetail } from "../../capabilities/effect/support.ts";
 import { messageOf } from "@corvi/shell/cli";
 import { lifecycleLayer } from "../lifecycle-layer.ts";
@@ -258,7 +258,7 @@ const acknowledgementsFor = (reasons: readonly LifecycleReason[]): readonly Ackn
 export const completeChange = (
   change: Change,
   force = false,
-): Effect.Effect<CompletionResult, IweError, Changes> =>
+): Effect.Effect<CompletionResult, CorviError, Changes> =>
   Effect.gen(function* () {
     const ref = yield* Ref.make<CompletionProgress>({
       startedAt: new Date().toISOString(),
@@ -280,7 +280,7 @@ const runCompletion = (
   change: Change,
   ref: Ref.Ref<CompletionProgress>,
   force: boolean,
-): Effect.Effect<CompletionResult, IweError, ChangeLifecycle | ChangeRepositories> =>
+): Effect.Effect<CompletionResult, CorviError, ChangeLifecycle | ChangeRepositories> =>
   Effect.gen(function* () {
     const changeId = ChangeId.make(change.id);
     const lifecycle = yield* ChangeLifecycle;
@@ -327,16 +327,19 @@ const runCompletion = (
 
     const run = (
       acknowledgements: readonly Acknowledgement[],
-    ): Effect.Effect<LifecycleOutcome, IweError | ChangeStoreError> =>
+    ): Effect.Effect<LifecycleOutcome, CorviError | ChangeStoreError> =>
       lifecycle.completeChange({ changeId, acknowledgements, assessment }).pipe(
-        Effect.catch((error): Effect.Effect<never, IweError | ChangeStoreError, never> =>
+        Effect.catch((error): Effect.Effect<never, CorviError | ChangeStoreError, never> =>
           Effect.gen(function* () {
             yield* finalizeProgress(change.id, ref, errorDetail(error, "the operation failed")).pipe(
               Effect.mapError((error) =>
-                asIwe(error, { notFound: ["ChangeNotFound"], conflict: ["ChangeFormatTooNew"] }),
+                asCorviError(error, { notFound: ["ChangeNotFound"], conflict: ["ChangeFormatTooNew"] }),
               ),
             );
-            return yield* asIwe(error, { notFound: ["ChangeNotFound"], conflict: ["ChangeFormatTooNew"] });
+            return yield* asCorviError(error, {
+              notFound: ["ChangeNotFound"],
+              conflict: ["ChangeFormatTooNew"],
+            });
           }),
         ),
       );
@@ -372,6 +375,6 @@ const runCompletion = (
     });
   }).pipe(
     Effect.mapError((error) =>
-      asIwe(error, { notFound: ["ChangeNotFound"], conflict: ["ChangeFormatTooNew"] }),
+      asCorviError(error, { notFound: ["ChangeNotFound"], conflict: ["ChangeFormatTooNew"] }),
     ),
   );

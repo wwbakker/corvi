@@ -4,7 +4,7 @@
 import { Effect } from "effect";
 
 import { ChangeId, DirectoryName } from "@corvi/contracts/changes";
-import { BadRequestError, type IweError } from "@corvi/contracts/errors";
+import { BadRequestError, type CorviError } from "@corvi/contracts/errors";
 import {
   ShelfId,
   type ApplyShelfResultDto,
@@ -16,13 +16,13 @@ import { ChangeShelves } from "@corvi/workflows/shelves";
 import type { Change } from "@corvi/changes/record";
 import { changeShelvesLayer } from "../../change/lifecycle-layer.ts";
 import { changePairs } from "../../change/server/index.ts";
-import { asIwe as asIweError } from "../../capabilities/effect/http.ts";
+import { asCorviError as asCorviErrorBase } from "../../capabilities/effect/http.ts";
 
 /** The workflow's failures in the route taxonomy. */
-const asIwe = (error: { readonly _tag: string; readonly message: string }): IweError =>
+const asCorviError = (error: { readonly _tag: string; readonly message: string }): CorviError =>
   error._tag === "NotARepository"
     ? new BadRequestError({ message: "the repository has no checkout to shelve" })
-    : asIweError(error, {
+    : asCorviErrorBase(error, {
         notFound: ["ChangeNotFound", "RepositoryNotFound", "ShelfNotFound"],
         conflict: ["ChangeFormatTooNew"],
       });
@@ -31,10 +31,10 @@ const withShelves = <A>(
   work: (
     shelves: ChangeShelves["Service"],
   ) => Effect.Effect<A, { readonly _tag: string; readonly message: string }>,
-): Effect.Effect<A, IweError> =>
+): Effect.Effect<A, CorviError> =>
   Effect.gen(function* () {
     return yield* work(yield* ChangeShelves);
-  }).pipe(Effect.mapError(asIwe), Effect.provide(changeShelvesLayer(changePairs())));
+  }).pipe(Effect.mapError(asCorviError), Effect.provide(changeShelvesLayer(changePairs())));
 
 /** A finished change's shelves are a record: they are read, never applied or removed from here. */
 const editable = (change: Change): Effect.Effect<void, BadRequestError> =>
@@ -42,13 +42,13 @@ const editable = (change: Change): Effect.Effect<void, BadRequestError> =>
     ? Effect.fail(new BadRequestError({ message: "this change is finished: reopen it to use its shelves" }))
     : Effect.void;
 
-export const listShelves = (change: Change): Effect.Effect<readonly ShelfDto[], IweError> =>
+export const listShelves = (change: Change): Effect.Effect<readonly ShelfDto[], CorviError> =>
   withShelves((shelves) => shelves.listShelves(ChangeId.make(change.id)));
 
 export const shelveRepository = (
   change: Change,
   body: ShelveBodyDto,
-): Effect.Effect<ShelveResultDto, IweError> =>
+): Effect.Effect<ShelveResultDto, CorviError> =>
   Effect.andThen(
     editable(change),
     withShelves((shelves) =>
@@ -62,7 +62,7 @@ export const shelveRepository = (
     ),
   );
 
-export const applyShelf = (change: Change, shelf: string): Effect.Effect<ApplyShelfResultDto, IweError> =>
+export const applyShelf = (change: Change, shelf: string): Effect.Effect<ApplyShelfResultDto, CorviError> =>
   Effect.andThen(
     editable(change),
     withShelves((shelves) =>
@@ -70,7 +70,7 @@ export const applyShelf = (change: Change, shelf: string): Effect.Effect<ApplySh
     ),
   );
 
-export const deleteShelf = (change: Change, shelf: string): Effect.Effect<void, IweError> =>
+export const deleteShelf = (change: Change, shelf: string): Effect.Effect<void, CorviError> =>
   Effect.andThen(
     editable(change),
     withShelves((shelves) =>
@@ -78,7 +78,7 @@ export const deleteShelf = (change: Change, shelf: string): Effect.Effect<void, 
     ),
   );
 
-export const shelfPatch = (change: Change, shelf: string): Effect.Effect<string, IweError> =>
+export const shelfPatch = (change: Change, shelf: string): Effect.Effect<string, CorviError> =>
   withShelves((shelves) =>
     shelves.readShelfPatch({ changeId: ChangeId.make(change.id), shelfId: ShelfId.make(shelf) }),
   );

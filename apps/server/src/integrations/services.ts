@@ -16,7 +16,7 @@ import { existingBranch } from "../capabilities/repositories.ts";
 import { defaultCache, type CacheStore } from "../capabilities/cache.ts";
 import { runtimeCache, runtimeConfig } from "../capabilities/runtime.ts";
 import { announce } from "../capabilities/bus.ts";
-import { BadRequestError, ConflictError, type IweError } from "@corvi/contracts/errors";
+import { BadRequestError, ConflictError, type CorviError } from "@corvi/contracts/errors";
 import { ChangeFormatTooNew } from "@corvi/changes/errors";
 import {
   CORE_SIDECARS,
@@ -107,12 +107,12 @@ export const extensionStoreLayer = (extension: string | undefined): Layer.Layer<
     Effect.fail(new BadRequestError({ message: "ExtensionStore has no extension in context" }));
   // The fence's refusal is the transport's conflict: the capability contract speaks the error
   // taxonomy, and "written by a newer Corvi" is a 409 with its message, like every other refusal.
-  const fenced = (message: string): IweError => new ConflictError({ message });
+  const fenced = (message: string): CorviError => new ConflictError({ message });
   const store: ExtensionStoreShape = {
     update: (change, data) =>
       extension
         ? setExtensionData(change, extension, data).pipe(
-            Effect.mapError((error): IweError =>
+            Effect.mapError((error): CorviError =>
               error instanceof ChangeFormatTooNew ? fenced(error.message) : error,
             ),
           )
@@ -121,7 +121,7 @@ export const extensionStoreLayer = (extension: string | undefined): Layer.Layer<
     write: (change, path, text) =>
       extension
         ? writeExtensionFile(change, extension, path, text).pipe(
-            Effect.mapError((error): IweError =>
+            Effect.mapError((error): CorviError =>
               error instanceof ChangeFormatTooNew ? fenced(error.message) : error,
             ),
           )

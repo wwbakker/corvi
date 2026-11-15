@@ -31,8 +31,8 @@ import {
   ConflictError,
   InternalError,
   NotFoundError,
-  isIweError,
-  type IweError,
+  isCorviError,
+  type CorviError,
 } from "@corvi/contracts/errors";
 import { AbsolutePath } from "@corvi/contracts/paths";
 import { AgentTranscripts, TRANSCRIPTS_DIRECTORY } from "@corvi/agents/transcripts";
@@ -58,7 +58,7 @@ import { assignTicketOnCreate } from "./tickets.ts";
 /** The one place a change-domain refusal becomes an HTTP status: an id already taken and an edit
  * against where the change stands are conflicts; a draft the core refuses is the caller's 400;
  * a record from a newer Corvi is a conflict with the version that can edit it. */
-const changeError = (error: unknown): IweError => {
+const changeError = (error: unknown): CorviError => {
   if (error instanceof ChangeAlreadyExists) return new ConflictError({ message: error.message });
   if (error instanceof ChangeFormatTooNew) return new ConflictError({ message: error.message });
   if (error instanceof InvalidChangeDraft) return new BadRequestError({ message: error.message });
@@ -67,11 +67,11 @@ const changeError = (error: unknown): IweError => {
       ? new ConflictError({ message: error.message })
       : new BadRequestError({ message: error.message });
   }
-  return isIweError(error) ? error : new BadRequestError({ message: messageOf(error) });
+  return isCorviError(error) ? error : new BadRequestError({ message: messageOf(error) });
 };
 
 /** A transcript that is not there is the caller's 404; one that cannot be read is ours. */
-const transcriptError = (error: { readonly _tag: string; readonly message: string }): IweError =>
+const transcriptError = (error: { readonly _tag: string; readonly message: string }): CorviError =>
   error._tag === "TranscriptNotFound"
     ? new NotFoundError({ message: error.message })
     : new InternalError({ message: error.message });
@@ -327,7 +327,7 @@ export const changeRoutes = guard({
 export const completePost = (
   change: Change,
   body: { force?: boolean },
-): Effect.Effect<Response, IweError, Changes> =>
+): Effect.Effect<Response, CorviError, Changes> =>
   Effect.gen(function* () {
     const outcome = yield* completeChange(change, body.force === true);
     return outcome._tag === "NotReady"

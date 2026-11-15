@@ -1,5 +1,5 @@
 import { Effect, Schema, SchemaIssue } from "effect";
-import { BadRequestError, DecodeError, type IweError } from "./errors.ts";
+import { BadRequestError, DecodeError, type CorviError } from "./errors.ts";
 
 /**
  * Reading request bodies, kept free of the rest of the web plumbing: the integration modules'
@@ -89,7 +89,7 @@ export const formatIssues = (error: Schema.SchemaError): string =>
 export const bodyAs = <S extends Schema.Constraint>(
   req: Request,
   schema: S,
-): Effect.Effect<Schema.Schema.Type<S>, IweError, S["DecodingServices"]> =>
+): Effect.Effect<Schema.Schema.Type<S>, CorviError, S["DecodingServices"]> =>
   bodyOf(req).pipe(
     Effect.flatMap((body) =>
       decodePreserving(schema, body).pipe(

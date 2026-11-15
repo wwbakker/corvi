@@ -92,7 +92,7 @@ if (isLinux) app.setDesktopName(`${ID}.desktop`);
 }
 
 /** The checkout to serve: the app bundle's package.json says where (written at install time,
- * like `IWERoot` in the Swift app's Info.plist); `CORVI_APP_ROOT` overrides it for development. */
+ * like the old Swift app's Info.plist root key); `CORVI_APP_ROOT` overrides it for development. */
 const root = (): string => {
   const fromEnv = process.env[env("APP_ROOT")]?.trim();
   if (fromEnv) return fromEnv;

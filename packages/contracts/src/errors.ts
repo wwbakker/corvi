@@ -55,7 +55,7 @@ export class DecodeError extends Schema.TaggedError<DecodeError>()("DecodeError"
   message: Schema.String,
 }) {}
 
-export type IweError =
+export type CorviError =
   | NotFoundError
   | BadRequestError
   | ConflictError
@@ -65,7 +65,7 @@ export type IweError =
   | InternalError;
 
 /** True when `e` is one of ours (and therefore has a status code waiting in http.ts). */
-export const isIweError = (e: unknown): e is IweError =>
+export const isCorviError = (e: unknown): e is CorviError =>
   typeof e === "object" &&
   e !== null &&
   "_tag" in e &&
@@ -80,4 +80,4 @@ export const isIweError = (e: unknown): e is IweError =>
   ].includes((e as { _tag: unknown })._tag as string);
 
 /** The human-readable message for any of ours. */
-export const formatError = (e: IweError): string => e.message;
+export const formatError = (e: CorviError): string => e.message;

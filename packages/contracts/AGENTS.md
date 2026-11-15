@@ -33,7 +33,7 @@ transport boundary.
   paired to this server, and the remote-access setting
 - `@corvi/contracts/errors`: the tagged failures (`NotFoundError`, `BadRequestError`,
   `ConflictError`, `InternalError`, `CliError`, `DecodeError`, `TooManyRequestsError`),
-  `IweError`, `isIweError`, `formatError`
+  `CorviError`, `isCorviError`, `formatError`
 - `@corvi/contracts/instance`: the discovery record (`InstanceRecord`, carrying the external
   listener's `remoteUrl` when remote access is on)
 - `@corvi/contracts/workspace`: the request-scoped `Workspace` tag (`corvi/Workspace`)

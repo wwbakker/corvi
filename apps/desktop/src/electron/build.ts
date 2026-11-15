@@ -4,7 +4,7 @@
  * Electron executes JavaScript, not TypeScript, and it ships its own Node, so the two files are
  * bundled with Bun's bundler into CommonJS (the format a sandboxed preload must be). The bundle
  * writes a `package.json` beside them saying where the checkout to serve is (`corviRoot`), which
- * is read at launch — the `IWERoot` of the Swift app's Info.plist, in the one place both
+ * is read at launch — the old Swift app's Info.plist root key, in the one place both
  * platforms already look.
  *
  * `electron` is external: the built-in module resolves inside Electron, and bundling the npm

@@ -10,7 +10,7 @@ import { Context, Effect } from "effect";
 
 import type { ChangeWireDto } from "./api.ts";
 import type { ResolvedDto } from "./config.ts";
-import type { CliError, DecodeError, IweError } from "./errors.ts";
+import type { CliError, DecodeError, CorviError } from "./errors.ts";
 import { Workspace } from "./workspace.ts";
 
 export { Workspace } from "./workspace.ts";
@@ -77,13 +77,13 @@ export class Bus extends Context.Service<
 export type ExtensionStoreShape = {
   /** Replace this integration's own entry in the change's `extensions` bag, writing change.json
    * once. The returned change is the written one. */
-  update(change: ChangeWireDto, data: unknown): Effect.Effect<ChangeWireDto, IweError>;
+  update(change: ChangeWireDto, data: unknown): Effect.Effect<ChangeWireDto, CorviError>;
   /** Read a file under this integration's directory inside the change (`extensions/<name>/`). */
-  read(change: ChangeWireDto, path: string): Effect.Effect<string, IweError>;
+  read(change: ChangeWireDto, path: string): Effect.Effect<string, CorviError>;
   /** Write a file there, creating the directory on demand. */
-  write(change: ChangeWireDto, path: string, text: string): Effect.Effect<void, IweError>;
+  write(change: ChangeWireDto, path: string, text: string): Effect.Effect<void, CorviError>;
   /** The files this integration has stored under its directory, recursively, relative paths. */
-  list(change: ChangeWireDto): Effect.Effect<string[], IweError>;
+  list(change: ChangeWireDto): Effect.Effect<string[], CorviError>;
 };
 
 /** The single writer of an integration's own data about a committed change: its entry in the

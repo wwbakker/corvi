@@ -6,7 +6,7 @@
  *
  * The bundle is built by @electron/packager from a small directory holding the built main and
  * preload (apps/desktop/src/electron/build.ts). The checkout to serve is written into that app's
- * package.json — the `IWERoot` of the Swift app's Info.plist, in the one place both platforms
+ * package.json — the old Swift app's Info.plist root key, in the one place both platforms
  * already look — so moving the repository is a reinstall, not a rebuild.
  *
  * Each window owns a server on a fresh port. Quitting stops that server, and reinstalling leaves

@@ -6,7 +6,7 @@
  */
 import { Effect } from "effect";
 
-import { InternalError, type IweError } from "@corvi/contracts/errors";
+import { InternalError, type CorviError } from "@corvi/contracts/errors";
 import { PowerArmRequestSchema, type PowerTargetResultDto } from "@corvi/contracts/power";
 
 import { runRoute } from "../capabilities/effect/run.ts";
@@ -28,7 +28,7 @@ const readState = (): Effect.Effect<Response, InternalError> =>
 /** Arm or disarm this machine and fan the command out to the remote targets, one result per
  * requested target in the order given. `""` is this machine; a non-empty source goes through
  * the fan-out, which reports a result even when it cannot reach the remote. */
-const handle = (req: Request, verb: PowerVerb): Effect.Effect<Response, IweError> =>
+const handle = (req: Request, verb: PowerVerb): Effect.Effect<Response, CorviError> =>
   Effect.gen(function* () {
     const body = yield* bodyAs(req, PowerArmRequestSchema);
     const local = body.targets.includes("");

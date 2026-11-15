@@ -15,8 +15,8 @@ import {
   type LifecycleReason,
   type Readiness,
 } from "@corvi/workflows/lifecycle";
-import { BadRequestError, InternalError, type IweError } from "@corvi/contracts/errors";
-import { asIwe } from "../../capabilities/effect/http.ts";
+import { BadRequestError, InternalError, type CorviError } from "@corvi/contracts/errors";
+import { asCorviError } from "../../capabilities/effect/http.ts";
 import type { Change } from "@corvi/changes/record";
 import type { Workspace as WorkspaceShape } from "@corvi/configuration/config";
 import { workspaceOf } from "../../workspace/server/index.ts";
@@ -94,7 +94,7 @@ const services = (
 export const cancelChange = (
   change: Change,
   force = false,
-): Effect.Effect<Cancelled | NeedsForce, IweError> => {
+): Effect.Effect<Cancelled | NeedsForce, CorviError> => {
   const workspace = workspaceOf(change);
   const roots = changePairs();
   return Effect.gen(function* () {
@@ -133,7 +133,7 @@ export const cancelChange = (
     if (outcome._tag === "NeedsAcknowledgement") return needsForce(links, outcome.reasons);
     return yield* refusal(links, outcome.reasons);
   }).pipe(
-    Effect.mapError((error) => asIwe(error, { notFound: ["ChangeNotFound"] })),
+    Effect.mapError((error) => asCorviError(error, { notFound: ["ChangeNotFound"] })),
     Effect.provide(services(workspace, roots)),
   );
 };

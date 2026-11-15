@@ -2,9 +2,9 @@ import { Effect } from "effect";
 
 import { ChangeId } from "@corvi/contracts/changes";
 import { ChangeWork, withCheckoutLock } from "@corvi/workflows";
-import { ConflictError, type IweError } from "@corvi/contracts/errors";
+import { ConflictError, type CorviError } from "@corvi/contracts/errors";
 import { InvalidTransition } from "@corvi/changes/errors";
-import { asIwe as asIweError } from "../../capabilities/effect/http.ts";
+import { asCorviError as asCorviErrorBase } from "../../capabilities/effect/http.ts";
 import { type Change, type ProvisionResult } from "@corvi/changes/record";
 import { finishCheckouts, prepareCheckouts, type RefreshOutcome } from "../provisioning.ts";
 import { startTicket } from "../tickets.ts";
@@ -21,12 +21,12 @@ export type Started = {
 
 /** The transport boundary for a workflow error: conflicts stay conflicts, everything else is the
  * taxonomy the route mapper knows. */
-const asIwe = (change: Change, error: unknown): IweError =>
+const asCorviError = (change: Change, error: unknown): CorviError =>
   error instanceof InvalidTransition
     ? new ConflictError({
         message: `${change.id} has already started (${change.state ?? "Implementation"})`,
       })
-    : asIweError(error);
+    : asCorviErrorBase(error);
 
 /**
  * Start the work through the workflow: the phase moves first (persisted, so a start that fails
@@ -36,7 +36,7 @@ const asIwe = (change: Change, error: unknown): IweError =>
  * not fast-forward reports and continues; it never blocks the transition and never rewrites a
  * branch. The configured ticket move runs afterwards, reported under its own name, never fatal.
  */
-const startBody = (change: Change): Effect.Effect<Started, IweError> =>
+const startBody = (change: Change): Effect.Effect<Started, CorviError> =>
   Effect.gen(function* () {
     const work = yield* ChangeWork;
 
@@ -51,7 +51,7 @@ const startBody = (change: Change): Effect.Effect<Started, IweError> =>
 
         const outcome = yield* work
           .startChange(ChangeId.make(change.id))
-          .pipe(Effect.mapError((error): IweError => asIwe(change, error)));
+          .pipe(Effect.mapError((error): CorviError => asCorviError(change, error)));
 
         return yield* finishCheckouts(change, outcome.reports);
       }),
@@ -71,5 +71,5 @@ const startBody = (change: Change): Effect.Effect<Started, IweError> =>
 
 /** Start the work: the checkout run under this change's checkout lock — and the ticket move
  * outside it. */
-export const startChangeWithWorkflow = (change: Change): Effect.Effect<Started, IweError> =>
+export const startChangeWithWorkflow = (change: Change): Effect.Effect<Started, CorviError> =>
   startBody(change);

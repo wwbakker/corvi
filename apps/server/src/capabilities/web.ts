@@ -2,7 +2,7 @@ import type { Serve } from "bun";
 import type { TerminalSocket } from "../terminals/server/session.ts";
 import { Effect, Layer, Schema } from "effect";
 import { readChange } from "../change/server/index.ts";
-import { BadRequestError, isIweError, NotFoundError, type IweError } from "@corvi/contracts/errors";
+import { BadRequestError, isCorviError, NotFoundError, type CorviError } from "@corvi/contracts/errors";
 import { messageOf } from "./effect/support.ts";
 import { runRoute } from "./effect/run.ts";
 import { Workspace } from "../integrations/api/capabilities.ts";
@@ -107,10 +107,10 @@ export const queryAs = <S extends Schema.Constraint>(
 /** A sync call that throws typed errors (resolveDirectory) lifted into the error channel at the
  * route boundary. Anything that is not one of ours is reported like one, which is the same
  * message-and-400 `runRoute` would give an escaped throw. */
-export const attempt = <A>(work: () => A): Effect.Effect<A, IweError> =>
+export const attempt = <A>(work: () => A): Effect.Effect<A, CorviError> =>
   Effect.try({
     try: work,
-    catch: (e) => (isIweError(e) ? e : new BadRequestError({ message: messageOf(e) })),
+    catch: (e) => (isCorviError(e) ? e : new BadRequestError({ message: messageOf(e) })),
   });
 
 /** Everything this request runs — every `gh`, `az`, `git` and Jira call, however deep — runs as

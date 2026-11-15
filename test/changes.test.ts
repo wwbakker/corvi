@@ -580,17 +580,17 @@ test("a change belongs to the context it was made in, and older ones to the firs
     { id: "personal", name: "Personal" },
   ];
   const change = (id: string, workspace?: string): { id: string; workspace?: string } => ({ id, workspace });
-  const all = [change("PROJ-1", "client"), change("IWE-1", "personal"), change("OLD-1")];
+  const all = [change("PROJ-1", "client"), change("CORVI-1", "personal"), change("OLD-1")];
 
   // No workspace: it belongs to the first one, the default when there is only one place for
   // the work.
   expect(workspaceOf(change("OLD-1"), workspaces)).toBe("client");
-  expect(workspaceOf(change("IWE-1", "personal"), workspaces)).toBe("personal");
+  expect(workspaceOf(change("CORVI-1", "personal"), workspaces)).toBe("personal");
 
   expect(inWorkspace(all, "client", workspaces).map((c) => c.id)).toEqual(["PROJ-1", "OLD-1"]);
-  expect(inWorkspace(all, "personal", workspaces).map((c) => c.id)).toEqual(["IWE-1"]);
+  expect(inWorkspace(all, "personal", workspaces).map((c) => c.id)).toEqual(["CORVI-1"]);
   // Everything, whichever context it belongs to: a filter rather than a workspace.
-  expect(inWorkspace(all, ALL, workspaces).map((c) => c.id)).toEqual(["PROJ-1", "IWE-1", "OLD-1"]);
+  expect(inWorkspace(all, ALL, workspaces).map((c) => c.id)).toEqual(["PROJ-1", "CORVI-1", "OLD-1"]);
 
   // Nothing configured: one context, and it holds everything.
   expect(inWorkspace(all, ALL, []).length).toBe(3);
@@ -626,7 +626,7 @@ test("a workspace decides which extensions a change has, and whose Jira and Azur
     },
     () => {
       const client = { id: "PROJ-1", workspace: "client" };
-      const personal = { id: "IWE-1", workspace: "personal" };
+      const personal = { id: "CORVI-1", workspace: "personal" };
       const old = { id: "OLD-1", workspace: undefined }; // no workspace: it belongs to the first one
 
       // A personal project has no ticket, and being asked about one is noise and a CLI call: the

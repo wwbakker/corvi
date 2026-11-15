@@ -10,12 +10,12 @@
 import { Effect, Layer } from "effect";
 
 import { ChangeId } from "@corvi/contracts/changes";
-import { NotFoundError, type IweError } from "@corvi/contracts/errors";
+import { NotFoundError, type CorviError } from "@corvi/contracts/errors";
 import type { ApplyShelfResultDto } from "@corvi/contracts/shelves";
 import { ChangeLifecycle } from "@corvi/workflows/lifecycle";
 import { ChangeShelves } from "@corvi/workflows/shelves";
 import type { Change, ProvisionResult } from "@corvi/changes/record";
-import { asIwe } from "../../capabilities/effect/http.ts";
+import { asCorviError } from "../../capabilities/effect/http.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";
 import { changeShelvesLayer, lifecycleLayer } from "../lifecycle-layer.ts";
 import { provisionRepositories, type RefreshOutcome } from "../provisioning.ts";
@@ -33,7 +33,7 @@ export type Reopened = {
 
 /** The transport boundary for the workflow's errors. */
 
-export const reopenChange = (change: Change): Effect.Effect<Reopened, IweError> => {
+export const reopenChange = (change: Change): Effect.Effect<Reopened, CorviError> => {
   const roots = changePairs();
   const changeId = ChangeId.make(change.id);
   return Effect.gen(function* () {
@@ -54,7 +54,7 @@ export const reopenChange = (change: Change): Effect.Effect<Reopened, IweError> 
     } satisfies Reopened;
   }).pipe(
     Effect.mapError((error) =>
-      asIwe(error, {
+      asCorviError(error, {
         notFound: ["ChangeNotFound", "RepositoryNotFound", "ShelfNotFound"],
         conflict: ["InvalidTransition", "ChangeConflict", "ChangeFormatTooNew", "ChangeOperationInProgress"],
       }),
