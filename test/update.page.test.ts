@@ -1,7 +1,15 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { chromium, webkit, type Browser, type Page } from "playwright";
-import { closePages, serverEnv, testRun, testTempDir, waitForUrl, stopRunHost } from "./helpers.ts";
+import {
+  closePages,
+  requireFreshWebBundle,
+  serverEnv,
+  testRun,
+  testTempDir,
+  waitForUrl,
+  stopRunHost,
+} from "./helpers.ts";
 
 /**
  * The auto-update surface in the engine the app renders in: the notice, the icon, and the
@@ -25,6 +33,8 @@ const usable = await (async (): Promise<boolean> => {
     return false;
   }
 })();
+
+if (usable) requireFreshWebBundle();
 
 let tmp: string;
 let url: string;

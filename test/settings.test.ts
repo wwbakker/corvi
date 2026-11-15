@@ -114,7 +114,9 @@ test("writing takes effect without a restart, and refuses what is wrong", async 
   expect(runtimeConfig().workspaces[0]!.settings?.extensionSettings).toEqual({ jira: { project: "PROJ" } });
   expect(runtimeConfig().workspaces[1]!.settings?.extensions).toEqual(["github", "git"]);
 
-  expect(runEffect(writeSettings({ workspaces: [{ id: "", name: "Nameless" }] }))).rejects.toThrow(/no id/);
+  await expect(runEffect(writeSettings({ workspaces: [{ id: "", name: "Nameless" }] }))).rejects.toThrow(
+    /no id/,
+  );
   // Refused means unchanged, not half written.
   expect(reloadConfigSync().workspaces.map((w) => w.id)).toEqual(["client", "own"]);
 });

@@ -82,7 +82,7 @@ export function PlanPage({
         fill
         value={text}
         readOnly={readOnly}
-        remember={documentKey("plan", `${key}@${generation ?? ""}`)}
+        remember={documentKey(`plan@${generation ?? ""}`, key)}
         placeholder="What this change is, and how it might work. The agent reads and edits this file (PLAN.md)."
         onChange={change}
         onBlur={flush}
