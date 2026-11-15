@@ -1,8 +1,7 @@
 import { Effect, Schema } from "effect";
 import type { WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { Cache, Settings, Shell, Workspace, invalidate, swr } from "@corvi/contracts/capabilities";
-import { cliJson } from "@corvi/shell/cli";
-import type { ShellResult } from "@corvi/contracts/capabilities";
+import { cliJson, shSoft } from "@corvi/shell/cli";
 import { azFor, type Az } from "./azure.ts";
 import { deploySettings, type DeploySettings } from "./deploySettings.ts";
 import { buildUrl, expectedDuration, versionOf, type Definition } from "./pipelines.ts";
@@ -64,17 +63,6 @@ const RunsSchema = Schema.Array(
 
 type Capabilities = Shell | Workspace | Cache | Settings;
 
-/** The ShellResult-branching contract: the one failure `Shell` can raise here is a timeout, which
- * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
- * everything downstream branches on `code`. */
-const shResult = (cmd: string[]): Effect.Effect<ShellResult, never, Shell | Workspace> =>
-  Effect.gen(function* () {
-    const shell = yield* Shell;
-    return yield* shell
-      .run(cmd)
-      .pipe(Effect.catch((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })));
-  });
-
 /** Every pipeline in the project, which is how the deploy ones are found at all. Rarely changes;
  * shared with anything else that asks. */
 const allPipelines = (az: Az): Effect.Effect<Definition[], never, Capabilities> =>
@@ -82,7 +70,7 @@ const allPipelines = (az: Az): Effect.Effect<Definition[], never, Capabilities> 
     `az:${az.key}:pipelines`,
     5 * 60_000,
     Effect.gen(function* () {
-      const r = yield* shResult(["az", "pipelines", "list", ...az.args, "-o", "json"]);
+      const r = yield* shSoft(["az", "pipelines", "list", ...az.args, "-o", "json"]);
       return r.code === 0
         ? yield* cliJson(
             Schema.Array(Schema.Struct({ id: Schema.Number, name: Schema.String, path: Schema.String })),
@@ -104,7 +92,7 @@ const RUNS_TTL = 15_000;
  * which is unavailable, a different thing from "no runs". */
 const readRuns = (az: Az, pipelineId: number): Effect.Effect<Run[] | undefined, never, Shell | Workspace> =>
   Effect.gen(function* () {
-    const r = yield* shResult([
+    const r = yield* shSoft([
       "az",
       "pipelines",
       "runs",
@@ -507,7 +495,7 @@ export const deploy = (
       }
     }
 
-    const started = yield* shResult([
+    const started = yield* shSoft([
       "az",
       "pipelines",
       "run",

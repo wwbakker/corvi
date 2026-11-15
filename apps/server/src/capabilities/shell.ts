@@ -10,12 +10,12 @@
  * from the `Workspace` tag at run time; outside a request it adds nothing.
  */
 import { homedir } from "node:os";
-import { Effect, Option } from "effect";
+import type { Effect } from "effect";
 
 import { CliError } from "@corvi/contracts/errors";
-import { Workspace } from "@corvi/contracts/workspace";
-import { DEFAULT_WORKSPACE, type Workspace as WorkspaceConfig } from "@corvi/configuration/config";
-import { Shell, type ShellResult } from "@corvi/shell";
+import type { Workspace as WorkspaceConfig } from "@corvi/configuration/config";
+import { type ShellResult } from "@corvi/shell";
+import { shOrThrowWith, withShell } from "@corvi/shell/cli";
 import { makeNodeShell, type TraceEntry } from "@corvi/shell/node";
 import { childEnv } from "./env.ts";
 import { settingsOf } from "../workspace/server/workspaces.ts";
@@ -73,34 +73,9 @@ export const shWithEnv = (
  * With no Shell in context the call runs the node shell directly, exactly as before, so
  * startup and cache code keep working with none. The tag is read, not required, so this stays
  * runnable where no workspace exists. */
-export const sh = (cmd: readonly string[], cwd?: string): Effect.Effect<ShellResult, CliError> =>
-  Effect.gen(function* () {
-    const shell = yield* Effect.serviceOption(Shell);
-    const workspace = yield* Effect.serviceOption(Workspace);
-    if (Option.isSome(shell)) {
-      return yield* shell.value
-        .run(cmd, { cwd })
-        .pipe(
-          Effect.provideService(Workspace, Option.isSome(workspace) ? workspace.value : DEFAULT_WORKSPACE),
-        );
-    }
-    const variables = envOf(Option.isSome(workspace) ? workspace.value : undefined);
-    return yield* nodeShell.run(cmd, { cwd, env: variables });
-  });
+export const sh = withShell((cmd, cwd, workspace) => nodeShell.run(cmd, { cwd, env: envOf(workspace) }));
 
 /** Run and throw on failure, for actions where the user should see what broke: the `CliError`
  * carries the command's stderr. */
 export const shOrThrow = (cmd: readonly string[], cwd?: string): Effect.Effect<string, CliError> =>
-  Effect.flatMap(sh(cmd, cwd), (r) => {
-    if (r.code === 0) return Effect.succeed(r.stdout);
-    const stderr = r.stderr || r.stdout;
-    return Effect.fail(
-      new CliError({
-        tool: cmd[0] ?? "",
-        command: cmd.join(" "),
-        stderr,
-        exitCode: r.code,
-        message: `${cmd.join(" ")} failed: ${stderr}`,
-      }),
-    );
-  });
+  shOrThrowWith(sh, cmd, cwd);

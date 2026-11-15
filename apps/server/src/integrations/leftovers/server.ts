@@ -1,11 +1,11 @@
 import { readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect } from "effect";
+import type { Shell, Workspace } from "../api/capabilities.ts";
 import { changePairs } from "../../change/server/index.ts";
-import { Shell, Workspace } from "../api/capabilities.ts";
-import type { ShellResult } from "../../capabilities/shell.ts";
+
 import { BadRequestError } from "@corvi/contracts/errors";
-import { fs } from "../../capabilities/effect/support.ts";
+import { fs, shSoft } from "../../capabilities/effect/support.ts";
 import { file } from "../../capabilities/files.ts";
 import type { Leftover } from "@corvi/contracts/integrations/leftovers";
 
@@ -19,17 +19,6 @@ import type { Leftover } from "@corvi/contracts/integrations/leftovers";
 /** A refusal of the taxonomy's 400. `Schema.TaggedError` populates `message` from the field, so
  * the response carries the sentence. */
 const badRequest = (message: string): BadRequestError => new BadRequestError({ message });
-
-/** The ShellResult-branching contract: the one failure `Shell` can raise here is a timeout, which
- * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
- * everything downstream branches on `code`. */
-const shResult = (cmd: string[], cwd?: string): Effect.Effect<ShellResult, never, Shell | Workspace> =>
-  Effect.gen(function* () {
-    const shell = yield* Shell;
-    return yield* shell
-      .run(cmd, { cwd })
-      .pipe(Effect.catch((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })));
-  });
 
 /**
  * What a directory is to git: a worktree has `.git` as a file pointing back at its repository, a
@@ -79,7 +68,7 @@ export const listLeftovers: Effect.Effect<Leftover[], never, Shell | Workspace> 
               if (yield* isChangeDir(path)) return undefined;
               const [entries, du] = yield* Effect.all([
                 Effect.promise(() => readdir(path, { withFileTypes: true }).catch(() => [])),
-                shResult(["du", "-sk", path]),
+                shSoft(["du", "-sk", path]),
               ]);
               const inner = yield* Effect.forEach(
                 entries,
@@ -157,6 +146,6 @@ export const removeLeftover = (name: string): Effect.Effect<void, BadRequestErro
     // so the raw rejection escapes as a defect.
     yield* fs(() => rm(path, { recursive: true, force: true }).then(() => undefined));
     for (const repository of new Set(repositories.filter(Boolean) as string[])) {
-      yield* shResult(["git", "worktree", "prune"], repository);
+      yield* shSoft(["git", "worktree", "prune"], repository);
     }
   });

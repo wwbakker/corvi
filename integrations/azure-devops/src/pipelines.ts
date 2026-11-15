@@ -1,10 +1,9 @@
 import { Effect, Schema } from "effect";
 import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { Cache, Changes, Settings, Shell, Workspace, swr } from "@corvi/contracts/capabilities";
-import { cliJson } from "@corvi/shell/cli";
+import { cliJson, shSoft } from "@corvi/shell/cli";
 import { nameWithOwner } from "@corvi/github/issues";
 import { env } from "@corvi/configuration/node";
-import type { ShellResult } from "@corvi/contracts/capabilities";
 import { azFor, type Az } from "./azure.ts";
 
 export type Run = {
@@ -53,17 +52,6 @@ const runsPerPipeline = (): number => Number(process.env[env("AZURE_RUNS")] ?? 3
  * lock and the settings read cannot drift apart. */
 export const AZURE_HISTORY_ENV = env("AZURE_HISTORY");
 export const AZURE_RUNS_ENV = env("AZURE_RUNS");
-
-/** The ShellResult-branching contract: the one failure `Shell` can raise here is a timeout, which
- * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
- * everything downstream branches on `code`. */
-const shResult = (cmd: string[]): Effect.Effect<ShellResult, never, Shell | Workspace> =>
-  Effect.gen(function* () {
-    const shell = yield* Shell;
-    return yield* shell
-      .run(cmd)
-      .pipe(Effect.catch((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })));
-  });
 
 /** A queued or running build is pending; anything but success is a problem worth a red dot. */
 // Pure and synchronous: nothing for an Effect to wrap.
@@ -119,7 +107,7 @@ const listDefinitions = (
       `az:${az.key}:definitions:${repository}`,
       DEFINITIONS_TTL,
       Effect.gen(function* () {
-        const r = yield* shResult([
+        const r = yield* shSoft([
           "az",
           "devops",
           "invoke",
@@ -159,7 +147,7 @@ const runsFor = (
         swr(
           `az:${az.key}:runs:${ref}`,
           RUNS_TTL,
-          shResult([
+          shSoft([
             "az",
             "pipelines",
             "runs",
@@ -246,7 +234,7 @@ export const expectedDuration = (
     `az:${az.key}:duration:${definitionId}`,
     DEFINITIONS_TTL,
     Effect.gen(function* () {
-      const r = yield* shResult([
+      const r = yield* shSoft([
         "az",
         "pipelines",
         "runs",
@@ -292,7 +280,7 @@ const logIds = (
   runId: number,
 ): Effect.Effect<number[], never, Shell | Workspace> =>
   Effect.gen(function* () {
-    const r = yield* shResult([
+    const r = yield* shSoft([
       "az",
       "devops",
       "invoke",
@@ -323,7 +311,7 @@ const logLines = (
   logId: number,
 ): Effect.Effect<string[], never, Shell | Workspace> =>
   Effect.gen(function* () {
-    const r = yield* shResult([
+    const r = yield* shSoft([
       "az",
       "devops",
       "invoke",
