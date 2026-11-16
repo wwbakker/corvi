@@ -1,21 +1,10 @@
-import { expect, test } from "bun:test"
-import { Effect, Result, Layer } from "effect"
+import { expect, test } from "bun:test";
+import { Effect, Result, Layer } from "effect";
 
-import { ChangeService } from "@corvi/changes/changes"
-import { ChangeRepositories } from "@corvi/changes/repositories"
-import {
-  Change,
-  ChangeId,
-  DirectoryName,
-  Repository,
-  RepositoryId,
-} from "@corvi/contracts/changes"
-import {
-  CheckoutError,
-  NotARepository,
-  Repositories,
-  type CheckoutInspection,
-} from "@corvi/repositories"
+import { ChangeService } from "@corvi/changes/changes";
+import { ChangeRepositories } from "@corvi/changes/repositories";
+import { Change, ChangeId, DirectoryName, Repository, RepositoryId } from "@corvi/contracts/changes";
+import { CheckoutError, NotARepository, Repositories, type CheckoutInspection } from "@corvi/repositories";
 import {
   ChangeWork,
   OperationProgress,
@@ -24,37 +13,37 @@ import {
   layer as changeWorkLayer,
   withCheckoutLock,
   type OperationStep,
-} from "../src/change-work.ts"
+} from "../src/change-work.ts";
 
 interface Script {
-  change: Change
-  links: Repository[]
-  calls: string[]
-  steps: OperationStep[]
-  inspect: CheckoutInspection
-  inspectFailure?: CheckoutError
-  failAddFor?: string
+  change: Change;
+  links: Repository[];
+  calls: string[];
+  steps: OperationStep[];
+  inspect: CheckoutInspection;
+  inspectFailure?: CheckoutError;
+  failAddFor?: string;
   /** Whether the scripted repositories have a remote to fetch (the default). */
-  remote?: boolean
+  remote?: boolean;
   /** One repository whose fetch fails, by name — the "offline" case. */
-  fetchFailsFor?: string
+  fetchFailsFor?: string;
   /** What the default branch reads, for a change branch with no base of its own. */
-  defaultBranch?: string
+  defaultBranch?: string;
   /** What every scripted fast-forward answers. */
-  forward?: import("@corvi/repositories").ForwardOutcome
+  forward?: import("@corvi/repositories").ForwardOutcome;
   /** Whether a named branch's remote counterpart exists (the default). */
-  counterpart?: boolean
-  selected?: import("@corvi/repositories").ExistingBranch
+  counterpart?: boolean;
+  selected?: import("@corvi/repositories").ExistingBranch;
   /** Where a user or agent moved the checkout after provisioning — the refresh must not touch
    * it. */
-  switchedTo?: string
-  inspectAfterProvision?: CheckoutInspection
+  switchedTo?: string;
+  inspectAfterProvision?: CheckoutInspection;
   /** The remote names `hasRemote` was asked about. */
-  remotesAsked: string[]
+  remotesAsked: string[];
   /** What each scripted provisioning left checked out, per directory. */
-  branches: Map<string, string>
+  branches: Map<string, string>;
   /** Give the scripted provisioning a moment, where a race would show. */
-  slow?: boolean
+  slow?: boolean;
 }
 
 const change = (phase: Change["phase"]): Change =>
@@ -65,7 +54,7 @@ const change = (phase: Change["phase"]): Change =>
     branch: "example",
     phase,
     createdAt: "2026-01-01T00:00:00.000Z",
-  })
+  });
 
 const link = (
   directoryName: string,
@@ -81,7 +70,7 @@ const link = (
     location,
     branch,
     ...extras,
-  })
+  });
 
 const script = (overrides: Partial<Script> = {}): Script => ({
   change: change("Ideation"),
@@ -92,7 +81,7 @@ const script = (overrides: Partial<Script> = {}): Script => ({
   remotesAsked: [],
   branches: new Map(),
   ...overrides,
-})
+});
 
 const layerFor = (state: Script): Layer.Layer<ChangeWork> =>
   changeWorkLayer.pipe(
@@ -103,13 +92,13 @@ const layerFor = (state: Script): Layer.Layer<ChangeWork> =>
           listChanges: () => Effect.succeed([]),
           createChange: () => Effect.succeed(state.change),
           transitionTo: (_changeId, phase) => {
-            state.calls.push(`transition ${phase}`)
+            state.calls.push(`transition ${phase}`);
             state.change = new Change({
               ...state.change,
               phase,
               ...(phase === "Completed" || phase === "Cancelled" ? { completedAt: "then" } : {}),
-            })
-            return Effect.succeed(state.change)
+            });
+            return Effect.succeed(state.change);
           },
           reopen: () => Effect.die(new Error("reopen is not scripted")),
         }),
@@ -129,15 +118,16 @@ const layerFor = (state: Script): Layer.Layer<ChangeWork> =>
           // What the checkout run left there is what a later read sees — including where a user
           // moved it afterwards, which the refresh must leave alone.
           inspectCheckout: (directory) => {
-            if (state.inspectFailure) return Effect.fail(state.inspectFailure)
-            const provisioned = state.branches.get(String(directory))
-            if (provisioned && state.inspectAfterProvision) return Effect.succeed(state.inspectAfterProvision)
-            const observed = state.switchedTo ?? provisioned
+            if (state.inspectFailure) return Effect.fail(state.inspectFailure);
+            const provisioned = state.branches.get(String(directory));
+            if (provisioned && state.inspectAfterProvision)
+              return Effect.succeed(state.inspectAfterProvision);
+            const observed = state.switchedTo ?? provisioned;
             return Effect.succeed(
               observed === undefined
                 ? state.inspect
                 : { _tag: "Present" as const, branch: observed, head: "abc" },
-            )
+            );
           },
           assessRemoval: () => Effect.succeed({ _tag: "Safe" as const }),
           removeBranchIfIntegrated: () => Effect.succeed("deleted" as const),
@@ -157,11 +147,15 @@ const layerFor = (state: Script): Layer.Layer<ChangeWork> =>
           commitPaths: () => Effect.die(new Error("commitPaths is not scripted")),
           pushBranch: () => Effect.die(new Error("pushBranch is not scripted")),
           provisionLinkedWorktree: (input) => {
-            state.branches.set(String(input.directory), state.selected?.branch ?? (input.branch.startsWith("origin/") ? input.branch.slice("origin/".length) : input.branch))
+            state.branches.set(
+              String(input.directory),
+              state.selected?.branch ??
+                (input.branch.startsWith("origin/") ? input.branch.slice("origin/".length) : input.branch),
+            );
             state.calls.push(
               `worktree ${input.directory} ${input.branch} ${input.createMissing ? "create" : "attach"}` +
                 (input.base ? ` from ${input.base}` : ""),
-            )
+            );
             const attempt =
               state.failAddFor && String(input.directory).endsWith(`/${state.failAddFor}`)
                 ? Effect.fail(
@@ -171,28 +165,37 @@ const layerFor = (state: Script): Layer.Layer<ChangeWork> =>
                       message: "worktree add failed",
                     }),
                   )
-                : Effect.void
-            return state.slow ? attempt.pipe(Effect.delay("20 millis")) : attempt
+                : Effect.void;
+            return state.slow ? attempt.pipe(Effect.delay("20 millis")) : attempt;
           },
           provisionInPlace: (input) => {
-            state.branches.set(String(input.source), state.selected?.branch ?? (input.branch.startsWith("origin/") ? input.branch.slice("origin/".length) : input.branch))
+            state.branches.set(
+              String(input.source),
+              state.selected?.branch ??
+                (input.branch.startsWith("origin/") ? input.branch.slice("origin/".length) : input.branch),
+            );
             state.calls.push(
               `in-place ${input.branch} ${input.createMissing ? "create" : "attach"}` +
                 (input.base ? ` from ${input.base}` : ""),
-            )
-            return Effect.succeed("created" as const)
+            );
+            return Effect.succeed("created" as const);
           },
           hasRemote: (directory, remote) => {
-            state.remotesAsked.push(remote ?? "(any)")
-            return Effect.succeed(state.remote ?? true)
+            state.remotesAsked.push(remote ?? "(any)");
+            return Effect.succeed(state.remote ?? true);
           },
           refExists: () => Effect.succeed(state.counterpart ?? true),
-          resolveExistingBranch: (_source, name) => Effect.succeed(state.selected ?? {
-            branch: name.startsWith("origin/") ? name.slice("origin/".length) : name,
-            ...((state.counterpart ?? true) ? { remote: "origin", remoteRef: name.startsWith("origin/") ? name : `origin/${name}` } : {}),
-          }),
+          resolveExistingBranch: (_source, name) =>
+            Effect.succeed(
+              state.selected ?? {
+                branch: name.startsWith("origin/") ? name.slice("origin/".length) : name,
+                ...((state.counterpart ?? true)
+                  ? { remote: "origin", remoteRef: name.startsWith("origin/") ? name : `origin/${name}` }
+                  : {}),
+              },
+            ),
           fetchRemote: (directory, remote) => {
-            state.calls.push(`fetch ${directory}` + (remote && remote !== "origin" ? ` from ${remote}` : ""))
+            state.calls.push(`fetch ${directory}` + (remote && remote !== "origin" ? ` from ${remote}` : ""));
             return state.fetchFailsFor && String(directory).endsWith(`/${state.fetchFailsFor}`)
               ? Effect.fail(
                   new CheckoutError({
@@ -201,54 +204,54 @@ const layerFor = (state: Script): Layer.Layer<ChangeWork> =>
                     message: "could not resolve host",
                   }),
                 )
-              : Effect.void
+              : Effect.void;
           },
           defaultBranch: () => Effect.succeed(state.defaultBranch ?? "origin/main"),
           fastForwardBranch: (input) => {
-            state.calls.push(`forward ${input.directory} to ${input.to}`)
-            return Effect.succeed(state.forward ?? ({ _tag: "Current" } as const))
+            state.calls.push(`forward ${input.directory} to ${input.to}`);
+            return Effect.succeed(state.forward ?? ({ _tag: "Current" } as const));
           },
           removeWorktree: () => Effect.void,
         }),
         Layer.succeed(OperationProgress, {
           record: ({ step }) => {
-            state.steps.push(step)
-            return Effect.void
+            state.steps.push(step);
+            return Effect.void;
           },
         }),
       ),
     ),
-  )
+  );
 
 const run = <A, E>(state: Script, program: Effect.Effect<A, E, ChangeWork>): Promise<Result.Result<A, E>> =>
-  Effect.runPromise(program.pipe(Effect.result, Effect.provide(layerFor(state))))
+  Effect.runPromise(program.pipe(Effect.result, Effect.provide(layerFor(state))));
 
-const work = ChangeWork
+const work = ChangeWork;
 
 test("inspectChangeRepositories joins the change, its links, and the checkout facts", async () => {
-  const expected = link("repo")
+  const expected = link("repo");
   const state = script({
     change: change("Implementation"),
     links: [expected],
     inspect: { _tag: "Present", branch: "example", head: "abc" },
-  })
+  });
   const result = await run(
     state,
     Effect.gen(function* () {
-      const changeWork = yield* work
-      return yield* changeWork.inspectChangeRepositories(ChangeId.make("example"))
+      const changeWork = yield* work;
+      return yield* changeWork.inspectChangeRepositories(ChangeId.make("example"));
     }),
-  )
-  expect(Result.isSuccess(result)).toBe(true)
+  );
+  expect(Result.isSuccess(result)).toBe(true);
   if (Result.isSuccess(result)) {
     expect(result.success[0]).toEqual({
       repository: expected,
       state: "Active",
       checkoutLocation: "/workspace/example/repo",
       checkout: { _tag: "Present", branch: "example", head: "abc" },
-    })
+    });
   }
-})
+});
 
 test("inspection failures propagate", async () => {
   const state = script({
@@ -259,48 +262,48 @@ test("inspection failures propagate", async () => {
       directory: "/workspace/example/repo",
       message: "unreadable",
     }),
-  })
+  });
   const result = await run(
     state,
     Effect.gen(function* () {
-      const changeWork = yield* work
-      return yield* changeWork.inspectChangeRepositories(ChangeId.make("example"))
+      const changeWork = yield* work;
+      return yield* changeWork.inspectChangeRepositories(ChangeId.make("example"));
     }),
-  )
-  expect(Result.isFailure(result)).toBe(true)
-  if (Result.isFailure(result)) expect(result.failure._tag).toBe("CheckoutError")
-})
+  );
+  expect(Result.isFailure(result)).toBe(true);
+  if (Result.isFailure(result)) expect(result.failure._tag).toBe("CheckoutError");
+});
 
 test("startChange refuses a change that is not an idea", async () => {
-  const state = script({ change: change("Implementation") })
+  const state = script({ change: change("Implementation") });
   const result = await run(
     state,
     Effect.gen(function* () {
-      const changeWork = yield* work
-      return yield* changeWork.startChange(ChangeId.make("example"))
+      const changeWork = yield* work;
+      return yield* changeWork.startChange(ChangeId.make("example"));
     }),
-  )
-  expect(Result.isFailure(result)).toBe(true)
-  if (Result.isFailure(result)) expect(result.failure._tag).toBe("InvalidTransition")
-  expect(state.calls).toEqual([])
-})
+  );
+  expect(Result.isFailure(result)).toBe(true);
+  if (Result.isFailure(result)) expect(result.failure._tag).toBe("InvalidTransition");
+  expect(state.calls).toEqual([]);
+});
 
 test("startChange persists the phase before provisioning", async () => {
-  const state = script({ links: [link("repo")] })
+  const state = script({ links: [link("repo")] });
   await run(
     state,
     Effect.gen(function* () {
-      const changeWork = yield* work
-      return yield* changeWork.startChange(ChangeId.make("example"))
+      const changeWork = yield* work;
+      return yield* changeWork.startChange(ChangeId.make("example"));
     }),
-  )
+  );
   expect(state.calls).toEqual([
     "transition Implementation",
     "fetch /sources/repo",
     "worktree /workspace/example/repo example create",
     "forward /workspace/example/repo to origin/main",
-  ])
-})
+  ]);
+});
 
 test("each checkout spec maps to its operation", async () => {
   const state = script({
@@ -312,14 +315,14 @@ test("each checkout spec maps to its operation", async () => {
       link("attached", "new", { kind: "existing", name: "feature" }),
       link("stacked", "new", { kind: "change" }, { base: "feature-a" }),
     ],
-  })
+  });
   await run(
     state,
     Effect.gen(function* () {
-      const changeWork = yield* work
-      return yield* changeWork.startChange(ChangeId.make("example"))
+      const changeWork = yield* work;
+      return yield* changeWork.startChange(ChangeId.make("example"));
     }),
-  )
+  );
   expect(state.calls).toEqual([
     "transition Implementation",
     // Adopting what the checkout has checked out is no work at all.
@@ -339,115 +342,119 @@ test("each checkout spec maps to its operation", async () => {
     "fetch /sources/stacked",
     "worktree /workspace/example/stacked example create from feature-a",
     "forward /workspace/example/stacked to feature-a",
-  ])
-})
+  ]);
+});
 
 test("a stored spec no validation would allow fails its own repository", async () => {
   // (new, current) is refused at the wire; a record written by hand can still hold one, and
   // then it is that repository's failure, not the start's.
-  const state = script({ links: [link("impossible", "new", { kind: "current" })] })
+  const state = script({ links: [link("impossible", "new", { kind: "current" })] });
   const result = await run(
     state,
     Effect.gen(function* () {
-      const changeWork = yield* work
-      return yield* changeWork.startChange(ChangeId.make("example"))
+      const changeWork = yield* work;
+      return yield* changeWork.startChange(ChangeId.make("example"));
     }),
-  )
-  expect(Result.isSuccess(result)).toBe(true)
+  );
+  expect(Result.isSuccess(result)).toBe(true);
   if (Result.isSuccess(result) && result.success._tag === "PartiallyStarted") {
-    expect(result.success.failures).toHaveLength(1)
+    expect(result.success.failures).toHaveLength(1);
     expect(describeProvisionError(result.success.failures[0]!.error)).toBe(
       "a new worktree cannot use the branch a source checkout has checked out",
-    )
+    );
   }
-})
+});
 
 test("a failed provision is PartiallyStarted with a journal entry per repository", async () => {
   const state = script({
     links: [link("good"), link("bad")],
     failAddFor: "bad",
-  })
+  });
   const result = await run(
     state,
     Effect.gen(function* () {
-      const changeWork = yield* work
-      return yield* changeWork.startChange(ChangeId.make("example"))
+      const changeWork = yield* work;
+      return yield* changeWork.startChange(ChangeId.make("example"));
     }),
-  )
-  expect(Result.isSuccess(result)).toBe(true)
+  );
+  expect(Result.isSuccess(result)).toBe(true);
   if (Result.isSuccess(result)) {
-    expect(result.success._tag).toBe("PartiallyStarted")
+    expect(result.success._tag).toBe("PartiallyStarted");
     if (result.success._tag === "PartiallyStarted") {
       expect(result.success.repositories.map((repository) => repository.directoryName)).toEqual([
         DirectoryName.make("good"),
-      ])
-      expect(result.success.failures.map((failure) => failure.repositoryId)).toEqual([RepositoryId.make("bad")])
+      ]);
+      expect(result.success.failures.map((failure) => failure.repositoryId)).toEqual([
+        RepositoryId.make("bad"),
+      ]);
     }
   }
-  expect(state.steps.map((step) => step.state)).toEqual(["running", "done", "running", "failed"])
-})
+  expect(state.steps.map((step) => step.state)).toEqual(["running", "done", "running", "failed"]);
+});
 
 test("a clean start is Started", async () => {
-  const state = script({ links: [link("repo")] })
+  const state = script({ links: [link("repo")] });
   const result = await run(
     state,
     Effect.gen(function* () {
-      const changeWork = yield* work
-      return yield* changeWork.startChange(ChangeId.make("example"))
+      const changeWork = yield* work;
+      return yield* changeWork.startChange(ChangeId.make("example"));
     }),
-  )
-  expect(Result.isSuccess(result)).toBe(true)
-  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Started")
-  expect(state.steps.map((step) => step.state)).toEqual(["running", "done"])
-  expect(state.change.phase).toBe("Implementation")
-})
+  );
+  expect(Result.isSuccess(result)).toBe(true);
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Started");
+  expect(state.steps.map((step) => step.state)).toEqual(["running", "done"]);
+  expect(state.change.phase).toBe("Implementation");
+});
 
 test("describeProvisionError names a non-repository", () => {
-  expect(describeProvisionError(new NotARepository({ directory: "/sources/repo" }))).toContain("/sources/repo")
-})
+  expect(describeProvisionError(new NotARepository({ directory: "/sources/repo" }))).toContain(
+    "/sources/repo",
+  );
+});
 
 test("a checkout someone switched away is never refreshed — and says it is not what was wanted", async () => {
   // The worktree is ordinary git: an agent or a user runs `git switch` inside it. The refresh
   // moves whatever is checked out, so a checkout not on the expected branch must not be touched
   // — and provisioning did not deliver what the change asked for, which a retry needs to hear
   // rather than read as a quiet success.
-  const state = script({ links: [link("repo")], switchedTo: "other" })
+  const state = script({ links: [link("repo")], switchedTo: "other" });
   const result = await run(
     state,
     Effect.gen(function* () {
-      const changeWork = yield* work
-      return yield* changeWork.startChange(ChangeId.make("example"))
+      const changeWork = yield* work;
+      return yield* changeWork.startChange(ChangeId.make("example"));
     }),
-  )
-  expect(Result.isSuccess(result)).toBe(true)
+  );
+  expect(Result.isSuccess(result)).toBe(true);
   if (Result.isSuccess(result)) {
     // The transition still goes through — reported per repository, never blocked.
-    expect(result.success._tag).toBe("PartiallyStarted")
+    expect(result.success._tag).toBe("PartiallyStarted");
     if (result.success._tag === "PartiallyStarted")
       expect(describeProvisionError(result.success.failures[0]!.error)).toBe(
         "the checkout is on other, not example",
-      )
+      );
     expect(result.success.reports[0]?.refresh).toEqual({
       _tag: "LeftAlone",
       reason: "the checkout is on other, not example",
-    })
+    });
   }
-  expect(state.calls.some((call) => call.startsWith("forward"))).toBe(false)
-})
+  expect(state.calls.some((call) => call.startsWith("forward"))).toBe(false);
+});
 
 test("the fetch asks about origin — the remote it fetches", async () => {
   // A repository whose only remote is another name has nothing this sequence fetches; asking
   // "any remote" and then fetching `origin` would fail the checkout over a remote it never uses.
-  const state = script({ links: [link("repo")] })
+  const state = script({ links: [link("repo")] });
   await run(
     state,
     Effect.gen(function* () {
-      const changeWork = yield* work
-      return yield* changeWork.provisionChange(ChangeId.make("example"))
+      const changeWork = yield* work;
+      return yield* changeWork.provisionChange(ChangeId.make("example"));
     }),
-  )
-  expect(state.remotesAsked).toEqual(["origin"])
-})
+  );
+  expect(state.remotesAsked).toEqual(["origin"]);
+});
 
 for (const remote of ["origin", "upstream"]) {
   for (const location of ["new", "original"] as const) {
@@ -455,21 +462,26 @@ for (const remote of ["origin", "upstream"]) {
       const state = script({
         links: [link("repo", location, { kind: "existing", name: `${remote}/team/topic` })],
         selected: { branch: "team/topic", remote, remoteRef: `${remote}/team/topic` },
-      })
-      const result = await run(state, Effect.gen(function* () {
-        const changeWork = yield* work
-        return yield* changeWork.startChange(ChangeId.make("example"))
-      }))
-      expect(Result.isSuccess(result)).toBe(true)
-      if (Result.isSuccess(result)) expect(result.success._tag).toBe("Started")
-      expect(state.remotesAsked).toEqual([remote])
-      const fetched = state.calls.findIndex((call) => call.startsWith("fetch"))
-      const provisioned = state.calls.findIndex((call) => call.startsWith(location === "new" ? "worktree" : "in-place"))
-      expect(fetched).toBeLessThan(provisioned)
-      const directory = location === "new" ? "/workspace/example/repo" : "/sources/repo"
-      expect(state.calls).toContain(`forward ${directory} to ${remote}/team/topic`)
-      expect(state.calls.some((call) => call.includes("origin/origin/"))).toBe(false)
-    })
+      });
+      const result = await run(
+        state,
+        Effect.gen(function* () {
+          const changeWork = yield* work;
+          return yield* changeWork.startChange(ChangeId.make("example"));
+        }),
+      );
+      expect(Result.isSuccess(result)).toBe(true);
+      if (Result.isSuccess(result)) expect(result.success._tag).toBe("Started");
+      expect(state.remotesAsked).toEqual([remote]);
+      const fetched = state.calls.findIndex((call) => call.startsWith("fetch"));
+      const provisioned = state.calls.findIndex((call) =>
+        call.startsWith(location === "new" ? "worktree" : "in-place"),
+      );
+      expect(fetched).toBeLessThan(provisioned);
+      const directory = location === "new" ? "/workspace/example/repo" : "/sources/repo";
+      expect(state.calls).toContain(`forward ${directory} to ${remote}/team/topic`);
+      expect(state.calls.some((call) => call.includes("origin/origin/"))).toBe(false);
+    });
   }
 }
 
@@ -477,15 +489,19 @@ test("a detached destination is reported, never refreshed or silently repaired",
   const state = script({
     links: [link("repo", "new", { kind: "existing", name: "origin/feature" })],
     inspectAfterProvision: { _tag: "Present", head: "detached-work" },
-  })
-  const result = await run(state, Effect.gen(function* () {
-    const changeWork = yield* work
-    return yield* changeWork.provisionChange(ChangeId.make("example"))
-  }))
-  expect(Result.isSuccess(result)).toBe(true)
-  if (Result.isSuccess(result)) expect(result.success[0]?.error?.message).toBe("the checkout is not on feature")
-  expect(state.calls.some((call) => call.startsWith("forward"))).toBe(false)
-})
+  });
+  const result = await run(
+    state,
+    Effect.gen(function* () {
+      const changeWork = yield* work;
+      return yield* changeWork.provisionChange(ChangeId.make("example"));
+    }),
+  );
+  expect(Result.isSuccess(result)).toBe(true);
+  if (Result.isSuccess(result))
+    expect(result.success[0]?.error?.message).toBe("the checkout is not on feature");
+  expect(state.calls.some((call) => call.startsWith("forward"))).toBe(false);
+});
 
 test("a local-only existing branch has nothing to fast-forward to", async () => {
   // An existing branch is refreshed toward its remote counterpart — but only when there is one.
@@ -493,46 +509,48 @@ test("a local-only existing branch has nothing to fast-forward to", async () => 
   const state = script({
     links: [link("local", "new", { kind: "existing", name: "feature" })],
     counterpart: false,
-  })
+  });
   const result = await run(
     state,
     Effect.gen(function* () {
-      const changeWork = yield* work
-      return yield* changeWork.provisionChange(ChangeId.make("example"))
+      const changeWork = yield* work;
+      return yield* changeWork.provisionChange(ChangeId.make("example"));
     }),
-  )
-  expect(Result.isSuccess(result)).toBe(true)
+  );
+  expect(Result.isSuccess(result)).toBe(true);
   if (Result.isSuccess(result))
-    expect(result.success[0]?.refresh).toEqual({ _tag: "None", reason: "nothing to fast-forward to" })
-  expect(state.calls.some((call) => call.startsWith("forward"))).toBe(false)
-})
+    expect(result.success[0]?.refresh).toEqual({ _tag: "None", reason: "nothing to fast-forward to" });
+  expect(state.calls.some((call) => call.startsWith("forward"))).toBe(false);
+});
 
 test("a fetch that will not answer stops that repository before anything is created", async () => {
   // Offline, DNS down: branching from refs that may be stale is exactly the failure this
   // replaces. The record survives, the other repository still provisions, and the stopped one
   // reports why.
-  const state = script({ links: [link("good"), link("offline")], fetchFailsFor: "offline" })
+  const state = script({ links: [link("good"), link("offline")], fetchFailsFor: "offline" });
   const result = await run(
     state,
     Effect.gen(function* () {
-      const changeWork = yield* work
-      return yield* changeWork.startChange(ChangeId.make("example"))
+      const changeWork = yield* work;
+      return yield* changeWork.startChange(ChangeId.make("example"));
     }),
-  )
-  expect(Result.isSuccess(result)).toBe(true)
+  );
+  expect(Result.isSuccess(result)).toBe(true);
   if (Result.isSuccess(result) && result.success._tag === "PartiallyStarted") {
-    expect(result.success.failures.map((failure) => failure.repositoryId)).toEqual([RepositoryId.make("offline")])
-    expect(describeProvisionError(result.success.failures[0]!.error)).toBe("could not resolve host")
-    const stopped = result.success.reports.find((report) => report.repository.directoryName === "offline")
-    expect(stopped?.refresh).toEqual({ _tag: "FetchFailed", reason: "could not resolve host" })
-    expect(describeCheckout(stopped!)).toBe("fetch failed: could not resolve host")
+    expect(result.success.failures.map((failure) => failure.repositoryId)).toEqual([
+      RepositoryId.make("offline"),
+    ]);
+    expect(describeProvisionError(result.success.failures[0]!.error)).toBe("could not resolve host");
+    const stopped = result.success.reports.find((report) => report.repository.directoryName === "offline");
+    expect(stopped?.refresh).toEqual({ _tag: "FetchFailed", reason: "could not resolve host" });
+    expect(describeCheckout(stopped!)).toBe("fetch failed: could not resolve host");
   } else {
-    expect(false).toBe(true)
+    expect(false).toBe(true);
   }
   expect(state.calls.filter((call) => call.startsWith("worktree"))).toEqual([
     "worktree /workspace/example/good example create",
-  ])
-})
+  ]);
+});
 
 test("a refresh that cannot fast-forward reports and does not block the start", async () => {
   // The branch has its own commits while the base moved on: the reconciliation is the user's,
@@ -540,49 +558,49 @@ test("a refresh that cannot fast-forward reports and does not block the start", 
   const state = script({
     links: [link("repo")],
     forward: { _tag: "LeftAlone", reason: "fatal: Not possible to fast-forward" },
-  })
+  });
   const result = await run(
     state,
     Effect.gen(function* () {
-      const changeWork = yield* work
-      return yield* changeWork.startChange(ChangeId.make("example"))
+      const changeWork = yield* work;
+      return yield* changeWork.startChange(ChangeId.make("example"));
     }),
-  )
-  expect(Result.isSuccess(result)).toBe(true)
+  );
+  expect(Result.isSuccess(result)).toBe(true);
   if (Result.isSuccess(result)) {
-    expect(result.success._tag).toBe("Started")
+    expect(result.success._tag).toBe("Started");
     expect(result.success.reports[0]?.refresh).toEqual({
       _tag: "LeftAlone",
       reason: "fatal: Not possible to fast-forward",
-    })
+    });
   }
   expect(state.steps.map((step) => step.detail)).toEqual([
     undefined,
     "left-alone: fatal: Not possible to fast-forward",
-  ])
-})
+  ]);
+});
 
 test("the journal says what each refresh did", async () => {
-  const state = script({ links: [link("repo")], forward: { _tag: "Advanced", to: "origin/main" } })
+  const state = script({ links: [link("repo")], forward: { _tag: "Advanced", to: "origin/main" } });
   await run(
     state,
     Effect.gen(function* () {
-      const changeWork = yield* work
-      return yield* changeWork.provisionChange(ChangeId.make("example"))
+      const changeWork = yield* work;
+      return yield* changeWork.provisionChange(ChangeId.make("example"));
     }),
-  )
+  );
   expect(state.steps.map((step) => `${step.state} ${step.detail ?? ""}`.trim())).toEqual([
     "running",
     "done advanced to origin/main",
-  ])
-})
+  ]);
+});
 
 test("two checkout runs on one change queue rather than interleave", async () => {
-  const state = script({ links: [link("repo")], slow: true })
+  const state = script({ links: [link("repo")], slow: true });
   const oneRun = Effect.gen(function* () {
-    const changeWork = yield* work
-    return yield* changeWork.provisionRepository(ChangeId.make("example"), RepositoryId.make("repo"))
-  })
+    const changeWork = yield* work;
+    return yield* changeWork.provisionRepository(ChangeId.make("example"), RepositoryId.make("repo"));
+  });
   // The server's checkout operations hold this lock across their whole run; the policy runs
   // inside it. Interleaved runs would record both `worktree` calls before either `forward`.
   await run(
@@ -594,11 +612,11 @@ test("two checkout runs on one change queue rather than interleave", async () =>
       ],
       { concurrency: "unbounded" },
     ),
-  )
+  );
   expect(state.calls.filter((call) => call.startsWith("worktree") || call.startsWith("forward"))).toEqual([
     "worktree /workspace/example/repo example create",
     "forward /workspace/example/repo to origin/main",
     "worktree /workspace/example/repo example create",
     "forward /workspace/example/repo to origin/main",
-  ])
-})
+  ]);
+});

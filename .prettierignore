@@ -1,0 +1,12 @@
+# Documentation is content, not code: the manuals, the guides, the package notes and the shipped
+# action/profile files keep their own line breaks.
+*.md
+
+node_modules
+apps/web/dist
+shots
+test-artifacts
+assets
+.idea
+*.log
+bun.lock

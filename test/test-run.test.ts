@@ -49,11 +49,7 @@ test("each mode maps to its files", () => {
   expect(filesForMode("e2e-terminal", groups)).toEqual(groups.e2eTerminal);
   expect(filesForMode("e2e-rest", groups)).toEqual(groups.e2eRest);
   expect(filesForMode("e2e", groups)).toEqual([...groups.e2eTerminal, ...groups.e2eRest]);
-  expect(filesForMode("all", groups)).toEqual([
-    ...groups.unit,
-    ...groups.e2eTerminal,
-    ...groups.e2eRest,
-  ]);
+  expect(filesForMode("all", groups)).toEqual([...groups.unit, ...groups.e2eTerminal, ...groups.e2eRest]);
 });
 
 test("the modes are the documented set; a typo is not a mode", () => {
@@ -65,19 +61,20 @@ test("the modes are the documented set; a typo is not a mode", () => {
   expect(isMode(undefined)).toBe(false);
 });
 
-test("classification is the line-oriented Playwright import", () => {
+test("classification is the line-oriented Playwright import or the shared openEngine", () => {
   expect(importsBrowserAtRuntime('import { chromium } from "playwright";')).toBe(true);
   expect(importsBrowserAtRuntime('  import { chromium, webkit } from "playwright";')).toBe(true);
   expect(importsBrowserAtRuntime('import {\n  chromium,\n} from "playwright";')).toBe(false);
   expect(importsBrowserAtRuntime('import type { Browser } from "playwright";')).toBe(false);
   expect(importsBrowserAtRuntime('import { chromium } from "playwright-core";')).toBe(false);
+  // The page tests launch through the shared helper, so that import is the browser signal now.
+  expect(importsBrowserAtRuntime('import {\n  openEngine,\n} from "./helpers.ts";')).toBe(true);
   expect(isTerminalGroup("test/terminal.test.ts")).toBe(true);
   expect(isTerminalGroup("test/terminalAcceptance.test.ts")).toBe(true);
   expect(isTerminalGroup("test/pages.test.ts")).toBe(false);
   expect(classify("test/pages.test.ts", 'import { chromium } from "playwright";')).toBe("e2e-rest");
-  expect(classify("test/terminal.test.ts", 'import { chromium } from "playwright";')).toBe(
-    "e2e-terminal",
-  );
+  expect(classify("test/pages.test.ts", 'import {\n  openEngine,\n} from "./helpers.ts";')).toBe("e2e-rest");
+  expect(classify("test/terminal.test.ts", 'import { chromium } from "playwright";')).toBe("e2e-terminal");
   expect(classify("test/terminal.test.ts", "// no browser import")).toBe("unit");
 });
 
@@ -88,21 +85,15 @@ test("a temp fixture: a single-line import is e2e, multi-line and type-only are 
     writeFileSync(join(root, "test/single.test.ts"), 'import { chromium } from "playwright";\n');
     writeFileSync(join(root, "test/multi.test.ts"), 'import {\n  chromium,\n} from "playwright";\n');
     writeFileSync(join(root, "test/type-only.test.ts"), 'import type { Page } from "playwright";\n');
-    writeFileSync(
-      join(root, "test/terminalThing.test.ts"),
-      'import { chromium } from "playwright";\n',
-    );
+    writeFileSync(join(root, "test/terminalThing.test.ts"), 'import { chromium } from "playwright";\n');
     writeFileSync(join(root, "test/other.test.ts"), "// not a browser file\n");
+    writeFileSync(join(root, "test/engine.test.ts"), 'import {\n  openEngine,\n} from "./helpers.ts";\n');
 
     const groups = discoverGroups(root);
     expect(groups.e2eTerminal).toEqual(["test/terminalThing.test.ts"]);
-    expect(groups.e2eRest).toEqual(["test/single.test.ts"]);
-    expect(groups.unit).toEqual([
-      "test/multi.test.ts",
-      "test/other.test.ts",
-      "test/type-only.test.ts",
-    ]);
-    expect(groups.e2e).toEqual(["test/terminalThing.test.ts", "test/single.test.ts"]);
+    expect(groups.e2eRest).toEqual(["test/engine.test.ts", "test/single.test.ts"]);
+    expect(groups.unit).toEqual(["test/multi.test.ts", "test/other.test.ts", "test/type-only.test.ts"]);
+    expect(groups.e2e).toEqual(["test/terminalThing.test.ts", "test/engine.test.ts", "test/single.test.ts"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -110,14 +101,17 @@ test("a temp fixture: a single-line import is e2e, multi-line and type-only are 
 
 test("a positional argument is a file filter; a flag's value is not", () => {
   expect(fileFiltersOf(["subagentsCard"])).toEqual(["subagentsCard"]);
-  expect(fileFiltersOf(["test/subagentsCard.page.test.ts"])).toEqual([
-    "test/subagentsCard.page.test.ts",
-  ]);
+  expect(fileFiltersOf(["test/subagentsCard.page.test.ts"])).toEqual(["test/subagentsCard.page.test.ts"]);
   expect(fileFiltersOf(["--retry=2", "subagentsCard"])).toEqual(["subagentsCard"]);
   // `-t` and its name are one argument pair: the name must not read as a file.
   expect(fileFiltersOf(["-t", "a change's page id", "gateway"])).toEqual(["gateway"]);
   expect(fileFiltersOf(["--test-name-pattern", "the card"])).toEqual([]);
   expect(fileFiltersOf(["--timeout", "30000", "--parallel"])).toEqual([]);
+});
+
+test("a pass-through all run keeps the browser files sequential", () => {
+  // `all` with a flag is one discovery pass, but the browser files still contend for one machine.
+  expect(runPlan("all", [], ["--retry=2"])).toEqual({ files: [], parallel: false });
 });
 
 test("a filter drops the mode's file list so Bun discovers what it names", () => {

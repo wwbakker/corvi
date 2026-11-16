@@ -5,7 +5,7 @@
  * `https://<machine>.<tailnet>.ts.net/`, with a Tailscale-issued certificate. This shape is what
  * the settings page reads; the server capability (`apps/server/src/tailscale`) produces it.
  */
-import { Schema } from "effect"
+import { Schema } from "effect";
 
 export const TailscaleStatusSchema = Schema.Struct({
   /** The `tailscale` CLI ran and answered: false means it is not installed. */
@@ -22,5 +22,5 @@ export const TailscaleStatusSchema = Schema.Struct({
    * another's (a shared tree, which Corvi will not clear), `conflict` is another service's
    * handler on 443. Absent when 443 is free, entirely ours, or not yet read. */
   blocked: Schema.optional(Schema.Literals(["mixed", "conflict"])),
-})
-export type TailscaleStatusDto = typeof TailscaleStatusSchema.Type
+});
+export type TailscaleStatusDto = typeof TailscaleStatusSchema.Type;

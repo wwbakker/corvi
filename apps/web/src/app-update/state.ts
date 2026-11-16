@@ -49,13 +49,16 @@ export function useAppUpdate(): AppUpdateView {
   const [notified, setNotified] = useState<string | null>(null);
 
   const load = useCallback((): void => {
-    apiClient
-      .update.status()
+    apiClient.update
+      .status()
       .then(setStatus)
       .catch(() => {}); // a status that cannot be read is no status; the next event retries
   }, []);
   useEffect(load, [load]);
-  useServerEvent("update", useCallback(() => load(), [load]));
+  useServerEvent(
+    "update",
+    useCallback(() => load(), [load]),
+  );
 
   const progress = status?.progress ?? null;
   const busy = starting || (progress !== null && progress.finishedAt === undefined);
@@ -93,20 +96,18 @@ export function useAppUpdate(): AppUpdateView {
   const check = useCallback((): void => {
     setChecking(true);
     setError(null);
-    apiClient
-      .update.check()
+    apiClient.update
+      .check()
       .then(setStatus)
-      .catch((cause: unknown) =>
-        setError(cause instanceof Error ? cause.message : String(cause)),
-      )
+      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)))
       .finally(() => setChecking(false));
   }, []);
 
   const start = useCallback((): void => {
     setStarting(true);
     setError(null);
-    apiClient
-      .update.start()
+    apiClient.update
+      .start()
       .then(setStatus)
       .catch((cause: unknown) => {
         // A failure inside the run lands in the journal and the reload below shows it; this

@@ -61,14 +61,18 @@ const SCRUBBED = [
   "PI_CODING_AGENT_SESSION_DIR",
 ] as const;
 
-/** The browser end-to-end files import a Playwright browser at runtime. The test is
- * line-oriented because the shell `grep` this replaces was: a multi-line import (or a type-only
- * one, whose braces name no browser) is not a browser file. */
+/** The browser end-to-end files import a Playwright browser at runtime, or the shared
+ * `openEngine` that launches one. The Playwright test stays line-oriented because the shell `grep`
+ * this replaces was: a multi-line import (or a type-only one, whose braces name no browser) is not
+ * a browser file by that signal. The helper import is matched as a whole because the page tests
+ * import it in a multi-line braces list. */
 const PLAYWRIGHT_IMPORT =
   /^[ \t]*import[ \t]+\{[^}]*(chromium|webkit|firefox)[^}]*\}[ \t]*from[ \t]*"playwright"/;
+const OPEN_ENGINE_IMPORT =
+  /^[ \t]*import[ \t]+\{[^}]*\bopenEngine\b[^}]*\}[ \t]*from[ \t]*"\.\/helpers\.ts";/m;
 
 export const importsBrowserAtRuntime = (source: string): boolean =>
-  source.split("\n").some((line) => PLAYWRIGHT_IMPORT.test(line));
+  source.split("\n").some((line) => PLAYWRIGHT_IMPORT.test(line)) || OPEN_ENGINE_IMPORT.test(source);
 
 /** The terminal group is a name, not a claim about what the test drives. `.*` spans separators
  * like the shell glob `test/terminal*.test.ts` it replaces. */
@@ -196,17 +200,12 @@ export const runPlan = (
   parallel: mode === "unit",
 });
 
-const USAGE =
-  "usage: scripts/test-run.ts [all|unit|e2e|e2e-terminal|e2e-rest] [bun test arguments...]";
+const USAGE = "usage: scripts/test-run.ts [all|unit|e2e|e2e-terminal|e2e-rest] [bun test arguments...]";
 
 /** `bun test --timeout 30000 [--parallel] --timings=scripts/timings.json <files> <args>`.
  * `--parallel` is omitted for the e2e modes (they contend for one machine) and when
  * `CORVI_TEST_SERIAL=1` forces a single process, where a stalled teardown cannot hang the run. */
-const testArgs = (
-  files: readonly string[],
-  passthrough: readonly string[],
-  parallel: boolean,
-): string[] => [
+const testArgs = (files: readonly string[], passthrough: readonly string[], parallel: boolean): string[] => [
   "bun",
   "test",
   "--timeout",
@@ -260,10 +259,7 @@ const SIGNAL_EXIT_CODES: ReadonlyArray<readonly [NodeJS.Signals, number]> = [
 /** How long to wait for a signaled child to exit before cleaning up without it. */
 const SIGNAL_REAP_MS = 10_000;
 
-const withTimeout = async (
-  promise: Promise<number | undefined>,
-  ms: number,
-): Promise<number | undefined> => {
+const withTimeout = async (promise: Promise<number | undefined>, ms: number): Promise<number | undefined> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
@@ -322,7 +318,10 @@ const installCleanup = (token: string): void => {
         }
         // `.catch` keeps the exit unconditional: a rejected `exited` must not leave the parked
         // main flow hanging instead of cleaning up and exiting.
-        const exitCode = await withTimeout(child.exited.catch(() => undefined), SIGNAL_REAP_MS);
+        const exitCode = await withTimeout(
+          child.exited.catch(() => undefined),
+          SIGNAL_REAP_MS,
+        );
         process.exit(exitCode ?? fallback);
       })();
     });
@@ -338,11 +337,7 @@ const list = (requested: string | undefined): number => {
   return 0;
 };
 
-const runMode = async (
-  mode: Mode,
-  groups: Groups,
-  passthrough: readonly string[],
-): Promise<number> => {
+const runMode = async (mode: Mode, groups: Groups, passthrough: readonly string[]): Promise<number> => {
   switch (mode) {
     case "unit": {
       const plan = runPlan(mode, groups.unit, passthrough);
@@ -362,8 +357,12 @@ const runMode = async (
     }
     case "all": {
       // A pass-through argument is a filter or a flag, and the caller asked for one discovery
-      // pass, so it runs unfiltered by group and with no file list (`bun test` discovers).
-      if (passthrough.length > 0) return runTests([], passthrough, true);
+      // pass, so it runs unfiltered by group and with no file list (`bun test` discovers). The
+      // browser files still run sequentially: `runPlan` owns that rule.
+      if (passthrough.length > 0) {
+        const plan = runPlan(mode, [], passthrough);
+        return runTests(plan.files, passthrough, plan.parallel);
+      }
       if (groups.unit.length > 0) {
         const unitCode = await runTests(groups.unit, [], true);
         await stopIfTerminating();

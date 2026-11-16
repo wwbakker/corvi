@@ -66,7 +66,15 @@ export const localChanges = (change: Change, repo: string): Effect.Effect<LocalS
       const directory = AbsolutePath.make(worktree);
       const read = yield* repositories.inspectLocalChanges(directory).pipe(Effect.result);
       if (read._tag === "Failure")
-        return { repo, name, worktree, files: [], unpushed: 0, tracked: false, error: messageOf(read.failure) };
+        return {
+          repo,
+          name,
+          worktree,
+          files: [],
+          unpushed: 0,
+          tracked: false,
+          error: messageOf(read.failure),
+        };
       const local = read.success;
       // A branch that was never pushed is not "0 ahead": everything on it since it left the base
       // branch is unpushed, and that is what the button has to offer to push. Without a base —
@@ -107,7 +115,8 @@ export const fileDiff = (
     Effect.gen(function* () {
       const worktree = yield* worktreeOf(change, repo);
       // 400: a wrong request against this change, not a missing resource.
-      if (!worktree) return yield* new BadRequestError({ message: `no worktree for ${change.branch} in ${repo}` });
+      if (!worktree)
+        return yield* new BadRequestError({ message: `no worktree for ${change.branch} in ${repo}` });
       return yield* repositories
         .diffFile({ directory: AbsolutePath.make(worktree), path: input.file, ...input })
         .pipe(

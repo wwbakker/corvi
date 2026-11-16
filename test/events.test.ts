@@ -1,7 +1,7 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { checkoutsOf, runSh, serverEnv, testRun, testTempDir, waitForUrl  } from "./helpers.ts";
+import { checkoutsOf, runSh, testTempDir, startTestServer, stopTestServer } from "./helpers.ts";
 
 /**
  * The push side of the pages: one connection that says when something changed, instead of every
@@ -19,16 +19,11 @@ beforeAll(async () => {
   tmp = await testTempDir("events");
   // serverEnv gives the server port 0: the OS picks a free one, so parallel workers never land on
   // the same port, and readiness is the server's own `corvi on <url>` line rather than a poll.
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp));
 });
 
 afterAll(async () => {
-  server?.kill();
+  await stopTestServer(server, tmp);
   await rm(tmp, { recursive: true, force: true });
 });
 

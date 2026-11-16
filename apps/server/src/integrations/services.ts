@@ -16,7 +16,7 @@ import { existingBranch } from "../capabilities/repositories.ts";
 import { defaultCache, type CacheStore } from "../capabilities/cache.ts";
 import { runtimeCache, runtimeConfig } from "../capabilities/runtime.ts";
 import { announce } from "../capabilities/bus.ts";
-import { BadRequestError, ConflictError, type IweError } from "@corvi/contracts/errors";
+import { BadRequestError, ConflictError, type CorviError } from "@corvi/contracts/errors";
 import { ChangeFormatTooNew } from "@corvi/changes/errors";
 import {
   CORE_SIDECARS,
@@ -44,8 +44,7 @@ import type { Workspace as WorkspaceShape } from "@corvi/configuration/config";
 export const ShellLive = Layer.effect(
   Shell,
   Effect.succeed({
-    run: (cmd, opts) =>
-      Effect.flatMap(Workspace, (workspace) => shWithEnv(cmd, opts?.cwd, envOf(workspace))),
+    run: (cmd, opts) => Effect.flatMap(Workspace, (workspace) => shWithEnv(cmd, opts?.cwd, envOf(workspace))),
   }),
 );
 
@@ -54,8 +53,7 @@ export const ShellLive = Layer.effect(
  * the entrypoint; `cacheLive(cache)` is the seam). */
 export const cacheLive = (cache: CacheStore = defaultCache): Layer.Layer<Cache> =>
   Layer.succeed(Cache, {
-    swr: <A, E, R>(key: string, ttlMs: number, work: Effect.Effect<A, E, R>) =>
-      cache.swr(key, ttlMs, work),
+    swr: <A, E, R>(key: string, ttlMs: number, work: Effect.Effect<A, E, R>) => cache.swr(key, ttlMs, work),
     invalidate: (prefix) => Effect.sync(() => cache.invalidate(prefix)),
   });
 
@@ -88,8 +86,12 @@ export const ChangesLive = Layer.succeed(Changes, {
   // The store's own files (change.json, completion.json) are refused too, so the read cannot be
   // turned on the change record or the completion journal.
   readSidecar: (change: Change, name: string) =>
-    name === "" || name === "." || name === ".." || name.includes("/") || name.includes("\\") ||
-      CORE_SIDECARS.has(name)
+    name === "" ||
+    name === "." ||
+    name === ".." ||
+    name.includes("/") ||
+    name.includes("\\") ||
+    CORE_SIDECARS.has(name)
       ? Effect.succeed("")
       : readSidecar(change.id, name),
 });
@@ -105,22 +107,21 @@ export const extensionStoreLayer = (extension: string | undefined): Layer.Layer<
     Effect.fail(new BadRequestError({ message: "ExtensionStore has no extension in context" }));
   // The fence's refusal is the transport's conflict: the capability contract speaks the error
   // taxonomy, and "written by a newer Corvi" is a 409 with its message, like every other refusal.
-  const fenced = (message: string): IweError => new ConflictError({ message });
+  const fenced = (message: string): CorviError => new ConflictError({ message });
   const store: ExtensionStoreShape = {
     update: (change, data) =>
       extension
         ? setExtensionData(change, extension, data).pipe(
-            Effect.mapError((error): IweError =>
+            Effect.mapError((error): CorviError =>
               error instanceof ChangeFormatTooNew ? fenced(error.message) : error,
             ),
           )
         : unbound(),
-    read: (change, path) =>
-      extension ? readExtensionFile(change, extension, path) : unbound(),
+    read: (change, path) => (extension ? readExtensionFile(change, extension, path) : unbound()),
     write: (change, path, text) =>
       extension
         ? writeExtensionFile(change, extension, path, text).pipe(
-            Effect.mapError((error): IweError =>
+            Effect.mapError((error): CorviError =>
               error instanceof ChangeFormatTooNew ? fenced(error.message) : error,
             ),
           )
@@ -144,10 +145,7 @@ export const GitFactsLive = Layer.succeed(GitFacts, {
   contentInMain,
 });
 
-export const capabilitiesLayer = (
-  workspace: WorkspaceShape,
-  extension?: string,
-): Layer.Layer<Capabilities> =>
+export const capabilitiesLayer = (workspace: WorkspaceShape, extension?: string): Layer.Layer<Capabilities> =>
   Layer.mergeAll(
     ShellLive,
     GitFactsLive,

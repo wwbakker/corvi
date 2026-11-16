@@ -2,23 +2,11 @@
  * The app supplies the resolved config (`runtimeConfig()`); an integration reads the same values
  * through the `Settings` capability.
  */
-import type { RemoteWorkspaceDto, WorkspaceDto } from "@corvi/contracts/config";
-
-/** Whether this workspace is hosted by another server rather than being a local settings scope. */
-export const isRemoteWorkspace = (workspace: { readonly remote?: unknown }): boolean =>
-  workspace.remote !== undefined;
-
-/** This workspace's remote target: the server, its workspace id and the token to present, or
- * undefined when the workspace is local. */
-export const remoteOf = (workspace: {
-  readonly remote?: RemoteWorkspaceDto;
-}): RemoteWorkspaceDto | undefined => workspace.remote;
+import type { WorkspaceDto } from "@corvi/contracts/config";
 
 /** The workspace with this id, or the first one — where every change without one belongs. */
-export const workspaceById = (
-  workspaces: readonly WorkspaceDto[],
-  id?: string,
-): WorkspaceDto => workspaces.find((workspace) => workspace.id === id) ?? workspaces[0]!;
+export const workspaceById = (workspaces: readonly WorkspaceDto[], id?: string): WorkspaceDto =>
+  workspaces.find((workspace) => workspace.id === id) ?? workspaces[0]!;
 
 export const workspaceOf = (
   workspaces: readonly WorkspaceDto[],

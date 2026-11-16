@@ -28,7 +28,9 @@ export function describeChange(
   return `${heading}\n${links.join("\n")}\n`;
 }
 
-export const prDescription = (change: Change): Effect.Effect<string, BadRequestError, Changes | GitFacts | Cache> =>
+export const prDescription = (
+  change: Change,
+): Effect.Effect<string, BadRequestError, Changes | GitFacts | Cache> =>
   Effect.gen(function* () {
     // The heading, one contributed part per extension that claims this change, joined with
     // " - ". A section that fails is absent, not a failed request.

@@ -41,9 +41,7 @@ import { persistPublishedPort } from "./publication.ts";
  * the shell's own code, either way a `ShellResult` the caller branches on. */
 const runTailscale = (args: readonly string[]): Effect.Effect<ShellResult> =>
   sh(["tailscale", ...args]).pipe(
-    Effect.catch((error) =>
-      Effect.succeed({ code: error.exitCode, stdout: "", stderr: error.stderr }),
-    ),
+    Effect.catch((error) => Effect.succeed({ code: error.exitCode, stdout: "", stderr: error.stderr })),
   );
 
 const readServeMappings = (): Effect.Effect<readonly ServeMapping[]> =>
@@ -62,9 +60,7 @@ const remember = (port: number | undefined): void => {
 /** The port whose 443 mapping is Corvi's: what it published, else what the listener is bound to,
  * else what the config asks for. */
 const publicationPort = (): number | undefined =>
-  runtimeTailscalePublishedPort() ??
-  runtimeRemoteAccessStatus().port ??
-  runtimeConfig().remoteAccess.port;
+  runtimeTailscalePublishedPort() ?? runtimeRemoteAccessStatus().port ?? runtimeConfig().remoteAccess.port;
 
 const describeForeign = (foreignPorts: readonly (number | undefined)[]): string =>
   foreignPorts.length === 0
@@ -91,7 +87,8 @@ export const tailscaleStatus = (): Effect.Effect<TailscaleStatusDto> =>
     }
 
     const port = publicationPort();
-    const decision = port === undefined ? { kind: "free" as const } : decideServe(yield* readServeMappings(), port);
+    const decision =
+      port === undefined ? { kind: "free" as const } : decideServe(yield* readServeMappings(), port);
     if (decision.kind === "published" && port !== undefined) {
       // The mapping is ours: remember which port, so a later unpublish finds it even if the
       // configured port has changed since — across a restart, too. A GET writing state is

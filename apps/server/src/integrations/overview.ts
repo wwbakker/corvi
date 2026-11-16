@@ -15,10 +15,7 @@ import type {
 import { extensionEnabled } from "../workspace/server/index.ts";
 import { azureDevopsSummaryContributor } from "@corvi/azure-devops";
 import { githubSummaryContributor } from "@corvi/github";
-import {
-  githubIssuesDescriptionSection,
-  githubIssuesTitleSource,
-} from "@corvi/github/issues";
+import { githubIssuesDescriptionSection, githubIssuesTitleSource } from "@corvi/github/issues";
 import { jiraDescriptionSection, jiraTitleSource } from "@corvi/jira";
 
 export type {
@@ -32,9 +29,7 @@ export type {
 /** The title sources a workspace's changes are named by, in load order (jira before
  * github-issues). Disabled integrations are not asked. */
 export const includedTitleSources = (workspace: Workspace): NamedContribution<TitleSource>[] => [
-  ...(extensionEnabled(workspace, "jira")
-    ? [{ name: "jira", contribution: jiraTitleSource }]
-    : []),
+  ...(extensionEnabled(workspace, "jira") ? [{ name: "jira", contribution: jiraTitleSource }] : []),
   ...(extensionEnabled(workspace, "github-issues")
     ? [{ name: "github-issues", contribution: githubIssuesTitleSource }]
     : []),
@@ -44,9 +39,7 @@ export const includedTitleSources = (workspace: Workspace): NamedContribution<Ti
 export const includedDescriptionSections = (
   workspace: Workspace,
 ): NamedContribution<DescriptionSection>[] => [
-  ...(extensionEnabled(workspace, "jira")
-    ? [{ name: "jira", contribution: jiraDescriptionSection }]
-    : []),
+  ...(extensionEnabled(workspace, "jira") ? [{ name: "jira", contribution: jiraDescriptionSection }] : []),
   ...(extensionEnabled(workspace, "github-issues")
     ? [{ name: "github-issues", contribution: githubIssuesDescriptionSection }]
     : []),

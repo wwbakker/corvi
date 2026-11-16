@@ -42,15 +42,10 @@ export const forgetWatchedNews = (event: EventName): void => {
  *
  * A read that fails — no host yet, a change being written as we look — is not news: it
  * arrives as `Option.none()`, which the stream drops, and the next tick will find it. */
-const channel = (
-  event: EventName,
-  read: Effect.Effect<string, unknown>,
-): Stream.Stream<News> =>
+const channel = (event: EventName, read: Effect.Effect<string, unknown>): Stream.Stream<News> =>
   Stream.fromEffectSchedule(
     Effect.gen(function* () {
-      const payload = Option.fromNullOr(
-        yield* Effect.orElseSucceed(read, () => null),
-      );
+      const payload = Option.fromNullOr(yield* Effect.orElseSucceed(read, () => null));
       if (Option.isNone(payload)) return Option.none();
       if (last.get(event) === payload.value) return Option.none();
       last.set(event, payload.value);

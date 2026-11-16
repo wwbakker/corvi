@@ -26,16 +26,13 @@ import {
 /** A failure of the instance store's file operations. The store is the only writer, so a
  * failure is ours rather than a caller's; the consumer maps it to the same response it always
  * did, and `message` is the sentence that mapping already showed. */
-export class SubagentStoreError extends Schema.TaggedError<SubagentStoreError>()(
-  "SubagentStoreError",
-  {
-    operation: Schema.Literals(["read", "write", "create", "append", "mutate", "claim", "remove"]),
-    message: Schema.String,
-    // The cause is an opaque in-process throwable that is never serialized; `Schema.Unknown`
-    // preserves it exactly (on decode `Schema.Defect()` is lossy).
-    cause: Schema.optional(Schema.Unknown),
-  },
-) {}
+export class SubagentStoreError extends Schema.TaggedError<SubagentStoreError>()("SubagentStoreError", {
+  operation: Schema.Literals(["read", "write", "create", "append", "mutate", "claim", "remove"]),
+  message: Schema.String,
+  // The cause is an opaque in-process throwable that is never serialized; `Schema.Unknown`
+  // preserves it exactly (on decode `Schema.Defect()` is lossy).
+  cause: Schema.optional(Schema.Unknown),
+}) {}
 
 /** Where a change's subagents live, beside its plan. */
 export const subagentsDir = (changeDir: string): string => join(changeDir, "subagents");
@@ -85,10 +82,7 @@ const readText = (path: string): Effect.Effect<string | undefined> =>
 /** The message files of one instance, numbered from their filenames and sorted. A file that
  * cannot be parsed is skipped: the server wrote it, so it is a damaged file rather than user
  * input, and one bad line must not take the log down. */
-export const readMessages = (
-  changeDir: string,
-  id: string,
-): Effect.Effect<readonly SubagentMessage[]> =>
+export const readMessages = (changeDir: string, id: string): Effect.Effect<readonly SubagentMessage[]> =>
   Effect.gen(function* () {
     const dir = instanceDir(changeDir, id);
     const names = yield* Effect.tryPromise({
@@ -109,10 +103,7 @@ export const readMessages = (
   });
 
 /** Read one instance, or null when it does not exist. */
-export const readInstance = (
-  changeDir: string,
-  id: string,
-): Effect.Effect<SubagentWithMessages | null> =>
+export const readInstance = (changeDir: string, id: string): Effect.Effect<SubagentWithMessages | null> =>
   Effect.gen(function* () {
     const text = yield* readText(join(instanceDir(changeDir, id), "session.json"));
     if (text === undefined) return null;
@@ -124,9 +115,7 @@ export const readInstance = (
 
 /** Every instance of a change, in id order (which is creation order, the ids carrying a
  * timestamp). */
-export const listInstances = (
-  changeDir: string,
-): Effect.Effect<readonly SubagentWithMessages[]> =>
+export const listInstances = (changeDir: string): Effect.Effect<readonly SubagentWithMessages[]> =>
   Effect.gen(function* () {
     const dir = subagentsDir(changeDir);
     const names = yield* Effect.tryPromise({
@@ -152,11 +141,7 @@ const readTextStrict = (path: string): Effect.Effect<string | undefined, Subagen
   Effect.tryPromise({
     try: () => readFile(path, "utf8"),
     catch: (cause) => new SubagentStoreError({ operation: "read", message: path, cause }),
-  }).pipe(
-    Effect.catch((error) =>
-      isMissing(error.cause) ? Effect.succeed(undefined) : Effect.fail(error),
-    ),
-  );
+  }).pipe(Effect.catch((error) => (isMissing(error.cause) ? Effect.succeed(undefined) : Effect.fail(error))));
 
 /** One instance read strictly: an unreadable or damaged `session.json` fails rather than
  * reading as absent, so an agent it hides cannot be mistaken for no agent. A missing record is
@@ -193,9 +178,7 @@ export const listInstancesStrict = (
       try: () => readdir(dir),
       catch: (cause) => new SubagentStoreError({ operation: "read", message: dir, cause }),
     }).pipe(
-      Effect.catch((error) =>
-        isMissing(error.cause) ? Effect.succeed([] as string[]) : Effect.fail(error),
-      ),
+      Effect.catch((error) => (isMissing(error.cause) ? Effect.succeed([] as string[]) : Effect.fail(error))),
     );
     const instances: SubagentWithMessages[] = [];
     for (const name of names.sort()) {
@@ -299,10 +282,8 @@ const changeLockFor = (changeDir: string): ReturnType<typeof Semaphore.makeUnsaf
   return lock;
 };
 
-const withChangeLock = <A, E, R>(
-  changeDir: string,
-  effect: Effect.Effect<A, E, R>,
-): Effect.Effect<A, E, R> => changeLockFor(changeDir).withPermits(1)(effect);
+const withChangeLock = <A, E, R>(changeDir: string, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+  changeLockFor(changeDir).withPermits(1)(effect);
 
 /** A mutation that may or may not write the record, decided from the record read under the lock.
  * This is the primitive that makes read-modify-write atomic: the caller never reads the record
@@ -426,10 +407,7 @@ export const claimInbound = (
 
 /** Remove an instance's directory. Used to roll back a create whose launcher failed, so a failed
  * create leaves nothing behind. */
-export const removeInstance = (
-  changeDir: string,
-  id: string,
-): Effect.Effect<void, SubagentStoreError> =>
+export const removeInstance = (changeDir: string, id: string): Effect.Effect<void, SubagentStoreError> =>
   withLock(
     changeDir,
     id,

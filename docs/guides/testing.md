@@ -7,9 +7,13 @@ Run from the repository root:
 ```sh
 bun run typecheck
 bun run lint
+bun run format:check
 bun run boundaries
 bun run test
 ```
+
+`bun run format` rewrites the code and configuration files with Prettier; `bun run format:check`
+is the CI form. Markdown is content and is not formatted (`*.md` is in `.prettierignore`).
 
 `bun run test` is the complete suite and runs in two passes: the non-browser files across workers
 (a few seconds), then the browser end-to-end files one at a time, server-and-browser each (about

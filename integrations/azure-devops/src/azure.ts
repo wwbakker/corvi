@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { shSoft } from "@corvi/shell/cli";
 import type { Config } from "@corvi/configuration/config";
 import { Cache, Settings, Shell, Workspace } from "@corvi/contracts/capabilities";
 import { bagString, resolveSetting } from "@corvi/configuration/settings";
@@ -53,17 +54,6 @@ const globalAzure = (settings: Config): AzureSite => azureOf({}, settings);
  * keyed without a workspace: every workspace falls back to the same CLI configuration. Tests
  * reset it with `clearCache`, like every other cached answer. */
 
-/** The ShellResult-branching contract: the one failure `Shell` can raise here is a timeout, which
- * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
- * everything downstream branches on `code`. */
-const shResult = (cmd: string[]): Effect.Effect<{ code: number; stdout: string }, never, Shell | Workspace> =>
-  Effect.gen(function* () {
-    const shell = yield* Shell;
-    return yield* shell.run(cmd).pipe(
-      Effect.catch((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
-    );
-  });
-
 export const azDefaults = (): Effect.Effect<
   { organization?: string; project?: string },
   never,
@@ -80,7 +70,7 @@ const loadDefaults = (): Effect.Effect<
   Shell | Workspace | Settings
 > =>
   Effect.gen(function* () {
-    const r = yield* shResult(["az", "devops", "configure", "-l"]);
+    const r = yield* shSoft(["az", "devops", "configure", "-l"]);
     const read = (key: string): string | undefined =>
       new RegExp(`^${key}\\s*=\\s*(\\S+)`, "m").exec(r.stdout)?.[1];
     const global = globalAzure(yield* Settings);
@@ -104,9 +94,11 @@ const loadDefaults = (): Effect.Effect<
  */
 export type Az = { key: string; args: string[]; organization?: string; project?: string };
 
-export const azFor = (
-  workspace: { id: string; settings?: { extensionSettings?: Record<string, Record<string, string | string[]>> }; azure?: unknown },
-): Effect.Effect<Az, never, Shell | Workspace | Cache | Settings> =>
+export const azFor = (workspace: {
+  id: string;
+  settings?: { extensionSettings?: Record<string, Record<string, string | string[]>> };
+  azure?: unknown;
+}): Effect.Effect<Az, never, Shell | Workspace | Cache | Settings> =>
   Effect.gen(function* () {
     const settings = yield* Settings;
     const own = azureOf(workspace, settings);

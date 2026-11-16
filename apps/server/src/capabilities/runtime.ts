@@ -68,7 +68,6 @@ const runtime = (): Runtime =>
     gatewayTimeouts: DEFAULT_GATEWAY_TIMEOUTS,
   });
 
-
 /** Install (or replace parts of) the runtime. The entrypoint calls this before serving; tests
  * set and reset it around a case. */
 export const setRuntime = (next: Partial<Runtime>): void => {
@@ -100,8 +99,7 @@ export const setRemoteAccessStatus = (status: RemoteAccessStatusDto): void => {
 };
 
 /** The port Corvi last published through `tailscale serve`, or undefined. */
-export const runtimeTailscalePublishedPort = (): number | undefined =>
-  runtime().tailscalePublishedPort;
+export const runtimeTailscalePublishedPort = (): number | undefined => runtime().tailscalePublishedPort;
 
 /** Record (or clear, with `undefined`) the port Corvi published. */
 export const setTailscalePublishedPort = (port: number | undefined): void => {
@@ -110,13 +108,11 @@ export const setTailscalePublishedPort = (port: number | undefined): void => {
 
 /** Bring the external listener in line with the config. The settings write calls this after a
  * save, so toggling remote access takes effect without a restart. */
-export const runtimeReconcileRemoteAccess = (): Effect.Effect<void> =>
-  runtime().reconcileRemoteAccess();
+export const runtimeReconcileRemoteAccess = (): Effect.Effect<void> => runtime().reconcileRemoteAccess();
 
 /** Bring the remote-event subscriptions in line with the config. The settings write calls this
  * after a save, so adding or removing a remote workspace takes effect at once. */
-export const runtimeReconcileRemoteEvents = (): Effect.Effect<void> =>
-  runtime().reconcileRemoteEvents();
+export const runtimeReconcileRemoteEvents = (): Effect.Effect<void> => runtime().reconcileRemoteEvents();
 
 /** The availability owner's current map, for the snapshot route. */
 export const runtimeRemoteAvailabilitySnapshot = (): RemoteAvailabilitySnapshotDto =>

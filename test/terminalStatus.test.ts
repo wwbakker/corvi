@@ -3,7 +3,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { ensureHost, type HostClient } from "../apps/server/src/terminals/host/client.ts";
 import { isStale, presentStatus, type AgentStatus } from "../apps/server/src/terminals/server/status.ts";
-import { checkoutsOf, runSh, serverEnv, testRun, testTempDir, waitFor, waitForUrl } from "./helpers.ts";
+import { checkoutsOf, runSh, testTempDir, waitFor, startTestServer, stopTestServer } from "./helpers.ts";
 
 /**
  * The agent-status channel end to end: the endpoint, its validation, the presenter that reads the
@@ -15,18 +15,14 @@ let server: ReturnType<typeof Bun.spawn>;
 const id = "PROJ-STATUS";
 
 const startServer = async (): Promise<void> => {
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp));
 };
 
 const hostSocket = (): string => join(tmp, "state", "corvi", "host.sock");
 
 const hostClient = async (): Promise<HostClient> =>
-  (await ensureHost({ socket: hostSocket(), checkout: process.cwd(), buildId: "dev", runtime: "node" })).client;
+  (await ensureHost({ socket: hostSocket(), checkout: process.cwd(), buildId: "dev", runtime: "node" }))
+    .client;
 
 /** Open a host window through the window route and return its session id and incarnation. */
 const openWindow = async (): Promise<{ sessionId: string; incarnation: number }> => {
@@ -49,30 +45,42 @@ const postStatus = (body: Record<string, unknown>): Promise<Response> =>
     body: JSON.stringify(body),
   });
 
-const windowsOf = async (): Promise<Record<string, { id: string; icon?: string; label: string; busy: boolean; attention: boolean; state?: string }[]>> =>
-  (await fetch(`${url}/api/terminals`).then((response) => response.json())) as never;
+const windowsOf = async (): Promise<
+  Record<
+    string,
+    { id: string; icon?: string; label: string; busy: boolean; attention: boolean; state?: string }[]
+  >
+> => (await fetch(`${url}/api/terminals`).then((response) => response.json())) as never;
 
 beforeAll(async () => {
   tmp = await testTempDir("status");
   await startServer();
   const repo = join(tmp, "repo");
   await runSh(["git", "init", "-b", "main", repo]);
-  await fetch(`${url}/api/changes`, { method: "POST", body: JSON.stringify({ id, checkouts: checkoutsOf([repo]) }) });
+  await fetch(`${url}/api/changes`, {
+    method: "POST",
+    body: JSON.stringify({ id, checkouts: checkoutsOf([repo]) }),
+  });
 }, 60_000);
 
 afterAll(async () => {
-  server?.kill();
-  await server?.exited;
-  await ensureHost({ socket: hostSocket(), checkout: process.cwd(), buildId: "dev", runtime: "node" })
-    .then((result) => result.client.shutdown())
-    .catch(() => undefined);
+  await stopTestServer(server, tmp);
   await rm(tmp, { recursive: true, force: true });
 }, 60_000);
 
 test("an endpoint report presents the host window as an agent, and clear returns it to a shell", async () => {
   const { sessionId, incarnation } = await openWindow();
   expect(
-    (await postStatus({ sessionId, incarnation, status: "working", name: "pi", sessionName: "Fix login", message: "on it" })).ok,
+    (
+      await postStatus({
+        sessionId,
+        incarnation,
+        status: "working",
+        name: "pi",
+        sessionName: "Fix login",
+        message: "on it",
+      })
+    ).ok,
   ).toBe(true);
   let window = (await windowsOf())[id]?.find((entry) => entry.id === sessionId);
   expect(window?.icon).toBe("agent");
@@ -112,16 +120,23 @@ test("a dead session's status is not presented, and a reused id starts clean", a
   // A status for the dead incarnation is refused.
   expect((await postStatus({ sessionId, incarnation, status: "working" })).ok).toBe(false);
   // The window is gone from the presentation.
-  await waitFor("the dead window to disappear", async () => !(await windowsOf())[id]?.some((entry) => entry.id === sessionId), 20_000);
+  await waitFor(
+    "the dead window to disappear",
+    async () => !(await windowsOf())[id]?.some((entry) => entry.id === sessionId),
+    20_000,
+  );
 }, 40_000);
 
 test("the corvi status CLI reports from the pty environment and fails without it", async () => {
   const { sessionId, incarnation } = await openWindow();
-  const cli = Bun.spawn(["bun", "apps/cli/src/main.ts", "--json", "status", "working", "--name", "pi", "--server", url], {
-    env: { ...process.env, CORVI_SESSION_ID: sessionId, CORVI_SESSION_INCARNATION: String(incarnation) },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const cli = Bun.spawn(
+    ["bun", "apps/cli/src/main.ts", "--json", "status", "working", "--name", "pi", "--server", url],
+    {
+      env: { ...process.env, CORVI_SESSION_ID: sessionId, CORVI_SESSION_INCARNATION: String(incarnation) },
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
   const [out, code] = await Promise.all([new Response(cli.stdout).text(), cli.exited]);
   expect(code).toBe(0);
   expect(JSON.parse(out.trim())).toMatchObject({ ok: true, status: "working" });
@@ -180,7 +195,12 @@ test("a reporter inside the pty updates the window and fires the notify edge onc
   try {
     await waitFor(
       "the server to watch for pages",
-      async () => ((await fetch(`${url}/api/events/listeners`).then((response) => response.json())) as { watching: boolean }).watching === true,
+      async () =>
+        (
+          (await fetch(`${url}/api/events/listeners`).then((response) => response.json())) as {
+            watching: boolean;
+          }
+        ).watching === true,
       15_000,
     );
     const { sessionId } = await openWindow();
@@ -218,7 +238,10 @@ test("a reporter inside the pty updates the window and fires the notify edge onc
 test("a status emitted as OSC presents through the presenter, and clear suppresses it", async () => {
   const { sessionId, incarnation } = await openWindow();
   const client = await hostClient();
-  const payload = Buffer.from(JSON.stringify({ status: "working", name: "pi", sessionName: "Osc session" }), "utf8").toString("base64");
+  const payload = Buffer.from(
+    JSON.stringify({ status: "working", name: "pi", sessionName: "Osc session" }),
+    "utf8",
+  ).toString("base64");
   client.write(sessionId, `printf '\\033]1337;corvi=${payload}\\007'; sleep 30\n`);
   await waitFor(
     "the OSC status to present",

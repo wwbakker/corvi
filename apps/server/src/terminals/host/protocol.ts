@@ -67,7 +67,12 @@ export type HostRequest =
   | ({ readonly type: "session.attach"; readonly id: string; readonly since?: number } & RequestBase)
   | ({ readonly type: "session.detach"; readonly id?: string } & RequestBase)
   | ({ readonly type: "session.write"; readonly id?: string; readonly data?: string } & RequestBase)
-  | ({ readonly type: "session.resize"; readonly id?: string; readonly cols?: number; readonly rows?: number } & RequestBase)
+  | ({
+      readonly type: "session.resize";
+      readonly id?: string;
+      readonly cols?: number;
+      readonly rows?: number;
+    } & RequestBase)
   | ({ readonly type: "session.kill"; readonly id?: string } & RequestBase)
   | ({ readonly type: "session.list" } & RequestBase);
 
@@ -80,7 +85,9 @@ const asNumber = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isFinite(value) ? value : undefined;
 
 const asStringArray = (value: unknown): string[] | undefined =>
-  Array.isArray(value) && value.every((item) => typeof item === "string") ? [...(value as string[])] : undefined;
+  Array.isArray(value) && value.every((item) => typeof item === "string")
+    ? [...(value as string[])]
+    : undefined;
 
 /** A string-to-string map for `env` and `metadata`: a non-string value drops the field. */
 const asStringMap = (value: unknown): Record<string, string> | undefined => {

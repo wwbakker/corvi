@@ -61,8 +61,8 @@ export function RepoBrowser({
     for (const { path } of selected) {
       if (branches[path]) continue;
       setBranches((known) => ({ ...known, [path]: { branches: [] } })); // claim it, fetch once
-      client
-        .repositories.branches(path)
+      client.repositories
+        .branches(path)
         .then((found) => setBranches((known) => ({ ...known, [path]: found })))
         .catch(() => {});
     }
@@ -100,9 +100,7 @@ export function RepoBrowser({
           <ul className="entries">
             {selected.map(({ path, location, branch, base, target }) => {
               const known = branches[path];
-              const names = known?.branches.length
-                ? known.branches
-                : [base ?? known?.default ?? "loading…"];
+              const names = known?.branches.length ? known.branches : [base ?? known?.default ?? "loading…"];
               const startFrom = base ?? known?.default ?? "";
               return (
                 <li key={path} className="selection">

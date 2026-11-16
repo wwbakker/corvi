@@ -1,9 +1,8 @@
+import { testTempDir } from "@corvi/test-support/temp";
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Effect, Result } from "effect";
-
 import {
   appendMessage,
   createInstance,
@@ -16,7 +15,6 @@ import {
   writeRecord,
 } from "../src/node/instance.ts";
 import type { SubagentRecord } from "../src/instance.ts";
-
 const record = (id: string): SubagentRecord => ({
   id,
   changeId: "change-1",
@@ -27,16 +25,14 @@ const record = (id: string): SubagentRecord => ({
   createdAt: "2026-01-01T00:00:00.000Z",
   log: [{ kind: "created", at: "2026-01-01T00:00:00.000Z" }],
 });
-
 const inTemp = async (body: (changeDir: string) => Promise<void>): Promise<void> => {
-  const root = await mkdtemp(join(tmpdir(), "agents-instance-"));
+  const root = await testTempDir("agents-instance");
   try {
     await body(join(root, "changes", "change-1"));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 };
-
 test("an instance is created, read back and listed", async () => {
   await inTemp(async (changeDir) => {
     await Effect.runPromise(createInstance(changeDir, record("s1")));
@@ -47,7 +43,6 @@ test("an instance is created, read back and listed", async () => {
     expect((await Effect.runPromise(listInstances(changeDir))).map((i) => i.id)).toEqual(["s1"]);
   });
 });
-
 test("listInstancesStrict fails where listInstances reads as empty", async () => {
   await inTemp(async (changeDir) => {
     // A regular file where the subagents directory would be: `readdir` rejects with ENOTDIR. The
@@ -61,7 +56,6 @@ test("listInstancesStrict fails where listInstances reads as empty", async () =>
     if (Result.isFailure(result)) expect(result.failure).toBeInstanceOf(SubagentStoreError);
   });
 });
-
 test("listInstancesStrict fails on a corrupt record where listInstances reads as empty", async () => {
   await inTemp(async (changeDir) => {
     const dir = instanceDir(changeDir, "s1");
@@ -80,7 +74,6 @@ test("listInstancesStrict fails on a corrupt record where listInstances reads as
     }
   });
 });
-
 test("removeInstance reports a typed store error when the directory cannot be removed", async () => {
   await inTemp(async (changeDir) => {
     // A regular file where the change directory should be makes `rm` reject with ENOTDIR rather
@@ -96,7 +89,6 @@ test("removeInstance reports a typed store error when the directory cannot be re
     }
   });
 });
-
 test("creating an instance twice is refused", async () => {
   await inTemp(async (changeDir) => {
     await Effect.runPromise(createInstance(changeDir, record("s1")));
@@ -105,7 +97,6 @@ test("creating an instance twice is refused", async () => {
     );
   });
 });
-
 test("messages are numbered sequentially, and concurrent appends cannot collide", async () => {
   await inTemp(async (changeDir) => {
     await Effect.runPromise(createInstance(changeDir, record("s1")));
@@ -128,7 +119,6 @@ test("messages are numbered sequentially, and concurrent appends cannot collide"
     expect(read?.messages.map((message) => message.number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 });
-
 test("a record patch is written atomically and read back", async () => {
   await inTemp(async (changeDir) => {
     await Effect.runPromise(createInstance(changeDir, record("s1")));

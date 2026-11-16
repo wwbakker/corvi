@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import { ensureHost } from "../apps/server/src/terminals/host/client.ts";
-import { checkoutsOf, runSh, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
+import { checkoutsOf, runSh, testTempDir, startTestServer, stopTestServer } from "./helpers.ts";
 
 /**
  * What a flood costs the rest of the server. A terminal screen is parsed and serialized on the
@@ -55,13 +55,7 @@ beforeAll(async () => {
   process.env.XDG_STATE_HOME = join(tmp, "state");
   const repo = join(tmp, "repo");
   await runSh(["git", "init", "-b", "main", repo]);
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    cwd: resolve("."),
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  baseUrl = await waitForUrl(server);
+  ({ server, url: baseUrl } = await startTestServer(tmp, { cwd: resolve("."), stderr: "pipe" }));
   await fetch(`${baseUrl}/api/changes`, {
     method: "POST",
     body: JSON.stringify({ id: CHANGE, checkouts: checkoutsOf([repo]) }),
@@ -69,16 +63,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
-  server?.kill();
-  await server?.exited;
-  await ensureHost({
-    socket: join(tmp, "state", "corvi", "host.sock"),
-    checkout: process.cwd(),
-    buildId: process.env.CORVI_BUILD ?? "dev",
-    runtime: "node",
-  })
-    .then((result) => result.client.shutdown())
-    .catch(() => undefined);
+  await stopTestServer(server, tmp);
   if (savedStateHome === undefined) delete process.env.XDG_STATE_HOME;
   else process.env.XDG_STATE_HOME = savedStateHome;
   await rm(tmp, { recursive: true, force: true });
@@ -112,9 +97,17 @@ test("switching between windows stays responsive while their screens paint", asy
   const second = await newPane();
   // Both screens paint continuously, so a switch has a full screen to serialize.
   const painting = await attach(first);
-  painting.send(Buffer.from("while :; do printf '\\033[2J\\033[H'; yes row | head -24; sleep 0.05; done\n") as unknown as ArrayBuffer);
+  painting.send(
+    Buffer.from(
+      "while :; do printf '\\033[2J\\033[H'; yes row | head -24; sleep 0.05; done\n",
+    ) as unknown as ArrayBuffer,
+  );
   const other = await attach(second);
-  other.send(Buffer.from("while :; do printf '\\033[2J\\033[H'; yes row | head -24; sleep 0.05; done\n") as unknown as ArrayBuffer);
+  other.send(
+    Buffer.from(
+      "while :; do printf '\\033[2J\\033[H'; yes row | head -24; sleep 0.05; done\n",
+    ) as unknown as ArrayBuffer,
+  );
   await Bun.sleep(500);
   painting.close();
   other.close();
@@ -131,7 +124,9 @@ test("switching between windows stays responsive while their screens paint", asy
 }, 60_000);
 
 test("a rename is refused without its window or its title, and keeps a title when it has both", async () => {
-  const listed = (await (await fetch(`${baseUrl}/api/changes/${CHANGE}/terminal/windows`)).json()) as { id: string }[];
+  const listed = (await (await fetch(`${baseUrl}/api/changes/${CHANGE}/terminal/windows`)).json()) as {
+    id: string;
+  }[];
   const window = listed[0]!.id;
   const post = (body: unknown): Promise<Response> =>
     fetch(`${baseUrl}/api/changes/${CHANGE}/terminal/windows`, {
@@ -151,5 +146,8 @@ test("a rename is refused without its window or its title, and keeps a title whe
   const named = await post({ action: "rename", window, title: "Load window" });
   expect(named.status).toBe(200);
   const after = (await named.json()) as { id: string; label: string; title?: string }[];
-  expect(after.find((entry) => entry.id === window)).toMatchObject({ label: "Load window", title: "Load window" });
+  expect(after.find((entry) => entry.id === window)).toMatchObject({
+    label: "Load window",
+    title: "Load window",
+  });
 });

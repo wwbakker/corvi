@@ -50,17 +50,21 @@ function Diff({ text }: { text: string }): JSX.Element {
     <pre className="diff">
       {text.split("\n").map((line, i) => {
         // Order matters: +++ and --- are file headers, not added and removed lines.
-        const kind = line.startsWith("+++") || line.startsWith("---")
-          ? "meta"
-          : line.startsWith("@@")
-            ? "hunk"
-            : line.startsWith("+")
-              ? "add"
-              : line.startsWith("-")
-                ? "del"
-                : line.startsWith("diff ") || line.startsWith("index ") || line.startsWith("new ") || line.startsWith("deleted ")
-                  ? "meta"
-                  : "context";
+        const kind =
+          line.startsWith("+++") || line.startsWith("---")
+            ? "meta"
+            : line.startsWith("@@")
+              ? "hunk"
+              : line.startsWith("+")
+                ? "add"
+                : line.startsWith("-")
+                  ? "del"
+                  : line.startsWith("diff ") ||
+                      line.startsWith("index ") ||
+                      line.startsWith("new ") ||
+                      line.startsWith("deleted ")
+                    ? "meta"
+                    : "context";
         return (
           <span key={i} className={`line ${kind}`}>
             {line || " "}
@@ -89,11 +93,7 @@ function FileRow({
   const tone = { A: "add", "?": "add", D: "del", R: "move", C: "move", U: "conflict" }[letter] ?? "mod";
   return (
     // The full path in the tooltip, since the row may have had to shorten it.
-    <button
-      className={selected ? "file selected" : "file"}
-      title={file.path}
-      onClick={onSelect}
-    >
+    <button className={selected ? "file selected" : "file"} title={file.path} onClick={onSelect}>
       <span className={`mark ${tone}`}>{letter}</span>
       <span className="name">{parts.pop()}</span>
       {/* The directory is dimmed: two files with the same name are told apart by it, and it is
@@ -137,9 +137,7 @@ export const summarise = (status?: LocalStatus): { text: string; state: string }
   // Committed but nowhere else: worth saying even when the working tree is clean, because a
   // clean repository with unpushed commits looks finished and is not.
   if (status.unpushed > 0) parts.push(`${status.unpushed} unpushed`);
-  return parts.length === 0
-    ? { text: "clean", state: "ok" }
-    : { text: parts.join(", "), state: "pending" };
+  return parts.length === 0 ? { text: "clean", state: "ok" } : { text: parts.join(", "), state: "pending" };
 };
 
 /**
@@ -154,13 +152,7 @@ export const summarise = (status?: LocalStatus): { text: string; state: string }
  * This is the review extension's change tab; the change it is about and its workspace arrive
  * through the tab contract.
  */
-export function LocalPane({
-  change,
-  workspace,
-}: {
-  change: Change;
-  workspace?: string;
-}): JSX.Element {
+export function LocalPane({ change, workspace }: { change: Change; workspace?: string }): JSX.Element {
   const wire = useChangeWireClient();
   const changeId = change.id;
   const repos = repoPathsOf(change);
@@ -228,7 +220,15 @@ export function LocalPane({
       .request("GET", url(`/ext/review/changes/${changeId}/local/diff?${query}`, workspace), TextSchema)
       .then((r) => setDiff(r.text ?? ""))
       .catch((e: Error) => setError(e.message));
-  }, [changeId, selected?.repo, selected?.file, selected?.staged, selected?.untracked, fingerprint, workspace]);
+  }, [
+    changeId,
+    selected?.repo,
+    selected?.file,
+    selected?.staged,
+    selected?.untracked,
+    fingerprint,
+    workspace,
+  ]);
 
   // The shelf the diff pane shows: its patch, read when it is picked.
   useEffect(() => {
@@ -249,9 +249,14 @@ export function LocalPane({
     setError(null);
     setNotice(null);
     wire
-      .request("POST", url(`/ext/review/changes/${changeId}/shelves/apply`, workspace), ApplyShelfResultSchema, {
-        body: { shelf: shelf.id },
-      })
+      .request(
+        "POST",
+        url(`/ext/review/changes/${changeId}/shelves/apply`, workspace),
+        ApplyShelfResultSchema,
+        {
+          body: { shelf: shelf.id },
+        },
+      )
       .then((outcome) => {
         const said = applied(shelf, outcome);
         if (said.error) setError(said.text);
@@ -299,12 +304,9 @@ export function LocalPane({
     setError(null);
     setNotice(null);
     wire
-      .request(
-        "POST",
-        url(`/ext/review/changes/${changeId}/push`, workspace),
-        commitResultsSchema,
-        { body: { repos: behind.map((s) => s.repo) } },
-      )
+      .request("POST", url(`/ext/review/changes/${changeId}/push`, workspace), commitResultsSchema, {
+        body: { repos: behind.map((s) => s.repo) },
+      })
       .then((results) => {
         const failed = results.filter((r) => !r.ok);
         // The failures are the news; the successes are visible in the counts going away.
@@ -363,7 +365,9 @@ export function LocalPane({
             setSelected(null); // the file it was showing is shelved now
             if (result._tag === "Shelved") {
               const count = result.shelf.files.length;
-              setNotice(`${result.shelf.repository}: ${count} file${count === 1 ? "" : "s"} shelved as "${result.shelf.name}"`);
+              setNotice(
+                `${result.shelf.repository}: ${count} file${count === 1 ? "" : "s"} shelved as "${result.shelf.name}"`,
+              );
             } else setNotice("nothing uncommitted to shelve");
             setReload((n) => n + 1);
           }}
@@ -404,9 +408,7 @@ export function LocalPane({
                   file={file}
                   staged={staged}
                   selected={
-                    selected?.repo === repo &&
-                    selected.file === file.path &&
-                    selected.staged === staged
+                    selected?.repo === repo && selected.file === file.path && selected.staged === staged
                   }
                   onSelect={() => {
                     setViewing(null);
@@ -460,7 +462,11 @@ export function LocalPane({
                         Delete for good
                       </button>
                     ) : (
-                      <button type="button" disabled={busyShelf !== null} onClick={() => setDeleting(shelf.id)}>
+                      <button
+                        type="button"
+                        disabled={busyShelf !== null}
+                        onClick={() => setDeleting(shelf.id)}
+                      >
                         Delete
                       </button>
                     )}

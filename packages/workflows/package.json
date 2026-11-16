@@ -14,5 +14,8 @@
     "@corvi/contracts": "workspace:*",
     "@corvi/repositories": "workspace:*",
     "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@corvi/test-support": "workspace:*"
   }
 }

@@ -13,7 +13,7 @@ import {
 import { listActionsFor } from "../apps/server/src/actions/server/run.ts";
 import type { Change } from "@corvi/changes/record";
 import { configPath, reloadConfig } from "../apps/server/src/workspace/server/index.ts";
-import { checkoutsOf, runEffect, runSh, testTempDir } from "./helpers.ts";
+import { checkoutsOf, runEffect, runSh, testTempDir, gitRepo } from "./helpers.ts";
 
 /** The change the listing is asked about: its phase is what the filter reads. */
 const changeWith = (over: Partial<Change> = {}): Change => ({
@@ -47,21 +47,15 @@ test("the page lists the shipped actions and the workspaces that can hold files"
 });
 
 test("a written file is listed with its label; one that is not an action is refused with reasons", async () => {
-  const after = await runEffect(
-    writeActionFile({ scope: "global", id: "say-hello", text: sayHello }),
-  );
+  const after = await runEffect(writeActionFile({ scope: "global", id: "say-hello", text: sayHello }));
   const found = after.files.find((f) => f.id === "say-hello");
   expect(found?.label).toBe("Say hello");
   expect(found?.scope).toBe("global");
   // The list is read from disk, not from memory.
-  expect(await readFile(join(dirname(configPath()), "actions", "say-hello.md"), "utf8")).toBe(
-    sayHello,
-  );
+  expect(await readFile(join(dirname(configPath()), "actions", "say-hello.md"), "utf8")).toBe(sayHello);
 
   await expect(
-    runEffect(
-      writeActionFile({ scope: "global", id: "broken", text: "---\nkind: command\n---\nrm -rf\n" }),
-    ),
+    runEffect(writeActionFile({ scope: "global", id: "broken", text: "---\nkind: command\n---\nrm -rf\n" })),
   ).rejects.toThrow("label: required");
   const listing = await runEffect(actionFiles());
   expect(listing.files.find((f) => f.id === "broken")).toBeUndefined();
@@ -125,9 +119,9 @@ test("the built-in brief shows the text that runs, and a shadowing brief.md repl
 
   // Deleting the shadow brings the chain back — and the page shows the running text again.
   const restored = await runEffect(deleteActionFile({ scope: "global", id: "brief" }));
-  expect(
-    restored.files.find((f) => f.id === "brief" && f.scope === "builtin")?.text,
-  ).toContain("legacy briefing {id}");
+  expect(restored.files.find((f) => f.id === "brief" && f.scope === "builtin")?.text).toContain(
+    "legacy briefing {id}",
+  );
 
   await writeFile(configPath(), "{}");
   await runEffect(reloadConfig);
@@ -135,17 +129,9 @@ test("the built-in brief shows the text that runs, and a shadowing brief.md repl
 
 /** A real checkout, as the repository scope needs one: `checkoutFor` resolves the worktree on
  * the change's own branch, and a committed `git init -b <branch>` repo is its own worktree. */
-const repoFixture = async (name: string, branch: string): Promise<string> => {
-  const dir = join(own, name);
-  await runSh(["git", "init", "-b", branch, dir]);
-  await writeFile(join(dir, "README.md"), "hi\n");
-  await runSh(["git", "add", "."], dir);
-  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], dir);
-  return dir;
-};
 
 test("a repository action is listed, written and deleted through its checkout", async () => {
-  const repo = await repoFixture("repo-actions", "PROJ-repo-actions");
+  const repo = await gitRepo(own, "repo-actions", { branch: "PROJ-repo-actions" });
   const change = changeWith({ branch: "PROJ-repo-actions", checkouts: checkoutsOf([repo]) });
   // The checkout's own files are listed under the repository's name — problems and all.
   await mkdir(join(repo, ".corvi", "actions"), { recursive: true });

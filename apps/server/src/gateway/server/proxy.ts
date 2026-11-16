@@ -11,6 +11,7 @@ import { runtimeConfig } from "../../capabilities/runtime.ts";
 import { frameOf, type Server, type ServerWebSocket } from "../../capabilities/serve.ts";
 import type { RemoteObservation } from "../../remote-events/model.ts";
 import type { GatewayTimeouts } from "./timeouts.ts";
+import { REDIRECT_STATUSES, parseHttpUrl } from "../../capabilities/url.ts";
 
 /** A remote workspace's target: where it lives and the token this client presents there. */
 export type RemoteTarget = { readonly baseUrl: string; readonly token?: string };
@@ -21,15 +22,6 @@ export type ResolvedRemote =
   | { readonly kind: "ok"; readonly target: RemoteTarget }
   | { readonly kind: "missing" }
   | { readonly kind: "invalid" };
-
-const parseHttpUrl = (value: string): URL | undefined => {
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:" ? url : undefined;
-  } catch {
-    return undefined;
-  }
-};
 
 /** Resolve a source id to its remote target. Unknown, local, or a source with no `remote` is
  * `missing`; a url that is not http(s) is `invalid`. The scheme is checked here, before any
@@ -56,8 +48,6 @@ export const upstreamUrl = (target: RemoteTarget, rest: string, search: string):
 };
 
 /** Statuses `fetch` would follow; the gateway refuses them instead. */
-const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
-
 /** The headers a proxy owns and never forwards. */
 const HOP_BY_HOP = new Set([
   "connection",

@@ -37,12 +37,30 @@ import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
 import type { Capabilities } from "../apps/server/src/integrations/api/capabilities.ts";
-import { BusLive, CacheLive, ChangesLive, GitFactsLive, SettingsLive, capabilitiesLayer, extensionStoreLayer } from "../apps/server/src/integrations/services.ts";
+import {
+  BusLive,
+  CacheLive,
+  ChangesLive,
+  GitFactsLive,
+  SettingsLive,
+  capabilitiesLayer,
+  extensionStoreLayer,
+} from "../apps/server/src/integrations/services.ts";
 import { createChange, readChange, writeChange } from "../apps/server/src/change/server/index.ts";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
 import type { Change } from "@corvi/changes/record";
-import { checkoutsOf, fakeShell, forgetRateLimit, runSwr, runWithShell, runWithShellWithTestClock, testTempDir, type FakeShell  } from "./helpers.ts";
+import {
+  checkoutsOf,
+  fakeShell,
+  forgetRateLimit,
+  runSwr,
+  runWithShell,
+  runWithShellWithTestClock,
+  testTempDir,
+  type FakeShell,
+  failureOf,
+} from "./helpers.ts";
 
 /**
  * `@corvi/github/client` and the github-issues extension, driven through the fake-Shell
@@ -136,9 +154,7 @@ const ghShell = (opts: GhShellOptions): FakeShell => {
     if (custom !== undefined) return custom;
     if (cmd[0] === "git") {
       if (line === "git worktree list --porcelain") {
-        return opts.noWorktree
-          ? ""
-          : `worktree ${opts.repo}\nHEAD abc\nbranch refs/heads/${branch}\n`;
+        return opts.noWorktree ? "" : `worktree ${opts.repo}\nHEAD abc\nbranch refs/heads/${branch}\n`;
       }
       if (line === "git status --porcelain=v2 --branch") {
         return `# branch.head ${branch}\n# branch.upstream ${upstream}\n# branch.ab +0 -0\n`;
@@ -170,10 +186,7 @@ const ghShell = (opts: GhShellOptions): FakeShell => {
 };
 
 /** Run a core github.ts effect with a fake Shell, capturing a failure instead of rejecting. */
-const runEither = <A, E, R>(
-  shell: FakeShell,
-  effect: Effect.Effect<A, E, R>,
-): Promise<Result.Result<A, E>> =>
+const runEither = <A, E, R>(shell: FakeShell, effect: Effect.Effect<A, E, R>): Promise<Result.Result<A, E>> =>
   Effect.runPromise(
     Effect.result(
       Effect.provide(
@@ -183,7 +196,8 @@ const runEither = <A, E, R>(
           Layer.succeed(WorkspaceTag, workspaceById(undefined)),
           CacheLive,
           SettingsLive,
-          ChangesLive, GitFactsLive,
+          ChangesLive,
+          GitFactsLive,
         ),
       ),
     ),
@@ -196,21 +210,19 @@ const extLayer = (shell: FakeShell): Layer.Layer<Capabilities> =>
     CacheLive,
     SettingsLive,
     BusLive,
-    ChangesLive, GitFactsLive,
+    ChangesLive,
+    GitFactsLive,
     Layer.succeed(WorkspaceTag, workspaceById(undefined)),
     extensionStoreLayer("test"),
   );
 
-const runExtension = <A, E>(
-  shell: FakeShell,
-  effect: Effect.Effect<A, E, Capabilities>,
-): Promise<A> => Effect.runPromise(Effect.provide(effect, extLayer(shell)));
+const runExtension = <A, E>(shell: FakeShell, effect: Effect.Effect<A, E, Capabilities>): Promise<A> =>
+  Effect.runPromise(Effect.provide(effect, extLayer(shell)));
 
 const runExtensionEither = <A, E>(
   shell: FakeShell,
   effect: Effect.Effect<A, E, Capabilities>,
-): Promise<Result.Result<A, E>> =>
-  Effect.runPromise(Effect.result(Effect.provide(effect, extLayer(shell))));
+): Promise<Result.Result<A, E>> => Effect.runPromise(Effect.result(Effect.provide(effect, extLayer(shell))));
 
 test("an existing remote-qualified selection looks up the PR for its attached local branch", async () => {
   const repo = await testTempDir("gh-existing-branch");
@@ -226,9 +238,13 @@ test("an existing remote-qualified selection looks up the PR for its attached lo
         return undefined;
       },
     });
-    const selected = change({ checkouts: [{ path: repo, location: "new", branch: { kind: "existing", name: "origin/feature" } }] });
+    const selected = change({
+      checkouts: [{ path: repo, location: "new", branch: { kind: "existing", name: "origin/feature" } }],
+    });
     expect(await runWithShell(shell, prSummary(selected, repo))).toMatchObject({ number: 7 });
-    expect(shell.calls.some((call) => call.cmd.join(" ").startsWith("gh pr list --head feature "))).toBe(true);
+    expect(shell.calls.some((call) => call.cmd.join(" ").startsWith("gh pr list --head feature "))).toBe(
+      true,
+    );
     expect(shell.calls.some((call) => call.cmd.join(" ").includes("origin/feature@{upstream}"))).toBe(false);
   } finally {
     await rm(repo, { recursive: true, force: true });
@@ -280,9 +296,7 @@ test("repoFromUrl: only a pull request URL names a repository", () => {
 test("waitingOnYou: no readable author is still waiting on you", () => {
   // No comments object at all: the safe answer to "is this yours?" is yes.
   expect(waitingOnYou([{ isResolved: false }], "me")).toBe(1);
-  expect(
-    waitingOnYou([{ isResolved: false, comments: { nodes: [{ author: null }] } }], "me"),
-  ).toBe(1);
+  expect(waitingOnYou([{ isResolved: false, comments: { nodes: [{ author: null }] } }], "me")).toBe(1);
   // A resolved thread is done, whoever spoke last.
   expect(waitingOnYou([{ isResolved: true }], undefined)).toBe(0);
 });
@@ -360,8 +374,10 @@ test("prSummary: a rate-limited threads read is not stored as the answer", async
 
 test("prSummary says nothing when there is no worktree or no pull request", async () => {
   const noWt = "/repos/summary-nowt";
-  expect(await runWithShell(ghShell({ repo: noWt, noWorktree: true }), prSummary(change(), noWt)))
-    .toEqual({ unresolved: 0, checks: "none" });
+  expect(await runWithShell(ghShell({ repo: noWt, noWorktree: true }), prSummary(change(), noWt))).toEqual({
+    unresolved: 0,
+    checks: "none",
+  });
 
   const noPr = "/repos/summary-nopr";
   expect(await runWithShell(ghShell({ repo: noPr, prs: [] }), prSummary(change(), noPr))).toEqual({
@@ -387,7 +403,10 @@ test("prSummary colours the dot by the checks and zeroes a closed pull request's
   const failing = "/repos/summary-failing";
   expect(
     await runWithShell(
-      ghShell({ repo: failing, prs: [pr({ statusCheckRollup: [{ conclusion: "FAILURE" }, { state: "PENDING" }] })] }),
+      ghShell({
+        repo: failing,
+        prs: [pr({ statusCheckRollup: [{ conclusion: "FAILURE" }, { state: "PENDING" }] })],
+      }),
       prSummary(change(), failing),
     ),
   ).toMatchObject({ checks: "error" });
@@ -431,7 +450,11 @@ test("prItem: a gh error with empty stderr still gets a sentence, not an empty r
   const repo = "/repos/item-silent";
   const shell = ghShell({ repo, prListCode: 1, prListStderr: "" });
   const { item } = await runWithShell(shell, prItem(change(), repo));
-  expect(item).toMatchObject({ label: "pull request", detail: "gh pr list exited with code 1", state: "error" });
+  expect(item).toMatchObject({
+    label: "pull request",
+    detail: "gh pr list exited with code 1",
+    state: "error",
+  });
 });
 
 test("prItem: no worktree and no pull request are different rows", async () => {
@@ -544,41 +567,73 @@ test("mergeReadiness names every reason a pull request is not ready", async () =
     expect(await runWithShell(shell, mergeReadiness(change(), repo))).toEqual(expected);
   };
 
-  await check("mr-nowt", { noWorktree: true }, { ready: false, reason: "mr-nowt: no worktree", kind: "forceable" });
-  await check("mr-nopr", { prs: [] }, { ready: false, reason: "mr-nopr: no pull request", kind: "forceable" });
+  await check(
+    "mr-nowt",
+    { noWorktree: true },
+    { ready: false, reason: "mr-nowt: no worktree", kind: "forceable" },
+  );
+  await check(
+    "mr-nopr",
+    { prs: [] },
+    { ready: false, reason: "mr-nopr: no pull request", kind: "forceable" },
+  );
   await check("mr-merged", { prs: [pr({ state: "MERGED" })] }, { ready: true, merged: true });
-  await check("mr-closed", { prs: [pr({ state: "CLOSED" })] }, {
-    ready: false,
-    reason: "mr-closed: pull request is closed",
-    kind: "forceable",
-  });
-  await check("mr-draft", { prs: [pr({ isDraft: true })] }, {
-    ready: false,
-    reason: "mr-draft: pull request is a draft",
-    kind: "forceable",
-  });
-  await check("mr-conflict", { prs: [pr({ mergeable: "CONFLICTING" })] }, {
-    ready: false,
-    reason: "mr-conflict: conflicts",
-    kind: "forceable",
-  });
-  await check("mr-review", { prs: [pr({ reviewDecision: "REVIEW_REQUIRED" })] }, {
-    ready: false,
-    reason: "mr-review: not approved (review required)",
-    kind: "forceable",
-  });
+  await check(
+    "mr-closed",
+    { prs: [pr({ state: "CLOSED" })] },
+    {
+      ready: false,
+      reason: "mr-closed: pull request is closed",
+      kind: "forceable",
+    },
+  );
+  await check(
+    "mr-draft",
+    { prs: [pr({ isDraft: true })] },
+    {
+      ready: false,
+      reason: "mr-draft: pull request is a draft",
+      kind: "forceable",
+    },
+  );
+  await check(
+    "mr-conflict",
+    { prs: [pr({ mergeable: "CONFLICTING" })] },
+    {
+      ready: false,
+      reason: "mr-conflict: conflicts",
+      kind: "forceable",
+    },
+  );
+  await check(
+    "mr-review",
+    { prs: [pr({ reviewDecision: "REVIEW_REQUIRED" })] },
+    {
+      ready: false,
+      reason: "mr-review: not approved (review required)",
+      kind: "forceable",
+    },
+  );
   // A decision GitHub spells with underscores reads as words.
-  await check("mr-changes", { prs: [pr({ reviewDecision: "CHANGES_REQUESTED" })] }, {
-    ready: false,
-    reason: "mr-changes: not approved (changes requested)",
-    kind: "forceable",
-  });
+  await check(
+    "mr-changes",
+    { prs: [pr({ reviewDecision: "CHANGES_REQUESTED" })] },
+    {
+      ready: false,
+      reason: "mr-changes: not approved (changes requested)",
+      kind: "forceable",
+    },
+  );
   // No review decision: the repository requires no review, so the pull request can merge as is.
-  await check("mr-noreview", { prs: [pr({ reviewDecision: null })] }, {
-    ready: true,
-    merged: false,
-    number: 7,
-  });
+  await check(
+    "mr-noreview",
+    { prs: [pr({ reviewDecision: null })] },
+    {
+      ready: true,
+      merged: false,
+      number: 7,
+    },
+  );
   await check("mr-approved", { prs: [pr()] }, { ready: true, merged: false, number: 7 });
 });
 
@@ -642,10 +697,7 @@ test("prItem: a warm display read under a shut gate keeps its number and says th
 
   // So the repository's row still carries the checks' warn row beneath it.
   const card = github.cards[0]!;
-  const rows = await runWithShell(
-    shell,
-    card.repoStatus!(change({ checkouts: checkoutsOf([repo]) }), repo),
-  );
+  const rows = await runWithShell(shell, card.repoStatus!(change({ checkouts: checkoutsOf([repo]) }), repo));
   const prRow = rows[0]!.children![0]!;
   expect(prRow).toMatchObject({ state: "warn", label: "#7 Do the thing" });
   expect(prRow.children?.[0]).toMatchObject({ label: "checks", state: "warn" });
@@ -691,7 +743,13 @@ test("cachedReadiness: a warm display read does not outlive the token", async ()
     ready: false,
     kind: "hard",
   });
-  expect(limited.calls.some((call) => call.cmd.join(" ") === "gh pr list --head feature --state all --limit 1 --json number,title,url,state,isDraft,reviewDecision,mergeable,statusCheckRollup")).toBe(true);
+  expect(
+    limited.calls.some(
+      (call) =>
+        call.cmd.join(" ") ===
+        "gh pr list --head feature --state all --limit 1 --json number,title,url,state,isDraft,reviewDecision,mergeable,statusCheckRollup",
+    ),
+  ).toBe(true);
 
   // The poll must not answer "ready" from the warm entry while the gate is shut — and it must not
   // ask GitHub, nor even read the cache, to know it.
@@ -734,10 +792,7 @@ test("cachedReadiness: a shut REST budget leaves the GraphQL display read alone"
   expect(await runEither(shell, gh(["gh", "api", "repos/org/repo"]))).toMatchObject({
     _tag: "Failure",
   });
-  const [core, graphql] = await runWithShell(
-    shell,
-    Effect.all([refusalNow("core"), refusalNow("graphql")]),
-  );
+  const [core, graphql] = await runWithShell(shell, Effect.all([refusalNow("core"), refusalNow("graphql")]));
   expect(Option.isSome(core)).toBe(true);
   expect(Option.isNone(graphql)).toBe(true);
 
@@ -747,8 +802,9 @@ test("cachedReadiness: a shut REST budget leaves the GraphQL display read alone"
     merged: false,
     number: 7,
   });
-  expect(shell.calls.map((call) => call.cmd.join(" ")).some((line) => line.startsWith("gh pr list")))
-    .toBe(true);
+  expect(shell.calls.map((call) => call.cmd.join(" ")).some((line) => line.startsWith("gh pr list"))).toBe(
+    true,
+  );
   forgetRateLimit();
 });
 
@@ -758,8 +814,7 @@ test("a repository without the stacks preview pays two queries per details refre
   // whose stacks preview is off gives every time.
   const shell = ghShell({ repo, prs: [pr()], stackQueryFails: true, details: { data: {} } });
   const details = (): number =>
-    shell.calls.map((call) => call.cmd.join(" ")).filter((line) => line.startsWith("gh api graphql"))
-      .length;
+    shell.calls.map((call) => call.cmd.join(" ")).filter((line) => line.startsWith("gh api graphql")).length;
 
   const read = Effect.gen(function* () {
     yield* prSummary(change(), repo);
@@ -844,8 +899,9 @@ test("cachedReadiness reads the display answer the cards already have", async ()
   expect(first).toEqual({ ready: true, merged: false, number: 7 });
   expect(second).toEqual(first);
   // The display read is shared inside its TTL, so the second poll cost no `gh` at all.
-  expect(shell.calls.map((c) => c.cmd.join(" ")).filter((line) => line.startsWith("gh pr list")))
-    .toHaveLength(1);
+  expect(
+    shell.calls.map((c) => c.cmd.join(" ")).filter((line) => line.startsWith("gh pr list")),
+  ).toHaveLength(1);
 });
 
 test("mergePr: a plain pull request is squash-merged through gh", async () => {
@@ -868,9 +924,7 @@ test("mergePr: a stacked pull request goes through the asynchronous merge", asyn
     },
   });
   // Enqueued is an ending with a note: the queue owns the merge from here.
-  expect(await runWithShell(shell, mergePr(change(), repo, 7))).toBe(
-    "merge-2 #7: added to the merge queue",
-  );
+  expect(await runWithShell(shell, mergePr(change(), repo, 7))).toBe("merge-2 #7: added to the merge queue");
 });
 
 test("mergePr: an immediately merged stack reports no note", async () => {
@@ -900,7 +954,10 @@ test("mergePr: a stack that cannot start the merge fails with what GitHub said",
   });
   const either = await runEither(shell, mergePr(change(), repo, 7));
   expect(Result.isFailure(either)).toBe(true);
-  if (Result.isFailure(either)) expect(either.failure.message).toContain("could not start the merge of #7");
+  {
+    const failure = failureOf(either);
+    expect(failure.message).toContain("could not start the merge of #7");
+  }
 });
 
 test("mergePr: a gated stack question is the answer, not a guess about stacking", async () => {
@@ -921,7 +978,10 @@ test("mergePr: a gated stack question is the answer, not a guess about stacking"
   const either = await runEither(shell, mergePr(change(), repo, 7));
   expect(Result.isFailure(either)).toBe(true);
   // Not "not stacked, so try squashing": the merge gh would attempt spends the same budget.
-  if (Result.isFailure(either)) expect(either.failure._tag).toBe("GitHubRateLimited");
+  {
+    const failure = failureOf(either);
+    expect(failure._tag).toBe("GitHubRateLimited");
+  }
   expect(shell.calls.map((c) => c.cmd.join(" "))).not.toContain("gh pr merge 7 --squash");
   forgetRateLimit();
 });
@@ -953,12 +1013,15 @@ test("mergePr: a gated confirmation says which merge is unaccounted for", async 
 
   const either = await runEither(shell, mergePr(change(), repo, 7));
   expect(Result.isFailure(either)).toBe(true);
-  if (Result.isFailure(either)) {
-    // Neither "still running" nor "not merged": what is unknown, and when GitHub answers again.
-    expect(either.failure._tag).toBe("BadRequestError");
-    expect(either.failure.message).toMatch(
-      /^could not confirm the merge of #7: GitHub rate limit reached; resets at \d\d:\d\d UTC \(in \d+ minutes\)$/,
-    );
+  {
+    const failure = failureOf(either);
+    {
+      // Neither "still running" nor "not merged": what is unknown, and when GitHub answers again.
+      expect(failure._tag).toBe("BadRequestError");
+      expect(failure.message).toMatch(
+        /^could not confirm the merge of #7: GitHub rate limit reached; resets at \d\d:\d\d UTC \(in \d+ minutes\)$/,
+      );
+    }
   }
   forgetRateLimit();
 });
@@ -988,16 +1051,17 @@ test("mergePr: a gated poll says which merge is unaccounted for", async () => {
 
   const either = await runEither(shell, mergePr(change(), repo, 7));
   expect(Result.isFailure(either)).toBe(true);
-  if (Result.isFailure(either)) {
-    expect(either.failure._tag).toBe("BadRequestError");
-    expect(either.failure.message).toMatch(
-      /^could not confirm the merge of #7: GitHub rate limit reached; resets at \d\d:\d\d UTC \(in \d+ minutes\)$/,
-    );
+  {
+    const failure = failureOf(either);
+    {
+      expect(failure._tag).toBe("BadRequestError");
+      expect(failure.message).toMatch(
+        /^could not confirm the merge of #7: GitHub rate limit reached; resets at \d\d:\d\d UTC \(in \d+ minutes\)$/,
+      );
+    }
   }
   // The pull request was never asked to confirm either: the same budget is shut.
-  expect(shell.calls.map((c) => c.cmd.join(" "))).not.toContain(
-    "gh api repos/org/repo/pulls/7 -q .merged",
-  );
+  expect(shell.calls.map((c) => c.cmd.join(" "))).not.toContain("gh api repos/org/repo/pulls/7 -q .merged");
   forgetRateLimit();
 });
 
@@ -1005,7 +1069,10 @@ test("mergePr: no worktree is a bad request before any merge is attempted", asyn
   const repo = "/repos/merge-nowt";
   const either = await runEither(ghShell({ repo, noWorktree: true }), mergePr(change(), repo, 7));
   expect(Result.isFailure(either)).toBe(true);
-  if (Result.isFailure(either)) expect(either.failure._tag).toBe("BadRequestError");
+  {
+    const failure = failureOf(either);
+    expect(failure._tag).toBe("BadRequestError");
+  }
 });
 
 // --- Creating a pull request ------------------------------------------------------------------
@@ -1037,7 +1104,9 @@ test("createPr targets the base branch and ties the new pull request into its st
   await runWithShell(
     shell,
     createPr(
-      change({ checkouts: [{ path: repo, location: "new", branch: { kind: "change" }, base: "origin/PROJ-0" }] }),
+      change({
+        checkouts: [{ path: repo, location: "new", branch: { kind: "change" }, base: "origin/PROJ-0" }],
+      }),
       repo,
     ),
   );
@@ -1062,7 +1131,10 @@ test("createPr: no worktree and a failed push both stop before a pull request ex
   });
   const failed = await runEither(shell, createPr(change(), repo));
   expect(Result.isFailure(failed)).toBe(true);
-  if (Result.isFailure(failed)) expect(failed.failure._tag).toBe("CliError");
+  {
+    const failure = failureOf(failed);
+    expect(failure._tag).toBe("CliError");
+  }
 });
 
 test("createPr forgets the change's cached pull-request reads", async () => {
@@ -1164,8 +1236,10 @@ test("listIssues: a repository not on GitHub has none, and gh is never asked", a
 test("listIssues: a failing or unreadable gh answer is no issues, not a failure", async () => {
   const failed = fakeShell({
     "git remote get-url origin": "https://github.com/owner/fail.git\n",
-    "gh issue list -R owner/fail --state open --limit 100 --json number,title,state,url,assignees,labels":
-      { code: 1, stderr: "boom" },
+    "gh issue list -R owner/fail --state open --limit 100 --json number,title,state,url,assignees,labels": {
+      code: 1,
+      stderr: "boom",
+    },
   });
   expect((await runExtension(failed, listIssues("/r/list-fail"))).issues).toEqual([]);
 
@@ -1197,8 +1271,10 @@ test("viewIssue flattens one issue and treats a missing or null answer as nothin
   });
 
   const missing = fakeShell({
-    "gh issue view 9 -R owner/name --json number,title,state,url,assignees,labels":
-      { code: 1, stderr: "not found" },
+    "gh issue view 9 -R owner/name --json number,title,state,url,assignees,labels": {
+      code: 1,
+      stderr: "not found",
+    },
   });
   expect(await runExtension(missing, viewIssue("owner/name", 9))).toBeUndefined();
 
@@ -1213,8 +1289,7 @@ test("viewIssue flattens one issue and treats a missing or null answer as nothin
 test("createIssue returns the issue it just made, read back by number", async () => {
   const shell = fakeShell({
     "git remote get-url origin": "https://github.com/owner/name.git\n",
-    "gh issue create -R owner/name -t New thing -b Some body":
-      "https://github.com/owner/name/issues/5\n",
+    "gh issue create -R owner/name -t New thing -b Some body": "https://github.com/owner/name/issues/5\n",
     "gh issue view 5 -R owner/name --json number,title,state,url,assignees,labels": JSON.stringify({
       number: 5,
       title: "New thing",
@@ -1233,8 +1308,10 @@ test("createIssue omits a blank body and falls back when the new issue cannot be
   const shell = fakeShell({
     "git remote get-url origin": "https://github.com/owner/name.git\n",
     "gh issue create -R owner/name -t Title": "https://github.com/owner/name/issues/6\n",
-    "gh issue view 6 -R owner/name --json number,title,state,url,assignees,labels":
-      { code: 1, stderr: "not yet" },
+    "gh issue view 6 -R owner/name --json number,title,state,url,assignees,labels": {
+      code: 1,
+      stderr: "not yet",
+    },
   });
   const created = await runExtension(shell, createIssue("/r/create-blank", "Title", "   "));
   // The read-back failed, so the fallback describes what was asked for and the URL gh printed,
@@ -1248,7 +1325,9 @@ test("createIssue omits a blank body and falls back when the new issue cannot be
     labels: [],
   });
   // Whitespace is not a body: no `-b` was passed.
-  expect(shell.calls.some((c) => c.cmd.join(" ") === "gh issue create -R owner/name -t Title -b    ")).toBe(false);
+  expect(shell.calls.some((c) => c.cmd.join(" ") === "gh issue create -R owner/name -t Title -b    ")).toBe(
+    false,
+  );
 });
 
 test("createIssue: a gated read-back still returns the issue it made", async () => {
@@ -1293,7 +1372,10 @@ test("createIssue: no GitHub remote, a failing gh and an unreadable URL are bad 
   });
   const refused = await runExtensionEither(failed, createIssue("/r/create-fail", "T", undefined));
   expect(Result.isFailure(refused) && refused.failure._tag).toBe("BadRequestError");
-  if (Result.isFailure(refused)) expect(refused.failure.message).toContain("no permission");
+  {
+    const failure = failureOf(refused);
+    expect(failure.message).toContain("no permission");
+  }
 
   const unreadable = fakeShell({
     "git remote get-url origin": "https://github.com/owner/name.git\n",
@@ -1301,7 +1383,10 @@ test("createIssue: no GitHub remote, a failing gh and an unreadable URL are bad 
   });
   const noNumber = await runExtensionEither(unreadable, createIssue("/r/create-nonum", "T", undefined));
   expect(Result.isFailure(noNumber)).toBe(true);
-  if (Result.isFailure(noNumber)) expect(noNumber.failure.message).toContain("could not read the new issue's number");
+  {
+    const failure = failureOf(noNumber);
+    expect(failure.message).toContain("could not read the new issue's number");
+  }
 });
 
 test("completing a change closes its issue with a word about where the work landed", async () => {
@@ -1310,11 +1395,11 @@ test("completing a change closes its issue with a word about where the work land
     "gh issue close 7 -R owner/name -c Completed in change D": { code: 0, stdout: "" },
   });
   const c = change({ id: "D", extensions: { "github-issues": { repo: "/r/close", number: 7 } } });
-  expect(await runExtension(shell, closeIssueOnComplete(c))).toBe(
-    "closed owner/name#7",
-  );
+  expect(await runExtension(shell, closeIssueOnComplete(c))).toBe("closed owner/name#7");
   expect(
-    shell.calls.some((call) => call.cmd.join(" ") === "gh issue close 7 -R owner/name -c Completed in change D"),
+    shell.calls.some(
+      (call) => call.cmd.join(" ") === "gh issue close 7 -R owner/name -c Completed in change D",
+    ),
   ).toBe(true);
 });
 
@@ -1368,8 +1453,10 @@ test("the card: a repository not on GitHub is an error, not a missing issue", as
 test("the card: an issue that is not there is named as not found", async () => {
   const shell = fakeShell({
     "git remote get-url origin": "https://github.com/owner/name.git\n",
-    "gh issue view 7 -R owner/name --json number,title,state,url,assignees,labels":
-      { code: 1, stderr: "no issue" },
+    "gh issue view 7 -R owner/name --json number,title,state,url,assignees,labels": {
+      code: 1,
+      stderr: "no issue",
+    },
   });
   const widget = await runExtension(shell, cardStatus(withRef("/r/card-nf", 7)));
   expect(widget).toMatchObject({ state: "error", summary: "issue not found: #7", items: [] });
@@ -1414,8 +1501,10 @@ test("the title source names only the changes with a readable linked issue", asy
       title: "From the issue",
       state: "OPEN",
     }),
-    "gh issue view 8 -R owner/name --json number,title,state,url,assignees,labels":
-      { code: 1, stderr: "gone" },
+    "gh issue view 8 -R owner/name --json number,title,state,url,assignees,labels": {
+      code: 1,
+      stderr: "gone",
+    },
   });
   const titles = await runExtension(
     shell,
@@ -1438,24 +1527,24 @@ test("the description heading names the issue and its title when there is one", 
       state: "OPEN",
     }),
   });
-  expect(
-    await runExtension(shell, githubIssuesDescriptionSection.heading(withRef("/r/desc", 7))),
-  ).toBe("owner/name#7 - Fix the thing");
+  expect(await runExtension(shell, githubIssuesDescriptionSection.heading(withRef("/r/desc", 7)))).toBe(
+    "owner/name#7 - Fix the thing",
+  );
   // No issue linked: nothing to head a section with.
-  expect(
-    await runExtension(fakeShell(), githubIssuesDescriptionSection.heading(change())),
-  ).toBeUndefined();
+  expect(await runExtension(fakeShell(), githubIssuesDescriptionSection.heading(change()))).toBeUndefined();
 });
 
 test("the description heading keeps the reference when the issue or repository cannot be read", async () => {
   const unreadable = fakeShell({
     "git remote get-url origin": "https://github.com/owner/name.git\n",
-    "gh issue view 7 -R owner/name --json number,title,state,url,assignees,labels":
-      { code: 1, stderr: "gone" },
+    "gh issue view 7 -R owner/name --json number,title,state,url,assignees,labels": {
+      code: 1,
+      stderr: "gone",
+    },
   });
-  expect(
-    await runExtension(unreadable, githubIssuesDescriptionSection.heading(withRef("/r/desc2", 7))),
-  ).toBe("owner/name#7");
+  expect(await runExtension(unreadable, githubIssuesDescriptionSection.heading(withRef("/r/desc2", 7)))).toBe(
+    "owner/name#7",
+  );
 
   const notGithub = fakeShell({ "git remote get-url origin": { code: 1, stderr: "none" } });
   expect(
@@ -1474,10 +1563,7 @@ test("the GET route lists a repository's issues", async () => {
     "gh issue list -R owner/name --state open --limit 100 --json number,title,state,url,assignees,labels":
       JSON.stringify([{ number: 1, title: "One", state: "OPEN" }]),
   });
-  const res = await runExtension(
-    shell,
-    getIssues.handler(new Request("http://x/issues?repo=/r/route-get")),
-  );
+  const res = await runExtension(shell, getIssues.handler(new Request("http://x/issues?repo=/r/route-get")));
   expect(await res.json()).toEqual({
     repository: "owner/name",
     issues: [{ number: 1, title: "One", state: "OPEN", url: undefined, assignees: [], labels: [] }],
@@ -1522,7 +1608,10 @@ test("the POST route refuses a missing repository, a blank title and an unreadab
   const blank = await runExtensionEither(
     fakeShell(),
     postIssues.handler(
-      new Request("http://x/issues", { method: "POST", body: JSON.stringify({ repo: "/r/x", title: "   " }) }),
+      new Request("http://x/issues", {
+        method: "POST",
+        body: JSON.stringify({ repo: "/r/x", title: "   " }),
+      }),
     ),
   );
   expect(Result.isFailure(blank) && blank.failure._tag).toBe("BadRequestError");
@@ -1542,18 +1631,12 @@ const putLink = githubIssues.routes!.find((r) => r.method === "PUT")!;
 /** The link route's effect, run as the dispatcher runs it: every capability provided, with the
  * extension's name bound to its `ExtensionStore`. */
 const runLink = <A, E>(effect: Effect.Effect<A, E, Capabilities>): Promise<A> =>
-  Effect.runPromise(
-    Effect.provide(effect, capabilitiesLayer(workspaceById(undefined), "github-issues")),
-  );
+  Effect.runPromise(Effect.provide(effect, capabilitiesLayer(workspaceById(undefined), "github-issues")));
 
 /** The same, capturing a refusal instead of rejecting with it. */
-const runLinkEither = <A, E>(
-  effect: Effect.Effect<A, E, Capabilities>,
-): Promise<Result.Result<A, E>> =>
+const runLinkEither = <A, E>(effect: Effect.Effect<A, E, Capabilities>): Promise<Result.Result<A, E>> =>
   Effect.runPromise(
-    Effect.result(
-      Effect.provide(effect, capabilitiesLayer(workspaceById(undefined), "github-issues")),
-    ),
+    Effect.result(Effect.provide(effect, capabilitiesLayer(workspaceById(undefined), "github-issues"))),
   );
 
 test("the link route repoints a change, and refOf reads the new ref", async () => {
@@ -1590,9 +1673,7 @@ test("the link route refuses a finished change: its completion already closed it
       extensions: { "github-issues": { repo: "/r/x", number: 7 } },
     }),
   );
-  await runLink(
-    writeChange({ ...created, state: "Completed", completedAt: "2026-01-02T00:00:00.000Z" }),
-  );
+  await runLink(writeChange({ ...created, state: "Completed", completedAt: "2026-01-02T00:00:00.000Z" }));
 
   const either = await runLinkEither(
     putLink.handler(
@@ -1603,10 +1684,11 @@ test("the link route refuses a finished change: its completion already closed it
       { id: "PROJ-GH-LINK-DONE" },
     ),
   );
-  if (Result.isFailure(either)) {
-    expect(either.failure._tag).toBe("BadRequestError");
-  } else {
-    throw new Error("expected the finished change to refuse the write");
+  {
+    const failure = failureOf(either);
+    {
+      expect(failure._tag).toBe("BadRequestError");
+    }
   }
   // The link stands as it was.
   expect(refOf((await runLink(readChange("PROJ-GH-LINK-DONE")))!)).toEqual({
@@ -1630,10 +1712,9 @@ test("the link route 404s an unknown change and refuses a body without a ref", a
   await runLink(createChange({ id: "PROJ-GH-LINK-KEY", checkouts: checkoutsOf(["/r/x"]) }));
   for (const body of [{ number: 8 }, { repo: "  " }, { repo: "/r/x" }, { repo: "/r/x", number: "8" }]) {
     const blank = await runLinkEither(
-      putLink.handler(
-        new Request("http://x/link", { method: "PUT", body: JSON.stringify(body) }),
-        { id: "PROJ-GH-LINK-KEY" },
-      ),
+      putLink.handler(new Request("http://x/link", { method: "PUT", body: JSON.stringify(body) }), {
+        id: "PROJ-GH-LINK-KEY",
+      }),
     );
     expect(Result.isFailure(blank) && blank.failure._tag).toBe("BadRequestError");
   }

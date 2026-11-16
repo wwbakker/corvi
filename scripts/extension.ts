@@ -85,8 +85,7 @@ async function occupant(path: string): Promise<"symlink" | "dir" | "file" | "non
 
 /** A directory is ours when its entry is one of our symlinks; a hand-made directory has a real
  * `index.ts` (or none at all) and is somebody else's. */
-const isOurs = async (path: string): Promise<boolean> =>
-  (await occupant(join(path, ENTRY))) === "symlink";
+const isOurs = async (path: string): Promise<boolean> => (await occupant(join(path, ENTRY))) === "symlink";
 
 /** The source files that make up the extension: the entry and every module beside it. */
 const sourceFiles = async (target: AgentTarget): Promise<string[]> =>
@@ -164,8 +163,7 @@ export async function install(
       ...(await sourceFiles(target)).map((file) => [file, join(target.source, file)] as const),
       ...(await sourceDirs(target)).map((dir) => [dir, join(target.source, dir)] as const),
     ]);
-    const same =
-      have.size === want.size && [...want].every(([file, source]) => have.get(file) === source);
+    const same = have.size === want.size && [...want].every(([file, source]) => have.get(file) === source);
     if (same) return { code: 0, stdout: `already installed: ${path}\n`, stderr: "" };
   }
   if (found === "symlink") await unlink(path);

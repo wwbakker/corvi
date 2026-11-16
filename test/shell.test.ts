@@ -21,9 +21,7 @@ describe("sh with a provided Shell", () => {
     const branch = await runWithShell(shell, currentBranch("/repos/demo"));
 
     expect(branch).toBe("feature/shell-seam");
-    expect(shell.calls).toEqual([
-      { cmd: ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd: "/repos/demo" },
-    ]);
+    expect(shell.calls).toEqual([{ cmd: ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd: "/repos/demo" }]);
   });
 });
 
@@ -33,10 +31,7 @@ describe("sh with a provided Shell", () => {
  */
 test("with no Shell in context, sh spawns directly", async () => {
   const result = await Effect.runPromise(
-    Effect.provide(
-      sh(["sh", "-c", "echo direct"]),
-      Layer.succeed(WorkspaceTag, workspaceById(undefined)),
-    ),
+    Effect.provide(sh(["sh", "-c", "echo direct"]), Layer.succeed(WorkspaceTag, workspaceById(undefined))),
   );
   expect(result).toMatchObject({ code: 0, stdout: "direct" });
 });

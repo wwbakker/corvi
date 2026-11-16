@@ -41,8 +41,7 @@ export const VALUE_FLAGS: ReadonlySet<string> = new Set([
  * rather than silently accepted, and so the surface can grow without a typo becoming a switch. */
 export const BOOLEAN_FLAGS: ReadonlySet<string> = new Set(["json", "help", "force", "any", "all"]);
 
-export const isKnownFlag = (name: string): boolean =>
-  VALUE_FLAGS.has(name) || BOOLEAN_FLAGS.has(name);
+export const isKnownFlag = (name: string): boolean => VALUE_FLAGS.has(name) || BOOLEAN_FLAGS.has(name);
 
 export const parseArgs = (
   argv: readonly string[],

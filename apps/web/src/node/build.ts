@@ -67,8 +67,7 @@ async function watchWeb(outDir: string): Promise<void> {
     timer = setTimeout(() => {
       void buildWeb({ outDir }).then(
         () => console.log(`web: rebuilt ${outDir}`),
-        (e: unknown) =>
-          console.error(`web: rebuild failed — ${e instanceof Error ? e.message : String(e)}`),
+        (e: unknown) => console.error(`web: rebuild failed — ${e instanceof Error ? e.message : String(e)}`),
       );
     }, 100);
   });

@@ -26,7 +26,13 @@ import type {
 import { NotFoundError } from "@corvi/contracts/errors";
 import { announceAvailability, announceFromSource } from "../capabilities/bus.ts";
 import { runtimeConfig } from "../capabilities/runtime.ts";
-import { DEFAULT_AVAILABILITY_DEADLINES, type RemoteAvailabilityDeadlines, type RemoteFetch, type RemoteObservation } from "./model.ts";
+import { REDIRECT_STATUSES, parseHttpUrl } from "../capabilities/url.ts";
+import {
+  DEFAULT_AVAILABILITY_DEADLINES,
+  type RemoteAvailabilityDeadlines,
+  type RemoteFetch,
+  type RemoteObservation,
+} from "./model.ts";
 
 /** The remote event names the fan-in forwards. `open` and anything unknown are ignored. */
 const EVENT_NAMES = new Set(["changes", "windows", "notify", "update", "power"]);
@@ -60,20 +66,13 @@ const targetKey = (remote: RemoteWorkspaceDto): string =>
 
 /** The remote's events URL, or undefined when the url is not http(s) (the 2.1 note: never fetch a
  * scheme the config should not hold). */
-const eventsUrl = (remoteUrl: string): URL | undefined => {
-  try {
-    const base = new URL(remoteUrl);
-    if (base.protocol !== "http:" && base.protocol !== "https:") return undefined;
-    return new URL(`${remoteUrl.replace(/\/+$/, "")}/api/events`);
-  } catch {
-    return undefined;
-  }
-};
-
-/** Statuses `fetch` would follow; the subscription refuses them instead, so a remote cannot point
+const eventsUrl = (remoteUrl: string): URL | undefined =>
+  parseHttpUrl(remoteUrl) === undefined
+    ? undefined
+    : new URL(
+        `${remoteUrl.replace(/\/+$/, "")}/api/events`,
+      ); /** Statuses `fetch` would follow; the subscription refuses them instead, so a remote cannot point
  * the fan-in at another origin. */
-const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
-
 /** A frame may be this large; a remote that never sends a blank line is cut off here rather than
  * growing local memory. */
 const MAX_FRAME_BYTES = 1 << 20;
@@ -84,7 +83,10 @@ const backoffMs = (attempt: number): number => Math.min(30_000, 500 * 2 ** attem
 /** Fixed, sanitized explanations. Never a raw remote error body, a token, or a credential-bearing
  * URL: the kind and this sentence are all a page needs. */
 const unreachable = (message: string): RemoteAvailabilityReasonDto => ({ _tag: "unreachable", message });
-const authentication = (message: string): RemoteAvailabilityReasonDto => ({ _tag: "authentication", message });
+const authentication = (message: string): RemoteAvailabilityReasonDto => ({
+  _tag: "authentication",
+  message,
+});
 const configuration = (message: string): RemoteAvailabilityReasonDto => ({ _tag: "configuration", message });
 const stalled = (message: string): RemoteAvailabilityReasonDto => ({ _tag: "stalled", message });
 
@@ -175,7 +177,13 @@ type Outcome =
 
 /** Read one connected stream. Resolves when it ends, stalls, or is aborted; publishes `available`
  * on the first byte and resets the stall bound on every byte after it. */
-const readAttempt = async (owner: Owner, entry: Entry, response: Response, attempt: AbortController, outer: AbortSignal): Promise<Outcome> => {
+const readAttempt = async (
+  owner: Owner,
+  entry: Entry,
+  response: Response,
+  attempt: AbortController,
+  outer: AbortSignal,
+): Promise<Outcome> => {
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -206,14 +214,16 @@ const readAttempt = async (owner: Owner, entry: Entry, response: Response, attem
         read = await reader.read();
       } catch {
         if (outer.aborted) return { kind: "aborted" };
-        if (timedOut === "first") return { kind: "failure", reason: stalled(MESSAGES.noFirstSignal), healthy };
+        if (timedOut === "first")
+          return { kind: "failure", reason: stalled(MESSAGES.noFirstSignal), healthy };
         if (timedOut === "stall") return { kind: "failure", reason: stalled(MESSAGES.stalled), healthy };
         return { kind: "failure", reason: unreachable(MESSAGES.unreachable), healthy };
       }
       if (read.done) {
         // A cancellation also resolves the pending read as done; the deadline decides first.
         if (outer.aborted) return { kind: "aborted" };
-        if (timedOut === "first") return { kind: "failure", reason: stalled(MESSAGES.noFirstSignal), healthy };
+        if (timedOut === "first")
+          return { kind: "failure", reason: stalled(MESSAGES.noFirstSignal), healthy };
         if (timedOut === "stall") return { kind: "failure", reason: stalled(MESSAGES.stalled), healthy };
         ended = true;
         return { kind: "ended", healthy };
@@ -260,7 +270,8 @@ const readAttempt = async (owner: Owner, entry: Entry, response: Response, attem
 const attemptOnce = async (owner: Owner, entry: Entry): Promise<Outcome> => {
   const outer = entry.controller.signal;
   const url = eventsUrl(entry.remote.url);
-  if (url === undefined) return { kind: "failure", reason: configuration(MESSAGES.configuration), healthy: false };
+  if (url === undefined)
+    return { kind: "failure", reason: configuration(MESSAGES.configuration), healthy: false };
 
   const attempt = new AbortController();
   const onOuterAbort = (): void => attempt.abort();
@@ -342,7 +353,9 @@ const run = async (owner: Owner, entry: Entry): Promise<void> => {
       outcome = await attemptOnce(owner, entry);
     } catch {
       // A defect in one attempt must not end the subscription or reject this loop.
-      outcome = signal.aborted ? { kind: "aborted" } : { kind: "failure", reason: unreachable(MESSAGES.unreachable), healthy: false };
+      outcome = signal.aborted
+        ? { kind: "aborted" }
+        : { kind: "failure", reason: unreachable(MESSAGES.unreachable), healthy: false };
     }
     entry.checking = false;
     if (signal.aborted || outcome.kind === "aborted") return;

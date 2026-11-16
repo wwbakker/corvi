@@ -17,7 +17,7 @@ import type { ShellResult } from "../shell.ts";
  * entirely these processes, and which of them is expensive is not something to guess at. */
 export type TraceEntry = { calls: number; cpu: number; wall: number };
 
-export interface NodeShellOptions {
+interface NodeShellOptions {
   /** Seconds one CLI may run before it is killed; zero disables the timeout. */
   readonly timeoutSeconds: () => number;
   /** How many CLIs may run at once: a dashboard asks about six repositories in parallel and
@@ -36,7 +36,7 @@ export interface NodeShellOptions {
 
 /** The port the node adapter implements: the same `run`, with the environment passed in
  * instead of read from a workspace. */
-export interface NodeShellShape {
+interface NodeShellShape {
   readonly run: (
     cmd: readonly string[],
     opts?: { readonly cwd?: string; readonly env?: Readonly<Record<string, string>> },

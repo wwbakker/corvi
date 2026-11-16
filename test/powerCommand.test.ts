@@ -10,11 +10,7 @@ test("linux powers off through systemctl", () => {
 });
 
 test("macOS shuts down through System Events", () => {
-  expect(powerCommand("mac")).toEqual([
-    "osascript",
-    "-e",
-    'tell application "System Events" to shut down',
-  ]);
+  expect(powerCommand("mac")).toEqual(["osascript", "-e", 'tell application "System Events" to shut down']);
 });
 
 test("any other platform falls back to the macOS command", () => {

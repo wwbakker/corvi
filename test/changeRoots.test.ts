@@ -1,6 +1,5 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Effect, Result } from "effect";
 import { DecodeError, InternalError } from "@corvi/contracts/errors";
@@ -12,8 +11,7 @@ import {
   listChangesStrict,
   readChange,
 } from "../apps/server/src/change/server/index.ts";
-import { runEffect, withRuntimeConfig, type RuntimeConfigPatch } from "./helpers.ts";
-
+import { runEffect, withRuntimeConfig, type RuntimeConfigPatch, testTempDir } from "./helpers.ts";
 /**
  * The change store spans every scope's roots: each workspace's changesRoot/archiveRoot holds
  * its own changes, lookup and listing scan them all, and the rules are the plan's — a new change
@@ -22,11 +20,9 @@ import { runEffect, withRuntimeConfig, type RuntimeConfigPatch } from "./helpers
  * wherever it was made.
  */
 let tmp: string;
-
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "corvi-change-roots-"));
+  tmp = await testTempDir("change-roots");
 });
-
 /** Run with the suite's `CORVI_ROOT`/`CORVI_ARCHIVE_ROOT` set aside, so a roots patch is what
  * decides where the store looks. */
 const withoutEnvRoots = async <T>(body: () => Promise<T>): Promise<T> => {
@@ -42,11 +38,9 @@ const withoutEnvRoots = async <T>(body: () => Promise<T>): Promise<T> => {
     else process.env.CORVI_ARCHIVE_ROOT = env.archive;
   }
 };
-
 afterAll(async () => {
   await rm(tmp, { recursive: true, force: true });
 });
-
 const roots = (): RuntimeConfigPatch => ({
   changesRoot: join(tmp, "changes"),
   archiveRoot: join(tmp, "archive"),
@@ -62,7 +56,6 @@ const roots = (): RuntimeConfigPatch => ({
     { id: "own", name: "Own" },
   ],
 });
-
 test("each workspace's root holds its own changes, and lookup spans them all", async () => {
   // CORVI_ROOT and CORVI_ARCHIVE_ROOT win at every scope by design, and the suite sets them:
   // put them aside so the workspaces' roots are the ones being tested.
@@ -76,17 +69,12 @@ test("each workspace's root holds its own changes, and lookup spans them all", a
       await expect(
         Bun.file(join(tmp, "client-changes", "ROOT-CLIENT", "change.json")).exists(),
       ).resolves.toBe(true);
-
       // …and one without a workspace lands in the first workspace's root, where it belongs.
       const first = await runEffect(createChange({ id: "ROOT-FIRST", state: "Ideation" }));
       expect(changeDir(first)).toBe(join(tmp, "client-changes", "ROOT-FIRST"));
-
       // A workspace that names no roots uses the global level's.
-      const global = await runEffect(
-        createChange({ id: "ROOT-OWN", state: "Ideation", workspace: "own" }),
-      );
+      const global = await runEffect(createChange({ id: "ROOT-OWN", state: "Ideation", workspace: "own" }));
       expect(changeDir(global)).toBe(join(tmp, "changes", "ROOT-OWN"));
-
       // Every root is listed and read: one lookup across all of them.
       const listed = (await runEffect(listChanges())).map((c) => c.id);
       expect(listed).toContain("ROOT-CLIENT");
@@ -94,12 +82,10 @@ test("each workspace's root holds its own changes, and lookup spans them all", a
       expect(listed).toContain("ROOT-OWN");
       expect((await runEffect(readChange("ROOT-CLIENT")))?.id).toBe("ROOT-CLIENT");
       expect((await runEffect(readChange("ROOT-OWN")))?.id).toBe("ROOT-OWN");
-
       // An id is taken across every root: the same id in another workspace's root is refused.
       await expect(
         runEffect(createChange({ id: "ROOT-OWN", state: "Ideation", workspace: "client" })),
       ).rejects.toThrow(/already exists/);
-
       // A change that predates a root override stays where it is: lookup finds it by scanning,
       // and it still travels to its workspace's archive root when it is done.
       await runEffect(createChange({ id: "ROOT-OLD", state: "Ideation", workspace: "client" }));
@@ -116,16 +102,14 @@ test("each workspace's root holds its own changes, and lookup spans them all", a
       );
       await rm(join(tmp, "client-changes", "ROOT-OLD"), { recursive: true, force: true });
       expect((await runEffect(readChange("ROOT-OLD")))?.id).toBe("ROOT-OLD");
-
       await runEffect(archiveChange("ROOT-OLD"));
-      await expect(
-        Bun.file(join(tmp, "client-archive", "ROOT-OLD", "change.json")).exists(),
-      ).resolves.toBe(true);
+      await expect(Bun.file(join(tmp, "client-archive", "ROOT-OLD", "change.json")).exists()).resolves.toBe(
+        true,
+      );
       await expect(Bun.file(join(tmp, "changes", "ROOT-OLD")).exists()).resolves.toBe(false);
     });
   });
 });
-
 test("a root that cannot be read fails the strict listing where the best-effort one is empty", async () => {
   await withoutEnvRoots(async () => {
     // A regular file where a changes root should be: `readdir` rejects with ENOTDIR, which is
@@ -144,7 +128,6 @@ test("a root that cannot be read fails the strict listing where the best-effort 
     );
   });
 });
-
 test("an undecodable change.json fails the strict listing where the best-effort one skips it", async () => {
   await withoutEnvRoots(async () => {
     const root = join(tmp, "strict-changes");

@@ -1,6 +1,5 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect } from "effect";
 import {
@@ -18,39 +17,33 @@ import { readiness, headRef, waitingOnYou } from "@corvi/github/client";
 import { presentWindow, type PresentedWindow } from "../apps/server/src/terminals/server/index.ts";
 import type { RawWindow } from "../apps/server/src/integrations/types.ts";
 import type { Change } from "@corvi/changes/record";
-import { checkoutsOf, runDeploy, runEffect, runSetRepos  } from "./helpers.ts";
-
+import { checkoutsOf, runDeploy, runEffect, runSetRepos, testTempDir } from "./helpers.ts";
 /**
  * A changes root of its own, because some of what is tested here writes one. A change may be
  * emptied, and without this the test writes into whatever changes root the machine is configured
  * with — on the author's machine, the real one.
  */
 let tmp: string;
-
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "corvi-provision-"));
+  tmp = await testTempDir("provision");
   process.env.CORVI_ROOT = tmp;
   process.env.CORVI_ARCHIVE_ROOT = join(tmp, "archive");
 });
-
 afterAll(async () => {
   await rm(tmp, { recursive: true, force: true });
 });
-
 const change: Change = {
   id: "PROJ-1",
   branch: "PROJ-1-thing",
   checkouts: checkoutsOf([]),
   createdAt: new Date().toISOString(),
 };
-
 test("a worktree entry describes what it holds", () => {
   const entries = JSON.parse(
     `[{"branch":"main","path":"/r","is_main":true,"working_tree":{},"remote":{"branch":"main","ahead":0,"behind":0}},
       {"branch":"PROJ-1-thing","path":"/r/.worktrees/PROJ-1-thing","working_tree":{"modified":true},
        "remote":{"branch":"PROJ-1-thing","ahead":2,"behind":1},"main_state":"diverged"}]`,
   ) as WorktreeEntry[];
-
   const entry = findWorktree(entries, "PROJ-1-thing");
   expect(entry?.path).toBe("/r/.worktrees/PROJ-1-thing");
   expect(describe(entry!)).toEqual({
@@ -60,7 +53,6 @@ test("a worktree entry describes what it holds", () => {
   expect(describe(entries[0]!)).toEqual({ detail: "clean", state: "ok" });
   expect(findWorktree(entries, "absent")).toBeUndefined();
 });
-
 test("a checkout the refresh left alone says why", () => {
   // Commits of its own while the base moved on: a fast-forward-only refresh never rewrites
   // that, and the row warns — the work sits on old ground.
@@ -72,14 +64,12 @@ test("a checkout the refresh left alone says why", () => {
     detail: "left alone: 2 of its own, 1 behind main, clean, no upstream",
     state: "warn",
   });
-
   // Fresh against its base is no warning at all.
   const fresh = JSON.parse(
     `{"branch":"PROJ-1-thing","path":"/r/PROJ-1-thing","working_tree":{},
       "remote":{"branch":"PROJ-1-thing","ahead":0,"behind":0},"base_state":{"own":0,"behind":0,"base":"main"}}`,
   ) as WorktreeEntry;
   expect(describe(fresh)).toEqual({ detail: "clean", state: "ok" });
-
   // Behind the base with nothing of its own is not "left alone" — a refresh would take it —
   // and a fresh checkout with commits of its own is ordinary work, not a warning.
   const behindOnly = JSON.parse(
@@ -93,7 +83,6 @@ test("a checkout the refresh left alone says why", () => {
   ) as WorktreeEntry;
   expect(describe(ownOnly)).toEqual({ detail: "clean, 2 unpushed", state: "pending" });
 });
-
 test("a pull request says what it is waiting for", () => {
   // Open threads and the review decision are both shown: approved-with-comments is a real state.
   expect(readiness({ reviewDecision: "APPROVED" }, 1)).toEqual({
@@ -104,7 +93,6 @@ test("a pull request says what it is waiting for", () => {
     text: "2 unresolved comments · review required",
     tone: "warn",
   });
-
   expect(readiness({ reviewDecision: "APPROVED" })).toEqual({ text: "ready to merge", tone: "ok" });
   expect(readiness({ reviewDecision: "REVIEW_REQUIRED" })).toEqual({ text: "review required" });
   // No decision at all: the repository requires no review, so nothing is pending.
@@ -120,16 +108,11 @@ test("a pull request says what it is waiting for", () => {
     tone: "error",
   });
 });
-
 test("blank entries are not repositories, and a repository is not listed twice", async () => {
   // The list arrives from a browser: whitespace is nothing, and adding the same path twice is a
   // double click rather than two repositories.
-  const emptied = await runSetRepos(
-    { ...change, checkouts: checkoutsOf([]) },
-    checkoutsOf(["  ", ""]),
-  );
+  const emptied = await runSetRepos({ ...change, checkouts: checkoutsOf([]) }, checkoutsOf(["  ", ""]));
   expect(((emptied as { change: Change }).change.checkouts ?? []).map((spec) => spec.path)).toEqual([]);
-
   // Listed twice, and already there: nothing is created, so this needs no repository on disk.
   const once = await runSetRepos(
     { ...change, checkouts: checkoutsOf(["/r/a"]) },
@@ -137,7 +120,6 @@ test("blank entries are not repositories, and a repository is not listed twice",
   );
   expect(((once as { change: Change }).change.checkouts ?? []).map((spec) => spec.path)).toEqual(["/r/a"]);
 });
-
 test("the artifact version is read from the build log lines", () => {
   expect(versionInLines(["...", "2026-08-18T11:53:21Z Version is: '20260818_115321_16daedb'"])).toBe(
     "20260818_115321_16daedb",
@@ -147,7 +129,6 @@ test("the artifact version is read from the build log lines", () => {
   // "Version      : 1.0.0" is the agent's own banner, not an artifact version.
   expect(versionInLines(["2026-08-18T11:40:02Z Version      : 1.0.0", "git version 2.52.0"])).toBeUndefined();
 });
-
 test("a terminal window is labelled by where it is, or what you named it", () => {
   // The server-side composition, exactly as a window crosses to the page: raw facts in, the
   // presented shape out.
@@ -219,8 +200,7 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
   expect(w({ name: "logs", command: "logs", directory: "x", named: true }).label).toBe("logs");
   // The detail is the long form, what the tooltip reads.
   expect(w({}).detail).toBe("zsh (zsh) in example-api");
-})
-
+});
 test("opening a repository uses the platform's own launcher", () => {
   const command = (id: string): string[] => openers.find((o) => o.id === id)!.command("/w/repo");
   if (isMac) {
@@ -234,7 +214,6 @@ test("opening a repository uses the platform's own launcher", () => {
     expect(command("open-idea")).toEqual(["idea", "/w/repo"]);
   }
 });
-
 test("a worktree's state is read from git's own porcelain output", () => {
   const worktrees = parseWorktrees(
     [
@@ -256,7 +235,6 @@ test("a worktree's state is read from git's own porcelain output", () => {
     { path: "/repo", branch: "main" },
     { path: "/changes/PROJ-1/repo", branch: "PROJ-1-thing" },
   ]);
-
   const dirty = parseStatus(
     [
       "# branch.head PROJ-1-thing",
@@ -274,7 +252,6 @@ test("a worktree's state is read from git's own porcelain output", () => {
     ahead: 2,
     behind: 1,
   });
-
   // A branch that was never pushed has no upstream and no counts.
   const fresh = parseStatus("# branch.head PROJ-1-thing\n");
   expect(fresh).toEqual({
@@ -286,24 +263,23 @@ test("a worktree's state is read from git's own porcelain output", () => {
     behind: 0,
   });
 });
-
 test("a pull request is looked up by the branch that was pushed", () => {
   // The ordinary case: the branch is its own upstream.
   expect(headRef("PROJ-1", "origin/PROJ-1", "origin/main")).toBe("PROJ-1");
   expect(headRef("PROJ-1", undefined, "origin/main")).toBe("PROJ-1"); // never pushed
-
   // Renamed, or made around work that already existed: the pull request belongs to the branch
   // that was pushed, not to the one you have locally.
   expect(headRef("PROJ-1671-2", "origin/PROJ-1671-improve-mileage", "origin/master")).toBe(
     "PROJ-1671-improve-mileage",
   );
-
   // Tracking the default branch is not a pull request to go looking for.
   expect(headRef("PROJ-1", "origin/main", "origin/main")).toBe("PROJ-1");
-})
-
+});
 test("a review thread you answered last is not waiting on you", () => {
-  const thread = (isResolved: boolean, ...logins: string[]): { isResolved: boolean; comments: { nodes: { author: { login: string; }; }[]; }; } => ({
+  const thread = (
+    isResolved: boolean,
+    ...logins: string[]
+  ): { isResolved: boolean; comments: { nodes: { author: { login: string } }[] } } => ({
     isResolved,
     comments: { nodes: logins.map((login) => ({ author: { login } })) },
   });
@@ -314,16 +290,13 @@ test("a review thread you answered last is not waiting on you", () => {
     thread(true, "reviewer"), // resolved, whoever spoke last
   ];
   expect(waitingOnYou(threads, "octocat")).toBe(2);
-
   // Only the reviewer resolves a thread, so without this every answered thread would sit in the
   // count until they got round to looking.
   expect(threads.filter((t) => !t.isResolved).length).toBe(3);
-
   // No viewer to compare against, or an author we cannot read: counted, since "yes" is safe.
   expect(waitingOnYou(threads, undefined)).toBe(3);
   expect(waitingOnYou([{ isResolved: false, comments: { nodes: [] } }], "octocat")).toBe(1);
 });
-
 test("what an environment holds is the newest run that was sent to it", async () => {
   const { latestFor, versionIn, serviceName } = await import("@corvi/azure-devops/server");
   const settings = deploySettingsOf(undefined);
@@ -333,7 +306,16 @@ test("what an environment holds is the newest run that was sent to it", async ()
     version: string,
     result: string | null,
     status = "completed",
-  ): { id: number; buildNumber: string; status: string; result: string | null; sourceBranch: string; finishTime: string; startTime: string; templateParameters: { environment: string; dockerTag: string; }; } => ({
+  ): {
+    id: number;
+    buildNumber: string;
+    status: string;
+    result: string | null;
+    sourceBranch: string;
+    finishTime: string;
+    startTime: string;
+    templateParameters: { environment: string; dockerTag: string };
+  } => ({
     id,
     buildNumber: `${environment} - ${version}`,
     status,
@@ -343,30 +325,42 @@ test("what an environment holds is the newest run that was sent to it", async ()
     startTime: "2026-09-01T09:55:00Z",
     templateParameters: { environment, dockerTag: version },
   });
-
   const runs = [
     run(3, "production", "v3", "succeeded"),
     run(2, "accept", "v3", "succeeded"),
     run(1, "accept", "v2", "succeeded"),
   ];
-  expect(latestFor(runs, "accept", settings, { key: "t", args: [] })).toMatchObject({ version: "v3", state: "ok" });
-  expect(latestFor(runs, "production", settings, { key: "t", args: [] })).toMatchObject({ version: "v3", state: "ok" });
+  expect(latestFor(runs, "accept", settings, { key: "t", args: [] })).toMatchObject({
+    version: "v3",
+    state: "ok",
+  });
+  expect(latestFor(runs, "production", settings, { key: "t", args: [] })).toMatchObject({
+    version: "v3",
+    state: "ok",
+  });
   // An environment nobody has deployed to says so rather than pretending to be empty.
-  expect(latestFor(runs, "sandbox", settings, { key: "t", args: [] })).toMatchObject({ state: "none", detail: "never deployed" });
-
+  expect(latestFor(runs, "sandbox", settings, { key: "t", args: [] })).toMatchObject({
+    state: "none",
+    detail: "never deployed",
+  });
   // A deploy in flight is what that environment is doing, whatever it holds at this moment.
-  expect(latestFor([run(4, "accept", "v4", null, "inProgress"), ...runs], "accept", settings, { key: "t", args: [] })).toMatchObject({
+  expect(
+    latestFor([run(4, "accept", "v4", null, "inProgress"), ...runs], "accept", settings, {
+      key: "t",
+      args: [],
+    }),
+  ).toMatchObject({
     state: "pending",
     detail: "deploying v4",
   });
-
   // A failed deploy leaves the previous version running: the state is red, and the version is
   // the one that is actually there.
-  expect(latestFor([run(4, "accept", "v4", "failed"), ...runs], "accept", settings, { key: "t", args: [] })).toMatchObject({
+  expect(
+    latestFor([run(4, "accept", "v4", "failed"), ...runs], "accept", settings, { key: "t", args: [] }),
+  ).toMatchObject({
     state: "error",
     version: "v3",
   });
-
   // The version parameter is not called the same thing in every pipeline: one of these deploys
   // an image, the other a docker tag, and both are "the thing being deployed".
   expect(versionIn({ environment: "accept", dockerTag: "v1" }, settings)).toBe("v1");
@@ -374,22 +368,18 @@ test("what an environment holds is the newest run that was sent to it", async ()
   // Nothing to go on: two unknown parameters could be anything, so it says nothing.
   expect(versionIn({ environment: "accept", a: "1", b: "2" }, settings)).toBeUndefined();
   expect(versionIn(null, settings)).toBeUndefined();
-
   // The service is what the pipelines are named after.
   expect(serviceName("deploy-example-service", settings)).toBe("example-service");
   expect(serviceName("something-else", settings)).toBe("something-else");
 });
-
 test("a later environment only gets what the one before it already has", async () => {
   const { branchOf } = await import("@corvi/azure-devops/server");
-
   // The gate, which is the manual step of the shell script it replaces: production gets what
   // acceptance proved, not what somebody hoped. The refusal names what is actually on accept.
   expect(runDeploy("no-such-service", "v9", "production")).rejects.toThrow(
     /no deploy pipeline|not on accept|no Azure/,
   );
   expect(runDeploy("anything", "v1", "staging")).rejects.toThrow(/unknown environment: staging/);
-
   // What a build was built from, said the way you would say it.
   expect(branchOf("refs/heads/main")).toBe("main");
   expect(branchOf("refs/pull/169/merge")).toBe("PR #169");

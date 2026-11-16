@@ -29,9 +29,8 @@ const ChecksSchema = Schema.Array(
 /** GitHub's own word for a check, which is the only vocabulary shared by Actions, Azure Pipelines
  * in any project, Cypress and whatever else a repository has bolted on. */
 const checkState = (bucket: string): WidgetState =>
-  ({ pass: "ok", fail: "error", pending: "pending", skipping: "none", cancel: "warn" })[bucket] as
-    | WidgetState
-    | undefined ?? "none";
+  (({ pass: "ok", fail: "error", pending: "pending", skipping: "none", cancel: "warn" })[bucket] as
+    WidgetState | undefined) ?? "none";
 
 /** The change's checkout of `repo`, read through the contract's `Changes` store. */
 const worktreeOf = (change: Change, repo: string): Effect.Effect<string | undefined, never, Changes> =>
@@ -55,14 +54,7 @@ export const checkItems = (
       // Non-zero means "something is failing or pending", which is a result, not an error; a rate
       // limit stays in the error channel, for the cache boundary below to catch.
       const r = yield* ghSoft(
-        [
-          "gh",
-          "pr",
-          "checks",
-          String(number),
-          "--json",
-          "name,state,bucket,link,startedAt,completedAt",
-        ],
+        ["gh", "pr", "checks", String(number), "--json", "name,state,bucket,link,startedAt,completedAt"],
         worktree,
       );
       return groupChecks(yield* cliJson(ChecksSchema, [] as Check[])(r.stdout));

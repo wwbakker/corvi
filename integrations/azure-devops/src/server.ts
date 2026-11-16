@@ -1,8 +1,7 @@
 import { Effect, Schema } from "effect";
 import type { WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { Cache, Settings, Shell, Workspace, invalidate, swr } from "@corvi/contracts/capabilities";
-import { cliJson } from "@corvi/shell/cli";
-import type { ShellResult } from "@corvi/contracts/capabilities";
+import { cliJson, shSoft } from "@corvi/shell/cli";
 import { azFor, type Az } from "./azure.ts";
 import { deploySettings, type DeploySettings } from "./deploySettings.ts";
 import { buildUrl, expectedDuration, versionOf, type Definition } from "./pipelines.ts";
@@ -55,9 +54,7 @@ const RunsSchema = Schema.Array(
     sourceBranch: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
     startTime: Schema.optional(Schema.NullOr(Schema.String)),
     finishTime: Schema.optional(Schema.NullOr(Schema.String)),
-    templateParameters: Schema.optional(
-      Schema.NullOr(Schema.Record(Schema.String, Schema.String)),
-    ),
+    templateParameters: Schema.optional(Schema.NullOr(Schema.Record(Schema.String, Schema.String))),
     definition: Schema.optional(
       Schema.Struct({ id: Schema.optional(Schema.Number), name: Schema.optional(Schema.String) }),
     ),
@@ -66,17 +63,6 @@ const RunsSchema = Schema.Array(
 
 type Capabilities = Shell | Workspace | Cache | Settings;
 
-/** The ShellResult-branching contract: the one failure `Shell` can raise here is a timeout, which
- * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
- * everything downstream branches on `code`. */
-const shResult = (cmd: string[]): Effect.Effect<ShellResult, never, Shell | Workspace> =>
-  Effect.gen(function* () {
-    const shell = yield* Shell;
-    return yield* shell.run(cmd).pipe(
-      Effect.catch((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
-    );
-  });
-
 /** Every pipeline in the project, which is how the deploy ones are found at all. Rarely changes;
  * shared with anything else that asks. */
 const allPipelines = (az: Az): Effect.Effect<Definition[], never, Capabilities> =>
@@ -84,14 +70,12 @@ const allPipelines = (az: Az): Effect.Effect<Definition[], never, Capabilities> 
     `az:${az.key}:pipelines`,
     5 * 60_000,
     Effect.gen(function* () {
-      const r = yield* shResult(["az", "pipelines", "list", ...az.args, "-o", "json"]);
+      const r = yield* shSoft(["az", "pipelines", "list", ...az.args, "-o", "json"]);
       return r.code === 0
         ? yield* cliJson(
-          Schema.Array(
-            Schema.Struct({ id: Schema.Number, name: Schema.String, path: Schema.String }),
-          ),
-          [] as Definition[],
-        )(r.stdout)
+            Schema.Array(Schema.Struct({ id: Schema.Number, name: Schema.String, path: Schema.String })),
+            [] as Definition[],
+          )(r.stdout)
         : [];
     }),
   );
@@ -106,12 +90,9 @@ const RUNS_TTL = 15_000;
 
 /** One pipeline's runs as az answers them now, or `undefined` when the CLI could not answer —
  * which is unavailable, a different thing from "no runs". */
-const readRuns = (
-  az: Az,
-  pipelineId: number,
-): Effect.Effect<Run[] | undefined, never, Shell | Workspace> =>
+const readRuns = (az: Az, pipelineId: number): Effect.Effect<Run[] | undefined, never, Shell | Workspace> =>
   Effect.gen(function* () {
-    const r = yield* shResult([
+    const r = yield* shSoft([
       "az",
       "pipelines",
       "runs",
@@ -156,23 +137,16 @@ const rereadRuns = (az: Az, pipelineId: number): Effect.Effect<Run[], never, Cap
 
 /** One pipeline's runs: live when the caller is about to act on the answer (`refresh`), from the
  * cache otherwise. */
-const runsNow = (
-  az: Az,
-  pipelineId: number,
-  refresh: boolean,
-): Effect.Effect<Run[], never, Capabilities> =>
+const runsNow = (az: Az, pipelineId: number, refresh: boolean): Effect.Effect<Run[], never, Capabilities> =>
   refresh ? rereadRuns(az, pipelineId) : runsOf(az, pipelineId);
 
 /** `build-example-service` → `deploy-example-service`, and the service name in between. */
-export const serviceName = (
-  deployPipeline: string,
-  settings: DeploySettings,
-): string => {
+export const serviceName = (deployPipeline: string, settings: DeploySettings): string => {
   const [, deploy] = settings.pipeline;
   return deployPipeline.startsWith(deploy) ? deployPipeline.slice(deploy.length) : deployPipeline;
 };
 
-export const buildPipelineName = (service: string, settings: DeploySettings): string =>
+const buildPipelineName = (service: string, settings: DeploySettings): string =>
   `${settings.pipeline[0]}${service}`;
 
 /**
@@ -201,12 +175,7 @@ export function versionIn(
  * environment — a failed deploy is news, and hiding it behind the last success would say the
  * environment is fine when somebody is looking at a red pipeline.
  */
-export function latestFor(
-  runs: Run[],
-  environment: string,
-  settings: DeploySettings,
-  az: Az,
-): Deployed {
+export function latestFor(runs: Run[], environment: string, settings: DeploySettings, az: Az): Deployed {
   const { environmentParameter } = settings;
   const mine = runs
     .filter((r) => (r.templateParameters ?? {})[environmentParameter] === environment)
@@ -248,11 +217,7 @@ export function latestFor(
  * either way. */
 export const deployments = (
   refresh: boolean,
-): Effect.Effect<
-  { services: Service[]; error?: string },
-  never,
-  Capabilities
-> =>
+): Effect.Effect<{ services: Service[]; error?: string }, never, Capabilities> =>
   Effect.gen(function* () {
     const workspace = yield* Workspace;
     const az = yield* azFor(workspace);
@@ -292,11 +257,9 @@ export const deployments = (
         return expectedMs === undefined
           ? row
           : {
-            ...row,
-            environments: row.environments.map((e) =>
-              e.state === "pending" ? { ...e, expectedMs } : e
-            ),
-          };
+              ...row,
+              environments: row.environments.map((e) => (e.state === "pending" ? { ...e, expectedMs } : e)),
+            };
       });
 
     const services = yield* Effect.forEach(
@@ -355,8 +318,7 @@ export const versionsFor = (
       const [accept] = settings.environments;
       const stillDeploying = runs.some(
         (r) =>
-          r.status !== "completed" &&
-          (r.templateParameters ?? {})[settings.environmentParameter] === accept,
+          r.status !== "completed" && (r.templateParameters ?? {})[settings.environmentParameter] === accept,
       );
       const expectedMs = stillDeploying ? yield* expectedDuration(az, deploy.id) : undefined;
       return acceptedVersions(runs, az, settings, expectedMs, howMany);
@@ -373,9 +335,7 @@ export const versionsFor = (
 
     // In flight right now: not deployable — nothing has printed a version yet — but dropping them
     // from the list would make a build you are waiting on look like it never started.
-    const building = runs
-      .filter((r) => r.status !== "completed")
-      .sort((a, b) => b.id - a.id);
+    const building = runs.filter((r) => r.status !== "completed").sort((a, b) => b.id - a.id);
     const expectedMs = building.length ? yield* expectedDuration(az, build.id) : undefined;
     const inProgress: Buildable[] = building.map((run) => ({
       runId: run.id,
@@ -513,7 +473,9 @@ export const deploy = (
     const workspace = yield* Workspace;
     const az = yield* azFor(workspace);
     if (!az.project) {
-      return yield* new BadRequestError({ message: "no Azure DevOps project configured — run `az devops configure`" });
+      return yield* new BadRequestError({
+        message: "no Azure DevOps project configured — run `az devops configure`",
+      });
     }
     const pipelines = yield* allPipelines(az);
     const pipeline = pipelines.find((p) => p.name === deployPipelineName(service, settings));
@@ -528,13 +490,12 @@ export const deploy = (
       const holds = latestFor(runs, previous, settings, az);
       if (holds.version !== version || holds.state !== "ok") {
         return yield* new BadRequestError({
-          message:
-            `${service}: ${version} is not on ${previous} (${holds.version ?? "nothing"} is, ${holds.detail}) — deploy it there first`,
+          message: `${service}: ${version} is not on ${previous} (${holds.version ?? "nothing"} is, ${holds.detail}) — deploy it there first`,
         });
       }
     }
 
-    const started = yield* shResult([
+    const started = yield* shSoft([
       "az",
       "pipelines",
       "run",

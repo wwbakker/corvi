@@ -28,15 +28,14 @@ import {
 } from "@corvi/workflows/lifecycle";
 import {
   BadRequestError,
-  ConflictError,
   DecodeError,
   InternalError,
-  NotFoundError,
-  isIweError,
   type CliError,
-  type IweError,
+  type CorviError,
 } from "@corvi/contracts/errors";
-import { messageOf } from "../../capabilities/effect/support.ts";
+import { asCorviError } from "../../capabilities/effect/http.ts";
+import { errorDetail } from "../../capabilities/effect/support.ts";
+import { messageOf } from "@corvi/shell/cli";
 import { lifecycleLayer } from "../lifecycle-layer.ts";
 
 // The page reads the same completion types; they live in the domain so both halves agree.
@@ -46,14 +45,11 @@ export type { Completion, CompletionReason, CompletionRefusal };
  * acknowledge why first. An unmet hard reason (an idea, uncommitted work) is neither — it fails,
  * because no acknowledgement can make it go away. */
 export type CompletionResult =
-  | { _tag: "Done"; change: Change; notes: string[] }
-  | { _tag: "NotReady"; refusal: CompletionRefusal };
+  { _tag: "Done"; change: Change; notes: string[] } | { _tag: "NotReady"; refusal: CompletionRefusal };
 
 /** Turn per-repository readiness into one verdict: a change completes as a whole or not at all. */
 // Pure and synchronous: nothing for an Effect to wrap.
-export function verdict(
-  results: { repo: string; readiness: MergeReadiness; unsafe?: Unsafe }[],
-): Completion {
+export function verdict(results: { repo: string; readiness: MergeReadiness; unsafe?: Unsafe }[]): Completion {
   const tagged: CompletionReason[] = [];
   // A hard readiness verdict is the token's — the only hard readiness verdict there is — and it
   // shuts every repository at once, so ten of them are one line, and the sentence's countdown must
@@ -98,7 +94,11 @@ const completionOfRepo = (
   change: Change,
   repo: string,
   fresh: boolean,
-): Effect.Effect<{ repo: string; readiness: MergeReadiness; unsafe: Unsafe | undefined }, BadRequestError, Changes | GitFacts | Cache> =>
+): Effect.Effect<
+  { repo: string; readiness: MergeReadiness; unsafe: Unsafe | undefined },
+  BadRequestError,
+  Changes | GitFacts | Cache
+> =>
   Effect.gen(function* () {
     return {
       repo,
@@ -118,10 +118,12 @@ export const completionOf = (
     ? Effect.succeed({
         ready: false,
         reasons: ["still an idea: start the work before completing it"],
-        tagged: [{
-          text: "still an idea: start the work before completing it",
-          kind: "hard" as const,
-        }],
+        tagged: [
+          {
+            text: "still an idea: start the work before completing it",
+            kind: "hard" as const,
+          },
+        ],
         toMerge: [],
       })
     : Effect.gen(function* () {
@@ -156,8 +158,7 @@ export const progressOf = (id: string): Effect.Effect<CompletionProgress | null>
 /** The completion journal: written as it happens, so a page opened later reads where a stopped
  * completion stopped. */
 const save = (id: string, progress: CompletionProgress): Effect.Effect<void, ChangeFormatTooNew> =>
-  Effect.map(writeSidecar(id, PROGRESS, JSON.stringify(progress, null, 2) + "\n"), () =>
-    undefined);
+  Effect.map(writeSidecar(id, PROGRESS, JSON.stringify(progress, null, 2) + "\n"), () => undefined);
 
 /** The completion journal while the workflow runs: the page polls `completion.json`, so this
  * adapter keeps writing that shape from the workflow's steps. */
@@ -169,33 +170,33 @@ const completionProgressLayer = (
     record: ({ step }) =>
       Effect.gen(function* () {
         yield* Ref.update(ref, (progress): CompletionProgress => {
-          const index = progress.steps.findIndex((existing) => existing.id === step.id)
-          const steps = [...progress.steps]
-          const existing = steps[index]
+          const index = progress.steps.findIndex((existing) => existing.id === step.id);
+          const steps = [...progress.steps];
+          const existing = steps[index];
           if (existing !== undefined)
             steps[index] = {
               ...existing,
               state: step.state,
               ...(step.detail ? { detail: step.detail } : {}),
-            }
+            };
           else
             steps.push({
               id: step.id,
               label: step.label,
               state: step.state,
               ...(step.detail ? { detail: step.detail } : {}),
-            })
-          return { ...progress, steps }
-        })
-        yield* writeProgress(changeId, ref)
+            });
+          return { ...progress, steps };
+        });
+        yield* writeProgress(changeId, ref);
       }),
-  })
+  });
 
 const writeProgress = (
   changeId: string,
   ref: Ref.Ref<CompletionProgress>,
 ): Effect.Effect<void, ChangeFormatTooNew> =>
-  Effect.flatMap(Ref.get(ref), (progress) => save(changeId, progress))
+  Effect.flatMap(Ref.get(ref), (progress) => save(changeId, progress));
 
 const finalizeProgress = (
   changeId: string,
@@ -207,70 +208,42 @@ const finalizeProgress = (
       ...progress,
       finishedAt: new Date().toISOString(),
       ...(error ? { error } : {}),
-    }))
-    yield* writeProgress(changeId, ref)
-  })
+    }));
+    yield* writeProgress(changeId, ref);
+  });
 
 const toLegacyReasons = (reasons: readonly LifecycleReason[]): CompletionReason[] =>
-  reasons.map((reason) => ({ text: reason.text, kind: reason.kind }))
+  reasons.map((reason) => ({ text: reason.text, kind: reason.kind }));
 
 const toLegacyToMerge = (
   links: readonly Repository[],
   outstanding: readonly OutstandingPullRequest[],
 ): Completion["toMerge"] =>
   outstanding.flatMap((pullRequest) => {
-    const link = links.find(
-      (entry) => entry.repositoryId === pullRequest.repository.repositoryId,
-    )
-    return link ? [{ repo: link.originalLocation, number: pullRequest.number }] : []
-  })
+    const link = links.find((entry) => entry.repositoryId === pullRequest.repository.repositoryId);
+    return link ? [{ repo: link.originalLocation, number: pullRequest.number }] : [];
+  });
 
-const isAcknowledgementCode = (
-  code: LifecycleReason["code"],
-): code is Acknowledgement["code"] =>
+const isAcknowledgementCode = (code: LifecycleReason["code"]): code is Acknowledgement["code"] =>
   code === "review-pending" ||
   code === "unpushed" ||
   code === "untracked" ||
   code === "ownership-unverified" ||
   code === "shared-worktree" ||
-  code === "provider-veto"
+  code === "provider-veto";
 
 const acknowledgementsFor = (reasons: readonly LifecycleReason[]): readonly Acknowledgement[] =>
   reasons.flatMap((reason) =>
     reason.kind === "forceable" && isAcknowledgementCode(reason.code)
       ? [{ code: reason.code, subject: reason.subject, facts: reason.facts }]
       : [],
-  )
+  );
 
 /** The sentence a failed step records in the journal: the error's own when it has one, and
  * never empty — `finalizeProgress` drops an empty `error`, which would leave a failed
  * completion saying nothing at all. */
-const errorDetail = (error: unknown): string => {
-  const own =
-    typeof error === "object" && error !== null && "message" in error
-      ? String((error as { message: unknown }).message)
-      : ""
-  return own || String(error) || "the operation failed"
-}
-
 /** The transport boundary for this operation: capability failures become the taxonomy the route
  * mapper knows; the workflow and capability errors stay typed behind it. */
-const asIwe = (error: unknown): IweError => {
-  if (isIweError(error)) return error
-  if (typeof error === "object" && error !== null && "_tag" in error) {
-    const tag = String((error as { _tag: unknown })._tag)
-    const raw = "message" in error ? (error as { message: unknown }).message : undefined
-    // Our typed errors carry the sentence the user sees; the tag is a last resort for a
-    // foreign tagged error, never the first choice — it would show the page the type name.
-    const message = raw ? String(raw) : tag
-    return tag === "ChangeNotFound"
-      ? new NotFoundError({ message })
-      : tag === "ChangeFormatTooNew"
-        ? new ConflictError({ message })
-        : new BadRequestError({ message })
-  }
-  return new BadRequestError({ message: messageOf(error) })
-}
 
 /**
  * Merge every outstanding pull request and close the ticket, through the lifecycle workflow.
@@ -285,41 +258,41 @@ const asIwe = (error: unknown): IweError => {
 export const completeChange = (
   change: Change,
   force = false,
-): Effect.Effect<CompletionResult, IweError, Changes> =>
+): Effect.Effect<CompletionResult, CorviError, Changes> =>
   Effect.gen(function* () {
     const ref = yield* Ref.make<CompletionProgress>({
       startedAt: new Date().toISOString(),
       ...(force ? { forced: true as const } : {}),
       steps: [],
-    })
-    const workspace = workspaceOf(change)
-    const roots = changePairs()
+    });
+    const workspace = workspaceOf(change);
+    const roots = changePairs();
     const layer = Layer.merge(
       lifecycleLayer(workspace, roots, {
         progress: completionProgressLayer(change.id, ref),
       }),
       changesNodeLayer.pipe(Layer.provide(storeLayer({ roots }))),
-    )
-    return yield* runCompletion(change, ref, force).pipe(Effect.provide(layer))
-  })
+    );
+    return yield* runCompletion(change, ref, force).pipe(Effect.provide(layer));
+  });
 
 const runCompletion = (
   change: Change,
   ref: Ref.Ref<CompletionProgress>,
   force: boolean,
-): Effect.Effect<CompletionResult, IweError, ChangeLifecycle | ChangeRepositories> =>
+): Effect.Effect<CompletionResult, CorviError, ChangeLifecycle | ChangeRepositories> =>
   Effect.gen(function* () {
-    const changeId = ChangeId.make(change.id)
-    const lifecycle = yield* ChangeLifecycle
-    const repositoryLinks = yield* ChangeRepositories
+    const changeId = ChangeId.make(change.id);
+    const lifecycle = yield* ChangeLifecycle;
+    const repositoryLinks = yield* ChangeRepositories;
     const links = yield* repositoryLinks
       .listRepositories(changeId)
-      .pipe(Effect.mapError((error) => new BadRequestError({ message: error.message })))
+      .pipe(Effect.mapError((error) => new BadRequestError({ message: error.message })));
 
     // Fresh, and before anything is written: a refusal is a dialog, not a completion that
     // started and stopped. The same assessment is handed to the workflow, so the click path
     // pays for one readiness check, not two.
-    const assessment = yield* lifecycle.assessCompletion(changeId, { fresh: true })
+    const assessment = yield* lifecycle.assessCompletion(changeId, { fresh: true });
     if (assessment._tag === "Blocked" && !force)
       return {
         _tag: "NotReady" as const,
@@ -327,11 +300,11 @@ const runCompletion = (
           reasons: toLegacyReasons(assessment.reasons),
           toMerge: toLegacyToMerge(links, assessment.toMerge),
         },
-      }
+      };
     if (assessment._tag === "Blocked")
       return yield* new BadRequestError({
         message: `cannot complete: ${assessment.reasons.map((reason) => reason.text).join("; ")}`,
-      })
+      });
     if (assessment._tag === "AcknowledgementRequired" && !force)
       return {
         _tag: "NotReady" as const,
@@ -339,70 +312,69 @@ const runCompletion = (
           reasons: toLegacyReasons(assessment.reasons),
           toMerge: toLegacyToMerge(links, assessment.toMerge),
         },
-      }
+      };
 
     const overridden =
       assessment._tag === "AcknowledgementRequired"
-        ? assessment.reasons
-            .filter((reason) => reason.kind === "forceable")
-            .map((reason) => reason.text)
-        : []
+        ? assessment.reasons.filter((reason) => reason.kind === "forceable").map((reason) => reason.text)
+        : [];
     yield* Ref.update(ref, (progress): CompletionProgress => ({
       ...progress,
       ...(overridden.length > 0 ? { overridden } : {}),
       steps: [{ id: "check", label: "check every repository is ready", state: "running" as const }],
-    }))
-    yield* writeProgress(change.id, ref)
+    }));
+    yield* writeProgress(change.id, ref);
 
     const run = (
       acknowledgements: readonly Acknowledgement[],
-    ): Effect.Effect<LifecycleOutcome, IweError | ChangeStoreError> =>
+    ): Effect.Effect<LifecycleOutcome, CorviError | ChangeStoreError> =>
       lifecycle.completeChange({ changeId, acknowledgements, assessment }).pipe(
-        Effect.catch((error): Effect.Effect<never, IweError | ChangeStoreError, never> =>
+        Effect.catch((error): Effect.Effect<never, CorviError | ChangeStoreError, never> =>
           Effect.gen(function* () {
-            yield* finalizeProgress(change.id, ref, errorDetail(error)).pipe(Effect.mapError(asIwe))
-            return yield* asIwe(error)
+            yield* finalizeProgress(change.id, ref, errorDetail(error, "the operation failed")).pipe(
+              Effect.mapError((error) =>
+                asCorviError(error, { notFound: ["ChangeNotFound"], conflict: ["ChangeFormatTooNew"] }),
+              ),
+            );
+            return yield* asCorviError(error, {
+              notFound: ["ChangeNotFound"],
+              conflict: ["ChangeFormatTooNew"],
+            });
           }),
         ),
-      )
+      );
 
-    const outcome = yield* run(
-      acknowledgementsFor(assessment._tag === "Ready" ? [] : assessment.reasons),
-    )
+    const outcome = yield* run(acknowledgementsFor(assessment._tag === "Ready" ? [] : assessment.reasons));
 
     if (outcome._tag === "Done") {
-      yield* finalizeProgress(change.id, ref)
-      const updated = yield* readChange(change.id)
+      yield* finalizeProgress(change.id, ref);
+      const updated = yield* readChange(change.id);
       if (!updated)
         return yield* new InternalError({
           message: "the completed change could not be read back",
-        })
+        });
       const notes = [
-        ...(overridden.length > 0
-          ? [`completed with overrides: ${overridden.join("; ")}`]
-          : []),
+        ...(overridden.length > 0 ? [`completed with overrides: ${overridden.join("; ")}`] : []),
         ...outcome.notes,
-      ]
-      return { _tag: "Done" as const, change: updated, notes }
+      ];
+      return { _tag: "Done" as const, change: updated, notes };
     }
     if (outcome._tag === "NeedsAcknowledgement") {
-      yield* finalizeProgress(change.id, ref)
+      yield* finalizeProgress(change.id, ref);
       return {
         _tag: "NotReady" as const,
         refusal: {
           reasons: toLegacyReasons(outcome.reasons),
           toMerge: toLegacyToMerge(links, outcome.toMerge),
         },
-      }
+      };
     }
-    yield* finalizeProgress(
-      change.id,
-      ref,
-      outcome.reasons.map((reason) => reason.text).join("; "),
-    )
+    yield* finalizeProgress(change.id, ref, outcome.reasons.map((reason) => reason.text).join("; "));
     return yield* new BadRequestError({
       message: `cannot complete: ${outcome.reasons.map((reason) => reason.text).join("; ")}`,
-    })
+    });
   }).pipe(
-    Effect.mapError(asIwe),
-  )
+    Effect.mapError((error) =>
+      asCorviError(error, { notFound: ["ChangeNotFound"], conflict: ["ChangeFormatTooNew"] }),
+    ),
+  );

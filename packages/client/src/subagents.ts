@@ -1,6 +1,6 @@
 /** The persistent subagents: the profile files that template them, and the instances of a
  * change — their messages, turns and awaits. */
-import { Schema } from "effect"
+import { Schema } from "effect";
 
 import {
   SubagentFilesResponseSchema,
@@ -12,65 +12,43 @@ import {
   SubagentRepositoryFilesResponseSchema,
   SubagentAwaitResponseSchema,
   type SubagentCreateRequestDto,
-  type SubagentFileRefDto,
-  type SubagentFileWriteDto,
   type SubagentFilesResponseDto,
   type SubagentInstanceDto,
   type SubagentMessageDto,
   type SubagentNextResponseDto,
   type SubagentAwaitResponseDto,
   type SubagentProfilesResponseDto,
-  type SubagentRepositoryFileRefDto,
-  type SubagentRepositoryFileWriteDto,
   type SubagentRepositoryFilesResponseDto,
   type SubagentSendRequestDto,
   type SubagentTurnRequestDto,
-} from "@corvi/contracts/subagents"
-import type { ChangeId } from "@corvi/contracts/changes"
+} from "@corvi/contracts/subagents";
+import type { ChangeId } from "@corvi/contracts/changes";
 
-import {
-  changePath,
-  decode,
-  type RequestOptions,
-  type Send,
-} from "./transport.ts"
+import { makeFileOperations, type FileOperations } from "./files.ts";
+import { changePath, type RequestOptions, type Send, request } from "./transport.ts";
 
-export interface SubagentsApi {
-  readonly files: () => Promise<SubagentFilesResponseDto>
-  readonly writeFile: (file: SubagentFileWriteDto) => Promise<SubagentFilesResponseDto>
-  readonly deleteFile: (ref: SubagentFileRefDto) => Promise<SubagentFilesResponseDto>
-  /** The repository-scope files of one change's checkouts — the Repositories view. */
-  readonly repositoryFiles: (changeId: ChangeId) => Promise<SubagentRepositoryFilesResponseDto>
-  readonly writeRepositoryFile: (
-    changeId: ChangeId,
-    file: SubagentRepositoryFileWriteDto,
-  ) => Promise<SubagentRepositoryFilesResponseDto>
-  readonly deleteRepositoryFile: (
-    changeId: ChangeId,
-    ref: SubagentRepositoryFileRefDto,
-  ) => Promise<SubagentRepositoryFilesResponseDto>
+export interface SubagentsApi extends FileOperations<
+  SubagentFilesResponseDto,
+  SubagentRepositoryFilesResponseDto
+> {
   /** The profiles this change can run — discovery's resolved keys, the ones `create` takes. */
-  readonly profiles: (changeId: ChangeId, options?: RequestOptions) => Promise<SubagentProfilesResponseDto>
+  readonly profiles: (changeId: ChangeId, options?: RequestOptions) => Promise<SubagentProfilesResponseDto>;
   /** The persistent subagent instances of a change. */
-  readonly list: (changeId: ChangeId, options?: RequestOptions) => Promise<SubagentInstanceDto[]>
-  readonly read: (
-    changeId: ChangeId,
-    id: string,
-    options?: RequestOptions,
-  ) => Promise<SubagentInstanceDto>
+  readonly list: (changeId: ChangeId, options?: RequestOptions) => Promise<SubagentInstanceDto[]>;
+  readonly read: (changeId: ChangeId, id: string, options?: RequestOptions) => Promise<SubagentInstanceDto>;
   readonly create: (
     changeId: ChangeId,
     body: SubagentCreateRequestDto,
     idempotencyKey?: string,
-  ) => Promise<SubagentInstanceDto>
-  readonly open: (changeId: ChangeId, id: string) => Promise<SubagentInstanceDto>
-  readonly close: (changeId: ChangeId, id: string) => Promise<SubagentInstanceDto>
+  ) => Promise<SubagentInstanceDto>;
+  readonly open: (changeId: ChangeId, id: string) => Promise<SubagentInstanceDto>;
+  readonly close: (changeId: ChangeId, id: string) => Promise<SubagentInstanceDto>;
   readonly send: (
     changeId: ChangeId,
     id: string,
     body: SubagentSendRequestDto,
     idempotencyKey?: string,
-  ) => Promise<SubagentMessageDto>
+  ) => Promise<SubagentMessageDto>;
   /** The latest reply, or with `turn` the reply that answers that explicit inbound turn (null
    * when none has landed). Read-only: neither form consumes the reply. */
   readonly result: (
@@ -78,7 +56,7 @@ export interface SubagentsApi {
     id: string,
     query?: { readonly turn?: number },
     options?: RequestOptions,
-  ) => Promise<SubagentMessageDto | null>
+  ) => Promise<SubagentMessageDto | null>;
   /** Block until one of the subagents (all of them when `ids` is empty) can be processed, or until
    * the horizon answers `timeout`. Each target answers with its own outcome, carrying the turn it
    * concerns and, when a reply settled it, that reply's number. `turn` waits for one explicit
@@ -86,133 +64,98 @@ export interface SubagentsApi {
   readonly await: (
     changeId: ChangeId,
     query: {
-      readonly ids?: readonly string[]
-      readonly all?: boolean
-      readonly turn?: number
+      readonly ids?: readonly string[];
+      readonly all?: boolean;
+      readonly turn?: number;
     },
     options?: RequestOptions,
-  ) => Promise<SubagentAwaitResponseDto>
+  ) => Promise<SubagentAwaitResponseDto>;
   readonly next: (
     changeId: ChangeId,
     id: string,
     after?: number,
     options?: RequestOptions,
-  ) => Promise<SubagentNextResponseDto>
+  ) => Promise<SubagentNextResponseDto>;
   readonly turn: (
     changeId: ChangeId,
     id: string,
     body: SubagentTurnRequestDto,
     idempotencyKey?: string,
-  ) => Promise<SubagentMessageDto>
+  ) => Promise<SubagentMessageDto>;
 }
 
 export const makeSubagentsApi = (send: Send): SubagentsApi => {
-  const change = changePath
+  const change = changePath;
   const instance = (changeId: ChangeId, id: string): string =>
-    `${change(changeId)}/subagents/${encodeURIComponent(id)}`
+    `${change(changeId)}/subagents/${encodeURIComponent(id)}`;
   // An idempotency key turns a retried write into the same request rather than a second one.
   const keyed = (idempotencyKey?: string): { headers?: Record<string, string> } =>
-    idempotencyKey === undefined ? {} : { headers: { "idempotency-key": idempotencyKey } }
+    idempotencyKey === undefined ? {} : { headers: { "idempotency-key": idempotencyKey } };
   // The explicit turn target, as the `?turn=` the routes read.
-  const turnSuffix = (turn?: number): string => (turn === undefined ? "" : `?turn=${turn}`)
+  const turnSuffix = (turn?: number): string => (turn === undefined ? "" : `?turn=${turn}`);
 
   return {
-    files: async () =>
-      decode(SubagentFilesResponseSchema, await send("GET", "/subagents/files")),
-    writeFile: async (file) =>
-      decode(SubagentFilesResponseSchema, await send("PUT", "/subagents/files", { body: file })),
-    deleteFile: async (ref) =>
-      decode(
-        SubagentFilesResponseSchema,
-        await send(
-          "DELETE",
-          `/subagents/files?scope=${ref.scope}${
-            ref.workspace ? `&workspace=${encodeURIComponent(ref.workspace)}` : ""
-          }&id=${encodeURIComponent(ref.id)}`,
-        ),
-      ),
-    repositoryFiles: async (changeId) =>
-      decode(
-        SubagentRepositoryFilesResponseSchema,
-        await send("GET", `${change(changeId)}/subagent-files`),
-      ),
-    writeRepositoryFile: async (changeId, file) =>
-      decode(
-        SubagentRepositoryFilesResponseSchema,
-        await send("PUT", `${change(changeId)}/subagent-files`, { body: file }),
-      ),
-    deleteRepositoryFile: async (changeId, ref) =>
-      decode(
-        SubagentRepositoryFilesResponseSchema,
-        await send(
-          "DELETE",
-          `${change(changeId)}/subagent-files?repository=${encodeURIComponent(ref.repository)}&id=${encodeURIComponent(ref.id)}`,
-        ),
-      ),
+    ...makeFileOperations(send, {
+      filesPath: "/subagents/files",
+      repositoryPath: (changeId) => `${change(changeId)}/subagent-files`,
+      filesSchema: SubagentFilesResponseSchema,
+      repositoriesSchema: SubagentRepositoryFilesResponseSchema,
+    }),
     list: async (changeId, options) =>
-      decode(
-        SubagentListResponseSchema,
-        await send("GET", `${change(changeId)}/subagents`, options),
-      ).instances,
+      (await request(send, "GET", `${change(changeId)}/subagents`, SubagentListResponseSchema, options))
+        .instances,
     profiles: async (changeId, options) =>
-      decode(
-        SubagentProfilesResponseSchema,
-        await send("GET", `${change(changeId)}/subagent-profiles`, options),
-      ),
+      request(send, "GET", `${change(changeId)}/subagent-profiles`, SubagentProfilesResponseSchema, options),
     read: async (changeId, id, options) =>
-      decode(SubagentInstanceSchema, await send("GET", instance(changeId, id), options)),
+      request(send, "GET", instance(changeId, id), SubagentInstanceSchema, options),
     create: async (changeId, body, idempotencyKey) =>
-      decode(
-        SubagentInstanceSchema,
-        await send("POST", `${change(changeId)}/subagents`, {
-          body,
-          ...keyed(idempotencyKey),
-        }),
-      ),
+      request(send, "POST", `${change(changeId)}/subagents`, SubagentInstanceSchema, {
+        body,
+        ...keyed(idempotencyKey),
+      }),
     open: async (changeId, id) =>
-      decode(SubagentInstanceSchema, await send("POST", `${instance(changeId, id)}/open`)),
+      request(send, "POST", `${instance(changeId, id)}/open`, SubagentInstanceSchema),
     close: async (changeId, id) =>
-      decode(SubagentInstanceSchema, await send("POST", `${instance(changeId, id)}/close`)),
+      request(send, "POST", `${instance(changeId, id)}/close`, SubagentInstanceSchema),
     send: async (changeId, id, body, idempotencyKey) =>
-      decode(
-        SubagentMessageSchema,
-        await send("POST", `${instance(changeId, id)}/messages`, {
-          body,
-          ...keyed(idempotencyKey),
-        }),
-      ),
+      request(send, "POST", `${instance(changeId, id)}/messages`, SubagentMessageSchema, {
+        body,
+        ...keyed(idempotencyKey),
+      }),
     result: async (changeId, id, query, options) =>
-      decode(
+      request(
+        send,
+        "GET",
+        `${instance(changeId, id)}/result${turnSuffix(query?.turn)}`,
         Schema.NullOr(SubagentMessageSchema),
-        await send("GET", `${instance(changeId, id)}/result${turnSuffix(query?.turn)}`, options),
+        options,
       ),
     await: async (changeId, query, options) => {
-      const params = new URLSearchParams()
-      for (const id of query.ids ?? []) params.append("id", id)
-      if (query.all === true) params.set("all", "1")
-      if (query.turn !== undefined) params.set("turn", String(query.turn))
-      const suffix = params.size > 0 ? `?${params.toString()}` : ""
-      return decode(
+      const params = new URLSearchParams();
+      for (const id of query.ids ?? []) params.append("id", id);
+      if (query.all === true) params.set("all", "1");
+      if (query.turn !== undefined) params.set("turn", String(query.turn));
+      const suffix = params.size > 0 ? `?${params.toString()}` : "";
+      return request(
+        send,
+        "GET",
+        `${change(changeId)}/subagents/await${suffix}`,
         SubagentAwaitResponseSchema,
-        await send("GET", `${change(changeId)}/subagents/await${suffix}`, options),
-      )
+        options,
+      );
     },
     next: async (changeId, id, after, options) =>
-      decode(
+      request(
+        send,
+        "GET",
+        `${instance(changeId, id)}/next${after === undefined ? "" : `?after=${after}`}`,
         SubagentNextResponseSchema,
-        await send(
-          "GET",
-          `${instance(changeId, id)}/next${after === undefined ? "" : `?after=${after}`}`,
-          options,
-        ),
+        options,
       ),
     turn: async (changeId, id, body, idempotencyKey) =>
-      decode(
-        SubagentMessageSchema,
-        await send("POST", `${instance(changeId, id)}/turn`, {
-          body,
-          ...keyed(idempotencyKey),
-        }),
-      ),
-  }
-}
+      request(send, "POST", `${instance(changeId, id)}/turn`, SubagentMessageSchema, {
+        body,
+        ...keyed(idempotencyKey),
+      }),
+  };
+};

@@ -16,8 +16,7 @@ import { mergeProfileFiles, type ProfileDiscovery, type ProfileFileInput } from 
 
 /** Where the shipped profiles live: the package's own `builtins/`, read-only files in the same
  * format as user files. */
-export const builtinProfilesDir = (): string =>
-  fileURLToPath(new URL("../../builtins/", import.meta.url));
+export const builtinProfilesDir = (): string => fileURLToPath(new URL("../../builtins/", import.meta.url));
 
 /** One `*.md` file on disk in a scope, before it is parsed. `readable` is false when the file
  * could not be read: it is still listed, so a permission problem is visible rather than a

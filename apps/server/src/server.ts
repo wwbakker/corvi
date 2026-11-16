@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { randomUUID } from "node:crypto";
+import { envNumber } from "./capabilities/effect/support.ts";
 import { resolve } from "node:path";
 import { createCache } from "./capabilities/cache.ts";
 import { runtimeRemoteAccessStatus, setRuntime, setTailscalePublishedPort } from "./capabilities/runtime.ts";
@@ -15,7 +16,13 @@ import { repositoriesRoutes } from "./change/repositories-route.ts";
 import { dashboardRoutes } from "./dashboard/routes.ts";
 import { devicesRoutes } from "./devices/routes.ts";
 import { gatewayRoutes } from "./gateway/routes.ts";
-import { DEFAULT_GATEWAY_TIMEOUTS, gatewaySockets, isGatewaySocket, type GatewaySocket, type GatewayTimeouts } from "./gateway/server/index.ts";
+import {
+  DEFAULT_GATEWAY_TIMEOUTS,
+  gatewaySockets,
+  isGatewaySocket,
+  type GatewaySocket,
+  type GatewayTimeouts,
+} from "./gateway/server/index.ts";
 import { makeRemoteAccess, type RemoteAccess } from "./remote-access/server.ts";
 import { DEFAULT_AVAILABILITY_DEADLINES, type RemoteAvailabilityDeadlines } from "./remote-events/model.ts";
 import { availabilityRoutes } from "./remote-events/routes.ts";
@@ -29,12 +36,13 @@ import { subagentsRoutes } from "./subagents/routes.ts";
 import { terminalsRoutes } from "./terminals/routes.ts";
 import { workspaceRoutes } from "./workspace/routes.ts";
 import { appUpdateRoutes } from "./app-update/routes.ts";
+import { closeInterruptedUpdate, startUpdateChecks, type AppUpdateOptions } from "./app-update/update.ts";
 import {
-  closeInterruptedUpdate,
-  startUpdateChecks,
-  type AppUpdateOptions,
-} from "./app-update/update.ts";
-import { terminalSockets, closeAttachments, flushScreens, type TerminalSocket } from "./terminals/server/session.ts";
+  terminalSockets,
+  closeAttachments,
+  flushScreens,
+  type TerminalSocket,
+} from "./terminals/server/session.ts";
 import { loadSnapshots } from "./terminals/server/snapshots.ts";
 import { putCliOnPath } from "./capabilities/env.ts";
 import { commandAvailable } from "./capabilities/os.ts";
@@ -58,10 +66,7 @@ setRuntime({ cache });
  * environment themselves. A bound must be positive — an invalid or non-positive value falls back
  * to the named default. There is deliberately no "unbounded" spelling: an unbounded health check
  * could never classify, and an unbounded read bound is what hangs the page. */
-const envMs = (name: string, fallback: number): number => {
-  const value = Number(process.env[env(name)]);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-};
+const envMs = (name: string, fallback: number): number => envNumber(env(name), fallback);
 
 // The port a previous run published through `tailscale serve`, read before the external listener
 // reconciles: a restart that follows a configured-port change while published still recognizes
@@ -221,11 +226,11 @@ console.log(
 // for the page once at startup, where the answer is visible: a server whose page cannot build
 // stops here (the window then reports it and points at this log) instead of blinding one.
 {
-  const page = await fetch(`${server.url}`).then((r) => r.text()).catch(() => "");
+  const page = await fetch(`${server.url}`)
+    .then((r) => r.text())
+    .catch(() => "");
   if (!page.includes("<!doctype html>") || page.includes("Build Failed")) {
-    console.error(
-      `the page was not built — ${server.url} served ${page.length} bytes that are not the app`,
-    );
+    console.error(`the page was not built — ${server.url} served ${page.length} bytes that are not the app`);
     console.error(
       "build it with `bun run build:web` (or `bun run app:install`, which does), then start the server again.",
     );

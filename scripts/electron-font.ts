@@ -56,7 +56,7 @@ if (!existsSync(binary)) {
   process.exit(1);
 }
 
-const dir = await mkdtemp(join(tmpdir(), "corvi-electron-font-"));
+const dir = await mkdtemp(join(tmpdir(), "electron-font-"));
 await writeFile(join(dir, "package.json"), `{ "name": "corvi-electron-font", "main": "main.cjs" }`);
 await writeFile(join(dir, "main.cjs"), MAIN);
 

@@ -75,47 +75,47 @@ export function ChangeDashboard({
     // `fieldset disabled` disables descends controls without changing the layout: the CSS
     // neutralizes the fieldset's own box.
     <fieldset className="widgets-fieldset" disabled={blocked === true}>
-    <div className="widgets">
-      <div className="column documents">
-        {(infos ?? []).filter((i) => i.column === "left").map(card)}
-        {/* Client-drawn documents: textareas and other client state a polled card cannot hold.
+      <div className="widgets">
+        <div className="column documents">
+          {(infos ?? []).filter((i) => i.column === "left").map(card)}
+          {/* Client-drawn documents: textareas and other client state a polled card cannot hold.
             Deliberately not keyed by generation — a remount after a merge would drop in-flight
             typing. Nothing to hand a widget before the change loads, so they wait for it; the
             cards do not. */}
-        {change &&
-          (widgets ?? [])
-            .filter((w) => w.column === "left")
-            .map((w) => (
-              <WidgetHost
-                key={`${w.extension}:${w.id}`}
-                info={w}
-                change={change}
-                workspace={change.workspace}
-              />
-            ))}
-      </div>
-      <div className="column status">
-        <CompletionCard changeId={id} busy={completing} onFinished={onFinished} />
-        {/* The change's subagents, whichever of them has a live window: this is where a closed one
+          {change &&
+            (widgets ?? [])
+              .filter((w) => w.column === "left")
+              .map((w) => (
+                <WidgetHost
+                  key={`${w.extension}:${w.id}`}
+                  info={w}
+                  change={change}
+                  workspace={change.workspace}
+                />
+              ))}
+        </div>
+        <div className="column status">
+          <CompletionCard changeId={id} busy={completing} onFinished={onFinished} />
+          {/* The change's subagents, whichever of them has a live window: this is where a closed one
             is reopened. Hidden when there are none. */}
-        <SubagentsCard changeId={id} onOpenPage={onOpenPage} />
-        {/* The change's own checkout facts: local changes only, because the legacy records the
+          <SubagentsCard changeId={id} onOpenPage={onOpenPage} />
+          {/* The change's own checkout facts: local changes only, because the legacy records the
             read projects are local. */}
-        {change && !change.workspace && <CheckoutsCard changeId={id} />}
-        {(infos ?? []).filter((i) => i.column !== "left").map(card)}
-        {change &&
-          (widgets ?? [])
-            .filter((w) => w.column !== "left")
-            .map((w) => (
-              <WidgetHost
-                key={`${w.extension}:${w.id}`}
-                info={w}
-                change={change}
-                workspace={change.workspace}
-              />
-            ))}
+          {change && !change.workspace && <CheckoutsCard changeId={id} />}
+          {(infos ?? []).filter((i) => i.column !== "left").map(card)}
+          {change &&
+            (widgets ?? [])
+              .filter((w) => w.column !== "left")
+              .map((w) => (
+                <WidgetHost
+                  key={`${w.extension}:${w.id}`}
+                  info={w}
+                  change={change}
+                  workspace={change.workspace}
+                />
+              ))}
+        </div>
       </div>
-    </div>
     </fieldset>
   );
 }

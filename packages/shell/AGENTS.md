@@ -10,6 +10,11 @@ The shell capability: the interface re-exported from the contract and the Node i
 - `./node`: `makeNodeShell(options)` — the real implementation: one spawned process per call, a
   shared concurrency gate, a timeout that kills the child, optional per-tool tracing, and the
   host's environment policy passed in. `NodeShellShape` takes the environment explicitly.
+- `./cli`: the helpers every caller of a CLI shares: `cliJson` (tolerant `--json` decoding),
+  `soft`/`shSoft` (a failure as a `ShellResult`), `messageOf`, and `withShell` with `sh`,
+  `shOrThrow` and `shSoft` — the one reader of the optional `Shell` and `Workspace` services. A
+  package with no process fallback gets a 127 `CliError`; the application passes its node shell
+  as the fallback.
 
 ## Does not own
 
@@ -22,6 +27,7 @@ vocabulary live in `@corvi/contracts`.
 
 - `@corvi/shell`: `Shell`, `ShellShape`, `Result`
 - `@corvi/shell/node`: `makeNodeShell`, `NodeShellOptions`, `NodeShellShape`, `TraceEntry`
+- `@corvi/shell/cli`: `cliJson`, `soft`, `messageOf`, `withShell`, `sh`, `shOrThrow`, `shSoft`
 
 ## Dependencies
 

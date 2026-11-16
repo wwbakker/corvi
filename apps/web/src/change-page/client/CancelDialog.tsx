@@ -41,9 +41,7 @@ export function CancelDialog({
 
   return (
     <dialog ref={ref} className="wide" onCancel={onClose} onClose={onClose}>
-      <h3>
-        {idea ? `Discard ${changeId}?` : `Cancel ${changeId}?`}
-      </h3>
+      <h3>{idea ? `Discard ${changeId}?` : `Cancel ${changeId}?`}</h3>
       <p className="hint">
         {idea
           ? "It is archived as cancelled; reopen it to pick it up again. Uncommitted work in its " +
@@ -76,12 +74,7 @@ export function CancelDialog({
         <button type="button" onClick={onClose} disabled={busy}>
           Keep working
         </button>
-        <button
-          type="button"
-          className="primary"
-          disabled={busy || !ready}
-          onClick={onConfirm}
-        >
+        <button type="button" className="primary" disabled={busy || !ready} onClick={onConfirm}>
           {busy ? (idea ? "Discarding…" : "Cancelling…") : idea ? "Discard" : "Cancel change"}
         </button>
       </div>

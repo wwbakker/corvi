@@ -63,8 +63,8 @@ export function RemoteWorkspaceSection({
       />
       {targetChanged && (
         <div className="notice">
-          The target changed, so the stored token no longer applies. Saving clears it; pair with
-          that server to get a token for it.
+          The target changed, so the stored token no longer applies. Saving clears it; pair with that server
+          to get a token for it.
         </div>
       )}
       <Field

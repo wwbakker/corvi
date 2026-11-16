@@ -62,13 +62,7 @@ export type Monitor = {
   tick: () => Effect.Effect<void>;
 };
 
-export const makeMonitor = ({
-  agents,
-  power,
-  now,
-  countdownMs,
-  onChange,
-}: MonitorOptions): Monitor => {
+export const makeMonitor = ({ agents, power, now, countdownMs, onChange }: MonitorOptions): Monitor => {
   const store = Effect.runSync(Ref.make<Store>(DISARMED));
 
   const notify = (): Effect.Effect<void> => Effect.sync(() => onChange?.());

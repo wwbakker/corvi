@@ -1,8 +1,18 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { chromium, webkit, type Browser, type Page } from "playwright";
-import { closePages, requireFreshWebBundle, runSh, serverEnv, stopRunHost, testRun, testTempDir, waitForUrl } from "./helpers.ts";
+import { type Browser, type Page } from "playwright";
+import {
+  closePages,
+  openEngine,
+  runSh,
+  serverEnv,
+  testTempDir,
+  startTestServer,
+  stopTestServer,
+  VIEWPORT,
+  withPage,
+} from "./helpers.ts";
 import { editorText, fillEditor } from "./editor.ts";
 
 /**
@@ -19,21 +29,9 @@ import { editorText, fillEditor } from "./editor.ts";
  * installed the page checks skip; the fixture's API assertions still run.
  */
 let browser: Browser;
-const engineName = process.env.CORVI_ENGINE === "webkit" ? "webkit" : "chromium";
-const usable = await (async (): Promise<boolean> => {
-  try {
-    const engine = engineName === "webkit" ? webkit : chromium;
-    if (!(await Bun.file(engine.executablePath()).exists())) return false;
-    browser = await engine.launch();
-    return true;
-  } catch {
-    return false;
-  }
-})();
-
-// The assertions below read the built bundle: a bundle older than the sources would be
-// yesterday's UI, and is refused here (test/helpers.ts, docs/guides/testing.md).
-if (usable) requireFreshWebBundle();
+const usable = await openEngine((opened) => {
+  browser = opened;
+});
 
 let tmp: string;
 let url: string;
@@ -61,12 +59,7 @@ const typed = ["---", "label: Review it", "kind: prompt", "target: active", "---
 
 beforeAll(async () => {
   tmp = await testTempDir("actions-page");
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp));
   const written = await fetch(`${url}/api/actions/files`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
@@ -79,8 +72,7 @@ afterAll(async () => {
   // Whatever pages a failed test left open are screenshotted for CI's failure artifacts first.
   await closePages(browser, "actions");
   await browser?.close();
-  server?.kill();
-  await stopRunHost(tmp);
+  await stopTestServer(server, tmp);
   await rm(tmp, { recursive: true, force: true });
 });
 
@@ -88,10 +80,7 @@ afterAll(async () => {
 const editReview = async (page: Page): Promise<void> => {
   await page.goto(`${url}/actions`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector(".actions-page");
-  await page
-    .locator(".widget p", { hasText: "look-over.md" })
-    .getByRole("button", { name: "Edit" })
-    .click();
+  await page.locator(".widget p", { hasText: "look-over.md" }).getByRole("button", { name: "Edit" }).click();
   await page.waitForSelector(".actions-page.editing");
   // CodeMirror draws the placeholder while the document is still empty.
   await page.waitForSelector(".md-editor .cm-placeholder", { state: "detached" });
@@ -105,114 +94,118 @@ const litIs = async (page: Page, name: string): Promise<void> => {
   );
 };
 
-test.skipIf(!usable)("an action is edited in the editor's frame, its fields documented beside it", async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  try {
-    await editReview(page);
+test.skipIf(!usable)(
+  "an action is edited in the editor's frame, its fields documented beside it",
+  async () => {
+    await withPage(browser, async (page) => {
+      await editReview(page);
 
-    // The source is the file, every character of it — the editor, not a textarea.
-    expect(await editorText(page.locator(".md-editor"))).toBe(source);
-    expect(await page.locator(".actions-page textarea").count()).toBe(0);
+      // The source is the file, every character of it — the editor, not a textarea.
+      expect(await editorText(page.locator(".md-editor"))).toBe(source);
+      expect(await page.locator(".actions-page textarea").count()).toBe(0);
 
-    // The frame: the editor fills what the header and the path line leave, the documentation
-    // docks to its right at its fixed width, and both end where the page's padding begins —
-    // 24px at the window's right edge and 48px above its bottom.
-    const editor = await page.locator(".action-editor .md-editor").boundingBox();
-    const docs = await page.locator(".action-docs").boundingBox();
-    if (!editor || !docs) throw new Error("the editor and its documentation did not lay out");
-    expect(Math.abs(editor.y - docs.y)).toBeLessThan(2);
-    expect(Math.abs(editor.height - docs.height)).toBeLessThan(2);
-    expect(Math.abs(docs.x + docs.width - (1280 - 24))).toBeLessThan(5);
-    expect(Math.abs(editor.y + editor.height - (900 - 48))).toBeLessThan(8);
-    expect(Math.abs(docs.width - 320)).toBeLessThan(5);
+      // The frame: the editor fills what the header and the path line leave, the documentation
+      // docks to its right at its fixed width, and both end where the page's padding begins —
+      // 24px at the window's right edge and 48px above its bottom.
+      const editor = await page.locator(".action-editor .md-editor").boundingBox();
+      const docs = await page.locator(".action-docs").boundingBox();
+      if (!editor || !docs) throw new Error("the editor and its documentation did not lay out");
+      expect(Math.abs(editor.y - docs.y)).toBeLessThan(2);
+      expect(Math.abs(editor.height - docs.height)).toBeLessThan(2);
+      expect(Math.abs(docs.x + docs.width - (VIEWPORT.width - 24))).toBeLessThan(5);
+      expect(Math.abs(editor.y + editor.height - (VIEWPORT.height - 48))).toBeLessThan(8);
+      expect(Math.abs(docs.width - 320)).toBeLessThan(5);
 
-    // Every field the vocabulary has is documented, named as the file names it.
-    const names = await page.locator(".action-docs .field h4 code").allTextContents();
-    expect(names).toEqual([
-      "label",
-      "kind",
-      "target",
-      "start",
-      "submit",
-      "phases",
-      "notify",
-      "keepOpen",
-      "body",
-    ]);
-    // The possible values are the vocabulary's own.
-    expect(
-      await page
-        .locator(".action-docs .field", { hasText: "kind" })
-        .locator(".values code")
-        .allTextContents(),
-    ).toEqual(["prompt", "command"]);
-    // And what the file says is wrong with it is on the page, beside its path.
-    expect((await page.locator(".hint code").first().textContent()) ?? "").toContain("look-over.md");
+      // Every field the vocabulary has is documented, named as the file names it.
+      const names = await page.locator(".action-docs .field h4 code").allTextContents();
+      expect(names).toEqual([
+        "label",
+        "kind",
+        "target",
+        "start",
+        "submit",
+        "phases",
+        "notify",
+        "keepOpen",
+        "body",
+      ]);
+      // The possible values are the vocabulary's own.
+      expect(
+        await page
+          .locator(".action-docs .field", { hasText: "kind" })
+          .locator(".values code")
+          .allTextContents(),
+      ).toEqual(["prompt", "command"]);
+      // And what the file says is wrong with it is on the page, beside its path.
+      expect((await page.locator(".hint code").first().textContent()) ?? "").toContain("look-over.md");
 
-    // The controls are named and where they were: one write on Save, back to the list on Cancel.
-    for (const control of ["Hide docs", "Cancel", "Save", "Delete"]) {
-      await page.getByRole("button", { name: control }).waitFor();
-    }
-  } finally {
-    await page.close();
-  }
-}, 60_000);
+      // The controls are named and where they were: one write on Save, back to the list on Cancel.
+      for (const control of ["Hide docs", "Cancel", "Save", "Delete"]) {
+        await page.getByRole("button", { name: control }).waitFor();
+      }
+    });
+  },
+  60_000,
+);
 
-test.skipIf(!usable)("the documentation opens and closes, and stays where it was left", async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  try {
-    await editReview(page);
-    await page.waitForSelector(".action-docs");
+test.skipIf(!usable)(
+  "the documentation opens and closes, and stays where it was left",
+  async () => {
+    await withPage(browser, async (page) => {
+      await editReview(page);
+      await page.waitForSelector(".action-docs");
 
-    await page.getByRole("button", { name: "Hide docs" }).click();
-    await page.waitForSelector(".action-docs", { state: "detached" });
+      await page.getByRole("button", { name: "Hide docs" }).click();
+      await page.waitForSelector(".action-docs", { state: "detached" });
 
-    // Left closed, it stays closed: the state is a preference (a cookie), not the page's mood —
-    // and editing is the page's own state, so the reload comes back to the list and its Edit.
-    await editReview(page);
-    await page.waitForSelector(".action-docs", { state: "detached" });
-    await page.getByRole("button", { name: "Show docs" }).click();
-    await page.waitForSelector(".action-docs");
-  } finally {
-    await page.close();
-  }
-}, 60_000);
+      // Left closed, it stays closed: the state is a preference (a cookie), not the page's mood —
+      // and editing is the page's own state, so the reload comes back to the list and its Edit.
+      await editReview(page);
+      await page.waitForSelector(".action-docs", { state: "detached" });
+      await page.getByRole("button", { name: "Show docs" }).click();
+      await page.waitForSelector(".action-docs");
+    });
+  },
+  60_000,
+);
 
-test.skipIf(!usable)("the field the caret is in is lit", async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  try {
-    await editReview(page);
+test.skipIf(!usable)(
+  "the field the caret is in is lit",
+  async () => {
+    await withPage(browser, async (page) => {
+      await editReview(page);
 
-    // On a field's own line, that field.
-    await page.locator(".cm-line", { hasText: "kind: prompt" }).click();
-    await litIs(page, "kind");
-    // On a phase in its list, the field the list belongs to.
-    await page.locator(".cm-line", { hasText: "- Verification" }).click();
-    await litIs(page, "phases");
-    // Below the frontmatter, the body.
-    await page.locator(".cm-line", { hasText: "Look it over" }).click();
-    await litIs(page, "body");
-  } finally {
-    await page.close();
-  }
-}, 60_000);
+      // On a field's own line, that field.
+      await page.locator(".cm-line", { hasText: "kind: prompt" }).click();
+      await litIs(page, "kind");
+      // On a phase in its list, the field the list belongs to.
+      await page.locator(".cm-line", { hasText: "- Verification" }).click();
+      await litIs(page, "phases");
+      // Below the frontmatter, the body.
+      await page.locator(".cm-line", { hasText: "Look it over" }).click();
+      await litIs(page, "body");
+    });
+  },
+  60_000,
+);
 
-test.skipIf(!usable)("a write that is not an action is refused, and says why", async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  try {
-    await editReview(page);
-    await fillEditor(page.locator(".md-editor"), "no frontmatter at all");
-    await page.getByRole("button", { name: "Save" }).click();
+test.skipIf(!usable)(
+  "a write that is not an action is refused, and says why",
+  async () => {
+    await withPage(browser, async (page) => {
+      await editReview(page);
+      await fillEditor(page.locator(".md-editor"), "no frontmatter at all");
+      await page.getByRole("button", { name: "Save" }).click();
 
-    // Still in the editor — a refused write is nothing but the notice and the text to fix.
-    await page.waitForSelector(".actions-page.editing");
-    expect((await page.locator(".actions-page header .summary").textContent()) ?? "").toContain(
-      "frontmatter",
-    );
-  } finally {
-    await page.close();
-  }
-}, 60_000);
+      // Still in the editor — a refused write is nothing but the notice and the text to fix.
+      await page.waitForSelector(".actions-page.editing");
+      expect((await page.locator(".actions-page header .summary").textContent()) ?? "").toContain(
+        "frontmatter",
+      );
+    });
+  },
+  60_000,
+);
 
 /** What the save-guard tests type in: a valid document that is not the file's. Plain lines
  * only (Enter continues a list — the editor's business, not the guard's). */
@@ -233,218 +226,224 @@ const onDisk = async (): Promise<string | undefined> => {
   return listing.files.find((f) => f.id === "look-over" && f.scope === "global")?.text;
 };
 
-test.skipIf(!usable)("leaving the editor with unsaved edits asks first", async () => {
-  // The draft is the editor's until Save, so leaving would take it with it — unless the
-  // question is answered first, the same three answers the settings page asks for. The prompt
-  // names what is at stake (the file being edited); Stay keeps the edit, Discard leaves it
-  // behind, Save and leave writes it on the way out.
-  const before = await onDisk();
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  try {
-    const prompt = page.locator("dialog", { hasText: "Unsaved changes to look-over.md" });
-    await editReview(page);
-    await fillEditor(page.locator(".md-editor"), guarded);
+test.skipIf(!usable)(
+  "leaving the editor with unsaved edits asks first",
+  async () => {
+    // The draft is the editor's until Save, so leaving would take it with it — unless the
+    // question is answered first, the same three answers the settings page asks for. The prompt
+    // names what is at stake (the file being edited); Stay keeps the edit, Discard leaves it
+    // behind, Save and leave writes it on the way out.
+    const before = await onDisk();
+    await withPage(browser, async (page) => {
+      const prompt = page.locator("dialog", { hasText: "Unsaved changes to look-over.md" });
+      await editReview(page);
+      await fillEditor(page.locator(".md-editor"), guarded);
 
-    // Stay: asked, and nothing else happens.
-    await page.getByRole("button", { name: "Changes", exact: true }).click();
-    await prompt.waitFor();
-    expect(new URL(page.url()).pathname).toBe("/actions");
-    await page.getByRole("button", { name: "Stay", exact: true }).click();
-    await prompt.waitFor({ state: "detached" });
-    expect(new URL(page.url()).pathname).toBe("/actions");
-    expect(await editorText(page.locator(".md-editor"))).toBe(guarded);
+      // Stay: asked, and nothing else happens.
+      await page.getByRole("button", { name: "Changes", exact: true }).click();
+      await prompt.waitFor();
+      expect(new URL(page.url()).pathname).toBe("/actions");
+      await page.getByRole("button", { name: "Stay", exact: true }).click();
+      await prompt.waitFor({ state: "detached" });
+      expect(new URL(page.url()).pathname).toBe("/actions");
+      expect(await editorText(page.locator(".md-editor"))).toBe(guarded);
 
-    // Discard and leave: the overview shows, and the file never saw the edit.
-    await page.getByRole("button", { name: "Changes", exact: true }).click();
-    await prompt.waitFor();
-    await page.getByRole("button", { name: "Discard and leave", exact: true }).click();
-    await page.waitForFunction(() => location.pathname === "/");
-    expect(await onDisk()).toBe(before);
+      // Discard and leave: the overview shows, and the file never saw the edit.
+      await page.getByRole("button", { name: "Changes", exact: true }).click();
+      await prompt.waitFor();
+      await page.getByRole("button", { name: "Discard and leave", exact: true }).click();
+      await page.waitForFunction(() => location.pathname === "/");
+      expect(await onDisk()).toBe(before);
 
-    // Save and leave: the same question, and the edit is written on the way out.
-    await editReview(page);
-    await fillEditor(page.locator(".md-editor"), guarded);
-    await page.getByRole("button", { name: "Changes", exact: true }).click();
-    await prompt.waitFor();
-    await page.getByRole("button", { name: "Save and leave", exact: true }).click();
-    await page.waitForFunction(() => location.pathname === "/");
-    expect(await onDisk()).toBe(guarded);
-  } finally {
-    await page.close();
-  }
-}, 60_000);
+      // Save and leave: the same question, and the edit is written on the way out.
+      await editReview(page);
+      await fillEditor(page.locator(".md-editor"), guarded);
+      await page.getByRole("button", { name: "Changes", exact: true }).click();
+      await prompt.waitFor();
+      await page.getByRole("button", { name: "Save and leave", exact: true }).click();
+      await page.waitForFunction(() => location.pathname === "/");
+      expect(await onDisk()).toBe(guarded);
+    });
+  },
+  60_000,
+);
 
-test.skipIf(!usable)("an editor with nothing unsaved leaves without a question", async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  try {
-    await editReview(page);
-    await page.getByRole("button", { name: "Changes", exact: true }).click();
-    await page.waitForFunction(() => location.pathname === "/");
-    expect(await page.locator("dialog").count()).toBe(0);
-  } finally {
-    await page.close();
-  }
-}, 60_000);
+test.skipIf(!usable)(
+  "an editor with nothing unsaved leaves without a question",
+  async () => {
+    await withPage(browser, async (page) => {
+      await editReview(page);
+      await page.getByRole("button", { name: "Changes", exact: true }).click();
+      await page.waitForFunction(() => location.pathname === "/");
+      expect(await page.locator("dialog").count()).toBe(0);
+    });
+  },
+  60_000,
+);
 
-test.skipIf(!usable)("a save the server refuses keeps you there with the draft", async () => {
-  // Save and leave runs the page's own save, so its failure is the page's own: the dialog
-  // closes, the notice explains, and the draft is still there to fix or to leave.
-  const before = await onDisk();
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  try {
-    await editReview(page);
-    await fillEditor(page.locator(".md-editor"), "no frontmatter at all");
-    await page.getByRole("button", { name: "Changes", exact: true }).click();
-    const prompt = page.locator("dialog", { hasText: "Unsaved changes to look-over.md" });
-    await prompt.waitFor();
-    await page.getByRole("button", { name: "Save and leave", exact: true }).click();
-    await prompt.waitFor({ state: "detached" });
-    expect(new URL(page.url()).pathname).toBe("/actions");
-    expect(await editorText(page.locator(".md-editor"))).toBe("no frontmatter at all");
-    expect((await page.locator(".actions-page header .summary").textContent()) ?? "").toContain(
-      "frontmatter",
-    );
-    expect(await onDisk()).toBe(before);
-  } finally {
-    await page.close();
-  }
-}, 60_000);
+test.skipIf(!usable)(
+  "a save the server refuses keeps you there with the draft",
+  async () => {
+    // Save and leave runs the page's own save, so its failure is the page's own: the dialog
+    // closes, the notice explains, and the draft is still there to fix or to leave.
+    const before = await onDisk();
+    await withPage(browser, async (page) => {
+      await editReview(page);
+      await fillEditor(page.locator(".md-editor"), "no frontmatter at all");
+      await page.getByRole("button", { name: "Changes", exact: true }).click();
+      const prompt = page.locator("dialog", { hasText: "Unsaved changes to look-over.md" });
+      await prompt.waitFor();
+      await page.getByRole("button", { name: "Save and leave", exact: true }).click();
+      await prompt.waitFor({ state: "detached" });
+      expect(new URL(page.url()).pathname).toBe("/actions");
+      expect(await editorText(page.locator(".md-editor"))).toBe("no frontmatter at all");
+      expect((await page.locator(".actions-page header .summary").textContent()) ?? "").toContain(
+        "frontmatter",
+      );
+      expect(await onDisk()).toBe(before);
+    });
+  },
+  60_000,
+);
 
-test.skipIf(!usable)("Save writes the file at once and returns to the list", async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  try {
-    await editReview(page);
-    await fillEditor(page.locator(".md-editor"), typed);
-    await page.getByRole("button", { name: "Save" }).click();
+test.skipIf(!usable)(
+  "Save writes the file at once and returns to the list",
+  async () => {
+    await withPage(browser, async (page) => {
+      await editReview(page);
+      await fillEditor(page.locator(".md-editor"), typed);
+      await page.getByRole("button", { name: "Save" }).click();
 
-    // Back on the list — the row that edit started from is there again.
-    await page.waitForSelector(".actions-page:not(.editing)");
-    await page.locator(".widget p", { hasText: "look-over.md" }).waitFor();
-    const response = await fetch(`${url}/api/actions/files`);
-    const listing = (await response.json()) as {
-      files: { id: string; scope: string; text: string }[];
-    };
-    expect(listing.files.find((f) => f.id === "look-over" && f.scope === "global")?.text).toBe(typed);
-  } finally {
-    await page.close();
-  }
-}, 60_000);
+      // Back on the list — the row that edit started from is there again.
+      await page.waitForSelector(".actions-page:not(.editing)");
+      await page.locator(".widget p", { hasText: "look-over.md" }).waitFor();
+      const response = await fetch(`${url}/api/actions/files`);
+      const listing = (await response.json()) as {
+        files: { id: string; scope: string; text: string }[];
+      };
+      expect(listing.files.find((f) => f.id === "look-over" && f.scope === "global")?.text).toBe(typed);
+    });
+  },
+  60_000,
+);
 
-test.skipIf(!usable)("New offers the built-ins as templates, and a copy lands in the scope", async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  try {
-    await page.goto(`${url}/actions`, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector(".actions-page");
-    // The shipped actions are templates in the create flow, not rows of their own.
-    expect(await page.locator(".widget h3", { hasText: "Built-in" }).count()).toBe(0);
+test.skipIf(!usable)(
+  "New offers the built-ins as templates, and a copy lands in the scope",
+  async () => {
+    await withPage(browser, async (page) => {
+      await page.goto(`${url}/actions`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector(".actions-page");
+      // The shipped actions are templates in the create flow, not rows of their own.
+      expect(await page.locator(".widget h3", { hasText: "Built-in" }).count()).toBe(0);
 
-    // Blank: the id typed, the smallest file that parses.
-    await page.locator(".widget", { hasText: "Global" }).getByRole("button", { name: "New" }).click();
-    await page.waitForSelector("dialog.template-picker");
-    await page.getByLabel("new action id").fill("blank-action");
-    await page.getByRole("button", { name: "Create" }).click();
-    await page.waitForSelector(".actions-page.editing");
-    await page.getByRole("button", { name: "Cancel" }).click();
+      // Blank: the id typed, the smallest file that parses.
+      await page.locator(".widget", { hasText: "Global" }).getByRole("button", { name: "New" }).click();
+      await page.waitForSelector("dialog.template-picker");
+      await page.getByLabel("new action id").fill("blank-action");
+      await page.getByRole("button", { name: "Create" }).click();
+      await page.waitForSelector(".actions-page.editing");
+      await page.getByRole("button", { name: "Cancel" }).click();
 
-    // The built-in as a template: its label and one-line description in the row, its text in
-    // the preview, and the id defaulting to the template's own.
-    await page.locator(".widget", { hasText: "Global" }).getByRole("button", { name: "New" }).click();
-    await page.waitForSelector("dialog.template-picker");
-    const choice = page.locator(".template-choice", { hasText: "Review the diff" });
-    expect((await choice.textContent()) ?? "").toContain("Review the changes on");
-    await choice.click();
-    expect((await page.locator(".template-preview").textContent()) ?? "").toContain(
-      "Review the changes on",
-    );
-    await page.getByRole("button", { name: "Create" }).click();
-    await page.waitForSelector(".actions-page.editing");
+      // The built-in as a template: its label and one-line description in the row, its text in
+      // the preview, and the id defaulting to the template's own.
+      await page.locator(".widget", { hasText: "Global" }).getByRole("button", { name: "New" }).click();
+      await page.waitForSelector("dialog.template-picker");
+      const choice = page.locator(".template-choice", { hasText: "Review the diff" });
+      expect((await choice.textContent()) ?? "").toContain("Review the changes on");
+      await choice.click();
+      expect((await page.locator(".template-preview").textContent()) ?? "").toContain(
+        "Review the changes on",
+      );
+      await page.getByRole("button", { name: "Create" }).click();
+      await page.waitForSelector(".actions-page.editing");
 
-    // The copy lands in Global with the template's id — shadowing the shipped one by
-    // precedence, which stays listed beside it.
-    const listing = (await (await fetch(`${url}/api/actions/files`)).json()) as {
-      files: { id: string; scope: string }[];
-    };
-    expect(listing.files.some((file) => file.id === "review" && file.scope === "global")).toBe(true);
-    expect(listing.files.some((file) => file.id === "review" && file.scope === "builtin")).toBe(true);
-    expect(listing.files.some((file) => file.id === "blank-action" && file.scope === "global")).toBe(true);
-  } finally {
-    await page.close();
-  }
-}, 60_000);
+      // The copy lands in Global with the template's id — shadowing the shipped one by
+      // precedence, which stays listed beside it.
+      const listing = (await (await fetch(`${url}/api/actions/files`)).json()) as {
+        files: { id: string; scope: string }[];
+      };
+      expect(listing.files.some((file) => file.id === "review" && file.scope === "global")).toBe(true);
+      expect(listing.files.some((file) => file.id === "review" && file.scope === "builtin")).toBe(true);
+      expect(listing.files.some((file) => file.id === "blank-action" && file.scope === "global")).toBe(true);
+    });
+  },
+  60_000,
+);
 
-test.skipIf(!usable)("the Repositories block lists a change's checkout files, and creates, edits and deletes one", async () => {
-  // A change with one real checkout on its branch, holding a good action and a broken one: the
-  // block shows what the change's checkouts carry — problems and all, never hidden.
-  const branch = "PROJ-repo-page";
-  const repo = join(tmp, "repo");
-  await runSh(["git", "init", "-b", branch, repo]);
-  await writeFile(join(repo, "README.md"), "hi\n");
-  await runSh(["git", "add", "."], repo);
-  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], repo);
-  await mkdir(join(repo, ".corvi", "actions"), { recursive: true });
-  await writeFile(join(repo, ".corvi", "actions", "broken.md"), "---\nkind: command\n---\nrm -rf\n");
-  await writeFile(join(repo, ".corvi", "actions", "repo-look-over.md"), source);
-  const dir = join(tmp, "changes", branch);
-  await mkdir(dir, { recursive: true });
-  await writeFile(
-    join(dir, "change.json"),
-    JSON.stringify({
-      id: branch,
-      branch,
-      title: "Repo page",
-      state: "Implementation",
-      createdAt: "2026-01-01T00:00:00.000Z",
-      formatVersion: 2,
-      checkouts: [{ path: repo, location: "original", branch: { kind: "change" } }],
-    }),
-    "utf8",
-  );
-
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  try {
-    await page.goto(`${url}/actions`, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector(".actions-page");
-    await page.locator('select[aria-label="change"]').selectOption({ label: "Repo page" });
-    await page.waitForSelector(`h4:text-is("${basename(repo)}")`);
-
-    // The good row and the broken one with its reasons, both in the repository's block.
-    expect(await page.locator(".widget p", { hasText: "repo-look-over.md" }).count()).toBe(1);
-    expect((await page.locator(".widget p", { hasText: "broken.md" }).textContent()) ?? "").toContain(
-      "label",
+test.skipIf(!usable)(
+  "the Repositories block lists a change's checkout files, and creates, edits and deletes one",
+  async () => {
+    // A change with one real checkout on its branch, holding a good action and a broken one: the
+    // block shows what the change's checkouts carry — problems and all, never hidden.
+    const branch = "PROJ-repo-page";
+    const repo = join(tmp, "repo");
+    await runSh(["git", "init", "-b", branch, repo]);
+    await writeFile(join(repo, "README.md"), "hi\n");
+    await runSh(["git", "add", "."], repo);
+    await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], repo);
+    await mkdir(join(repo, ".corvi", "actions"), { recursive: true });
+    await writeFile(join(repo, ".corvi", "actions", "broken.md"), "---\nkind: command\n---\nrm -rf\n");
+    await writeFile(join(repo, ".corvi", "actions", "repo-look-over.md"), source);
+    const dir = join(tmp, "changes", branch);
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "change.json"),
+      JSON.stringify({
+        id: branch,
+        branch,
+        title: "Repo page",
+        state: "Implementation",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        formatVersion: 2,
+        checkouts: [{ path: repo, location: "original", branch: { kind: "change" } }],
+      }),
+      "utf8",
     );
 
-    // Editing the checkout's file is the same editor's frame; Save writes the checkout file.
-    await page
-      .locator(".widget p", { hasText: "repo-look-over.md" })
-      .getByRole("button", { name: "Edit" })
-      .click();
-    await page.waitForSelector(".actions-page.editing");
-    await fillEditor(page.locator(".md-editor"), typed);
-    await page.getByRole("button", { name: "Save" }).click();
-    await page.waitForSelector(".actions-page:not(.editing)");
-    expect(await readFile(join(repo, ".corvi", "actions", "repo-look-over.md"), "utf8")).toBe(typed);
+    await withPage(browser, async (page) => {
+      await page.goto(`${url}/actions`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector(".actions-page");
+      await page.locator('select[aria-label="change"]').selectOption({ label: "Repo page" });
+      await page.waitForSelector(`h4:text-is("${basename(repo)}")`);
 
-    // Delete asks, and takes the checkout's file away with it.
-    page.on("dialog", (dialog) => void dialog.accept());
-    await page
-      .locator(".widget p", { hasText: "repo-look-over.md" })
-      .getByRole("button", { name: "Delete" })
-      .click();
-    await page.waitForSelector(".widget p:has-text('repo-look-over.md')", { state: "detached" });
-    expect(await Bun.file(join(repo, ".corvi", "actions", "repo-look-over.md")).exists()).toBe(false);
+      // The good row and the broken one with its reasons, both in the repository's block.
+      expect(await page.locator(".widget p", { hasText: "repo-look-over.md" }).count()).toBe(1);
+      expect((await page.locator(".widget p", { hasText: "broken.md" }).textContent()) ?? "").toContain(
+        "label",
+      );
 
-    // The block creates from the template picker too: the copy lands in the checkout.
-    await page
-      .locator(".widget h4", { hasText: basename(repo) })
-      .getByRole("button", { name: "New" })
-      .click();
-    await page.waitForSelector("dialog.template-picker");
-    await page.locator(".template-choice", { hasText: "New pi session" }).click();
-    await page.getByLabel("new action id").fill("repo-copy");
-    await page.getByRole("button", { name: "Create" }).click();
-    await page.waitForSelector(".actions-page.editing");
-    expect(await Bun.file(join(repo, ".corvi", "actions", "repo-copy.md")).exists()).toBe(true);
-  } finally {
-    await page.close();
-  }
-}, 60_000);
+      // Editing the checkout's file is the same editor's frame; Save writes the checkout file.
+      await page
+        .locator(".widget p", { hasText: "repo-look-over.md" })
+        .getByRole("button", { name: "Edit" })
+        .click();
+      await page.waitForSelector(".actions-page.editing");
+      await fillEditor(page.locator(".md-editor"), typed);
+      await page.getByRole("button", { name: "Save" }).click();
+      await page.waitForSelector(".actions-page:not(.editing)");
+      expect(await readFile(join(repo, ".corvi", "actions", "repo-look-over.md"), "utf8")).toBe(typed);
+
+      // Delete asks, and takes the checkout's file away with it.
+      page.on("dialog", (dialog) => void dialog.accept());
+      await page
+        .locator(".widget p", { hasText: "repo-look-over.md" })
+        .getByRole("button", { name: "Delete" })
+        .click();
+      await page.waitForSelector(".widget p:has-text('repo-look-over.md')", { state: "detached" });
+      expect(await Bun.file(join(repo, ".corvi", "actions", "repo-look-over.md")).exists()).toBe(false);
+
+      // The block creates from the template picker too: the copy lands in the checkout.
+      await page
+        .locator(".widget h4", { hasText: basename(repo) })
+        .getByRole("button", { name: "New" })
+        .click();
+      await page.waitForSelector("dialog.template-picker");
+      await page.locator(".template-choice", { hasText: "New pi session" }).click();
+      await page.getByLabel("new action id").fill("repo-copy");
+      await page.getByRole("button", { name: "Create" }).click();
+      await page.waitForSelector(".actions-page.editing");
+      expect(await Bun.file(join(repo, ".corvi", "actions", "repo-copy.md")).exists()).toBe(true);
+    });
+  },
+  60_000,
+);

@@ -128,11 +128,10 @@ test("the extensions list resolves down the same chain: the workspace's, the glo
   expect(settingsFor(globalConfig, listed, ENV_OVERRIDES).extensions).toEqual(["github"]);
   expect(settingsFor(globalConfig, workspaceOf({}), ENV_OVERRIDES).extensions).toEqual(["jira"]);
   // An empty list is a decision — none of them — where an absent one inherits.
-  expect(settingsFor(globalConfig, workspaceOf({ extensions: [] }), ENV_OVERRIDES).extensions).toEqual(
-    [],
-  );
-  expect(settingsFor({ ...globalConfig, extensions: undefined }, undefined, ENV_OVERRIDES).extensions)
-    .toBeUndefined();
+  expect(settingsFor(globalConfig, workspaceOf({ extensions: [] }), ENV_OVERRIDES).extensions).toEqual([]);
+  expect(
+    settingsFor({ ...globalConfig, extensions: undefined }, undefined, ENV_OVERRIDES).extensions,
+  ).toBeUndefined();
 
   // The enablement rule every surface asks: no list at all means every extension.
   expect(extensionEnabled(globalConfig, workspaceOf({}), "jira")).toBe(true);

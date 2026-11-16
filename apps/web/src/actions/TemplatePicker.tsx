@@ -10,7 +10,12 @@ export type Template = {
 /** The body's first line, as the row's one-line description. */
 const firstLine = (text: string): string => {
   const body = text.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "");
-  return body.split("\n").find((line) => line.trim() !== "")?.trim() ?? "";
+  return (
+    body
+      .split("\n")
+      .find((line) => line.trim() !== "")
+      ?.trim() ?? ""
+  );
 };
 
 /**
@@ -61,8 +66,8 @@ export function TemplatePicker({
     >
       <h3>New {what}</h3>
       <p className="hint">
-        Start blank, or copy a built-in. The copy lands in this scope and shadows the built-in
-        while it exists.
+        Start blank, or copy a built-in. The copy lands in this scope and shadows the built-in while it
+        exists.
       </p>
       <div className="template-choices">
         <button
@@ -103,12 +108,7 @@ export function TemplatePicker({
         <button type="button" onClick={onClose}>
           Cancel
         </button>
-        <button
-          type="button"
-          className="create"
-          disabled={!id}
-          onClick={() => onCreate(id, text)}
-        >
+        <button type="button" className="create" disabled={!id} onClick={() => onCreate(id, text)}>
           Create
         </button>
       </div>

@@ -193,8 +193,7 @@ function IssuePicker({
     <div className="issues">
       {(error || (listing && !listing.repository)) && (
         <div className="error-banner">
-          {error ??
-            `${(chosen ?? "").split("/").pop()} has no GitHub remote — pick another repository.`}
+          {error ?? `${(chosen ?? "").split("/").pop()} has no GitHub remote — pick another repository.`}
         </div>
       )}
 
@@ -299,9 +298,7 @@ export const step: StepComponent = ({ ctx }) => {
     // The field shows the issue's URL number under its repository; its title is the name that
     // may name the change.
     ctx.setPick(KEY, {
-      label: picked.repository
-        ? `${picked.repository}#${picked.issue.number}`
-        : `#${picked.issue.number}`,
+      label: picked.repository ? `${picked.repository}#${picked.issue.number}` : `#${picked.issue.number}`,
       name: picked.issue.title,
     });
     // GitHub has no short key like PROJ-123: the issue number stands in for one, and the id and
@@ -365,12 +362,9 @@ export const edit: EditComponent = ({ change, workspace, open, onClose, onSaved 
     setBusy(true);
     setError(null);
     wire
-      .request(
-        "PUT",
-        `/ext/${KEY}/changes/${encodeURIComponent(change.id)}/link`,
-        ChangeWireSchema,
-        { body: { repo: picked.repo, number: picked.issue.number } },
-      )
+      .request("PUT", `/ext/${KEY}/changes/${encodeURIComponent(change.id)}/link`, ChangeWireSchema, {
+        body: { repo: picked.repo, number: picked.issue.number },
+      })
       .then((updated) => {
         setPicked(null);
         onClose();

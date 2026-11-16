@@ -26,13 +26,10 @@ export class ConflictError extends Schema.TaggedError<ConflictError>()("Conflict
 
 /** The caller has asked too often in the current window; waiting is the only fix. The optional
  * `retryAfterSeconds` becomes the response's `Retry-After` advice. */
-export class TooManyRequestsError extends Schema.TaggedError<TooManyRequestsError>()(
-  "TooManyRequestsError",
-  {
-    message: Schema.String,
-    retryAfterSeconds: Schema.optional(Schema.Number),
-  },
-) {}
+export class TooManyRequestsError extends Schema.TaggedError<TooManyRequestsError>()("TooManyRequestsError", {
+  message: Schema.String,
+  retryAfterSeconds: Schema.optional(Schema.Number),
+}) {}
 
 /** Something on our side failed while serving a well-formed request. */
 export class InternalError extends Schema.TaggedError<InternalError>()("InternalError", {
@@ -58,7 +55,7 @@ export class DecodeError extends Schema.TaggedError<DecodeError>()("DecodeError"
   message: Schema.String,
 }) {}
 
-export type IweError =
+export type CorviError =
   | NotFoundError
   | BadRequestError
   | ConflictError
@@ -68,8 +65,10 @@ export type IweError =
   | InternalError;
 
 /** True when `e` is one of ours (and therefore has a status code waiting in http.ts). */
-export const isIweError = (e: unknown): e is IweError =>
-  typeof e === "object" && e !== null && "_tag" in e &&
+export const isCorviError = (e: unknown): e is CorviError =>
+  typeof e === "object" &&
+  e !== null &&
+  "_tag" in e &&
   [
     "NotFoundError",
     "BadRequestError",
@@ -81,4 +80,4 @@ export const isIweError = (e: unknown): e is IweError =>
   ].includes((e as { _tag: unknown })._tag as string);
 
 /** The human-readable message for any of ours. */
-export const formatError = (e: IweError): string => e.message;
+export const formatError = (e: CorviError): string => e.message;

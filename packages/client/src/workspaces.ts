@@ -8,37 +8,37 @@ import {
   type PairRemoteWorkspaceResponseDto,
   type PageInfoDto,
   type WorkspacesResponseDto,
-} from "@corvi/contracts/api"
+} from "@corvi/contracts/api";
 
-import { decode, type RequestOptions, type Send } from "./transport.ts"
+import { decode, type RequestOptions, type Send, request } from "./transport.ts";
 
 export interface WorkspacesApi {
-  readonly list: (options?: RequestOptions) => Promise<WorkspacesResponseDto>
-  readonly pages: (workspace?: string, options?: RequestOptions) => Promise<PageInfoDto[]>
+  readonly list: (options?: RequestOptions) => Promise<WorkspacesResponseDto>;
+  readonly pages: (workspace?: string, options?: RequestOptions) => Promise<PageInfoDto[]>;
   /** Ask this (local) server to pair with a workspace hosted by another server: it redeems the
    * code on the remote, server-to-server, and hands back the token for the settings draft. The
    * page never talks to the remote itself. */
   readonly pairRemote: (
     input: PairRemoteWorkspaceRequestDto,
     options?: RequestOptions,
-  ) => Promise<PairRemoteWorkspaceResponseDto>
+  ) => Promise<PairRemoteWorkspaceResponseDto>;
 }
 
 export const makeWorkspacesApi = (send: Send): WorkspacesApi => ({
-  list: async (options) =>
-    decode(WorkspacesResponseSchema, await send("GET", "/workspaces", options)),
+  list: async (options) => request(send, "GET", "/workspaces", WorkspacesResponseSchema, options),
   pages: async (workspace, options) =>
-    decode(
-      PagesResponseSchema,
-      await send(
+    (
+      await request(
+        send,
         "GET",
         `/pages${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
+        PagesResponseSchema,
         options,
-      ),
+      )
     ).pages,
   pairRemote: async (input, options) =>
-    decode(
-      PairRemoteWorkspaceResponseSchema,
-      await send("POST", "/workspaces/pair-remote", { body: input, ...options }),
-    ),
-})
+    request(send, "POST", "/workspaces/pair-remote", PairRemoteWorkspaceResponseSchema, {
+      body: input,
+      ...options,
+    }),
+});

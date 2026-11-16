@@ -1,7 +1,13 @@
 /** Change records and lifecycle. */
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer } from "effect";
 
-import { Change, type ChangeFilter, type ChangeId, type ChangePhase, type CreateChangeInput } from "@corvi/contracts/changes"
+import {
+  Change,
+  type ChangeFilter,
+  type ChangeId,
+  type ChangePhase,
+  type CreateChangeInput,
+} from "@corvi/contracts/changes";
 import {
   ChangeIdTaken,
   ChangeNotFound,
@@ -9,50 +15,64 @@ import {
   InvalidTransition,
   type ChangeConflict,
   type ChangeFormatTooNew,
-} from "./errors.ts"
-import { allowedTransition, isFinished, isTerminal, reopenPhaseOf } from "./rules.ts"
-import { ChangeStore } from "./store.ts"
+} from "./errors.ts";
+import { isFinished } from "./record.ts";
+import { allowedTransition, isTerminal, reopenPhaseOf } from "./rules.ts";
+import { ChangeStore } from "./store.ts";
 
 export interface Interface {
-  readonly getChange: (changeId: ChangeId) => Effect.Effect<Change, ChangeNotFound | ChangeStoreError>
-  readonly listChanges: (filter: ChangeFilter) => Effect.Effect<readonly Change[], ChangeStoreError>
-  readonly createChange: (input: CreateChangeInput) => Effect.Effect<Change, ChangeIdTaken | ChangeStoreError>
+  readonly getChange: (changeId: ChangeId) => Effect.Effect<Change, ChangeNotFound | ChangeStoreError>;
+  readonly listChanges: (filter: ChangeFilter) => Effect.Effect<readonly Change[], ChangeStoreError>;
+  readonly createChange: (
+    input: CreateChangeInput,
+  ) => Effect.Effect<Change, ChangeIdTaken | ChangeStoreError>;
   readonly transitionTo: (
     changeId: ChangeId,
     phase: ChangePhase,
-  ) => Effect.Effect<Change, ChangeNotFound | InvalidTransition | ChangeConflict | ChangeFormatTooNew | ChangeStoreError>
+  ) => Effect.Effect<
+    Change,
+    ChangeNotFound | InvalidTransition | ChangeConflict | ChangeFormatTooNew | ChangeStoreError
+  >;
   /** Undo a cancellation: the change leaves the archive in the phase it was cancelled from. Any
    * other phase — a completed change included — is an `InvalidTransition`. */
   readonly reopen: (
     changeId: ChangeId,
-  ) => Effect.Effect<Change, ChangeNotFound | InvalidTransition | ChangeConflict | ChangeFormatTooNew | ChangeStoreError>
+  ) => Effect.Effect<
+    Change,
+    ChangeNotFound | InvalidTransition | ChangeConflict | ChangeFormatTooNew | ChangeStoreError
+  >;
 }
 
 export class ChangeService extends Context.Service<ChangeService, Interface>()("corvi/ChangeService") {}
 
-const now = (): string => new Date().toISOString()
+const now = (): string => new Date().toISOString();
 
 export const layer = Layer.effect(
   ChangeService,
   Effect.gen(function* () {
-    const store = yield* ChangeStore
+    const store = yield* ChangeStore;
 
     const getChange = Effect.fn("Change.getChange")(function* (changeId: ChangeId) {
-      const change = yield* store.read(changeId)
+      const change = yield* store.read(changeId);
       if (!change)
-        return yield* new ChangeNotFound({ changeId, message: `change ${changeId} was not found` })
-      return change
-    })
+        return yield* new ChangeNotFound({ changeId, message: `change ${changeId} was not found` });
+      return change;
+    });
 
     const listChanges = Effect.fn("Change.listChanges")(function* (filter: ChangeFilter) {
-      const changes = yield* store.list()
-      return changes.filter((change) => (filter === "Archived" ? isFinished(change) : !isFinished(change)))
-    })
+      const changes = yield* store.list();
+      const finished = (change: Change): boolean =>
+        isFinished({ state: change.phase, completedAt: change.completedAt });
+      return changes.filter((change) => (filter === "Archived" ? finished(change) : !finished(change)));
+    });
 
     const createChange = Effect.fn("Change.createChange")(function* (input: CreateChangeInput) {
-      const existing = yield* store.read(input.changeId)
+      const existing = yield* store.read(input.changeId);
       if (existing)
-        return yield* new ChangeIdTaken({ changeId: input.changeId, message: `change ${input.changeId} already exists` })
+        return yield* new ChangeIdTaken({
+          changeId: input.changeId,
+          message: `change ${input.changeId} already exists`,
+        });
       const change = new Change({
         changeId: input.changeId,
         title: input.title,
@@ -60,44 +80,41 @@ export const layer = Layer.effect(
         branch: input.branch ?? input.changeId,
         phase: input.phase ?? "Ideation",
         createdAt: now(),
-      })
-      yield* store.create(change, [])
+      });
+      yield* store.create(change, []);
       // The store owns the on-disk location, so the created change is read back rather than
       // echoing the input's workspace location.
-      const created = yield* store.read(input.changeId)
+      const created = yield* store.read(input.changeId);
       if (!created)
         return yield* new ChangeStoreError({
           changeId: input.changeId,
           operation: "read",
           message: "the created change could not be read back",
-        })
-      return created
-    })
+        });
+      return created;
+    });
 
-    const transitionTo = Effect.fn("Change.transitionTo")(function* (
-      changeId: ChangeId,
-      phase: ChangePhase,
-    ) {
-      const change = yield* getChange(changeId)
+    const transitionTo = Effect.fn("Change.transitionTo")(function* (changeId: ChangeId, phase: ChangePhase) {
+      const change = yield* getChange(changeId);
       if (!allowedTransition(change.phase, phase))
         return yield* new InvalidTransition({
           changeId,
           from: change.phase,
           to: phase,
           message: `change ${changeId} cannot move from ${change.phase} to ${phase}`,
-        })
+        });
       return yield* store.patch(changeId, {
         phase,
         ...(isTerminal(phase) ? { completedAt: now() } : {}),
         // Optimistic concurrency: the write lands only if the record is still the one this
         // transition was decided on; another writer's commit is a conflict, not a lost update.
         expectedRevision: change.revision ?? 0,
-      })
-    })
+      });
+    });
 
     const reopen = Effect.fn("Change.reopen")(function* (changeId: ChangeId) {
-      const change = yield* getChange(changeId)
-      const phase = reopenPhaseOf(change)
+      const change = yield* getChange(changeId);
+      const phase = reopenPhaseOf(change);
       if (phase === undefined)
         return yield* new InvalidTransition({
           changeId,
@@ -107,10 +124,10 @@ export const layer = Layer.effect(
             change.phase === "Completed"
               ? `change ${changeId} is completed: only a cancelled change can be reopened`
               : `change ${changeId} is not cancelled (${change.phase}): there is nothing to reopen`,
-        })
-      return yield* store.reopen(changeId, { phase, expectedRevision: change.revision ?? 0 })
-    })
+        });
+      return yield* store.reopen(changeId, { phase, expectedRevision: change.revision ?? 0 });
+    });
 
-    return { getChange, listChanges, createChange, transitionTo, reopen }
+    return { getChange, listChanges, createChange, transitionTo, reopen };
   }),
-)
+);

@@ -12,6 +12,7 @@
  * later slice's per-window token is the extension point, not this one.
  */
 import type { SessionStatus } from "../host/protocol.ts";
+import { envNumber } from "../../capabilities/effect/support.ts";
 import { hostClient, hostRunning } from "./host.ts";
 
 export type AgentStatus = SessionStatus;
@@ -60,10 +61,7 @@ export const statusOf = (sessionId: string, incarnation: number): AgentStatus | 
  * "working" forever. `waiting` has no heartbeat and is left alone. A test can shorten it with
  * `CORVI_STATUS_TTL_MS`. */
 const STATUS_TTL_MS = 60_000;
-const statusTtlMs = (): number => {
-  const value = Number(process.env.CORVI_STATUS_TTL_MS);
-  return Number.isFinite(value) && value >= 0 ? value : STATUS_TTL_MS;
-};
+const statusTtlMs = (): number => envNumber("CORVI_STATUS_TTL_MS", STATUS_TTL_MS, 0);
 
 /** Whether a status is a stale `working` (its reporter stopped heartbeating). Pure over `now`, so
  * the rule is a unit test's own. */

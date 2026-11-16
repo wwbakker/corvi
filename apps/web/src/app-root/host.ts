@@ -9,5 +9,4 @@
  */
 import type { CorviHost } from "../domain/host.ts";
 
-export const hostOf = (): CorviHost | undefined =>
-  (window as unknown as { corviHost?: CorviHost }).corviHost;
+export const hostOf = (): CorviHost | undefined => (window as unknown as { corviHost?: CorviHost }).corviHost;

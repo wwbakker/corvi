@@ -1,10 +1,5 @@
 import { type JSX } from "react";
-import {
-  CHANGE_STATES,
-  IDEATION,
-  type Change,
-  type ChangeState,
-} from "../../app-root/api.ts";
+import { CHANGE_STATES, IDEATION, type Change, type ChangeState } from "../../app-root/api.ts";
 import { ActionsMenu, type Action } from "../../app-root/ActionsMenu.tsx";
 import { stateClass } from "../../app-root/stateClass.ts";
 import { isFinished } from "../../domain/change.ts";
@@ -110,11 +105,11 @@ export function ChangeControls({
               <option>{IDEATION}</option>
             ) : (
               <>
-                {CHANGE_STATES.filter(
-                  (s) => !isFinished({ ...change, state: s }) && s !== IDEATION,
-                ).map((s) => (
-                  <option key={s}>{s}</option>
-                ))}
+                {CHANGE_STATES.filter((s) => !isFinished({ ...change, state: s }) && s !== IDEATION).map(
+                  (s) => (
+                    <option key={s}>{s}</option>
+                  ),
+                )}
                 {isFinished(change) && <option>{change.state}</option>}
               </>
             )}
@@ -123,9 +118,7 @@ export function ChangeControls({
             <>
               {/* How it ended, not only that it did: a change that was abandoned is not one that
                   landed, and the badge is the only place that says so on this page. */}
-              <span
-                className={`badge ${change.state === "Cancelled" ? stateClass(change.state) : "ok"}`}
-              >
+              <span className={`badge ${change.state === "Cancelled" ? stateClass(change.state) : "ok"}`}>
                 {(change.state ?? "Completed").toLowerCase()} {change.completedAt?.slice(0, 10)}
               </span>
               {/* A cancelled change can come back: its worktrees are made again and the work

@@ -37,7 +37,10 @@ test("a working reporter re-publishes on the heartbeat and stops when it goes id
     // The opening state is waiting, published once.
     expect(statuses).toEqual(["waiting"]);
     await hooks.event!({
-      event: { type: "message.updated", properties: { info: { id: "m1", sessionID: "s1", role: "user", summary: false } } },
+      event: {
+        type: "message.updated",
+        properties: { info: { id: "m1", sessionID: "s1", role: "user", summary: false } },
+      },
     } as never);
     expect(statuses.at(-1)).toBe("working");
     await Bun.sleep(120); // several heartbeats
@@ -56,7 +59,10 @@ test("dispose stops the heartbeat", async () => {
     const { input, statuses } = fakeInput();
     const hooks = await reporter.server(input);
     await hooks.event!({
-      event: { type: "message.updated", properties: { info: { id: "m1", sessionID: "s1", role: "user", summary: false } } },
+      event: {
+        type: "message.updated",
+        properties: { info: { id: "m1", sessionID: "s1", role: "user", summary: false } },
+      },
     } as never);
     await Bun.sleep(80);
     await hooks.dispose?.();

@@ -28,12 +28,7 @@ export type Advance = {
  * - counting-down cancels back to armed on a busy edge — the target stays armed — and fires once
  *   the deadline has passed while quiet.
  */
-export const advance = (
-  state: PowerState,
-  quiet: boolean,
-  now: number,
-  countdownMs: number,
-): Advance => {
+export const advance = (state: PowerState, quiet: boolean, now: number, countdownMs: number): Advance => {
   switch (state.phase) {
     case "disarmed":
       return { state, fire: false };

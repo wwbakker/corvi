@@ -1,7 +1,15 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
-import { chromium, webkit, type Browser, type Page } from "playwright";
-import { closePages, serverEnv, testRun, testTempDir, waitForUrl, stopRunHost } from "./helpers.ts";
+import { type Browser, type Page } from "playwright";
+import {
+  closePages,
+  openEngine,
+  testTempDir,
+  startTestServer,
+  stopTestServer,
+  VIEWPORT,
+  withPage,
+} from "./helpers.ts";
 
 /**
  * The auto-update surface in the engine the app renders in: the notice, the icon, and the
@@ -14,17 +22,9 @@ import { closePages, serverEnv, testRun, testTempDir, waitForUrl, stopRunHost } 
  * the server's schema declares (packages/client's test pins the encoding).
  */
 let browser: Browser;
-const engineName = process.env.CORVI_ENGINE === "webkit" ? "webkit" : "chromium";
-const usable = await (async (): Promise<boolean> => {
-  try {
-    const engine = engineName === "webkit" ? webkit : chromium;
-    if (!(await Bun.file(engine.executablePath()).exists())) return false;
-    browser = await engine.launch();
-    return true;
-  } catch {
-    return false;
-  }
-})();
+const usable = await openEngine((opened) => {
+  browser = opened;
+});
 
 let tmp: string;
 let url: string;
@@ -33,20 +33,14 @@ let server: ReturnType<typeof Bun.spawn>;
 beforeAll(async () => {
   if (!usable) return;
   tmp = await testTempDir("update-pages");
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp));
 });
 
 afterAll(async () => {
   if (!usable) return;
   await closePages(browser, "update");
   await browser?.close();
-  server?.kill();
-  await stopRunHost(tmp);
+  await stopTestServer(server, tmp);
   await rm(tmp, { recursive: true, force: true });
 });
 
@@ -174,49 +168,51 @@ test.skipIf(!usable)(
     status = available();
     starts = 0;
     checks = 0;
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-    await serve(page);
-    await page.goto(url, { waitUntil: "domcontentloaded" });
+    return withPage(
+      browser,
+      async (page) => {
+        await serve(page);
+        await page.goto(url, { waitUntil: "domcontentloaded" });
 
-    // The notice says it once; the icon keeps saying it in yellow after the notice is gone.
-    const toast = page.locator(".toast", { hasText: "New version available" });
-    await toast.waitFor();
-    expect(await toast.locator(".toast-body").textContent()).toContain("2 new commits");
-    const icon = page.locator(".sidebar .icon-entry.update.available");
-    await icon.waitFor();
-    expect(await icon.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(210, 153, 34)");
-    await page.locator(".toast-close").click();
-    await toast.waitFor({ state: "detached" });
-    await icon.waitFor();
+        // The notice says it once; the icon keeps saying it in yellow after the notice is gone.
+        const toast = page.locator(".toast", { hasText: "New version available" });
+        await toast.waitFor();
+        expect(await toast.locator(".toast-body").textContent()).toContain("2 new commits");
+        const icon = page.locator(".sidebar .icon-entry.update.available");
+        await icon.waitFor();
+        expect(await icon.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(210, 153, 34)");
+        await page.locator(".toast-close").click();
+        await toast.waitFor({ state: "detached" });
+        await icon.waitFor();
 
-    // The dialog: what is new, each commit linked to GitHub, and the one button that takes it.
-    await icon.click();
-    const dialog = page.locator("dialog");
-    await dialog.waitFor();
-    expect(await dialog.locator("h3").textContent()).toContain("Update available — 2 commits behind");
-    const links = dialog.locator(".commits li a");
-    expect(await links.count()).toBe(2);
-    expect(await links.first().getAttribute("href")).toContain("/commit/1111111aaaa");
-    expect(
-      await dialog.locator("a", { hasText: "compare on GitHub" }).getAttribute("href"),
-    ).toContain("/compare/");
+        // The dialog: what is new, each commit linked to GitHub, and the one button that takes it.
+        await icon.click();
+        const dialog = page.locator("dialog");
+        await dialog.waitFor();
+        expect(await dialog.locator("h3").textContent()).toContain("Update available — 2 commits behind");
+        const links = dialog.locator(".commits li a");
+        expect(await links.count()).toBe(2);
+        expect(await links.first().getAttribute("href")).toContain("/commit/1111111aaaa");
+        expect(await dialog.locator("a", { hasText: "compare on GitHub" }).getAttribute("href")).toContain(
+          "/compare/",
+        );
 
-    // Update now: the run stops at the install step, and the journal is what says so.
-    await dialog.getByRole("button", { name: "Update now" }).click();
-    await dialog.getByRole("button", { name: "Try again" }).waitFor();
-    expect(await dialog.locator(".progress-steps li.failed").count()).toBe(1);
-    expect(await dialog.textContent()).toContain("stopped: bun install failed: boom");
+        // Update now: the run stops at the install step, and the journal is what says so.
+        await dialog.getByRole("button", { name: "Update now" }).click();
+        await dialog.getByRole("button", { name: "Try again" }).waitFor();
+        expect(await dialog.locator(".progress-steps li.failed").count()).toBe(1);
+        expect(await dialog.textContent()).toContain("stopped: bun install failed: boom");
 
-    // Try again picks up what is left; the last thing offered is the restart itself.
-    await dialog.getByRole("button", { name: "Try again" }).click();
-    await dialog.getByRole("button", { name: "Restart now" }).waitFor();
-    expect(await dialog.textContent()).toContain("The new version is ready.");
-    await dialog.getByRole("button", { name: "Restart now" }).click();
-    expect(
-      await page.evaluate(() => (window as unknown as { restarts: number }).restarts),
-    ).toBe(1);
-    expect(starts).toBe(2);
-    await page.close();
+        // Try again picks up what is left; the last thing offered is the restart itself.
+        await dialog.getByRole("button", { name: "Try again" }).click();
+        await dialog.getByRole("button", { name: "Restart now" }).waitFor();
+        expect(await dialog.textContent()).toContain("The new version is ready.");
+        await dialog.getByRole("button", { name: "Restart now" }).click();
+        expect(await page.evaluate(() => (window as unknown as { restarts: number }).restarts)).toBe(1);
+        expect(starts).toBe(2);
+      },
+      VIEWPORT,
+    );
   },
   60_000,
 );
@@ -230,35 +226,47 @@ test.skipIf(!usable)(
       commits: [commits[0]],
       refusal: "uncommitted changes in the checkout",
     };
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-    await serve(page);
-    await page.goto(url, { waitUntil: "domcontentloaded" });
-    await page.locator(".sidebar .icon-entry.update.available").click();
-    const dialog = page.locator("dialog");
-    await dialog.waitFor();
-    expect(await dialog.textContent()).toContain("uncommitted changes in the checkout");
-    expect(await dialog.getByRole("button", { name: "Update now" }).count()).toBe(0);
-    await page.close();
+    return withPage(
+      browser,
+      async (page) => {
+        await serve(page);
+        await page.goto(url, { waitUntil: "domcontentloaded" });
+        await page.locator(".sidebar .icon-entry.update.available").click();
+        const dialog = page.locator("dialog");
+        await dialog.waitFor();
+        expect(await dialog.textContent()).toContain("uncommitted changes in the checkout");
+        expect(await dialog.getByRole("button", { name: "Update now" }).count()).toBe(0);
+      },
+      VIEWPORT,
+    );
   },
   60_000,
 );
 
-test.skipIf(!usable)("an up-to-date app says so, and offers to check", async () => {
-  status = { eligible: true, behind: 0, commits: [], progress: null, restartPending: false };
-  checks = 0;
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await serve(page);
-  await page.goto(url, { waitUntil: "domcontentloaded" });
-  // Gray, not yellow: no update is waiting.
-  const icon = page.locator(".sidebar .icon-entry.update");
-  await icon.waitFor();
-  expect(await icon.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(139, 147, 161)");
-  await icon.click();
-  const dialog = page.locator("dialog");
-  await dialog.waitFor();
-  expect(await dialog.locator("h3").textContent()).toBe("Corvi is up to date");
-  await dialog.getByRole("button", { name: "Check again" }).click();
-  for (let i = 0; i < 100 && checks === 0; i++) await Bun.sleep(50);
-  expect(checks).toBe(1);
-  await page.close();
-}, 60_000);
+test.skipIf(!usable)(
+  "an up-to-date app says so, and offers to check",
+  async () => {
+    status = { eligible: true, behind: 0, commits: [], progress: null, restartPending: false };
+    checks = 0;
+    return withPage(
+      browser,
+      async (page) => {
+        await serve(page);
+        await page.goto(url, { waitUntil: "domcontentloaded" });
+        // Gray, not yellow: no update is waiting.
+        const icon = page.locator(".sidebar .icon-entry.update");
+        await icon.waitFor();
+        expect(await icon.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(139, 147, 161)");
+        await icon.click();
+        const dialog = page.locator("dialog");
+        await dialog.waitFor();
+        expect(await dialog.locator("h3").textContent()).toBe("Corvi is up to date");
+        await dialog.getByRole("button", { name: "Check again" }).click();
+        for (let i = 0; i < 100 && checks === 0; i++) await Bun.sleep(50);
+        expect(checks).toBe(1);
+      },
+      VIEWPORT,
+    );
+  },
+  60_000,
+);

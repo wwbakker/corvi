@@ -21,8 +21,7 @@
 
 /** Whether an attempt may proceed, and when it may try again if not. */
 export type RedeemDecision =
-  | { readonly allowed: true }
-  | { readonly allowed: false; readonly retryAfterSeconds: number };
+  { readonly allowed: true } | { readonly allowed: false; readonly retryAfterSeconds: number };
 
 export type RedeemLimiter = {
   /** Count one attempt and check the global window. Call before reading the request body, so a

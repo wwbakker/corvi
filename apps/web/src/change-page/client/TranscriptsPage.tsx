@@ -1,10 +1,6 @@
 import { type JSX, useEffect, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
-import type {
-  TranscriptDto,
-  TranscriptEntryDto,
-  TranscriptSummaryDto,
-} from "@corvi/contracts/transcripts";
+import type { TranscriptDto, TranscriptEntryDto, TranscriptSummaryDto } from "@corvi/contracts/transcripts";
 import { useChangeClient } from "../../app-root/sources.ts";
 import { aborted } from "../../app-root/api.ts";
 
@@ -113,8 +109,8 @@ export function TranscriptsPage({ changeId }: { changeId: string }): JSX.Element
   if (list.length === 0)
     return (
       <p className="hint">
-        No agent sessions were kept for this change. They are copied when a change is completed or
-        cancelled, from the agents' own session stores.
+        No agent sessions were kept for this change. They are copied when a change is completed or cancelled,
+        from the agents' own session stores.
       </p>
     );
 
@@ -131,8 +127,8 @@ export function TranscriptsPage({ changeId }: { changeId: string }): JSX.Element
           >
             <span className="title">{summary.title ?? summary.sessionId}</span>
             <span className="meta">
-              {placeOf(summary.where)} · {summary.harness} · {timeOf(summary.startedAt)} ·{" "}
-              {summary.entries} entries
+              {placeOf(summary.where)} · {summary.harness} · {timeOf(summary.startedAt)} · {summary.entries}{" "}
+              entries
             </span>
           </button>
         ))}

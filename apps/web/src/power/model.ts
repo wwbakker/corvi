@@ -34,9 +34,7 @@ export const normalizeRemoteUrl = (url: string): string => {
 /** The machines to offer, in order: this machine, then each remote workspace, deduped by the
  * remote's normalized url (the first workspace naming a url wins). */
 export const powerMachines = (workspaces: readonly Workspace[]): readonly PowerMachine[] => {
-  const machines: PowerMachine[] = [
-    { source: "", label: "This machine", selectedByDefault: true },
-  ];
+  const machines: PowerMachine[] = [{ source: "", label: "This machine", selectedByDefault: true }];
   const seen = new Set<string>();
   for (const workspace of workspaces) {
     const remote = workspace.remote;
@@ -113,8 +111,7 @@ export const blockersOf = (agents: readonly PowerAgent[]): readonly string[] =>
   agents.filter((agent) => agent.working).map((agent) => agent.label);
 
 /** Milliseconds left before a deadline, never negative. */
-export const remainingMs = (deadline: string, now: number): number =>
-  Math.max(0, Date.parse(deadline) - now);
+export const remainingMs = (deadline: string, now: number): number => Math.max(0, Date.parse(deadline) - now);
 
 /** A deadline as a countdown: `m:ss` when a minute or more is left, otherwise `Ns`. */
 export const formatCountdown = (deadline: string, now: number): string => {

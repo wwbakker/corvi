@@ -19,8 +19,17 @@ import {
   type RedeemLimiter,
 } from "../apps/server/src/devices/server/index.ts";
 import { problems } from "../apps/server/src/settings/server/index.ts";
-import { configPath, reloadConfigSync, runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
-import { runEffect, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
+import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
+import {
+  runEffect,
+  serverEnv,
+  testRun,
+  testTempDir,
+  waitForUrl,
+  writeTestConfig,
+  startTestServer,
+  stopTestServer,
+} from "./helpers.ts";
 
 /**
  * The external listener and its token enforcement.
@@ -36,7 +45,8 @@ type UpgradeServer = { upgrade: (request: Request, options?: { data?: unknown })
 
 const routes: Record<string, unknown> = {
   ...devicesRoutes,
-  "/": () => new Response("<!doctype html><title>corvi</title>", { headers: { "content-type": "text/html" } }),
+  "/": () =>
+    new Response("<!doctype html><title>corvi</title>", { headers: { "content-type": "text/html" } }),
   // A stand-in for the terminal socket route: it upgrades, so the external listener's authorize
   // hook has an upgrade to refuse or allow.
   "/api/socket": (req: Request, srv: UpgradeServer) =>
@@ -86,7 +96,10 @@ const withLimiter = async (limiter: RedeemLimiter, body: () => Promise<void>): P
 };
 
 /** Attempt a WebSocket upgrade and report whether it opened, or the HTTP status that refused it. */
-const upgrade = (port: number, headers: Record<string, string> = {}): Promise<{ status: number; open: boolean }> =>
+const upgrade = (
+  port: number,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; open: boolean }> =>
   new Promise((resolve) => {
     const socket = new WebSocket(`ws://127.0.0.1:${port}/api/socket`, { headers });
     let settled = false;
@@ -106,21 +119,16 @@ const upgrade = (port: number, headers: Record<string, string> = {}): Promise<{ 
   });
 
 /** Write a config file and refill the snapshot (the device tests' helper, local to this file). */
-const writeConfig = async (value: unknown): Promise<void> => {
-  await Bun.write(configPath(), JSON.stringify(value));
-  reloadConfigSync();
-};
-
 test("remoteAccess resolves, validates the port, and defaults to off", async () => {
-  await writeConfig({ remoteAccess: { enabled: true, port: 41234 } });
+  await writeTestConfig({ remoteAccess: { enabled: true, port: 41234 } });
   expect(runtimeConfig().remoteAccess).toEqual({ enabled: true, port: 41234 });
 
   // A port outside 1..65535 is not a port: the setting falls back to the default rather than
   // emptying the whole config.
-  await writeConfig({ remoteAccess: { enabled: true, port: 70000 } });
+  await writeTestConfig({ remoteAccess: { enabled: true, port: 70000 } });
   expect(runtimeConfig().remoteAccess).toEqual({ enabled: false, port: 4110 });
 
-  await writeConfig({});
+  await writeTestConfig({});
   expect(runtimeConfig().remoteAccess).toEqual({ enabled: false, port: 4110 });
 
   // The settings write path refuses an invalid port rather than persisting it.
@@ -309,9 +317,7 @@ test("a revoked device's cookie is refused at the session check", async () => {
   const cookie = (paired.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
   const body = (await paired.json()) as { device: { id: string } };
   await runEffect(revokeDevice(body.device.id));
-  expect((await fetch(url(external, "api/devices/session"), { headers: { cookie } })).status).toBe(
-    401,
-  );
+  expect((await fetch(url(external, "api/devices/session"), { headers: { cookie } })).status).toBe(401);
 });
 
 test("a local-listener redemption sets no cookie", async () => {
@@ -370,11 +376,14 @@ test("the global redeem cap returns 429 with Retry-After", async () => {
 });
 
 test("the per-code failure cap returns 429", async () => {
-  await withLimiter(createRedeemLimiter({ globalLimit: 100, codeFailureLimit: 2, globalWindowMs: 60_000 }), async () => {
-    expect((await redeemAttempt("FFFFFFFFFFFFFFFF")).status).toBe(400);
-    expect((await redeemAttempt("FFFFFFFFFFFFFFFF")).status).toBe(400);
-    expect((await redeemAttempt("FFFFFFFFFFFFFFFF")).status).toBe(429);
-  });
+  await withLimiter(
+    createRedeemLimiter({ globalLimit: 100, codeFailureLimit: 2, globalWindowMs: 60_000 }),
+    async () => {
+      expect((await redeemAttempt("FFFFFFFFFFFFFFFF")).status).toBe(400);
+      expect((await redeemAttempt("FFFFFFFFFFFFFFFF")).status).toBe(400);
+      expect((await redeemAttempt("FFFFFFFFFFFFFFFF")).status).toBe(429);
+    },
+  );
 });
 
 test("the instance record carries the external URL", async () => {
@@ -403,13 +412,8 @@ test("a failed external bind leaves the local server serving", async () => {
     JSON.stringify({ remoteAccess: { enabled: true, port: blockedPort } }),
   );
 
-  const proc = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
+  const { server: proc, url: localUrl } = await startTestServer(tmp);
   try {
-    const localUrl = await waitForUrl(proc);
     // The local listener answers though the external bind failed.
     expect((await fetch(`${localUrl}/api/devices`)).status).toBe(200);
 
@@ -420,8 +424,7 @@ test("a failed external bind leaves the local server serving", async () => {
     expect(settings.remoteAccessStatus.listening).toBe(false);
     expect(settings.remoteAccessStatus.error).toBeDefined();
   } finally {
-    proc.kill();
-    await proc.exited;
+    await stopTestServer(proc, tmp);
     blocker.close();
     await rm(tmp, { recursive: true, force: true });
   }

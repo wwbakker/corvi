@@ -1,12 +1,4 @@
-import {
-  type CSSProperties,
-  type JSX,
-  StrictMode,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type CSSProperties, type JSX, StrictMode, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { apiClient, type Change } from "./api.ts";
 import { byWorkOrder, isFinished, isIdeation } from "../domain/change.ts";
@@ -17,7 +9,16 @@ import { Sidebar } from "./Sidebar.tsx";
 import { RemoteAvailabilityBanner, StaleMarker } from "./RemoteAvailability.tsx";
 import { forgetChange, lastViewOf } from "./remember.ts";
 import { useChanges, useTerminal, useWindows } from "./state.ts";
-import { changeKey, SourceContext, SourcesProvider, useAvailability, useSources, useSourceAvailability, useSourceOwner, WorkspaceSourceContext } from "./sources.ts";
+import {
+  changeKey,
+  SourceContext,
+  SourcesProvider,
+  useAvailability,
+  useSources,
+  useSourceAvailability,
+  useSourceOwner,
+  WorkspaceSourceContext,
+} from "./sources.ts";
 import { inWorkspace, usePages, useWorkspaces } from "../workspace/client/workspaces.ts";
 import { Wizard } from "../wizard/index.ts";
 import { applyPatch, EMPTY_DRAFT, type Draft, type DraftPatch } from "../wizard/draft.ts";
@@ -71,9 +72,7 @@ function Home({
   // going on, and what happened. Ideas first — they are the newest thing and the thing you have
   // not started — then the active ones in work order, newest first within each.
   const ideas = (changes ?? []).filter(isIdeation).sort(byWorkOrder);
-  const active = (changes ?? [])
-    .filter((c) => !isFinished(c) && !isIdeation(c))
-    .sort(byWorkOrder);
+  const active = (changes ?? []).filter((c) => !isFinished(c) && !isIdeation(c)).sort(byWorkOrder);
   const finished = (changes ?? [])
     .filter(isFinished)
     .sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""));
@@ -95,8 +94,8 @@ function Home({
       {error && <div className="error-banner">{error}</div>}
       {stale === true && (
         <p className="hint">
-          <StaleMarker>stale</StaleMarker> an unavailable workspace's last known changes are shown
-          below; they are readable, not live.
+          <StaleMarker>stale</StaleMarker> an unavailable workspace's last known changes are shown below; they
+          are readable, not live.
         </p>
       )}
 
@@ -172,7 +171,15 @@ function App(): JSX.Element {
   );
   const { reload: reloadSources } = useSources();
   const { changes: everything, error, staleSources, reload } = useChanges();
-  const { workspaces, chosen, choose, current: workspace, ready, platform, reload: reloadWorkspaces } = useWorkspaces();
+  const {
+    workspaces,
+    chosen,
+    choose,
+    current: workspace,
+    ready,
+    platform,
+    reload: reloadWorkspaces,
+  } = useWorkspaces();
   // The pages the sidebar offers in this context, from the context's own server: which extensions
   // exist and what they contribute is not the page's to know. Undefined ("All work") is the local
   // server's default context, which is what a request without a workspace gets. A remote
@@ -182,10 +189,10 @@ function App(): JSX.Element {
   const pageClient = workspace?.remote ? owner.clientFor(workspace.id) : apiClient;
   // The source the page is actually showing, so an unavailable change opened by direct link (or
   // from "All work") banners by its own source, not only by the chosen workspace.
-  const viewedSource =
-    view.name === "change" ? (view.source ?? "") : workspace?.remote ? workspace.id : "";
+  const viewedSource = view.name === "change" ? (view.source ?? "") : workspace?.remote ? workspace.id : "";
   const viewedName =
-    workspaces.find((candidate) => (candidate.remote !== undefined ? candidate.id : "") === viewedSource)?.name ?? "";
+    workspaces.find((candidate) => (candidate.remote !== undefined ? candidate.id : "") === viewedSource)
+      ?.name ?? "";
   const pageWorkspace = workspace?.remote ? workspace.remote.workspace : workspace?.id;
   // The workspace-scoped page list is keyed by its source's generation: a retarget clears it.
   const pageSource = workspace?.remote ? workspace.id : "";
@@ -194,7 +201,11 @@ function App(): JSX.Element {
   // create controls; a local selection (or All work's local default) stays usable.
   const createSource = workspace?.remote ? workspace.id : "";
   const createBlocked = useSourceAvailability(createSource).status._tag !== "available";
-  const { pages, settled: pagesSettled, reload: reloadPages } = usePages(
+  const {
+    pages,
+    settled: pagesSettled,
+    reload: reloadPages,
+  } = usePages(
     pageWorkspace,
     pageClient,
     pageAvailability.generation,
@@ -271,9 +282,7 @@ function App(): JSX.Element {
   // Keying the change page by (source, id, generation) remounts it on a retarget, clearing its
   // mounted reads and cache-backed state; a same-generation outage does not remount.
   const selectedGeneration = useSourceAvailability(selectedSource).generation;
-  const change = (everything ?? []).find(
-    (c) => c.id === selected && (c.source ?? "") === selectedSource,
-  );
+  const change = (everything ?? []).find((c) => c.id === selected && (c.source ?? "") === selectedSource);
   const onTerminal = view.name === "change" && view.page === "terminals";
   // The plan is the tab's content and takes its frame, so its page gives up the padding the
   // way the terminal's does — the editor is the content area, exactly.
@@ -429,8 +438,8 @@ function App(): JSX.Element {
   // Read here rather than in the settings page, because the page has to behave by it either way.
   const [contextMenu, setContextMenu] = useState(true);
   const reloadSettings = useCallback((): void => {
-    apiClient
-      .settings.read()
+    apiClient.settings
+      .read()
       .then((view) => setContextMenu(view.effective.contextMenu))
       .catch(() => {
         // A settings file that cannot be read leaves the default: a menu, like any browser.
@@ -524,125 +533,127 @@ function App(): JSX.Element {
       {/* The banner and the page share the space beside the column: the banner is a row above the
           content, not a third column of the app's row layout. */}
       <div className="app-body">
-      <RemoteAvailabilityBanner
-        source={viewedSource}
-        name={viewedName}
-        onSettings={() => setView({ name: "settings" })}
-      />
-      <main className={onTerminal || onPlan ? "content flush" : "content"}>
-        {view.name === "home" && (
-          <Home
-            changes={changes}
-            error={error}
-            stale={staleSources.length > 0}
-            staleSources={staleSources}
-            newBlocked={createBlocked}
-            onOpen={(c) =>
-              setView({
-                name: "change",
-                source: c.source ?? "",
-                id: c.id,
-                page: lastViewOf(changeKey(c.source ?? "", c.id)),
-              })
-            }
-            onNew={() => setView({ name: "new" })}
-          />
-        )}
-        {view.name === "ext-page" && (
-          // A page belongs to the workspace that is selected; the source tells its own requests
-          // which server to reach through the gateway, and the workspace prop names its id there.
-          <WorkspaceSourceContext.Provider value={pageSource}>
-            {/* The page belongs to this target and to this page: a same-id retarget remounts it
+        <RemoteAvailabilityBanner
+          source={viewedSource}
+          name={viewedName}
+          onSettings={() => setView({ name: "settings" })}
+        />
+        <main className={onTerminal || onPlan ? "content flush" : "content"}>
+          {view.name === "home" && (
+            <Home
+              changes={changes}
+              error={error}
+              stale={staleSources.length > 0}
+              staleSources={staleSources}
+              newBlocked={createBlocked}
+              onOpen={(c) =>
+                setView({
+                  name: "change",
+                  source: c.source ?? "",
+                  id: c.id,
+                  page: lastViewOf(changeKey(c.source ?? "", c.id)),
+                })
+              }
+              onNew={() => setView({ name: "new" })}
+            />
+          )}
+          {view.name === "ext-page" && (
+            // A page belongs to the workspace that is selected; the source tells its own requests
+            // which server to reach through the gateway, and the workspace prop names its id there.
+            <WorkspaceSourceContext.Provider value={pageSource}>
+              {/* The page belongs to this target and to this page: a same-id retarget remounts it
                 rather than carrying the old target's React state (an expanded row, a half-filled
                 dialog) onto the new one. A same-generation outage keeps the key, so the page
                 keeps its loaded facts, and its transport's identity is what re-reads on recovery.
                 The disabled fieldset is the read-only boundary: a blocked workspace disables the
                 page's controls without unmounting it. Settings is not a PageHost, so its local
                 editor is deliberately outside this boundary. */}
-            <fieldset
-              key={`${pageSource}\u0000${pageAvailability.generation}\u0000${pageWorkspace ?? ""}\u0000${view.extension}\u0000${view.id}`}
-              className="widgets-fieldset"
-              disabled={pageAvailability.status._tag !== "available"}
-            >
-              <PageHost info={view} workspace={pageWorkspace} />
-            </fieldset>
-          </WorkspaceSourceContext.Provider>
-        )}
-        {view.name === "actions" && <ActionsPage onGuard={onGuard} />}
-        {view.name === "subagents" && <SubagentsPage onGuard={onGuard} />}
-        {view.name === "settings" && (
-          <SettingsPage
-            onGuard={onGuard}
-            onSaved={() => {
-              // A save may have toggled an extension's enablement, which the workspaces carry
-              // and the sidebar's pages answer to — both are asked again — and it may have
-              // changed the right-click menu, which this shell behaves by.
-              reloadWorkspaces();
-              reloadPages();
-              reloadSettings();
-              // A save may have added or retargeted a remote workspace: the sources follow.
-              reloadSources();
-            }}
-          />
-        )}
-        {view.name === "new" && draft && (
-          <Wizard
-            workspaces={workspaces}
-            workspace={workspace?.id}
-            draft={draft}
-            onChange={changeDraft}
-            onCreated={(c, provision, source) => {
-              // Only a created change takes the draft: a refused create keeps the form.
-              setDraft(undefined);
-              void reload();
-              // A new change opens on its Plan: the wizard just wrote it, and anything an old
-              // record of this id left in the page's memory is not this change's.
-              forgetChange(changeKey(source, c.id));
-              // The source it was created in: a remote workspace's change routes to its server
-              // from here on, exactly as one read from its list does.
-              setView({ name: "change", source, id: c.id, page: "plan", provision });
-            }}
-            onDiscard={discardDraft}
-          />
-        )}
-        {view.name === "change" && (
-          <SourceContext.Provider value={selectedSource}>
-          <ChangeView
-            // Keyed by the change: its state — the cached reads, the notes and plan being typed,
-            // the widgets, the open terminal — belongs to one change. Reusing the instance across
-            // a switch is what let the previous change's notes stay on screen after its read
-            // came back, with nothing left to read them again (apps/web/src/change-page/client/ChangeView.tsx).
-            key={`${changeKey(selectedSource, view.id)}@${selectedGeneration}`}
-            id={view.id}
-            source={selectedSource}
-            page={view.page}
-            platform={platform}
-            provision={view.provision}
-            onOpenPage={(page) => setView({ ...view, page, provision: undefined })}
-            terminal={{ ...terminal, create: () => void terminals.create(selectedSource, view.id) }}
-            windows={terminals.windows[changeKey(selectedSource, view.id)] ?? []}
-            windowError={terminals.errors[changeKey(selectedSource, view.id)]}
-            onSelectWindow={(index) => {
-              terminals.select(selectedSource, view.id, index);
-              // On the dashboard the tab is the way in: selecting a window you cannot see would
-              // be a click that does nothing visible.
-              setView({ name: "change", source: view.source, id: view.id, page: "terminals" });
-            }}
-            onNewWindow={() => {
-              // A session that has not started has nothing to add a window to: opening the
-              // terminal makes its first window.
-              if ((terminals.windows[changeKey(selectedSource, view.id)] ?? []).length > 0) {
-                void terminals.create(selectedSource, view.id);
-              }
-              setView({ name: "change", source: view.source, id: view.id, page: "terminals" });
-            }}
-            onMoveWindow={(from, to) => terminals.move(selectedSource, view.id, from, to)}
-            onRenameWindow={(windowId, title) => terminals.rename(selectedSource, view.id, windowId, title)}
-            onChanged={reload}
-          />
-          </SourceContext.Provider>
-        )}
-      </main>
+              <fieldset
+                key={`${pageSource}\u0000${pageAvailability.generation}\u0000${pageWorkspace ?? ""}\u0000${view.extension}\u0000${view.id}`}
+                className="widgets-fieldset"
+                disabled={pageAvailability.status._tag !== "available"}
+              >
+                <PageHost info={view} workspace={pageWorkspace} />
+              </fieldset>
+            </WorkspaceSourceContext.Provider>
+          )}
+          {view.name === "actions" && <ActionsPage onGuard={onGuard} />}
+          {view.name === "subagents" && <SubagentsPage onGuard={onGuard} />}
+          {view.name === "settings" && (
+            <SettingsPage
+              onGuard={onGuard}
+              onSaved={() => {
+                // A save may have toggled an extension's enablement, which the workspaces carry
+                // and the sidebar's pages answer to — both are asked again — and it may have
+                // changed the right-click menu, which this shell behaves by.
+                reloadWorkspaces();
+                reloadPages();
+                reloadSettings();
+                // A save may have added or retargeted a remote workspace: the sources follow.
+                reloadSources();
+              }}
+            />
+          )}
+          {view.name === "new" && draft && (
+            <Wizard
+              workspaces={workspaces}
+              workspace={workspace?.id}
+              draft={draft}
+              onChange={changeDraft}
+              onCreated={(c, provision, source) => {
+                // Only a created change takes the draft: a refused create keeps the form.
+                setDraft(undefined);
+                void reload();
+                // A new change opens on its Plan: the wizard just wrote it, and anything an old
+                // record of this id left in the page's memory is not this change's.
+                forgetChange(changeKey(source, c.id));
+                // The source it was created in: a remote workspace's change routes to its server
+                // from here on, exactly as one read from its list does.
+                setView({ name: "change", source, id: c.id, page: "plan", provision });
+              }}
+              onDiscard={discardDraft}
+            />
+          )}
+          {view.name === "change" && (
+            <SourceContext.Provider value={selectedSource}>
+              <ChangeView
+                // Keyed by the change: its state — the cached reads, the notes and plan being typed,
+                // the widgets, the open terminal — belongs to one change. Reusing the instance across
+                // a switch is what let the previous change's notes stay on screen after its read
+                // came back, with nothing left to read them again (apps/web/src/change-page/client/ChangeView.tsx).
+                key={`${changeKey(selectedSource, view.id)}@${selectedGeneration}`}
+                id={view.id}
+                source={selectedSource}
+                page={view.page}
+                platform={platform}
+                provision={view.provision}
+                onOpenPage={(page) => setView({ ...view, page, provision: undefined })}
+                terminal={{ ...terminal, create: () => void terminals.create(selectedSource, view.id) }}
+                windows={terminals.windows[changeKey(selectedSource, view.id)] ?? []}
+                windowError={terminals.errors[changeKey(selectedSource, view.id)]}
+                onSelectWindow={(index) => {
+                  terminals.select(selectedSource, view.id, index);
+                  // On the dashboard the tab is the way in: selecting a window you cannot see would
+                  // be a click that does nothing visible.
+                  setView({ name: "change", source: view.source, id: view.id, page: "terminals" });
+                }}
+                onNewWindow={() => {
+                  // A session that has not started has nothing to add a window to: opening the
+                  // terminal makes its first window.
+                  if ((terminals.windows[changeKey(selectedSource, view.id)] ?? []).length > 0) {
+                    void terminals.create(selectedSource, view.id);
+                  }
+                  setView({ name: "change", source: view.source, id: view.id, page: "terminals" });
+                }}
+                onMoveWindow={(from, to) => terminals.move(selectedSource, view.id, from, to)}
+                onRenameWindow={(windowId, title) =>
+                  terminals.rename(selectedSource, view.id, windowId, title)
+                }
+                onChanged={reload}
+              />
+            </SourceContext.Provider>
+          )}
+        </main>
       </div>
       {leaving && (
         <UnsavedChangesDialog

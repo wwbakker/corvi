@@ -1,10 +1,9 @@
 import { Effect, Schema } from "effect";
 import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { Cache, Changes, Settings, Shell, Workspace, swr } from "@corvi/contracts/capabilities";
-import { cliJson } from "@corvi/shell/cli";
+import { cliJson, shSoft } from "@corvi/shell/cli";
 import { nameWithOwner } from "@corvi/github/issues";
 import { env } from "@corvi/configuration/node";
-import type { ShellResult } from "@corvi/contracts/capabilities";
 import { azFor, type Az } from "./azure.ts";
 
 export type Run = {
@@ -51,19 +50,8 @@ const runsPerPipeline = (): number => Number(process.env[env("AZURE_RUNS")] ?? 3
 
 /** The environment variables the extension's declared settings name, so the settings page's
  * lock and the settings read cannot drift apart. */
-export const AZURE_HISTORY_ENV = env("AZURE_HISTORY");
-export const AZURE_RUNS_ENV = env("AZURE_RUNS");
-
-/** The ShellResult-branching contract: the one failure `Shell` can raise here is a timeout, which
- * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
- * everything downstream branches on `code`. */
-const shResult = (cmd: string[]): Effect.Effect<ShellResult, never, Shell | Workspace> =>
-  Effect.gen(function* () {
-    const shell = yield* Shell;
-    return yield* shell.run(cmd).pipe(
-      Effect.catch((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
-    );
-  });
+const AZURE_HISTORY_ENV = env("AZURE_HISTORY");
+const AZURE_RUNS_ENV = env("AZURE_RUNS");
 
 /** A queued or running build is pending; anything but success is a problem worth a red dot. */
 // Pure and synchronous: nothing for an Effect to wrap.
@@ -84,9 +72,7 @@ export function runState(run: Run): WidgetState {
  * while CI-triggered pipelines (publishing a client, for instance) keep running on the branch,
  * so asking for only one of them hides half the builds once a pull request exists. */
 export const refsFor = (branch: string, pr?: number): string[] =>
-  pr
-    ? [`refs/pull/${pr}/merge`, `refs/heads/${branch}`]
-    : [`refs/heads/${branch}`];
+  pr ? [`refs/pull/${pr}/merge`, `refs/heads/${branch}`] : [`refs/heads/${branch}`];
 
 /*
  * One call per distinct question, however many rows ask it: every repository of a change asks
@@ -114,16 +100,14 @@ const listDefinitions = (
   repo: string,
 ): Effect.Effect<Definition[], never, Shell | Workspace | Cache> =>
   Effect.gen(function* () {
-    const repository = yield* nameWithOwner(repo).pipe(
-      Effect.catch(() => Effect.succeed(undefined)),
-    );
+    const repository = yield* nameWithOwner(repo).pipe(Effect.catch(() => Effect.succeed(undefined)));
     const { project, organization } = az;
     if (!repository || !project) return [];
     return yield* swr(
       `az:${az.key}:definitions:${repository}`,
       DEFINITIONS_TTL,
       Effect.gen(function* () {
-        const r = yield* shResult([
+        const r = yield* shSoft([
           "az",
           "devops",
           "invoke",
@@ -163,7 +147,7 @@ const runsFor = (
         swr(
           `az:${az.key}:runs:${ref}`,
           RUNS_TTL,
-          shResult([
+          shSoft([
             "az",
             "pipelines",
             "runs",
@@ -176,7 +160,7 @@ const runsFor = (
             "-o",
             "json",
           ]),
-        )
+        ),
       ),
       // Unbounded: the shared CLI semaphore caps how many of these run at once.
       { concurrency: "unbounded" },
@@ -227,9 +211,7 @@ export function typicalDuration(runs: Run[]): number | undefined {
   const durations = runs
     .filter((r) => r.status === "completed" && r.result === "succeeded")
     .map((r) =>
-      r.startTime && r.finishTime
-        ? new Date(r.finishTime).getTime() - new Date(r.startTime).getTime()
-        : 0
+      r.startTime && r.finishTime ? new Date(r.finishTime).getTime() - new Date(r.startTime).getTime() : 0,
     )
     .filter((ms) => ms > 0)
     .sort((a, b) => a - b);
@@ -237,9 +219,10 @@ export function typicalDuration(runs: Run[]): number | undefined {
   // The middle value, or both middles when the count is even. `slice` is bounds-checked, so no
   // unchecked index assertion is needed even for a window of one.
   const middle = Math.floor(durations.length / 2);
-  const middles = durations.length % 2 === 0
-    ? durations.slice(middle - 1, middle + 1)
-    : durations.slice(middle, middle + 1);
+  const middles =
+    durations.length % 2 === 0
+      ? durations.slice(middle - 1, middle + 1)
+      : durations.slice(middle, middle + 1);
   return Math.round(middles.reduce((a, b) => a + b, 0) / middles.length);
 }
 
@@ -251,7 +234,7 @@ export const expectedDuration = (
     `az:${az.key}:duration:${definitionId}`,
     DEFINITIONS_TTL,
     Effect.gen(function* () {
-      const r = yield* shResult([
+      const r = yield* shSoft([
         "az",
         "pipelines",
         "runs",
@@ -266,9 +249,7 @@ export const expectedDuration = (
         "-o",
         "json",
       ]);
-      return r.code === 0
-        ? typicalDuration(yield* cliJson(RunsSchema, [] as Run[])(r.stdout))
-        : undefined;
+      return r.code === 0 ? typicalDuration(yield* cliJson(RunsSchema, [] as Run[])(r.stdout)) : undefined;
     }),
   );
 
@@ -299,7 +280,7 @@ const logIds = (
   runId: number,
 ): Effect.Effect<number[], never, Shell | Workspace> =>
   Effect.gen(function* () {
-    const r = yield* shResult([
+    const r = yield* shSoft([
       "az",
       "devops",
       "invoke",
@@ -330,7 +311,7 @@ const logLines = (
   logId: number,
 ): Effect.Effect<string[], never, Shell | Workspace> =>
   Effect.gen(function* () {
-    const r = yield* shResult([
+    const r = yield* shSoft([
       "az",
       "devops",
       "invoke",
@@ -349,12 +330,12 @@ const logLines = (
     ]);
     return r.code === 0
       ? yield* Effect.map(
-        cliJson(
-          Schema.Struct({ value: Schema.optional(Schema.Array(Schema.String)) }),
-          {} as { value?: string[] },
-        )(r.stdout),
-        (v) => v.value ?? [],
-      )
+          cliJson(
+            Schema.Struct({ value: Schema.optional(Schema.Array(Schema.String)) }),
+            {} as { value?: string[] },
+          )(r.stdout),
+          (v) => v.value ?? [],
+        )
       : [];
   });
 
@@ -388,9 +369,9 @@ const findVersion = (
     const ids = (yield* logIds(project, pipelineId, runId)).sort((a, b) => b - a);
     for (let i = 0; i < ids.length; i += 5) {
       const batch = yield* Effect.all(
-        ids.slice(i, i + 5).map((id) =>
-          Effect.map(logLines(project, runId, id), (lines) => versionInLines(lines))
-        ),
+        ids
+          .slice(i, i + 5)
+          .map((id) => Effect.map(logLines(project, runId, id), (lines) => versionInLines(lines))),
         // Unbounded: the shared CLI semaphore caps how many of these run at once.
         { concurrency: "unbounded" },
       );
@@ -425,10 +406,7 @@ export const pipelineItems = (
     const workspace = yield* Workspace;
     const az = yield* azFor(workspace);
     const refs = refsFor(change.branch, pr);
-    const [definitions, { runs, error }] = yield* Effect.all([
-      listDefinitions(az, repo),
-      runsFor(az, refs),
-    ]);
+    const [definitions, { runs, error }] = yield* Effect.all([listDefinitions(az, repo), runsFor(az, refs)]);
     if (error) {
       return {
         items: [{ label: "pipelines", detail: error, state: "error" }],
@@ -451,11 +429,13 @@ export const pipelineItems = (
     // Only pipelines with something in flight need a duration estimate, so the extra query is
     // paid for exactly when there is a progress bar to draw.
     const running = definitions.filter((d) =>
-      (byDefinition.get(d.id) ?? []).some((run) => run.status !== "completed")
+      (byDefinition.get(d.id) ?? []).some((run) => run.status !== "completed"),
     );
     const expected = new Map(
       yield* Effect.all(
-        running.map((d) => Effect.map(expectedDuration(az, d.id), (ms): [number, number | undefined] => [d.id, ms])),
+        running.map((d) =>
+          Effect.map(expectedDuration(az, d.id), (ms): [number, number | undefined] => [d.id, ms]),
+        ),
         // Unbounded: the shared CLI semaphore caps how many of these run at once.
         { concurrency: "unbounded" },
       ),
@@ -475,13 +455,13 @@ export const pipelineItems = (
               state: runState(run),
               // A finished build is as old as its finish time. A running one says nothing here:
               // its progress bar is already counting the same seconds, from the same moment.
-              at: done ? ((run.finishTime ?? run.startTime) ?? undefined) : undefined,
+              at: done ? (run.finishTime ?? run.startTime ?? undefined) : undefined,
               progress:
                 !done && run.startTime
                   ? {
-                    startedAt: run.startTime,
-                    expectedMs: expected.get(definition.id),
-                  }
+                      startedAt: run.startTime,
+                      expectedMs: expected.get(definition.id),
+                    }
                   : undefined,
             };
           });
@@ -520,4 +500,3 @@ export const pipelineItems = (
 
     return { items, count };
   });
-

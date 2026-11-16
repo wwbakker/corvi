@@ -1,6 +1,10 @@
 import { Effect, Option, Schema } from "effect";
 import type { ChangeWireDto as Change, OperationStepDto as CompletionStep } from "@corvi/contracts/api";
-import type { WidgetDto as Widget, WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
+import type {
+  WidgetDto as Widget,
+  WidgetItemDto as WidgetItem,
+  WidgetStateDto as WidgetState,
+} from "@corvi/contracts/api";
 import { Cache, Shell, Workspace } from "@corvi/contracts/capabilities";
 import { Bus, Changes, ExtensionStore } from "@corvi/contracts/capabilities";
 import type { Capabilities } from "@corvi/contracts/capabilities";
@@ -9,7 +13,13 @@ import type { DescriptionSection, TitleSource } from "@corvi/contracts/integrati
 import { BadRequestError, NotFoundError, type CliError } from "@corvi/contracts/errors";
 import { cliJson } from "@corvi/shell/cli";
 import { gh, type GitHubRateLimited } from "./rate-limit.ts";
-import { refLabel, refOf, KEY, type GitHubIssue, type IssueRef } from "@corvi/contracts/integrations/github-issues";
+import {
+  refLabel,
+  refOf,
+  KEY,
+  type GitHubIssue,
+  type IssueRef,
+} from "@corvi/contracts/integrations/github-issues";
 
 /**
  * Task boards for repositories that live on GitHub: issues picked in the wizard, followed on
@@ -78,14 +88,11 @@ export const nameWithOwner = (
     return yield* cache.swr(
       `gh:issues:nwo:${repo}`,
       300_000,
-      Effect.map(
-        shell.run(["git", "remote", "get-url", "origin"], { cwd: repo }),
-        (r) => {
-          if (r.code !== 0) return undefined;
-          const found = repoFromRemote(r.stdout);
-          return found ? `${found.owner}/${found.name}` : undefined;
-        },
-      ),
+      Effect.map(shell.run(["git", "remote", "get-url", "origin"], { cwd: repo }), (r) => {
+        if (r.code !== 0) return undefined;
+        const found = repoFromRemote(r.stdout);
+        return found ? `${found.owner}/${found.name}` : undefined;
+      }),
     );
   });
 
@@ -108,14 +115,26 @@ export const listIssues = (
       Effect.gen(function* () {
         const r = yield* gh(
           [
-            "gh", "issue", "list", "-R", repository, "--state", "open", "--limit", "100",
-            "--json", "number,title,state,url,assignees,labels",
+            "gh",
+            "issue",
+            "list",
+            "-R",
+            repository,
+            "--state",
+            "open",
+            "--limit",
+            "100",
+            "--json",
+            "number,title,state,url,assignees,labels",
           ],
           repo,
         );
         return r.code !== 0
           ? []
-          : yield* cliJson(Schema.Array(IssueSchema), [] as Schema.Schema.Type<typeof IssueSchema>[])(r.stdout);
+          : yield* cliJson(
+              Schema.Array(IssueSchema),
+              [] as Schema.Schema.Type<typeof IssueSchema>[],
+            )(r.stdout);
       }),
     );
     return { repository, issues: issues.map(flatten) };
@@ -134,8 +153,14 @@ export const viewIssue = (
       Effect.gen(function* () {
         const r = yield* gh(
           [
-            "gh", "issue", "view", String(number), "-R", repository,
-            "--json", "number,title,state,url,assignees,labels",
+            "gh",
+            "issue",
+            "view",
+            String(number),
+            "-R",
+            repository,
+            "--json",
+            "number,title,state,url,assignees,labels",
           ],
           process.cwd(),
         );
@@ -166,7 +191,8 @@ export const createIssue = (
     const created = yield* Effect.flatMap(gh(args, repo), (r) =>
       r.code !== 0
         ? Effect.fail(new BadRequestError({ message: r.stderr || "gh issue create failed" }))
-        : Effect.succeed(r.stdout.trim()));
+        : Effect.succeed(r.stdout.trim()),
+    );
     // The URL is the last thing gh prints: …/issues/<number>.
     const number = Number(/\/issues\/(\d+)\s*$/.exec(created)?.[1]);
     if (!number) {
@@ -195,10 +221,7 @@ const closeIssue = (
   comment: string,
 ): Effect.Effect<void, BadRequestError | CliError | GitHubRateLimited> =>
   Effect.flatMap(
-    gh(
-      ["gh", "issue", "close", String(number), "-R", repository, "-c", comment],
-      process.cwd(),
-    ),
+    gh(["gh", "issue", "close", String(number), "-R", repository, "-c", comment], process.cwd()),
     (r) =>
       r.code !== 0
         ? Effect.fail(new BadRequestError({ message: r.stderr || "gh issue close failed" }))
@@ -295,9 +318,7 @@ export const githubIssuesDescriptionSection: DescriptionSection = {
       const found = yield* Effect.option(nameWithOwner(ref.repo));
       const repository = Option.getOrUndefined(found);
       if (!repository) return undefined;
-      const issue = Option.getOrUndefined(
-        yield* Effect.option(viewIssue(repository, ref.number)),
-      );
+      const issue = Option.getOrUndefined(yield* Effect.option(viewIssue(repository, ref.number)));
       return `${refLabel(repository, ref)}${issue?.title ? ` - ${issue.title}` : ""}`;
     }),
 };

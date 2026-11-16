@@ -3,14 +3,23 @@ import { readFile, stat } from "node:fs/promises";
 import { Effect } from "effect";
 import { TestClock } from "effect/testing";
 
-import type { DeviceDto, PairingCodeResponseDto, RedeemPairingCodeResponseDto } from "@corvi/contracts/devices";
+import type {
+  DeviceDto,
+  PairingCodeResponseDto,
+  RedeemPairingCodeResponseDto,
+} from "@corvi/contracts/devices";
 import { deviceTokenMatches, hashDeviceToken } from "@corvi/configuration/node/devices";
-import { createPairingCode, listDevices, redeemPairingCode, revokeDevice } from "../apps/server/src/devices/server/index.ts";
+import {
+  createPairingCode,
+  listDevices,
+  redeemPairingCode,
+  revokeDevice,
+} from "../apps/server/src/devices/server/index.ts";
 import { devicesRoutes } from "../apps/server/src/devices/routes.ts";
 import { settingsViewSync, writeSettings } from "../apps/server/src/settings/server/index.ts";
 import { MASK } from "../apps/server/src/settings/server/secrets.ts";
-import { configPath, readFileSync, reloadConfigSync, runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
-import { runEffect, runEffectWithTestClock } from "./helpers.ts";
+import { configPath, readFileSync, runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
+import { runEffect, runEffectWithTestClock, writeTestConfig, callGuarded } from "./helpers.ts";
 
 /**
  * Device identity and pairing: a code is single-use and expires, redemption stores only a hash
@@ -46,8 +55,8 @@ const newCode = (): Promise<PairingCodeResponseDto> =>
   request("/api/devices/pairing-codes", "POST").then((r) => r.json()) as Promise<PairingCodeResponseDto>;
 
 const redeem = (code: string, name?: string): Promise<RedeemPairingCodeResponseDto> =>
-  request("/api/devices/pairing-codes/redeem", "POST", { code, name }).then(
-    (r) => r.json(),
+  request("/api/devices/pairing-codes/redeem", "POST", { code, name }).then((r) =>
+    r.json(),
   ) as Promise<RedeemPairingCodeResponseDto>;
 
 const pair = async (name?: string): Promise<RedeemPairingCodeResponseDto> =>
@@ -55,14 +64,9 @@ const pair = async (name?: string): Promise<RedeemPairingCodeResponseDto> =>
 
 /** Put a config file in place and refill the snapshot, so a tolerance case starts from a known
  * file rather than whatever earlier cases left behind. */
-const writeConfig = async (value: unknown): Promise<void> => {
-  await Bun.write(configPath(), JSON.stringify(value));
-  reloadConfigSync();
-};
-
 // The config file and its snapshot are shared with the files that run after this one in the same
 // process (CI runs them serially): leave them as every test starts, with nothing configured.
-afterAll(() => writeConfig({}));
+afterAll(() => writeTestConfig({}));
 
 test("a pairing code is single-use", async () => {
   const created = await newCode();
@@ -176,7 +180,7 @@ test("the settings view masks device hashes and a save keeps the stored one", as
 });
 
 test("pairing preserves the rest of the config file", async () => {
-  await writeConfig({
+  await writeTestConfig({
     changesRoot: "/tmp/corvi-preserve-changes",
     extensionSettings: { jira: { project: "PROJ" } },
     workspaces: [{ id: "client", name: "Client" }],
@@ -222,7 +226,7 @@ test("one malformed device does not cost the rest of the config", async () => {
     tokenHash: hashDeviceToken("good-token"),
     createdAt: "2026-01-01T00:00:00.000Z",
   };
-  await writeConfig({
+  await writeTestConfig({
     changesRoot: "/tmp/corvi-tolerant-changes",
     extensionSettings: { jira: { project: "TOLERANT" } },
     workspaces: [{ id: "client", name: "Client" }],

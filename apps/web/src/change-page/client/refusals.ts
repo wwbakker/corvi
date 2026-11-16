@@ -14,9 +14,7 @@ export function completionRefusal(e: unknown): CompletionRefusal | undefined {
   if (typeof e !== "object" || e === null) return undefined;
   const { status, body } = e as { status?: number; body?: unknown };
   if (status !== 409) return undefined;
-  const refusal = body as
-    | { reasons?: CompletionReason[]; toMerge?: Completion["toMerge"] }
-    | undefined;
+  const refusal = body as { reasons?: CompletionReason[]; toMerge?: Completion["toMerge"] } | undefined;
   if (!refusal?.reasons?.length) return undefined;
   return { reasons: refusal.reasons, toMerge: refusal.toMerge ?? [] };
 }

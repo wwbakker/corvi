@@ -33,8 +33,7 @@ const MAX = 480;
  * the switcher sits to their right: there the column cannot be narrower than the space they take
  * plus a switcher you can read. Truncating that control is not a narrower column, it is a broken
  * one. A browser has no lights and keeps the column's own minimum. */
-const minWidth = (): number =>
-  hostOf()?.platform === "darwin" ? MIN + TRAFFIC_LIGHTS.inset : MIN;
+const minWidth = (): number => (hostOf()?.platform === "darwin" ? MIN + TRAFFIC_LIGHTS.inset : MIN);
 
 const storedWidth = (): number => {
   const stored = Number(getPref(WIDTH_KEY));
@@ -253,9 +252,7 @@ export function Sidebar({
           <span className="top">
             <span className="subject">{c.title ?? c.branch}</span>
             <Icons
-              summary={
-                summaries[`${changeKey(c.source ?? "", c.id)}@${generationOf(c.source ?? "")}`]
-              }
+              summary={summaries[`${changeKey(c.source ?? "", c.id)}@${generationOf(c.source ?? "")}`]}
             />
           </span>
         </button>
@@ -267,9 +264,7 @@ export function Sidebar({
             key={w.index}
             data-window-id={w.id}
             className={
-              selected && page === "terminals" && w.active
-                ? "entry sub window current"
-                : "entry sub window"
+              selected && page === "terminals" && w.active ? "entry sub window current" : "entry sub window"
             }
             title={`ctrl-b ${w.index} — ${w.detail}`}
             // Focus is what a mousedown moves, and a terminal you cannot type in after
@@ -310,7 +305,12 @@ export function Sidebar({
               disabled: w.id === chosen,
               onSelect: () => onChooseWorkspace(w.id),
             })),
-            { label: "All work", separated: true, disabled: chosen === ALL, onSelect: () => onChooseWorkspace(ALL) },
+            {
+              label: "All work",
+              separated: true,
+              disabled: chosen === ALL,
+              onSelect: () => onChooseWorkspace(ALL),
+            },
           ]}
         />
       </div>

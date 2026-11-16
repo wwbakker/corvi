@@ -1,6 +1,16 @@
 import { test, expect } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { closeSync, constants, lstatSync, mkdirSync, openSync, readFileSync, readSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -105,6 +115,23 @@ test("--all takes everything, unnamed included", () => {
   expect(mayRemovePaths(everything)).toBe(true);
 });
 
+/** The server entry point, split so this file's own source never reads as a spawn. */
+const SERVER_ENTRY = "apps/server/src/" + "server.ts";
+
+/** Every line of `text` that spawns the test server, marked or not. */
+const serverSpawnLines = (text: string): string[] =>
+  text.split("\n").filter((line) => line.includes("Bun.spawn") && line.includes(SERVER_ENTRY));
+
+test("the spawn tripwire reads a spawn line, marked or not", () => {
+  const spawn = (args: string): string => `Bun.spawn([${args}])`;
+  const unmarked = spawn(`"node", "${SERVER_ENTRY}"`);
+  const marked = spawn(`"node", "${SERVER_ENTRY}", "--corvi-test-run=t"`);
+  expect(serverSpawnLines(unmarked)).toHaveLength(1);
+  expect(serverSpawnLines(marked)).toHaveLength(1);
+  expect(serverSpawnLines(marked)[0]).toContain("--corvi-test-run");
+  expect(serverSpawnLines(unmarked)[0]).not.toContain("--corvi-test-run");
+});
+
 test("every test that starts a server marks it for the cleaner", async () => {
   // `bun run test:clean` finds a test server by --corvi-test-run. A new test that spawns one
   // without the marker would leave a process the cleaner reports as the app's and refuses to
@@ -112,9 +139,8 @@ test("every test that starts a server marks it for the cleaner", async () => {
   for (const file of await readdir(import.meta.dir)) {
     if (!file.endsWith(".test.ts")) continue;
     const text = await Bun.file(new URL(file, import.meta.url)).text();
-    const spawns = text.match(/\["(?:node|bun)", "src\/server\.ts"/g)?.length ?? 0;
-    if (spawns === 0) continue;
-    expect(text.match(/--corvi-test-run/g)?.length ?? 0).toBeGreaterThanOrEqual(spawns);
+    const unmarked = serverSpawnLines(text).filter((line) => !line.includes("--corvi-test-run"));
+    expect(unmarked, `${file} starts a server without --corvi-test-run`).toEqual([]);
   }
 });
 

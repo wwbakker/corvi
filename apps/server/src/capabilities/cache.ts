@@ -39,11 +39,7 @@ export interface CacheStore {
   /** The cached value, refreshed when older than `ttl`: the first call for a key waits for the
    * work; every later one is instant, and pays only for a background refresh. Concurrent callers
    * share one run rather than starting several. */
-  readonly swr: <T, E, R>(
-    key: string,
-    ttl: number,
-    work: Effect.Effect<T, E, R>,
-  ) => Effect.Effect<T, E, R>;
+  readonly swr: <T, E, R>(key: string, ttl: number, work: Effect.Effect<T, E, R>) => Effect.Effect<T, E, R>;
   /** Milliseconds since this key was last produced; undefined when it was never asked for. */
   readonly ageOf: (key: string) => number | undefined;
   /** Forget everything under a prefix, for when an action has just made it wrong. */
@@ -103,11 +99,7 @@ export const createCache = (): CacheStore => {
       return yield* Effect.failCause(outcome.cause);
     });
 
-  const swr = <T, E, R>(
-    key: string,
-    ttl: number,
-    work: Effect.Effect<T, E, R>,
-  ): Effect.Effect<T, E, R> =>
+  const swr = <T, E, R>(key: string, ttl: number, work: Effect.Effect<T, E, R>): Effect.Effect<T, E, R> =>
     Effect.gen(function* () {
       const found = store.get(key);
 

@@ -3,44 +3,44 @@
  * Ported from `opencode/packages/core/src/git.ts` and narrowed to the slice's operations.
  * Exit codes are data; only a spawn failure is a `CommandError`.
  */
-import { lstatSync, statSync } from "node:fs"
-import { appendFile, readFile, rm, stat } from "node:fs/promises"
-import { isAbsolute, join, resolve } from "node:path"
-import { Effect, Layer } from "effect"
+import { lstatSync, statSync } from "node:fs";
+import { appendFile, readFile, rm, stat } from "node:fs/promises";
+import { isAbsolute, join, resolve } from "node:path";
+import { Effect, Layer } from "effect";
 
-import { AbsolutePath } from "@corvi/contracts/paths"
-import * as Git from "../git.ts"
-import { Command, type CommandResult } from "./command.ts"
-import { parseBranchStatus } from "./status.ts"
+import { AbsolutePath } from "@corvi/contracts/paths";
+import * as Git from "../git.ts";
+import { Command, type CommandResult } from "./command.ts";
+import { parseBranchStatus } from "./status.ts";
 
 const resolvePath = (cwd: string, value: string): AbsolutePath => {
-  const normalized = value.replace(/[\r\n]+$/, "")
-  return AbsolutePath.make(isAbsolute(normalized) ? normalized : resolve(cwd, normalized))
-}
+  const normalized = value.replace(/[\r\n]+$/, "");
+  return AbsolutePath.make(isAbsolute(normalized) ? normalized : resolve(cwd, normalized));
+};
 
 const isDirectory = (path: string): boolean => {
   try {
-    return statSync(path).isDirectory()
+    return statSync(path).isDirectory();
   } catch {
-    return false
+    return false;
   }
-}
+};
 
 /** A file's size on disk without following a symlink; 0 when it is not there. */
 const sizeOf = (path: string): number => {
   try {
-    return lstatSync(path).size
+    return lstatSync(path).size;
   } catch {
-    return 0
+    return 0;
   }
-}
+};
 
 /** What porcelain v2's XY letters say happened to a tracked path, from the shelf's vocabulary. */
 const changeOf = (xy: string): Git.PathChange => {
-  if (xy.includes("D")) return "deleted"
-  if (xy.startsWith("A")) return "added"
-  return "modified"
-}
+  if (xy.includes("D")) return "deleted";
+  if (xy.startsWith("A")) return "added";
+  return "modified";
+};
 
 /** The diff options a patch is written with: whatever the user's configuration says about
  * colour, external diff drivers, text conversion, prefixes or relative paths, the patch is one
@@ -54,15 +54,15 @@ const PATCH_OPTIONS: readonly string[] = [
   "--no-relative",
   "--src-prefix=a/",
   "--dst-prefix=b/",
-]
+];
 
 /** How many paths one `git clean` names, so a long list stays under the argument limit. */
-const PATHS_PER_COMMAND = 200
+const PATHS_PER_COMMAND = 200;
 
 export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
   Git.Service,
   Effect.gen(function* () {
-    const command = yield* Command
+    const command = yield* Command;
 
     const run = (
       operation: Git.OperationError["operation"],
@@ -79,28 +79,48 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
               cause,
             }),
         ),
-      )
+      );
+
+    /** A non-zero exit as a `Git.OperationError`, or the result unchanged. `message` overrides
+     * git's stderr (a context-specific sentence, or a hint-filtered one). */
+    const expectOk = (
+      result: CommandResult,
+      operation: Git.OperationError["operation"],
+      directory: string,
+      fallback: string,
+      options: { readonly message?: string; readonly exitCode?: boolean } = {},
+    ): Effect.Effect<CommandResult, Git.OperationError> =>
+      result.exitCode === 0
+        ? Effect.succeed(result)
+        : Effect.fail(
+            new Git.OperationError({
+              operation,
+              directory,
+              message: options.message ?? (result.stderr.trim() || fallback),
+              ...(options.exitCode ? { exitCode: result.exitCode } : {}),
+            }),
+          );
 
     const discover = Effect.fn("Git.repo.discover")(function* (directory: AbsolutePath) {
-      if (!(yield* Effect.sync(() => isDirectory(directory)))) return undefined
+      if (!(yield* Effect.sync(() => isDirectory(directory)))) return undefined;
       const [top, gitDir, commonDir] = yield* Effect.all([
         run("discover", directory, ["rev-parse", "--show-toplevel"]),
         run("discover", directory, ["rev-parse", "--git-dir"]),
         run("discover", directory, ["rev-parse", "--git-common-dir"]),
-      ])
-      if (top.exitCode !== 0 || gitDir.exitCode !== 0 || commonDir.exitCode !== 0) return undefined
-      const worktree = top.stdout.trim() ? resolvePath(directory, top.stdout) : directory
+      ]);
+      if (top.exitCode !== 0 || gitDir.exitCode !== 0 || commonDir.exitCode !== 0) return undefined;
+      const worktree = top.stdout.trim() ? resolvePath(directory, top.stdout) : directory;
       return new Git.Repository({
         worktree,
         gitDirectory: resolvePath(directory, gitDir.stdout),
         commonDirectory: resolvePath(directory, commonDir.stdout),
-      })
-    })
+      });
+    });
 
     const head = Effect.fn("Git.history.head")(function* (repository: Git.Repository) {
-      const result = yield* run("discover", repository.worktree, ["rev-parse", "HEAD"])
-      return result.exitCode === 0 ? result.stdout.trim() || undefined : undefined
-    })
+      const result = yield* run("discover", repository.worktree, ["rev-parse", "HEAD"]);
+      return result.exitCode === 0 ? result.stdout.trim() || undefined : undefined;
+    });
 
     const branch = Effect.fn("Git.history.branch")(function* (repository: Git.Repository) {
       const result = yield* run("discover", repository.worktree, [
@@ -108,9 +128,9 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         "--quiet",
         "--short",
         "HEAD",
-      ])
-      return result.exitCode === 0 ? result.stdout.trim() || undefined : undefined
-    })
+      ]);
+      return result.exitCode === 0 ? result.stdout.trim() || undefined : undefined;
+    });
 
     const branchExists = Effect.fn("Git.history.branchExists")(function* (
       repository: Git.Repository,
@@ -121,90 +141,97 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         "--verify",
         "--quiet",
         `refs/heads/${branch}`,
-      ])
-      if (result.exitCode === 0) return true
-      if (result.exitCode === 1) return false
+      ]);
+      if (result.exitCode === 0) return true;
+      if (result.exitCode === 1) return false;
       return yield* new Git.OperationError({
         operation: "upstream",
         directory: repository.worktree,
         message: result.stderr.trim() || "git show-ref failed",
-      })
-    })
+      });
+    });
 
     const resolveExistingBranch = Effect.fn("Git.history.resolveExistingBranch")(function* (
       repository: Git.Repository,
       name: string,
     ) {
       const fail = (message: string): Git.OperationError =>
-        new Git.OperationError({ operation: "checkout", directory: repository.worktree, message })
+        new Git.OperationError({ operation: "checkout", directory: repository.worktree, message });
       const refs = yield* run("checkout", repository.worktree, [
         "for-each-ref",
         "--format=%(refname)%09%(upstream)%09%(symref)",
         "refs/heads",
         "refs/remotes",
-      ])
-      if (refs.exitCode !== 0) return yield* fail(refs.stderr.trim() || "could not read branches")
-      const remotes = yield* run("checkout", repository.worktree, ["remote"])
-      if (remotes.exitCode !== 0) return yield* fail(remotes.stderr.trim() || "could not read remotes")
-      const remoteNames = remotes.stdout.trim().split("\n").filter(Boolean)
-        .sort((a, b) => b.length - a.length)
-      const entries = refs.stdout.split("\n").filter(Boolean).map((line) => {
-        const [ref = "", upstream = "", symref = ""] = line.split("\t")
-        return { ref, upstream, symref }
-      })
-      const locals = entries.filter((entry) => entry.ref.startsWith("refs/heads/"))
-      const remoteBranches = entries.filter((entry) => entry.ref.startsWith("refs/remotes/") && !entry.symref)
+      ]);
+      if (refs.exitCode !== 0) return yield* fail(refs.stderr.trim() || "could not read branches");
+      const remotes = yield* run("checkout", repository.worktree, ["remote"]);
+      if (remotes.exitCode !== 0) return yield* fail(remotes.stderr.trim() || "could not read remotes");
+      const remoteNames = remotes.stdout
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .sort((a, b) => b.length - a.length);
+      const entries = refs.stdout
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => {
+          const [ref = "", upstream = "", symref = ""] = line.split("\t");
+          return { ref, upstream, symref };
+        });
+      const locals = entries.filter((entry) => entry.ref.startsWith("refs/heads/"));
+      const remoteBranches = entries.filter(
+        (entry) => entry.ref.startsWith("refs/remotes/") && !entry.symref,
+      );
       const remoteOf = (ref: string): string | undefined =>
-        remoteNames.find((remote) => ref.startsWith(`refs/remotes/${remote}/`))
+        remoteNames.find((remote) => ref.startsWith(`refs/remotes/${remote}/`));
       const resolved = (branch: string, ref?: string): Git.ExistingBranch => {
-        const remote = ref ? remoteOf(ref) : undefined
-        return { branch, ...(remote && ref ? { remote, remoteRef: ref.slice("refs/remotes/".length) } : {}) }
-      }
+        const remote = ref ? remoteOf(ref) : undefined;
+        return { branch, ...(remote && ref ? { remote, remoteRef: ref.slice("refs/remotes/".length) } : {}) };
+      };
       // Exact local names win, including names with slashes or names that look remote-qualified.
-      const local = locals.find((entry) => entry.ref === `refs/heads/${name}`)
+      const local = locals.find((entry) => entry.ref === `refs/heads/${name}`);
       if (local) {
-        const upstream = remoteBranches.find((entry) => entry.ref === local.upstream)?.ref
-        const counterpart = remoteBranches.find((entry) => entry.ref === `refs/remotes/origin/${name}`)?.ref
-        return resolved(name, upstream ?? (!local.upstream ? counterpart : undefined))
+        const upstream = remoteBranches.find((entry) => entry.ref === local.upstream)?.ref;
+        const counterpart = remoteBranches.find((entry) => entry.ref === `refs/remotes/origin/${name}`)?.ref;
+        return resolved(name, upstream ?? (!local.upstream ? counterpart : undefined));
       }
-      const explicit = remoteBranches.find((entry) => entry.ref === `refs/remotes/${name}`)
+      const explicit = remoteBranches.find((entry) => entry.ref === `refs/remotes/${name}`);
       const candidates = explicit
         ? [explicit]
         : remoteBranches.filter((entry) => {
-            const remote = remoteOf(entry.ref)
-            return remote && entry.ref === `refs/remotes/${remote}/${name}`
-          })
+            const remote = remoteOf(entry.ref);
+            return remote && entry.ref === `refs/remotes/${remote}/${name}`;
+          });
       if (candidates.length !== 1)
-        return yield* fail(candidates.length ? `ambiguous remote branch: ${name}` : `branch not found: ${name}`)
-      const selected = candidates[0]
-      if (!selected) return yield* fail(`branch not found: ${name}`)
-      const remote = remoteOf(selected.ref)
-      if (!remote) return yield* fail(`branch has no configured remote: ${name}`)
-      const branch = selected.ref.slice(`refs/remotes/${remote}/`.length)
-      const corresponding = locals.find((entry) => entry.ref === `refs/heads/${branch}`)
+        return yield* fail(
+          candidates.length ? `ambiguous remote branch: ${name}` : `branch not found: ${name}`,
+        );
+      const selected = candidates[0];
+      if (!selected) return yield* fail(`branch not found: ${name}`);
+      const remote = remoteOf(selected.ref);
+      if (!remote) return yield* fail(`branch has no configured remote: ${name}`);
+      const branch = selected.ref.slice(`refs/remotes/${remote}/`.length);
+      const corresponding = locals.find((entry) => entry.ref === `refs/heads/${branch}`);
       if (corresponding?.upstream && corresponding.upstream !== selected.ref)
-        return yield* fail(`local branch ${branch} tracks ${corresponding.upstream}, not ${selected.ref}`)
-      return resolved(branch, selected.ref)
-    })
+        return yield* fail(`local branch ${branch} tracks ${corresponding.upstream}, not ${selected.ref}`);
+      return resolved(branch, selected.ref);
+    });
 
-    const refExists = Effect.fn("Git.history.refExists")(function* (
-      repository: Git.Repository,
-      ref: string,
-    ) {
+    const refExists = Effect.fn("Git.history.refExists")(function* (repository: Git.Repository, ref: string) {
       const result = yield* run("upstream", repository.worktree, [
         "rev-parse",
         "--verify",
         "--quiet",
         `${ref}^{commit}`,
-      ])
-      if (result.exitCode === 0) return true
-      if (result.exitCode === 1) return false
+      ]);
+      if (result.exitCode === 0) return true;
+      if (result.exitCode === 1) return false;
       return yield* new Git.OperationError({
         operation: "upstream",
         directory: repository.worktree,
         message: result.stderr.trim() || "git rev-parse failed",
-      })
-    })
+      });
+    });
 
     const isAncestor = Effect.fn("Git.history.isAncestor")(function* (
       repository: Git.Repository,
@@ -215,12 +242,12 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         "--is-ancestor",
         input.ancestor,
         input.descendant,
-      ])
-      if (result.exitCode === 0) return true
-      if (result.exitCode === 1) return false
+      ]);
+      if (result.exitCode === 0) return true;
+      if (result.exitCode === 1) return false;
       // An unresolvable ref lands here as "not a proof", matching `integration.proven`.
-      return false
-    })
+      return false;
+    });
 
     const upstream = Effect.fn("Git.history.upstream")(function* (repository: Git.Repository) {
       const branchName = yield* run("upstream", repository.worktree, [
@@ -228,27 +255,27 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         "--quiet",
         "--short",
         "HEAD",
-      ])
-      if (branchName.exitCode !== 0) return { _tag: "NoUpstream" } as const
-      const name = branchName.stdout.trim()
+      ]);
+      if (branchName.exitCode !== 0) return { _tag: "NoUpstream" } as const;
+      const name = branchName.stdout.trim();
       // The config, not the resolved ref: a configured upstream whose target is missing is
       // unavailable, not the same as no upstream at all.
       const configured = yield* run("upstream", repository.worktree, [
         "config",
         "--get",
         `branch.${name}.remote`,
-      ])
-      if (configured.exitCode !== 0) return { _tag: "NoUpstream" } as const
+      ]);
+      if (configured.exitCode !== 0) return { _tag: "NoUpstream" } as const;
       const counts = yield* run("upstream", repository.worktree, [
         "rev-list",
         "--left-right",
         "--count",
         "HEAD...@{upstream}",
-      ])
-      if (counts.exitCode !== 0) return { _tag: "Unavailable" } as const
-      const [ahead, behind] = counts.stdout.trim().split(/\s+/)
-      return { _tag: "Counted", ahead: Number(ahead ?? 0), behind: Number(behind ?? 0) } as const
-    })
+      ]);
+      if (counts.exitCode !== 0) return { _tag: "Unavailable" } as const;
+      const [ahead, behind] = counts.stdout.trim().split(/\s+/);
+      return { _tag: "Counted", ahead: Number(ahead ?? 0), behind: Number(behind ?? 0) } as const;
+    });
 
     const defaultRemoteBranch = Effect.fn("Git.history.defaultRemoteBranch")(function* (
       repository: Git.Repository,
@@ -257,33 +284,33 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
       const result = yield* run("upstream", repository.worktree, [
         "symbolic-ref",
         `refs/remotes/${remote}/HEAD`,
-      ])
-      if (result.exitCode !== 0) return undefined
-      const ref = result.stdout.trim()
-      const prefix = `refs/remotes/${remote}/`
-      return ref.startsWith(prefix) ? ref.slice(prefix.length) || undefined : undefined
-    })
+      ]);
+      if (result.exitCode !== 0) return undefined;
+      const ref = result.stdout.trim();
+      const prefix = `refs/remotes/${remote}/`;
+      return ref.startsWith(prefix) ? ref.slice(prefix.length) || undefined : undefined;
+    });
 
     const hasRemote = Effect.fn("Git.repo.hasRemote")(function* (
       repository: Git.Repository,
       remote?: string,
     ) {
-      const result = yield* run("discover", repository.worktree, ["remote"])
-      if (result.exitCode !== 0) return false
+      const result = yield* run("discover", repository.worktree, ["remote"]);
+      if (result.exitCode !== 0) return false;
       const names = result.stdout
         .split("\n")
         .map((line) => line.trim())
-        .filter(Boolean)
-      return remote ? names.includes(remote) : names.length > 0
-    })
+        .filter(Boolean);
+      return remote ? names.includes(remote) : names.length > 0;
+    });
 
     const remoteUrl = Effect.fn("Git.repo.remoteUrl")(function* (
       repository: Git.Repository,
       remote = "origin",
     ) {
-      const result = yield* run("discover", repository.worktree, ["remote", "get-url", remote])
-      return result.exitCode === 0 ? result.stdout.trim() || undefined : undefined
-    })
+      const result = yield* run("discover", repository.worktree, ["remote", "get-url", remote]);
+      return result.exitCode === 0 ? result.stdout.trim() || undefined : undefined;
+    });
 
     const upstreamTip = Effect.fn("Git.history.upstreamTip")(function* (repository: Git.Repository) {
       const result = yield* run("upstream", repository.worktree, [
@@ -291,9 +318,9 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         "--verify",
         "--quiet",
         "@{upstream}",
-      ])
-      return result.exitCode === 0 ? result.stdout.trim() || undefined : undefined
-    })
+      ]);
+      return result.exitCode === 0 ? result.stdout.trim() || undefined : undefined;
+    });
 
     const upstreamCommits = Effect.fn("Git.history.upstreamCommits")(function* (repository: Git.Repository) {
       // One line per commit: the sha, a unit separator no subject can carry, then the subject.
@@ -302,60 +329,55 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         "log",
         "--format=%H%x1f%s",
         "HEAD..@{upstream}",
-      ])
-      if (result.exitCode !== 0) return []
+      ]);
+      if (result.exitCode !== 0) return [];
       return result.stdout
         .split("\n")
         .map((line) => line.trim())
         .filter(Boolean)
         .map((line): Git.IncomingCommit => {
-          const split = line.indexOf("\x1f")
-          return { sha: line.slice(0, split), subject: line.slice(split + 1) }
-        })
-    })
+          const split = line.indexOf("\x1f");
+          return { sha: line.slice(0, split), subject: line.slice(split + 1) };
+        });
+    });
 
     const defaultBranch = Effect.fn("Git.history.defaultBranch")(function* (repository: Git.Repository) {
-      const remote = yield* defaultRemoteBranch(repository)
-      if (remote) return `origin/${remote}`
+      const remote = yield* defaultRemoteBranch(repository);
+      if (remote) return `origin/${remote}`;
       for (const name of ["main", "master"]) {
         const exists = yield* run("upstream", repository.worktree, [
           "show-ref",
           "--verify",
           "--quiet",
           `refs/heads/${name}`,
-        ])
-        if (exists.exitCode === 0) return name
+        ]);
+        if (exists.exitCode === 0) return name;
       }
-      return undefined
-    })
+      return undefined;
+    });
 
     const statusWorkingTree = Effect.fn("Git.status.workingTree")(function* (repository: Git.Repository) {
       // Porcelain v2: every entry starts with its kind, so output trimmed by a shell still parses.
       // NUL-separated so a path is never quoted or split; a rename or copy carries its origin as
       // the next field, which is skipped.
-      const result = yield* run("status", repository.worktree, ["status", "--porcelain=v2", "-z"])
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "status",
-          directory: repository.worktree,
-          message: result.stderr.trim() || "git status failed",
-        })
+      const result = yield* run("status", repository.worktree, ["status", "--porcelain=v2", "-z"]);
+      yield* expectOk(result, "status", repository.worktree, "git status failed");
       // The path follows a fixed number of space-separated fields, and may itself hold spaces.
-      const pathAfter = (entry: string, fields: number): string => entry.split(" ").slice(fields).join(" ")
-      const tracked: string[] = []
-      const untracked: string[] = []
-      const entries = result.stdout.split("\0")
+      const pathAfter = (entry: string, fields: number): string => entry.split(" ").slice(fields).join(" ");
+      const tracked: string[] = [];
+      const untracked: string[] = [];
+      const entries = result.stdout.split("\0");
       for (let index = 0; index < entries.length; index++) {
-        const entry = entries[index] ?? ""
-        if (entry.startsWith("? ")) untracked.push(entry.slice(2))
-        else if (entry.startsWith("1 ")) tracked.push(pathAfter(entry, 8))
+        const entry = entries[index] ?? "";
+        if (entry.startsWith("? ")) untracked.push(entry.slice(2));
+        else if (entry.startsWith("1 ")) tracked.push(pathAfter(entry, 8));
         else if (entry.startsWith("2 ")) {
-          tracked.push(pathAfter(entry, 9))
-          index++
-        } else if (entry.startsWith("u ")) tracked.push(pathAfter(entry, 10))
+          tracked.push(pathAfter(entry, 9));
+          index++;
+        } else if (entry.startsWith("u ")) tracked.push(pathAfter(entry, 10));
       }
-      return { tracked, untracked } satisfies Git.WorkingTree
-    })
+      return { tracked, untracked } satisfies Git.WorkingTree;
+    });
 
     const branchStatus = Effect.fn("Git.status.branchStatus")(function* (repository: Git.Repository) {
       const result = yield* run("status", repository.worktree, [
@@ -364,23 +386,18 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         "--branch",
         "-z",
         "--untracked-files=all",
-      ])
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "status",
-          directory: repository.worktree,
-          message: result.stderr.trim() || result.stdout.trim() || "git status failed",
-        })
-      return parseBranchStatus(result.stdout)
-    })
+      ]);
+      yield* expectOk(result, "status", repository.worktree, result.stdout.trim() || "git status failed");
+      return parseBranchStatus(result.stdout);
+    });
 
     const countCommitsSince = Effect.fn("Git.history.countCommitsSince")(function* (
       repository: Git.Repository,
       from: string,
     ) {
-      const result = yield* run("upstream", repository.worktree, ["rev-list", "--count", `${from}..HEAD`])
-      return result.exitCode === 0 ? Number(result.stdout.trim()) || 0 : 0
-    })
+      const result = yield* run("upstream", repository.worktree, ["rev-list", "--count", `${from}..HEAD`]);
+      return result.exitCode === 0 ? Number(result.stdout.trim()) || 0 : 0;
+    });
 
     const fileDiff = Effect.fn("Git.diff.file")(function* (
       repository: Git.Repository,
@@ -388,8 +405,8 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
     ) {
       const args = input.untracked
         ? ["diff", "--no-index", "--", "/dev/null", input.path]
-        : ["diff", ...(input.staged ? ["--cached"] : []), "--", input.path]
-      const result = yield* run("diff", repository.worktree, args)
+        : ["diff", ...(input.staged ? ["--cached"] : []), "--", input.path];
+      const result = yield* run("diff", repository.worktree, args);
       // Exit 1 is "there is a difference" for `--no-index`, which is the normal case.
       if (result.exitCode > 1)
         return yield* new Git.OperationError({
@@ -397,9 +414,9 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
           directory: repository.worktree,
           message: result.stderr.trim() || result.stdout.trim() || "git diff failed",
           exitCode: result.exitCode,
-        })
-      return result.stdout
-    })
+        });
+      return result.stdout;
+    });
 
     const commitPaths = Effect.fn("Git.commit.paths")(function* (
       repository: Git.Repository,
@@ -411,33 +428,36 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
           directory: repository.worktree,
           message: result.stderr.trim() || result.stdout.trim() || "git commit failed",
           exitCode: result.exitCode,
-        })
+        });
       // `add` with the paths records untracked files and deletions, which a plain commit would
       // not pick up; `commit` with the paths commits only them.
-      const added = yield* run("commit", repository.worktree, ["add", "--", ...input.paths])
-      if (added.exitCode !== 0) return yield* refused(added)
-      const committed = yield* run("commit", repository.worktree, ["commit", "-m", input.message, "--", ...input.paths])
-      if (committed.exitCode !== 0) return yield* refused(committed)
-      const hash = yield* run("commit", repository.worktree, ["rev-parse", "--short", "HEAD"])
-      return hash.exitCode === 0 ? hash.stdout.trim() || undefined : undefined
-    })
+      const added = yield* run("commit", repository.worktree, ["add", "--", ...input.paths]);
+      if (added.exitCode !== 0) return yield* refused(added);
+      const committed = yield* run("commit", repository.worktree, [
+        "commit",
+        "-m",
+        input.message,
+        "--",
+        ...input.paths,
+      ]);
+      if (committed.exitCode !== 0) return yield* refused(committed);
+      const hash = yield* run("commit", repository.worktree, ["rev-parse", "--short", "HEAD"]);
+      return hash.exitCode === 0 ? hash.stdout.trim() || undefined : undefined;
+    });
 
     const push = Effect.fn("Git.sync.push")(function* (
       repository: Git.Repository,
       input: { readonly remote: string; readonly branch: string },
     ) {
-      const result = yield* run("push", repository.worktree, ["push", "-u", input.remote, input.branch])
+      const result = yield* run("push", repository.worktree, ["push", "-u", input.remote, input.branch]);
       // git says what it did on stderr, and the last line of it is the useful half.
-      const said = (result.stderr.trim() || result.stdout.trim()).split("\n")
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "push",
-          directory: repository.worktree,
-          message: said.join("\n") || "git push failed",
-          exitCode: result.exitCode,
-        })
-      return said.pop() ?? ""
-    })
+      const said = (result.stderr.trim() || result.stdout.trim()).split("\n");
+      yield* expectOk(result, "push", repository.worktree, "git push failed", {
+        message: said.join("\n") || "git push failed",
+        exitCode: true,
+      });
+      return said.pop() ?? "";
+    });
 
     const changedPaths = Effect.fn("Git.status.changedPaths")(function* (repository: Git.Repository) {
       const result = yield* run("status", repository.worktree, [
@@ -445,44 +465,47 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         "--porcelain=v2",
         "-z",
         "--untracked-files=all",
-      ])
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "status",
-          directory: repository.worktree,
-          message: result.stderr.trim() || "git status failed",
-        })
-      const pathAfter = (entry: string, fields: number): string => entry.split(" ").slice(fields).join(" ")
-      const found: Git.ChangedPath[] = []
+      ]);
+      yield* expectOk(result, "status", repository.worktree, "git status failed");
+      const pathAfter = (entry: string, fields: number): string => entry.split(" ").slice(fields).join(" ");
+      const found: Git.ChangedPath[] = [];
       const add = (path: string, change: Git.PathChange): void => {
-        found.push({ path, change, bytes: change === "deleted" ? 0 : sizeOf(join(repository.worktree, path)) })
-      }
-      const entries = result.stdout.split("\0")
+        found.push({
+          path,
+          change,
+          bytes: change === "deleted" ? 0 : sizeOf(join(repository.worktree, path)),
+        });
+      };
+      const entries = result.stdout.split("\0");
       for (let index = 0; index < entries.length; index++) {
-        const entry = entries[index] ?? ""
-        if (entry.startsWith("? ")) add(entry.slice(2), "untracked")
-        else if (entry.startsWith("1 ")) add(pathAfter(entry, 8), changeOf(entry.slice(2, 4)))
+        const entry = entries[index] ?? "";
+        if (entry.startsWith("? ")) add(entry.slice(2), "untracked");
+        else if (entry.startsWith("1 ")) add(pathAfter(entry, 8), changeOf(entry.slice(2, 4)));
         else if (entry.startsWith("2 ")) {
-          add(pathAfter(entry, 9), "renamed")
-          index++
-        } else if (entry.startsWith("u ")) add(pathAfter(entry, 10), "conflicted")
+          add(pathAfter(entry, 9), "renamed");
+          index++;
+        } else if (entry.startsWith("u ")) add(pathAfter(entry, 10), "conflicted");
       }
-      return found.sort((a, b) => a.path.localeCompare(b.path))
-    })
+      return found.sort((a, b) => a.path.localeCompare(b.path));
+    });
 
     const writePatch = Effect.fn("Git.patch.write")(function* (
       repository: Git.Repository,
       input: { readonly file: AbsolutePath; readonly untracked: readonly string[] },
     ) {
       const fail = (message: string): Git.OperationError =>
-        new Git.OperationError({ operation: "patch", directory: repository.worktree, message })
+        new Git.OperationError({ operation: "patch", directory: repository.worktree, message });
       const fs = <A>(what: string, work: () => Promise<A>): Effect.Effect<A, Git.OperationError> =>
-        Effect.tryPromise({ try: work, catch: (cause) => new Git.OperationError({
-          operation: "patch",
-          directory: repository.worktree,
-          message: `${what}: ${cause instanceof Error ? cause.message : String(cause)}`,
-          cause,
-        }) })
+        Effect.tryPromise({
+          try: work,
+          catch: (cause) =>
+            new Git.OperationError({
+              operation: "patch",
+              directory: repository.worktree,
+              message: `${what}: ${cause instanceof Error ? cause.message : String(cause)}`,
+              cause,
+            }),
+        });
       // Written by git itself (`--output`), never through captured stdout: a runner may trim
       // what a command prints, and a patch that lost its last newline does not apply.
       const tracked = yield* run("patch", repository.worktree, [
@@ -491,9 +514,9 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         `--output=${input.file}`,
         "HEAD",
         "--",
-      ])
-      if (tracked.exitCode !== 0) return yield* fail(tracked.stderr.trim() || "git diff failed")
-      const part = `${input.file}.part`
+      ]);
+      if (tracked.exitCode !== 0) return yield* fail(tracked.stderr.trim() || "git diff failed");
+      const part = `${input.file}.part`;
       for (const path of input.untracked) {
         // `--no-index` against /dev/null is how git writes a file it does not know as a new one;
         // exit 1 means "there is a difference", which is the point.
@@ -505,14 +528,14 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
           "--",
           "/dev/null",
           path,
-        ])
-        if (created.exitCode > 1) return yield* fail(created.stderr.trim() || `git diff of ${path} failed`)
-        const text = yield* fs("could not read the untracked file's patch", () => readFile(part))
-        yield* fs("could not extend the patch", () => appendFile(input.file, text))
+        ]);
+        if (created.exitCode > 1) return yield* fail(created.stderr.trim() || `git diff of ${path} failed`);
+        const text = yield* fs("could not read the untracked file's patch", () => readFile(part));
+        yield* fs("could not extend the patch", () => appendFile(input.file, text));
       }
-      yield* fs("could not remove a temporary patch", () => rm(part, { force: true }))
-      return (yield* fs("could not read the patch's size", () => stat(input.file))).size
-    })
+      yield* fs("could not remove a temporary patch", () => rm(part, { force: true }));
+      return (yield* fs("could not read the patch's size", () => stat(input.file))).size;
+    });
 
     const patchApplies = Effect.fn("Git.patch.applies")(function* (
       repository: Git.Repository,
@@ -523,9 +546,9 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         "--check",
         ...(input.reverse ? ["--reverse"] : []),
         input.file,
-      ])
-      return result.exitCode === 0
-    })
+      ]);
+      return result.exitCode === 0;
+    });
 
     const applyPatch = Effect.fn("Git.patch.apply")(function* (
       repository: Git.Repository,
@@ -536,23 +559,23 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         "--3way",
         "--whitespace=nowarn",
         input.file,
-      ])
+      ]);
       if (result.exitCode !== 0)
         return {
           _tag: "Failed",
-          message: (result.stderr.trim() || result.stdout.trim() || "git apply failed"),
-        } satisfies Git.PatchApplication
+          message: result.stderr.trim() || result.stdout.trim() || "git apply failed",
+        } satisfies Git.PatchApplication;
       // `--3way` applies through the index; the work was shelved as working-tree changes, so it
       // comes back as working-tree changes — an untracked file untracked again.
-      const unstaged = yield* run("patch", repository.worktree, ["reset", "--quiet"])
+      const unstaged = yield* run("patch", repository.worktree, ["reset", "--quiet"]);
       if (unstaged.exitCode !== 0)
         return yield* new Git.OperationError({
           operation: "patch",
           directory: repository.worktree,
           message: unstaged.stderr.trim() || "git reset failed",
-        })
-      return { _tag: "Applied" } satisfies Git.PatchApplication
-    })
+        });
+      return { _tag: "Applied" } satisfies Git.PatchApplication;
+    });
 
     const discardChanges = Effect.fn("Git.worktree.discardChanges")(function* (
       repository: Git.Repository,
@@ -563,15 +586,21 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
           operation: "discard",
           directory: repository.worktree,
           message: result.stderr.trim() || `${what} failed`,
-        })
-      const reset = yield* run("discard", repository.worktree, ["reset", "--hard", "--quiet", "HEAD"])
-      if (reset.exitCode !== 0) return yield* fail(reset, "git reset --hard")
+        });
+      const reset = yield* run("discard", repository.worktree, ["reset", "--hard", "--quiet", "HEAD"]);
+      if (reset.exitCode !== 0) return yield* fail(reset, "git reset --hard");
       for (let start = 0; start < input.untracked.length; start += PATHS_PER_COMMAND) {
-        const paths = input.untracked.slice(start, start + PATHS_PER_COMMAND)
-        const cleaned = yield* run("discard", repository.worktree, ["clean", "--force", "--quiet", "--", ...paths])
-        if (cleaned.exitCode !== 0) return yield* fail(cleaned, "git clean")
+        const paths = input.untracked.slice(start, start + PATHS_PER_COMMAND);
+        const cleaned = yield* run("discard", repository.worktree, [
+          "clean",
+          "--force",
+          "--quiet",
+          "--",
+          ...paths,
+        ]);
+        if (cleaned.exitCode !== 0) return yield* fail(cleaned, "git clean");
       }
-    })
+    });
 
     const integrationProven = Effect.fn("Git.integration.proven")(function* (
       repository: Git.Repository,
@@ -583,93 +612,83 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         "--verify",
         "--quiet",
         `${input.base}^{commit}`,
-      ])
-      if (base.exitCode !== 0) return false
+      ]);
+      if (base.exitCode !== 0) return false;
       const branch = yield* run("integration", repository.worktree, [
         "rev-parse",
         "--verify",
         "--quiet",
         `${input.branch}^{commit}`,
-      ])
-      if (branch.exitCode !== 0) return false
+      ]);
+      if (branch.exitCode !== 0) return false;
       const ancestor = yield* run("integration", repository.worktree, [
         "merge-base",
         "--is-ancestor",
         input.branch,
         input.base,
-      ])
-      if (ancestor.exitCode === 0) return true
+      ]);
+      if (ancestor.exitCode === 0) return true;
       if (ancestor.exitCode !== 1)
         return yield* new Git.OperationError({
           operation: "integration",
           directory: repository.worktree,
           message: ancestor.stderr.trim() || "git merge-base failed",
-        })
+        });
       // Patch equivalence: every branch-only commit has an equivalent patch in the base. An
       // empty range is not a proof on its own; the ancestry check already answered that case.
-      const cherry = yield* run("integration", repository.worktree, ["cherry", input.base, input.branch])
+      const cherry = yield* run("integration", repository.worktree, ["cherry", input.base, input.branch]);
       if (cherry.exitCode !== 0)
         return yield* new Git.OperationError({
           operation: "integration",
           directory: repository.worktree,
           message: cherry.stderr.trim() || "git cherry failed",
-        })
+        });
       const lines = cherry.stdout
         .split("\n")
         .map((line) => line.trim())
-        .filter(Boolean)
-      if (lines.length > 0 && lines.every((line) => line.startsWith("-"))) return true
+        .filter(Boolean);
+      if (lines.length > 0 && lines.every((line) => line.startsWith("-"))) return true;
       // A simulated merge: a squash merge of several commits matches no single patch, but merging
       // the branch into the base then changes nothing. A conflict, or a git without
       // `merge-tree --write-tree`, is not a proof.
-      const merged = yield* run("integration", repository.worktree, ["merge-tree", "--write-tree", input.base, input.branch])
-      if (merged.exitCode !== 0) return false
-      const tree = merged.stdout.split("\n")[0]?.trim()
-      const target = yield* run("integration", repository.worktree, ["rev-parse", `${input.base}^{tree}`])
-      return target.exitCode === 0 && tree !== undefined && tree !== "" && tree === target.stdout.trim()
-    })
+      const merged = yield* run("integration", repository.worktree, [
+        "merge-tree",
+        "--write-tree",
+        input.base,
+        input.branch,
+      ]);
+      if (merged.exitCode !== 0) return false;
+      const tree = merged.stdout.split("\n")[0]?.trim();
+      const target = yield* run("integration", repository.worktree, ["rev-parse", `${input.base}^{tree}`]);
+      return target.exitCode === 0 && tree !== undefined && tree !== "" && tree === target.stdout.trim();
+    });
 
     const deleteBranch = Effect.fn("Git.sync.deleteBranch")(function* (
       repository: Git.Repository,
       branch: string,
     ) {
-      const result = yield* run("remove", repository.worktree, ["branch", "-D", branch])
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "remove",
-          directory: repository.worktree,
-          message: result.stderr.trim() || "git branch -D failed",
-        })
-    })
+      const result = yield* run("remove", repository.worktree, ["branch", "-D", branch]);
+      yield* expectOk(result, "remove", repository.worktree, "git branch -D failed");
+    });
 
     const fetchRemote = Effect.fn("Git.sync.fetchRemote")(function* (
       repository: Git.Repository,
       remote = "origin",
     ) {
-      const result = yield* run("checkout", repository.worktree, ["fetch", "--quiet", remote])
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "checkout",
-          directory: repository.worktree,
-          message: result.stderr.trim() || "git fetch failed",
-        })
-    })
+      const result = yield* run("checkout", repository.worktree, ["fetch", "--quiet", remote]);
+      yield* expectOk(result, "checkout", repository.worktree, "git fetch failed");
+    });
 
     const pullFastForward = Effect.fn("Git.sync.pullFastForward")(function* (repository: Git.Repository) {
-      const result = yield* run("pull", repository.worktree, ["pull", "--ff-only"])
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "pull",
-          directory: repository.worktree,
-          message: result.stderr.trim() || "git pull --ff-only failed",
-        })
-    })
+      const result = yield* run("pull", repository.worktree, ["pull", "--ff-only"]);
+      yield* expectOk(result, "pull", repository.worktree, "git pull --ff-only failed");
+    });
 
     const mergeFastForwardOnly = Effect.fn("Git.sync.mergeFastForwardOnly")(function* (
       repository: Git.Repository,
       input: { readonly to: string },
     ) {
-      const result = yield* run("merge", repository.worktree, ["merge", "--ff-only", input.to])
+      const result = yield* run("merge", repository.worktree, ["merge", "--ff-only", input.to]);
       if (result.exitCode !== 0)
         return yield* new Git.OperationError({
           operation: "merge",
@@ -683,53 +702,48 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
               .filter((line) => line.trim() && !line.startsWith("hint:"))
               .join(" ")
               .trim() || "git merge --ff-only failed",
-        })
-    })
+        });
+    });
 
     const switchToBranch = Effect.fn("Git.sync.switchToBranch")(function* (
       repository: Git.Repository,
-      input: { readonly branch: string; readonly create?: boolean; readonly base?: string; readonly track?: string },
+      input: {
+        readonly branch: string;
+        readonly create?: boolean;
+        readonly base?: string;
+        readonly track?: string;
+      },
     ) {
       const args = input.track
         ? ["switch", "--create", input.branch, "--track", input.track]
         : input.create
           ? ["switch", "--create", input.branch, ...(input.base ? ["--no-track", input.base] : [])]
-          : ["switch", input.branch]
-      const result = yield* run("checkout", repository.worktree, args)
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "checkout",
-          directory: repository.worktree,
-          message: result.stderr.trim() || "git switch failed",
-        })
-    })
+          : ["switch", input.branch];
+      const result = yield* run("checkout", repository.worktree, args);
+      yield* expectOk(result, "checkout", repository.worktree, "git switch failed");
+    });
 
     const remove = Effect.fn("Git.worktree.remove")(function* (input: {
-      readonly repository: Git.Repository
-      readonly directory: AbsolutePath
-      readonly force: boolean
+      readonly repository: Git.Repository;
+      readonly directory: AbsolutePath;
+      readonly force: boolean;
     }) {
       const result = yield* run("remove", input.repository.worktree, [
         "worktree",
         "remove",
         ...(input.force ? ["--force"] : []),
         input.directory,
-      ])
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "remove",
-          directory: input.directory,
-          message: result.stderr.trim() || "git worktree remove failed",
-        })
-    })
+      ]);
+      yield* expectOk(result, "remove", input.directory, "git worktree remove failed");
+    });
 
     const addWorktree = Effect.fn("Git.worktree.add")(function* (input: {
-      readonly repository: Git.Repository
-      readonly directory: AbsolutePath
-      readonly branch: string
-      readonly base?: string
-      readonly create: boolean
-      readonly track?: string
+      readonly repository: Git.Repository;
+      readonly directory: AbsolutePath;
+      readonly branch: string;
+      readonly base?: string;
+      readonly create: boolean;
+      readonly track?: string;
     }) {
       const args = input.track
         ? ["worktree", "add", "--track", "-b", input.branch, input.directory, input.track]
@@ -744,30 +758,25 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
               input.directory,
               ...(input.base ? [input.base] : []),
             ]
-          : ["worktree", "add", input.directory, input.branch]
-      const result = yield* run("create", input.repository.worktree, args)
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "create",
-          directory: input.directory,
-          message: result.stderr.trim() || "git worktree add failed",
-        })
-      const repository = yield* discover(input.directory)
+          : ["worktree", "add", input.directory, input.branch];
+      const result = yield* run("create", input.repository.worktree, args);
+      yield* expectOk(result, "create", input.directory, "git worktree add failed");
+      const repository = yield* discover(input.directory);
       if (repository) {
-        const attached = yield* branch(repository)
-        if (attached === input.branch) return repository
+        const attached = yield* branch(repository);
+        if (attached === input.branch) return repository;
         return yield* new Git.OperationError({
           operation: "create",
           directory: input.directory,
           message: `created checkout is not attached to ${input.branch}`,
-        })
+        });
       }
       return yield* new Git.OperationError({
         operation: "create",
         directory: input.directory,
         message: "created worktree could not be opened",
-      })
-    })
+      });
+    });
 
     return {
       repo: { discover, hasRemote, remoteUrl },
@@ -792,6 +801,6 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
       integration: { proven: integrationProven },
       sync: { deleteBranch, fetchRemote, push, pullFastForward, mergeFastForwardOnly, switchToBranch },
       worktree: { remove, add: addWorktree, discardChanges },
-    }
+    };
   }),
-)
+);

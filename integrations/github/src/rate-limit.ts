@@ -26,7 +26,7 @@ import { sh, type ShellResult } from "./shell.ts";
  * answer, said sooner and without a process. */
 const resources = ["graphql", "core", "secondary"] as const;
 
-export type RateLimitResource = (typeof resources)[number];
+type RateLimitResource = (typeof resources)[number];
 
 /** GitHub will not answer until `resetsAt`; waiting is the only fix. */
 export class GitHubRateLimited extends Schema.TaggedError<GitHubRateLimited>()("GitHubRateLimited", {
@@ -48,8 +48,7 @@ const gatedUntil = new Map<string, number>();
  * moment awaits it rather than spending a `gh` of their own — and nobody else's answer. */
 const probesInFlight = new Map<string, Deferred.Deferred<ProbedResets>>();
 
-const gateKey = (workspace: string, resource: RateLimitResource): string =>
-  `${workspace}|${resource}`;
+const gateKey = (workspace: string, resource: RateLimitResource): string => `${workspace}|${resource}`;
 
 /** As much of `gh api rate_limit`'s answer as the gate reads. */
 const RateLimitSchema = Schema.Struct({
@@ -100,10 +99,7 @@ const GRAPHQL = /graphql/i;
  * error on either stream, so both are read. Its words win when they name a budget; otherwise the
  * command's own is the answer — a GraphQL failure can be reported in REST's wording, and gating
  * the budget the command did not spend would leave the exhausted one open. */
-const classify = (
-  result: ShellResult,
-  budget: RateLimitResource,
-): RateLimitResource | undefined => {
+const classify = (result: ShellResult, budget: RateLimitResource): RateLimitResource | undefined => {
   const output = `${result.stderr}\n${result.stdout}`;
   if (!LIMIT.test(output)) return undefined;
   if (SECONDARY.test(output)) return "secondary";
@@ -251,9 +247,7 @@ const limitReached = (
  * and no probe. A cached read asks this before trusting what it has, because a cache keeps its
  * last good value while refreshes fail and would otherwise answer with the pre-limit verdict for
  * as long as the gate lasts. */
-export const refusalNow = (
-  resource: RateLimitResource,
-): Effect.Effect<Option.Option<GitHubRateLimited>> =>
+export const refusalNow = (resource: RateLimitResource): Effect.Effect<Option.Option<GitHubRateLimited>> =>
   Effect.gen(function* () {
     const closed = closedBy(yield* workspaceId(), resource);
     if (closed === undefined) return Option.none();
@@ -302,10 +296,7 @@ export const ghOrThrow = (
  * timeout, which reads as the failed command it is (exit 124) rather than as a failure of the
  * operation — what `shSoft` did. A rate limit stays in the error channel: whether it is surfaced
  * or degraded to a value is the caller's decision, and every caller makes it. */
-export const ghSoft = (
-  cmd: readonly string[],
-  cwd?: string,
-): Effect.Effect<ShellResult, GitHubRateLimited> =>
+export const ghSoft = (cmd: readonly string[], cwd?: string): Effect.Effect<ShellResult, GitHubRateLimited> =>
   gh(cmd, cwd).pipe(
     Effect.catchTag("CliError", (e) =>
       Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr || e.message }),

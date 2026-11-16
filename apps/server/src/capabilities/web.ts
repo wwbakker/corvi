@@ -1,8 +1,8 @@
 import type { Serve } from "bun";
 import type { TerminalSocket } from "../terminals/server/session.ts";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import { readChange } from "../change/server/index.ts";
-import { BadRequestError, isIweError, NotFoundError, type IweError } from "@corvi/contracts/errors";
+import { BadRequestError, isCorviError, NotFoundError, type CorviError } from "@corvi/contracts/errors";
 import { messageOf } from "./effect/support.ts";
 import { runRoute } from "./effect/run.ts";
 import { Workspace } from "../integrations/api/capabilities.ts";
@@ -66,9 +66,10 @@ export function guard<R extends string>(
     } else if (value && typeof value === "object" && isMethodMap(value)) {
       // One entry per method: { GET, POST }.
       guarded[path] = Object.fromEntries(
-        Object.entries(value as Record<string, (req: never, srv: never) => unknown>).map(
-          ([method, fn]) => [method, wrap(fn)],
-        ),
+        Object.entries(value as Record<string, (req: never, srv: never) => unknown>).map(([method, fn]) => [
+          method,
+          wrap(fn),
+        ]),
       );
     } else {
       // The bundled page itself, which is not a handler at all.
@@ -90,15 +91,26 @@ export const workspaceParam = (req: Request): string | undefined =>
 
 // The body readers live in ./effect/body.ts so integration modules can use them without
 // importing this module back into their graph.
-export { bodyAs, bodyOf, bodyOrEmpty } from "./effect/body.ts";
+export { bodyAs, bodyOf, bodyOrEmpty } from "@corvi/contracts/body";
+
+/** A query string decoded as the route's schema. The one rule for the file routes' `?scope=…&id=…`
+ * refs: a missing or malformed field is the caller's 400 with the named sentence, never a cast. */
+export const queryAs = <S extends Schema.Constraint>(
+  req: Request,
+  schema: S,
+  message: string,
+): Effect.Effect<S["Type"], BadRequestError, S["DecodingServices"]> =>
+  Schema.decodeUnknownEffect(schema)(Object.fromEntries(new URL(req.url).searchParams)).pipe(
+    Effect.mapError(() => new BadRequestError({ message })),
+  );
 
 /** A sync call that throws typed errors (resolveDirectory) lifted into the error channel at the
  * route boundary. Anything that is not one of ours is reported like one, which is the same
  * message-and-400 `runRoute` would give an escaped throw. */
-export const attempt = <A>(work: () => A): Effect.Effect<A, IweError> =>
+export const attempt = <A>(work: () => A): Effect.Effect<A, CorviError> =>
   Effect.try({
     try: work,
-    catch: (e) => (isIweError(e) ? e : new BadRequestError({ message: messageOf(e) })),
+    catch: (e) => (isCorviError(e) ? e : new BadRequestError({ message: messageOf(e) })),
   });
 
 /** Everything this request runs — every `gh`, `az`, `git` and Jira call, however deep — runs as

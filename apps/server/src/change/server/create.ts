@@ -23,10 +23,7 @@ export type CreateChangeInput = ChangeDraft;
  * never bypass. */
 export const createChange = (
   input: CreateChangeInput,
-): Effect.Effect<
-  Change,
-  ChangeFormatTooNew | InvalidChangeDraft | ChangeAlreadyExists | DecodeError
-> =>
+): Effect.Effect<Change, ChangeFormatTooNew | InvalidChangeDraft | ChangeAlreadyExists | DecodeError> =>
   Effect.gen(function* () {
     const id = input.id.trim();
     if (!id || id !== basename(id) || id.startsWith(".")) {

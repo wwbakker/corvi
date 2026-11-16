@@ -5,15 +5,9 @@
  */
 import type { Effect } from "effect";
 
-import type {
-  ChangeWireDto,
-  SummaryFactDto,
-  WidgetDto,
-  WidgetItemDto,
-  WidgetStateDto,
-} from "./api.ts";
+import type { ChangeWireDto, SummaryFactDto, WidgetDto, WidgetItemDto, WidgetStateDto } from "./api.ts";
 import type { Capabilities } from "./capabilities.ts";
-import type { IweError } from "./errors.ts";
+import type { CorviError } from "./errors.ts";
 
 // --- Contracts: what a surface is ------------------------------------------------
 
@@ -29,10 +23,7 @@ export type Card = {
   status?: (change: ChangeWireDto) => Effect.Effect<WidgetDto, unknown, Capabilities>;
   /** Rows for one repository, fetched a repository at a time, so a change with many
    * repositories fills in one by one instead of all at the end. */
-  repoStatus?: (
-    change: ChangeWireDto,
-    repo: string,
-  ) => Effect.Effect<WidgetItemDto[], unknown, Capabilities>;
+  repoStatus?: (change: ChangeWireDto, repo: string) => Effect.Effect<WidgetItemDto[], unknown, Capabilities>;
   /** Perform an action a row advertised (`arg` is what the row handed back). */
   run?: (
     change: ChangeWireDto,
@@ -138,7 +129,7 @@ export type IncludedIntegration = {
 
 // --- Routes ---------------------------------------------------------------------
 
-export type { IweError as RouteError } from "./errors.ts";
+export type { CorviError as RouteError } from "./errors.ts";
 
 /** A route under `/api/ext/<integration>/…`, behind the same origin guard as the core's
  * routes, run as the workspace the request names. Failures map to HTTP status codes through
@@ -152,7 +143,7 @@ export type { IweError as RouteError } from "./errors.ts";
 export type RouteHandler = (
   req: Request,
   params: Record<string, string>,
-) => Effect.Effect<Response, IweError, Capabilities>;
+) => Effect.Effect<Response, CorviError, Capabilities>;
 
 export type RequestMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 

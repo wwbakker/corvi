@@ -25,8 +25,7 @@ import {
   type PowerMachine,
 } from "./model.ts";
 
-const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
+const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /** One machine and what the last read said about it. `state` is the last known state even when
  * the latest read failed; `error` is that failure, if any. */
@@ -81,9 +80,7 @@ export function usePower(workspaces: readonly Workspace[]): PowerView {
       owner
         .clientFor(machine.source)
         .power.state()
-        .then((state) =>
-          setReadings((all) => ({ ...all, [machine.source]: { state, error: null } })),
-        )
+        .then((state) => setReadings((all) => ({ ...all, [machine.source]: { state, error: null } })))
         .catch((cause: unknown) => {
           // A gate refusal while a remote is checking or unavailable is expected: show the gate's
           // own reason rather than a bare failure. It stays unarmable until a read lands. Keep

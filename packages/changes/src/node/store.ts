@@ -16,12 +16,12 @@
  * Cross-process locking is not provided yet; that is why `ChangeConflict` exists but is not
  * raised here.
  */
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises"
-import { join } from "node:path"
-import { Effect, Layer, Schema, Semaphore } from "effect"
+import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { Effect, Layer, Schema, Semaphore } from "effect";
 
-import { CheckoutSpecSchema } from "@corvi/contracts/api"
-import { decodePreserving, formatIssues } from "@corvi/contracts/body"
+import { ChangeWireSchema } from "@corvi/contracts/api";
+import { decodePreserving, formatIssues } from "@corvi/contracts/body";
 import {
   Change,
   ChangeId,
@@ -29,52 +29,49 @@ import {
   Repository,
   RepositoryId,
   type AddRepositoryInput,
-} from "@corvi/contracts/changes"
+} from "@corvi/contracts/changes";
+import { formatTooNew } from "../errors.ts";
 import {
   ChangeConflict,
   ChangeFormatTooNew,
   ChangeNotFound,
   ChangeStoreError,
   RepositoryStoreError,
-} from "../errors.ts"
-import { FORMAT_VERSION } from "../record.ts"
-import { repositoryFromSpec, specFromInput, specFromRepository } from "../rules.ts"
-import { ChangeStore } from "../store.ts"
+} from "../errors.ts";
+import { FORMAT_VERSION } from "../record.ts";
+import { repositoryFromSpec, specFromInput, specFromRepository } from "../rules.ts";
+import { ChangeStore } from "../store.ts";
+import { changeDirs, type RootPair } from "./paths.ts";
 
+/** The contract's record, with the two fields older records may lack made optional for reading:
+ * the store defaults them when it builds the domain value. */
 const StoredRecord = Schema.Struct({
-  id: Schema.String,
-  title: Schema.optional(Schema.String),
+  ...ChangeWireSchema.fields,
   branch: Schema.optional(Schema.String),
-  state: Schema.optional(ChangePhase),
-  workspace: Schema.optional(Schema.String),
   createdAt: Schema.optional(Schema.String),
-  completedAt: Schema.optional(Schema.String),
-  cancelledFrom: Schema.optional(ChangePhase),
-  revision: Schema.optional(Schema.Number),
-  formatVersion: Schema.optional(Schema.Number),
-  checkouts: Schema.optional(Schema.Array(CheckoutSpecSchema)),
-})
-type StoredRecord = typeof StoredRecord.Type
+});
+type StoredRecord = typeof StoredRecord.Type;
 
-/** One settings scope's changes root and archive root. A change lives under one pair and
- * travels to that pair's archive when it is done. */
-export type RootPair = { readonly root: string; readonly archiveRoot: string }
+export type { RootPair } from "./paths.ts";
 
-const isNotFound = (cause: unknown): boolean =>
-  typeof cause === "object" && cause !== null && "code" in cause && (cause as { code?: string }).code === "ENOENT"
+export const isNotFound = (cause: unknown): boolean =>
+  typeof cause === "object" &&
+  cause !== null &&
+  "code" in cause &&
+  (cause as { code?: string }).code === "ENOENT";
 
 const isNotEmpty = (cause: unknown): boolean =>
   typeof cause === "object" &&
   cause !== null &&
   "code" in cause &&
-  ["ENOTEMPTY", "EEXIST"].includes(String((cause as { code?: string }).code))
+  ["ENOTEMPTY", "EEXIST"].includes(String((cause as { code?: string }).code));
 
 const storeError = (
   operation: "read" | "write",
   message: string,
   cause: unknown,
   changeId?: ChangeId,
-): ChangeStoreError => new ChangeStoreError({ operation, message, cause, changeId })
+): ChangeStoreError => new ChangeStoreError({ operation, message, cause, changeId });
 
 const decodeRecord = (text: string, path: string): Effect.Effect<StoredRecord, ChangeStoreError> =>
   Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))(text).pipe(
@@ -82,56 +79,49 @@ const decodeRecord = (text: string, path: string): Effect.Effect<StoredRecord, C
     Effect.mapError((error) =>
       storeError("read", `malformed change record at ${path}: ${formatIssues(error)}`, error),
     ),
-  )
+  );
 
 interface Located {
-  readonly record: StoredRecord
-  readonly dir: string
+  readonly record: StoredRecord;
+  readonly dir: string;
 }
 
 export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.Layer<ChangeStore> =>
   Layer.effect(
     ChangeStore,
     Effect.gen(function* () {
-      const lock = yield* Semaphore.make(1)
+      const lock = yield* Semaphore.make(1);
 
       const writeAt = (dir: string, record: StoredRecord): Effect.Effect<void, ChangeStoreError> => {
-        const path = join(dir, "change.json")
-        const temp = `${path}.tmp`
+        const path = join(dir, "change.json");
+        const temp = `${path}.tmp`;
         const attempt = <A>(what: string, work: () => Promise<A>): Effect.Effect<A, ChangeStoreError> =>
           Effect.tryPromise({
             try: work,
             catch: (cause: unknown) => storeError("write", `${what} at ${path}`, cause),
-          })
+          });
         return Effect.gen(function* () {
-          yield* attempt("could not create the change directory", () => mkdir(dir, { recursive: true }))
-          yield* attempt("could not write the change record", () => writeFile(temp, JSON.stringify(record, null, 2) + "\n"))
-          yield* attempt("could not replace the change record", () => rename(temp, path))
-        })
-      }
+          yield* attempt("could not create the change directory", () => mkdir(dir, { recursive: true }));
+          yield* attempt("could not write the change record", () =>
+            writeFile(temp, JSON.stringify(record, null, 2) + "\n"),
+          );
+          yield* attempt("could not replace the change record", () => rename(temp, path));
+        });
+      };
 
       /** The downgrade fence: a record written by a newer Corvi is read but never written. */
       const writable = (record: StoredRecord): Effect.Effect<void, ChangeFormatTooNew> => {
-        const recordFormat = record.formatVersion ?? 1
+        const recordFormat = record.formatVersion ?? 1;
         return recordFormat > FORMAT_VERSION
-          ? Effect.fail(
-              new ChangeFormatTooNew({
-                changeId: ChangeId.make(record.id),
-                recordFormat,
-                appFormat: FORMAT_VERSION,
-                message:
-                  `change ${record.id} was written by a newer version of Corvi ` +
-                  `(record format ${recordFormat}, this one writes ${FORMAT_VERSION}); upgrade to edit it`,
-              }),
-            )
-          : Effect.void
-      }
+          ? Effect.fail(formatTooNew(ChangeId.make(record.id), recordFormat))
+          : Effect.void;
+      };
 
       /** Read one record as it is stored. A record from a newer Corvi comes back as it decodes
        * best-effort, and is never written. Callers hold the lock. */
       const readAt = (dir: string): Effect.Effect<StoredRecord | undefined, ChangeStoreError> =>
         Effect.gen(function* () {
-          const path = join(dir, "change.json")
+          const path = join(dir, "change.json");
           const text = yield* Effect.tryPromise({
             try: () => readFile(path, "utf8"),
             catch: (cause) => storeError("read", `could not read ${path}`, cause),
@@ -139,35 +129,32 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
             Effect.catchTag("ChangeStoreError", (error) =>
               isNotFound(error.cause) ? Effect.void : Effect.fail(error),
             ),
-          )
-          if (text === undefined) return undefined
-          return yield* decodeRecord(text, path)
-        })
+          );
+          if (text === undefined) return undefined;
+          return yield* decodeRecord(text, path);
+        });
 
       /** Every directory this change may live in: each pair's active root first — the active
        * copy wins — then each pair's archive. */
       const locate = (changeId: ChangeId): Effect.Effect<Located | undefined, ChangeStoreError> =>
         Effect.gen(function* () {
-          const candidates = [
-            ...options.roots.map(({ root }) => join(root, changeId)),
-            ...options.roots.map(({ archiveRoot }) => join(archiveRoot, changeId)),
-          ]
+          const candidates = changeDirs(options.roots, changeId);
           for (const dir of candidates) {
-            const record = yield* readAt(dir)
-            if (record) return { record, dir }
+            const record = yield* readAt(dir);
+            if (record) return { record, dir };
           }
-          return undefined
-        })
+          return undefined;
+        });
 
       const asRepositoryError =
         (changeId: ChangeId, operation: "read" | "write") =>
         (error: ChangeStoreError): RepositoryStoreError =>
-          new RepositoryStoreError({ changeId, operation, message: error.message, cause: error.cause })
+          new RepositoryStoreError({ changeId, operation, message: error.message, cause: error.cause });
 
       /** The links a record's specs describe: one per checkout, with the derived id and
        * directory name the specs stand for. */
       const linksOf = (record: StoredRecord): readonly Repository[] =>
-        (record.checkouts ?? []).map((spec) => repositoryFromSpec(ChangeId.make(record.id), spec))
+        (record.checkouts ?? []).map((spec) => repositoryFromSpec(ChangeId.make(record.id), spec));
 
       const recordFor = (
         change: Change,
@@ -184,7 +171,7 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
         checkouts: repositories.map(specFromRepository),
         formatVersion: FORMAT_VERSION,
         revision: (raw.revision ?? 0) + 1,
-      })
+      });
 
       const changeOf = (record: StoredRecord, dir: string): Change =>
         new Change({
@@ -197,22 +184,22 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
           ...(record.completedAt ? { completedAt: record.completedAt } : {}),
           ...(record.cancelledFrom ? { cancelledFrom: record.cancelledFrom } : {}),
           revision: record.revision ?? 0,
-        })
+        });
 
       const read = Effect.fn("ChangeStore.read")(function* (changeId: ChangeId) {
         return yield* lock.withPermits(1)(
           Effect.gen(function* () {
-            const located = yield* locate(changeId)
-            return located ? changeOf(located.record, located.dir) : undefined
+            const located = yield* locate(changeId);
+            return located ? changeOf(located.record, located.dir) : undefined;
           }),
-        )
-      })
+        );
+      });
 
       const list = Effect.fn("ChangeStore.list")(function* () {
         return yield* lock.withPermits(1)(
           Effect.gen(function* () {
-            const changes: Change[] = []
-            const bases = options.roots.flatMap(({ root, archiveRoot }) => [root, archiveRoot])
+            const changes: Change[] = [];
+            const bases = options.roots.flatMap(({ root, archiveRoot }) => [root, archiveRoot]);
             for (const base of bases) {
               const entries = yield* Effect.tryPromise({
                 try: () => readdir(base, { withFileTypes: true }),
@@ -221,19 +208,19 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
                 Effect.catchTag("ChangeStoreError", (error) =>
                   isNotFound(error.cause) ? Effect.succeed([]) : Effect.fail(error),
                 ),
-              )
+              );
               for (const entry of entries) {
-                if (!entry.isDirectory()) continue
-                const dir = join(base, entry.name)
-                const record = yield* readAt(dir)
-                if (!record) continue
-                changes.push(changeOf(record, dir))
+                if (!entry.isDirectory()) continue;
+                const dir = join(base, entry.name);
+                const record = yield* readAt(dir);
+                if (!record) continue;
+                changes.push(changeOf(record, dir));
               }
             }
-            return changes
+            return changes;
           }),
-        )
-      })
+        );
+      });
 
       const create = Effect.fn("ChangeStore.create")(function* (
         change: Change,
@@ -241,36 +228,42 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
       ) {
         // The primary changes root: the application creates changes through its own store,
         // which routes by the change's workspace.
-        yield* lock.withPermits(1)(writeAt(join(options.roots[0]!.root, change.changeId), recordFor(change, repositories)))
-      })
+        yield* lock.withPermits(1)(
+          writeAt(join(options.roots[0]!.root, change.changeId), recordFor(change, repositories)),
+        );
+      });
 
       const patch = Effect.fn("ChangeStore.patch")(function* (
         changeId: ChangeId,
-        patch: { readonly phase: ChangePhase; readonly completedAt?: string; readonly expectedRevision?: number },
+        patch: {
+          readonly phase: ChangePhase;
+          readonly completedAt?: string;
+          readonly expectedRevision?: number;
+        },
       ) {
         return yield* lock.withPermits(1)(
           Effect.gen(function* () {
-            const located = yield* locate(changeId)
+            const located = yield* locate(changeId);
             if (!located)
-              return yield* new ChangeNotFound({ changeId, message: `change ${changeId} was not found` })
+              return yield* new ChangeNotFound({ changeId, message: `change ${changeId} was not found` });
             // Optimistic concurrency: a caller that read a revision writes only onto it. The
             // check is inside the store's lock, so two writers that read the same revision
             // cannot both win — the second is told the record moved rather than overwriting it.
-            const actual = located.record.revision ?? 0
+            const actual = located.record.revision ?? 0;
             if (patch.expectedRevision !== undefined && patch.expectedRevision !== actual) {
               return yield* new ChangeConflict({
                 changeId,
                 expected: patch.expectedRevision,
                 actual,
                 message: `change ${changeId} moved on: expected revision ${patch.expectedRevision}, found ${actual}`,
-              })
+              });
             }
-            yield* writable(located.record)
+            yield* writable(located.record);
             // Cancelling remembers where the change stood, which is where reopening returns it.
             const raw: StoredRecord =
               patch.phase === "Cancelled"
                 ? { ...located.record, cancelledFrom: located.record.state ?? "Implementation" }
-                : located.record
+                : located.record;
             const next = recordFor(
               new Change({
                 changeId,
@@ -287,8 +280,8 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
               }),
               linksOf(located.record),
               raw,
-            )
-            yield* writeAt(located.dir, next)
+            );
+            yield* writeAt(located.dir, next);
             // A terminal phase moves the change into the archive of the pair it lives under —
             // its workspace's archive root. A change that predates a root override still
             // travels to the archive beside where it was made, and one already archived is
@@ -296,35 +289,26 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
             const pair = options.roots.find(
               ({ root, archiveRoot }) =>
                 located.dir === join(root, changeId) || located.dir === join(archiveRoot, changeId),
-            )
-            const active = pair !== undefined && located.dir === join(pair.root, changeId)
+            );
+            const active = pair !== undefined && located.dir === join(pair.root, changeId);
             if ((patch.phase === "Completed" || patch.phase === "Cancelled") && pair && active) {
-              const archiveDir = join(pair.archiveRoot, changeId)
+              const archiveDir = join(pair.archiveRoot, changeId);
               yield* Effect.tryPromise({
                 try: async () => {
-                  await mkdir(pair.archiveRoot, { recursive: true })
-                  await rename(located.dir, archiveDir)
+                  await mkdir(pair.archiveRoot, { recursive: true });
+                  await rename(located.dir, archiveDir);
                 },
                 catch: (cause: unknown) => storeError("write", `could not archive ${changeId}`, cause),
-              })
+              });
             }
-            return new Change({
-              changeId,
-              title: next.title ?? changeId,
-              workspaceLocation:
-                patch.phase === "Completed" || patch.phase === "Cancelled"
-                  ? join(pair?.archiveRoot ?? options.roots[0]!.archiveRoot, changeId)
-                  : located.dir,
-              branch: next.branch ?? changeId,
-              phase: patch.phase,
-              createdAt: next.createdAt ?? "",
-              ...(next.completedAt ? { completedAt: next.completedAt } : {}),
-              ...(next.cancelledFrom ? { cancelledFrom: next.cancelledFrom } : {}),
-              revision: next.revision ?? actual + 1,
-            })
+            const destination =
+              patch.phase === "Completed" || patch.phase === "Cancelled"
+                ? join(pair?.archiveRoot ?? options.roots[0]!.archiveRoot, changeId)
+                : located.dir;
+            return changeOf(next, destination);
           }),
-        )
-      })
+        );
+      });
 
       const reopen = Effect.fn("ChangeStore.reopen")(function* (
         changeId: ChangeId,
@@ -332,29 +316,29 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
       ) {
         return yield* lock.withPermits(1)(
           Effect.gen(function* () {
-            const located = yield* locate(changeId)
+            const located = yield* locate(changeId);
             if (!located)
-              return yield* new ChangeNotFound({ changeId, message: `change ${changeId} was not found` })
-            const actual = located.record.revision ?? 0
+              return yield* new ChangeNotFound({ changeId, message: `change ${changeId} was not found` });
+            const actual = located.record.revision ?? 0;
             if (input.expectedRevision !== undefined && input.expectedRevision !== actual)
               return yield* new ChangeConflict({
                 changeId,
                 expected: input.expectedRevision,
                 actual,
                 message: `change ${changeId} moved on: expected revision ${input.expectedRevision}, found ${actual}`,
-              })
-            yield* writable(located.record)
-            const pair = options.roots.find(({ archiveRoot }) => located.dir === join(archiveRoot, changeId))
+              });
+            yield* writable(located.record);
+            const pair = options.roots.find(({ archiveRoot }) => located.dir === join(archiveRoot, changeId));
             // Already in a changes root (a reopen that moved the directory and then failed to
             // write): finish it where it is.
-            const destination = pair ? join(pair.root, changeId) : located.dir
+            const destination = pair ? join(pair.root, changeId) : located.dir;
             if (pair) {
               yield* Effect.tryPromise({
                 try: async () => {
-                  await mkdir(pair.root, { recursive: true })
+                  await mkdir(pair.root, { recursive: true });
                   // rename(2) replaces an empty directory and refuses a non-empty one, so whatever
                   // was left behind at the destination is never overwritten.
-                  await rename(located.dir, destination)
+                  await rename(located.dir, destination);
                 },
                 catch: (cause: unknown) =>
                   storeError(
@@ -368,9 +352,9 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
                     cause,
                     changeId,
                   ),
-              })
+              });
             }
-            const { completedAt: _completedAt, cancelledFrom: _cancelledFrom, ...kept } = located.record
+            const { completedAt: _completedAt, cancelledFrom: _cancelledFrom, ...kept } = located.record;
             const next = recordFor(
               new Change({
                 changeId,
@@ -382,44 +366,50 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
               }),
               linksOf(located.record),
               kept,
-            )
-            yield* writeAt(destination, next)
-            return changeOf(next, destination)
+            );
+            yield* writeAt(destination, next);
+            return changeOf(next, destination);
           }),
-        )
-      })
+        );
+      });
 
       const listRepositories = Effect.fn("ChangeStore.listRepositories")(function* (changeId: ChangeId) {
         return yield* lock.withPermits(1)(
           Effect.gen(function* () {
-            const located = yield* locate(changeId).pipe(Effect.mapError(asRepositoryError(changeId, "read")))
-            return located ? linksOf(located.record) : []
+            const located = yield* locate(changeId).pipe(
+              Effect.mapError(asRepositoryError(changeId, "read")),
+            );
+            return located ? linksOf(located.record) : [];
           }),
-        )
-      })
+        );
+      });
 
       const addRepository = Effect.fn("ChangeStore.addRepository")(function* (input: AddRepositoryInput) {
         return yield* lock.withPermits(1)(
           Effect.gen(function* () {
             const located = yield* locate(input.changeId).pipe(
               Effect.mapError(asRepositoryError(input.changeId, "read")),
-            )
+            );
             if (!located)
               return yield* new RepositoryStoreError({
                 changeId: input.changeId,
                 operation: "write",
                 message: "change not found",
-              })
-            yield* writable(located.record)
-            const repository = repositoryFromSpec(input.changeId, specFromInput(input))
+              });
+            yield* writable(located.record);
+            const repository = repositoryFromSpec(input.changeId, specFromInput(input));
             yield* writeAt(
               located.dir,
-              recordFor(changeOf(located.record, located.dir), [...linksOf(located.record), repository], located.record),
-            ).pipe(Effect.mapError(asRepositoryError(input.changeId, "write")))
-            return repository
+              recordFor(
+                changeOf(located.record, located.dir),
+                [...linksOf(located.record), repository],
+                located.record,
+              ),
+            ).pipe(Effect.mapError(asRepositoryError(input.changeId, "write")));
+            return repository;
           }),
-        )
-      })
+        );
+      });
 
       const removeRepository = Effect.fn("ChangeStore.removeRepository")(function* (
         changeId: ChangeId,
@@ -427,20 +417,23 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
       ) {
         return yield* lock.withPermits(1)(
           Effect.gen(function* () {
-            const located = yield* locate(changeId).pipe(Effect.mapError(asRepositoryError(changeId, "read")))
-            if (!located) return false
-            yield* writable(located.record)
-            const links = linksOf(located.record)
-            const repositories = links.filter((repository) => repository.repositoryId !== repositoryId)
-            if (repositories.length === links.length) return false
-            yield* writeAt(located.dir, recordFor(changeOf(located.record, located.dir), repositories, located.record)).pipe(
-              Effect.mapError(asRepositoryError(changeId, "write")),
-            )
-            return true
+            const located = yield* locate(changeId).pipe(
+              Effect.mapError(asRepositoryError(changeId, "read")),
+            );
+            if (!located) return false;
+            yield* writable(located.record);
+            const links = linksOf(located.record);
+            const repositories = links.filter((repository) => repository.repositoryId !== repositoryId);
+            if (repositories.length === links.length) return false;
+            yield* writeAt(
+              located.dir,
+              recordFor(changeOf(located.record, located.dir), repositories, located.record),
+            ).pipe(Effect.mapError(asRepositoryError(changeId, "write")));
+            return true;
           }),
-        )
-      })
+        );
+      });
 
-      return { read, list, create, patch, reopen, listRepositories, addRepository, removeRepository }
+      return { read, list, create, patch, reopen, listRepositories, addRepository, removeRepository };
     }),
-  )
+  );

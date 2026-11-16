@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
 import { createServer, type IncomingHttpHeaders } from "node:http";
 import { connect, createServer as createRawServer, type AddressInfo } from "node:net";
 import { WebSocket, WebSocketServer } from "ws";
@@ -9,8 +8,7 @@ import { gatewaySockets, isGatewaySocket, proxyRequest } from "../apps/server/sr
 import { resetRuntime, setRuntime } from "../apps/server/src/capabilities/runtime.ts";
 import { serve, type ServerWebSocket, type Serving } from "../apps/server/src/capabilities/serve.ts";
 import { guard } from "../apps/server/src/capabilities/web.ts";
-import { configPath, reloadConfigSync } from "../apps/server/src/workspace/server/index.ts";
-import { until } from "./helpers.ts";
+import { until, writeTestConfig } from "./helpers.ts";
 
 /**
  * The gateway's transport, against a fake upstream rather than a real Corvi: the prefix is
@@ -38,11 +36,6 @@ let observations: [string, string][];
 
 /** The gateway reads its bounds from the runtime; a test shrinks them so a hang is a moment. */
 const shortTimeouts = { readHeadersMs: 80, upgradeHandshakeMs: 80 };
-
-const writeConfig = (value: unknown): void => {
-  writeFileSync(configPath(), JSON.stringify(value));
-  reloadConfigSync();
-};
 
 const localUrl = (path: string): string => new URL(path, local.url).toString();
 
@@ -164,15 +157,14 @@ beforeAll(async () => {
     routes: guard({
       "/api/write": async (req: Request) => {
         const body = await req.text();
-        return new Response(
-          JSON.stringify({ ok: true, origin: req.headers.get("origin") ?? null, body }),
-          { headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ ok: true, origin: req.headers.get("origin") ?? null, body }), {
+          headers: { "content-type": "application/json" },
+        });
       },
     }),
   });
 
-  writeConfig({
+  writeTestConfig({
     workspaces: [
       {
         id: "remote-client",
@@ -351,7 +343,10 @@ test("a read's header bound is bounded, and a mutation of the same remote is not
   expect(read.status).toBe(504);
 
   // The same slow answer as a write: no total-duration bound, so it completes.
-  const write = await fetch(localUrl("remote/remote-client/api/slow-headers"), { method: "POST", body: "{}" });
+  const write = await fetch(localUrl("remote/remote-client/api/slow-headers"), {
+    method: "POST",
+    body: "{}",
+  });
   expect(write.status).toBe(200);
 });
 

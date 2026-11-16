@@ -6,7 +6,7 @@
  * — a caller probes the URL before using it — which is why it carries the listening URL rather
  * than enough information to reconstruct it.
  */
-import { Schema } from "effect"
+import { Schema } from "effect";
 
 export const InstanceRecordSchema = Schema.Struct({
   url: Schema.String,
@@ -16,5 +16,5 @@ export const InstanceRecordSchema = Schema.Struct({
   /** The external listener's URL when remote access is on: a loopback address a `tailscale
    * serve` publication forwards, or a caller the owning user has paired. Absent when off. */
   remoteUrl: Schema.optional(Schema.String),
-})
-export type InstanceRecord = typeof InstanceRecordSchema.Type
+});
+export type InstanceRecord = typeof InstanceRecordSchema.Type;

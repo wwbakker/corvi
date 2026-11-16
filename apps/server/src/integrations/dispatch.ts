@@ -57,14 +57,13 @@ export const dispatchIntegrationRoute = (req: Request): Promise<Response> | unde
   for (const candidate of ext.routes) {
     const params = matchRoute(candidate, req.method, parts);
     if (!params) continue;
-    const run = candidate.handler(req, params).pipe(
-      Effect.provide(
-        capabilitiesLayer(
-          workspaceById(url.searchParams.get("workspace") ?? undefined),
-          ext.name,
+    const run = candidate
+      .handler(req, params)
+      .pipe(
+        Effect.provide(
+          capabilitiesLayer(workspaceById(url.searchParams.get("workspace") ?? undefined), ext.name),
         ),
-      ),
-    );
+      );
     return runRoute(run);
   }
   return undefined;

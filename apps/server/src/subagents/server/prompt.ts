@@ -14,11 +14,7 @@ import type { ChangeFacts } from "../../change/server/index.ts";
 /** Fills the `{prompt}` mark when no task was given, so create always has a first message. */
 export const AWAIT_INSTRUCTIONS = "Please await your initial instructions.";
 
-export const renderSubagentBody = (
-  body: string,
-  facts: ChangeFacts,
-  prompt: string | undefined,
-): string => {
+export const renderSubagentBody = (body: string, facts: ChangeFacts, prompt: string | undefined): string => {
   // The task (and its fallback) is settled before rendering, so an empty prompt never leaves a
   // `{prompt}` hole.
   const givenTask = prompt !== undefined && prompt.trim() !== "";

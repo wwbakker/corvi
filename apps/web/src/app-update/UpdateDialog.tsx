@@ -113,9 +113,7 @@ export function UpdateDialog({
           {canRestart ? "." : ", or close and reopen the app."}
         </p>
       )}
-      {!running && !updated && behind > 0 && status?.refusal && (
-        <p className="hint">{status.refusal}</p>
-      )}
+      {!running && !updated && behind > 0 && status?.refusal && <p className="hint">{status.refusal}</p>}
       {error && <p className="hint error">{error}</p>}
 
       <div className="dialog-actions">

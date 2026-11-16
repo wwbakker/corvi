@@ -38,8 +38,8 @@ export function PairingScreen({ onPaired }: { onPaired: () => void }): JSX.Eleme
         <h2>Pair this device</h2>
       </header>
       <p className="hint">
-        This Corvi server only accepts paired devices. On the machine that runs it, open Settings →
-        Devices and create a pairing code, then enter it here.
+        This Corvi server only accepts paired devices. On the machine that runs it, open Settings → Devices
+        and create a pairing code, then enter it here.
       </p>
       <form className="form" onSubmit={(event) => void submit(event)}>
         <label>

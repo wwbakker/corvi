@@ -47,7 +47,5 @@ test("the shipped brief names the change, its state and its plan", () => {
   expect(text).toContain("/changes/idea-prompt/PLAN.md");
   expect(text).toContain("Ideation");
   // A change with no title falls back to its id rather than leaving a hole in the prompt.
-  expect(renderActionBody(brief, { id: "idea-prompt", plan: "/p/PLAN.md" }, "text")).toContain(
-    "idea-prompt",
-  );
+  expect(renderActionBody(brief, { id: "idea-prompt", plan: "/p/PLAN.md" }, "text")).toContain("idea-prompt");
 });

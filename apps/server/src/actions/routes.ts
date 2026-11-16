@@ -3,7 +3,7 @@
  * Two routes, one rule the plan states twice on purpose: the client names an action and never
  * sends its text, so a prompt is pasted and a command runs exactly as the file on disk says,
  * whatever the page last showed. */
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 
 import {
   ActionFileRefSchema,
@@ -12,8 +12,7 @@ import {
   ActionRepositoryFileWriteSchema,
   RunActionRequestSchema,
 } from "@corvi/contracts/actions";
-import { BadRequestError } from "@corvi/contracts/errors";
-import { bodyAs, guard, json, withChange } from "../capabilities/web.ts";
+import { bodyAs, guard, json, queryAs, withChange } from "../capabilities/web.ts";
 import { runRoute } from "../capabilities/effect/run.ts";
 import {
   actionFiles,
@@ -40,8 +39,7 @@ export const actionsRoutes = guard({
   // The Repositories view's files: one block per checkout, written and deleted like any other
   // scope — the route names the change, the body (or query) names the repository.
   "/api/changes/:id/action-files": {
-    GET: (req) =>
-      withChange(req.params.id, (change) => Effect.map(repositoryActionFiles(change), json)),
+    GET: (req) => withChange(req.params.id, (change) => Effect.map(repositoryActionFiles(change), json)),
     PUT: (req) =>
       withChange(req.params.id, (change) =>
         Effect.gen(function* () {
@@ -52,10 +50,7 @@ export const actionsRoutes = guard({
     DELETE: (req) =>
       withChange(req.params.id, (change) =>
         Effect.gen(function* () {
-          const params = Object.fromEntries(new URL(req.url).searchParams);
-          const ref = yield* Schema.decodeUnknownEffect(ActionRepositoryFileRefSchema)(params).pipe(
-            Effect.mapError(() => new BadRequestError({ message: "repository and id are required" })),
-          );
+          const ref = yield* queryAs(req, ActionRepositoryFileRefSchema, "repository and id are required");
           return json(yield* deleteRepositoryActionFile(change, ref));
         }),
       ),
@@ -75,10 +70,7 @@ export const actionsRoutes = guard({
     DELETE: (req) =>
       runRoute(
         Effect.gen(function* () {
-          const params = Object.fromEntries(new URL(req.url).searchParams);
-          const ref = yield* Schema.decodeUnknownEffect(ActionFileRefSchema)(params).pipe(
-            Effect.mapError(() => new BadRequestError({ message: "scope and id are required" })),
-          );
+          const ref = yield* queryAs(req, ActionFileRefSchema, "scope and id are required");
           return json(yield* deleteActionFile(ref));
         }),
       ),

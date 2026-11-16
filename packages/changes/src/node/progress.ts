@@ -2,33 +2,27 @@
  * A failed step is recorded before the operation moves on, so a reload can read what happened.
  * The journal lives beside the record it fences on, so it follows the change through every
  * scope's roots. */
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
-import { join } from "node:path"
-import { Effect, Layer, Schema, Semaphore } from "effect"
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { Effect, Layer, Schema, Semaphore } from "effect";
 
-import type { ChangeId } from "@corvi/contracts/changes"
-import { OperationStepSchema } from "@corvi/contracts/api"
-import { ChangeFormatTooNew, ChangeStoreError } from "../errors.ts"
-import { FORMAT_VERSION } from "../record.ts"
-import { OperationProgress, type OperationStep } from "../progress.ts"
-import type { RootPair } from "./store.ts"
+import type { ChangeId } from "@corvi/contracts/changes";
+import { OperationStepSchema } from "@corvi/contracts/api";
+import { ChangeStoreError, formatTooNew } from "../errors.ts";
+import { FORMAT_VERSION } from "../record.ts";
+import { OperationProgress, type OperationStep } from "../progress.ts";
+import { isNotFound } from "./store.ts";
+import { changeDirs, type RootPair } from "./paths.ts";
 
-const Steps = Schema.Array(OperationStepSchema)
-
-const isNotFound = (cause: unknown): boolean =>
-  typeof cause === "object" && cause !== null && "code" in cause && (cause as { code?: string }).code === "ENOENT"
+const Steps = Schema.Array(OperationStepSchema);
 
 export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.Layer<OperationProgress> =>
   Layer.effect(
     OperationProgress,
     Effect.gen(function* () {
-      const lock = yield* Semaphore.make(1)
-      /** Every directory this change may live in: each pair's active root first, then each
-       * pair's archive. The journal goes beside the record it fences on. */
-      const dirsFor = (changeId: ChangeId): string[] => [
-        ...options.roots.map(({ root }) => join(root, changeId)),
-        ...options.roots.map(({ archiveRoot }) => join(archiveRoot, changeId)),
-      ]
+      const lock = yield* Semaphore.make(1);
+      /** The journal goes beside the record it fences on. */
+      const dirsFor = (changeId: ChangeId): string[] => changeDirs(options.roots, changeId);
       const dirOf = (changeId: ChangeId): Effect.Effect<string> =>
         Effect.gen(function* () {
           for (const dir of dirsFor(changeId)) {
@@ -41,18 +35,18 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
                   message: `could not read ${join(dir, "change.json")}`,
                   cause,
                 }),
-            }).pipe(Effect.orElseSucceed(() => undefined))
-            if (found !== undefined) return dir
+            }).pipe(Effect.orElseSucceed(() => undefined));
+            if (found !== undefined) return dir;
           }
           // Not written yet: the journal starts the directory the change will be created in.
-          return join(options.roots[0]!.root, changeId)
-        })
+          return join(options.roots[0]!.root, changeId);
+        });
       const record = Effect.fn("OperationProgress.record")(function* (input: {
-        readonly changeId: ChangeId
-        readonly step: OperationStep
+        readonly changeId: ChangeId;
+        readonly step: OperationStep;
       }) {
-        const dir = yield* dirOf(input.changeId)
-        const path = join(dir, "operations.json")
+        const dir = yield* dirOf(input.changeId);
+        const path = join(dir, "operations.json");
         // The downgrade fence reaches the journal too: a change this version cannot write is
         // left exactly as a newer Corvi left it, journal included.
         const recordText = yield* Effect.tryPromise({
@@ -68,7 +62,7 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
           Effect.catchTag("ChangeStoreError", (error) =>
             isNotFound(error.cause) ? Effect.void : Effect.fail(error),
           ),
-        )
+        );
         const recordFormat =
           recordText === undefined
             ? FORMAT_VERSION
@@ -77,16 +71,8 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
               )(recordText).pipe(
                 Effect.map((raw) => (typeof raw.formatVersion === "number" ? raw.formatVersion : 1)),
                 Effect.orElseSucceed(() => 1),
-              )
-        if (recordFormat > FORMAT_VERSION)
-          return yield* new ChangeFormatTooNew({
-            changeId: input.changeId,
-            recordFormat,
-            appFormat: FORMAT_VERSION,
-            message:
-              `change ${input.changeId} was written by a newer version of Corvi ` +
-              `(record format ${recordFormat}, this one writes ${FORMAT_VERSION}); upgrade to edit it`,
-          })
+              );
+        if (recordFormat > FORMAT_VERSION) return yield* formatTooNew(input.changeId, recordFormat);
         yield* lock.withPermits(1)(
           Effect.gen(function* () {
             const existing = yield* Effect.tryPromise({
@@ -102,7 +88,7 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
               Effect.catchTag("ChangeStoreError", (error) =>
                 isNotFound(error.cause) ? Effect.succeed("[]") : Effect.fail(error),
               ),
-            )
+            );
             const steps = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Steps))(existing).pipe(
               Effect.mapError(
                 (error) =>
@@ -113,14 +99,14 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
                     cause: error,
                   }),
               ),
-            )
-            const temp = `${path}.tmp`
-            const next = [...steps, input.step]
+            );
+            const temp = `${path}.tmp`;
+            const next = [...steps, input.step];
             yield* Effect.tryPromise({
               try: async () => {
-                await mkdir(dir, { recursive: true })
-                await writeFile(temp, JSON.stringify(next, null, 2) + "\n")
-                await rename(temp, path)
+                await mkdir(dir, { recursive: true });
+                await writeFile(temp, JSON.stringify(next, null, 2) + "\n");
+                await rename(temp, path);
               },
               catch: (cause) =>
                 new ChangeStoreError({
@@ -129,11 +115,11 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
                   message: `could not record the operation journal at ${path}`,
                   cause,
                 }),
-            })
+            });
           }),
-        )
-      })
+        );
+      });
 
-      return { record }
+      return { record };
     }),
-  )
+  );

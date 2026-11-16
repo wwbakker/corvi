@@ -27,8 +27,7 @@ beforeEach(() => forgetRateLimit());
 afterEach(() => forgetRateLimit());
 
 const GRAPHQL_LIMIT = "GraphQL: API rate limit already exceeded for user ID 13013300.";
-const REST_LIMIT =
-  "HTTP 403: API rate limit exceeded for 203.0.113.7. (https://api.github.com/rate_limit)";
+const REST_LIMIT = "HTTP 403: API rate limit exceeded for 203.0.113.7. (https://api.github.com/rate_limit)";
 const SECONDARY_LIMIT =
   "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.";
 
@@ -36,9 +35,7 @@ const SECONDARY_LIMIT =
 const rateLimit = (resets: { graphql?: number; core?: number }): string =>
   JSON.stringify({
     resources: {
-      ...(resets.graphql === undefined
-        ? {}
-        : { graphql: { remaining: 0, reset: resetOf(resets.graphql) } }),
+      ...(resets.graphql === undefined ? {} : { graphql: { remaining: 0, reset: resetOf(resets.graphql) } }),
       ...(resets.core === undefined ? {} : { core: { remaining: 4_000, reset: resetOf(resets.core) } }),
     },
   });
@@ -60,9 +57,11 @@ const rateLimited = (outcome: Result.Result<unknown, unknown>): GitHubRateLimite
 
 const lines = (shell: FakeShell): readonly string[] => shell.calls.map((call) => call.cmd.join(" "));
 
-const probes = (shell: FakeShell): readonly string[] => lines(shell).filter((line) => line === "gh api rate_limit");
+const probes = (shell: FakeShell): readonly string[] =>
+  lines(shell).filter((line) => line === "gh api rate_limit");
 
-const spawned = (shell: FakeShell): readonly string[] => lines(shell).filter((line) => line !== "gh api rate_limit");
+const spawned = (shell: FakeShell): readonly string[] =>
+  lines(shell).filter((line) => line !== "gh api rate_limit");
 
 // --- Classification ----------------------------------------------------------------------------
 
@@ -170,7 +169,9 @@ test("ghOrThrow: a non-zero exit is the CLI's failure, said as shOrThrow says it
     "gh pr merge 7 --squash": "",
   });
 
-  expect(failureOf(await runWithShellEither(shell, ghOrThrow(["gh", "pr", "create", "--fill"])))).toMatchObject({
+  expect(
+    failureOf(await runWithShellEither(shell, ghOrThrow(["gh", "pr", "create", "--fill"]))),
+  ).toMatchObject({
     _tag: "CliError",
     message: "gh pr create --fill failed: no commits between main and feature",
     exitCode: 1,
@@ -195,9 +196,7 @@ test("a GraphQL limit shuts GraphQL until the reset it reports, learned from one
   expect(limited.resource).toBe("graphql");
   // GraphQL's reset, not REST's and not a backoff: the payload is per resource.
   expect(limited.resetsAt).toBe(new Date(resetOf(graphqlReset) * 1_000).toISOString());
-  expect(limited.message).toMatch(
-    /^GitHub rate limit reached; resets at \d\d:\d\d UTC \(in \d+ minutes\)$/,
-  );
+  expect(limited.message).toMatch(/^GitHub rate limit reached; resets at \d\d:\d\d UTC \(in \d+ minutes\)$/);
 
   // The gate refuses before a process exists: one probe answered the whole closure.
   const before = spawned(shell).length;
@@ -210,9 +209,9 @@ test("a GraphQL limit shuts GraphQL until the reset it reports, learned from one
 
   // `gh pr merge` is a GraphQL mutation, so the same budget refuses it without spawning; the REST
   // call is the other budget and still runs.
-  expect(rateLimited(await runWithShellEither(shell, gh(["gh", "pr", "merge", "7", "--squash"]))).resource).toBe(
-    "graphql",
-  );
+  expect(
+    rateLimited(await runWithShellEither(shell, gh(["gh", "pr", "merge", "7", "--squash"]))).resource,
+  ).toBe("graphql");
   expect(lines(shell)).not.toContain("gh pr merge 7 --squash");
   expect(await runWithShell(shell, gh(["gh", "api", "repos/org/repo"]))).toMatchObject({ code: 0 });
 });
@@ -232,7 +231,9 @@ test("a REST 403 shuts only REST, at core's own reset", async () => {
   expect(limited.resetsAt).toBe(new Date(resetOf(coreReset) * 1_000).toISOString());
 
   const before = spawned(shell).length;
-  expect(rateLimited(await runWithShellEither(shell, gh(["gh", "api", "repos/org/repo"]))).resource).toBe("core");
+  expect(rateLimited(await runWithShellEither(shell, gh(["gh", "api", "repos/org/repo"]))).resource).toBe(
+    "core",
+  );
   expect(spawned(shell)).toHaveLength(before);
 
   // GraphQL still answers.
@@ -241,7 +242,9 @@ test("a REST 403 shuts only REST, at core's own reset", async () => {
 
 test("a secondary limit pauses both budgets for a minute, and spends no probe", async () => {
   const shell = fakeShell((cmd) =>
-    cmd.join(" ") === "gh api rate_limit" ? rateLimit({ graphql: Date.now() + 60 * 60_000 }) : { code: 1, stderr: SECONDARY_LIMIT },
+    cmd.join(" ") === "gh api rate_limit"
+      ? rateLimit({ graphql: Date.now() + 60 * 60_000 })
+      : { code: 1, stderr: SECONDARY_LIMIT },
   );
 
   const before = Date.now();
@@ -291,7 +294,9 @@ test("the probe is not gated by the limit it is learning about", async () => {
   });
 
   // REST goes first, so `gh api rate_limit` — a REST call itself — is gated when GraphQL fails.
-  expect(rateLimited(await runWithShellEither(shell, gh(["gh", "api", "repos/org/repo"]))).resource).toBe("core");
+  expect(rateLimited(await runWithShellEither(shell, gh(["gh", "api", "repos/org/repo"]))).resource).toBe(
+    "core",
+  );
 
   const limited = rateLimited(await runWithShellEither(shell, gh(["gh", "pr", "list"])));
   expect(limited.resource).toBe("graphql");
@@ -365,10 +370,7 @@ test("an interrupted probe still leaves a gate the next call can meet", async ()
       yield* Deferred.await(started);
       yield* Fiber.interrupt(fiber);
       // Bounded on purpose: a probe nobody answers would hang this instead of failing it.
-      const outcome = yield* gh(["gh", "pr", "list"]).pipe(
-        Effect.result,
-        Effect.timeoutOption("1 second"),
-      );
+      const outcome = yield* gh(["gh", "pr", "list"]).pipe(Effect.result, Effect.timeoutOption("1 second"));
       expect(Option.isSome(outcome)).toBe(true);
       // A fresh closure after an explicit retry probes and gates as usual.
       forgetRateLimit();
@@ -501,7 +503,10 @@ test("a slow probe measures the backoff from when it answered", async () => {
       if (cmd.join(" ") === "gh api rate_limit") {
         // A probe that takes longer than the backoff — the CLI's timeout is two minutes — and
         // reports no reset.
-        return Effect.andThen(TestClock.adjust(61_000), Effect.succeed({ code: 0, stdout: "{}", stderr: "" }));
+        return Effect.andThen(
+          TestClock.adjust(61_000),
+          Effect.succeed({ code: 0, stdout: "{}", stderr: "" }),
+        );
       }
       return Effect.succeed({ code: 1, stdout: "", stderr: GRAPHQL_LIMIT });
     },
@@ -554,11 +559,7 @@ test("one workspace's limit does not refuse another's commands", async () => {
 
   // The second workspace holds an account of its own (`GH_CONFIG_DIR` is per workspace), so it
   // still asks — and learns a reset of its own.
-  const outcome = await runWithShellAs(
-    other,
-    shell,
-    Effect.result(gh(["gh", "pr", "list"])),
-  );
+  const outcome = await runWithShellAs(other, shell, Effect.result(gh(["gh", "pr", "list"])));
   expect(rateLimited(outcome).resource).toBe("graphql");
   expect(spawned(shell)).toHaveLength(gated + 1);
   expect(probes(shell)).toHaveLength(2);

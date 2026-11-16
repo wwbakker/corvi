@@ -15,9 +15,11 @@
         "@corvi/desktop": "workspace:*",
         "@corvi/github": "workspace:*",
         "@corvi/jira": "workspace:*",
+        "@corvi/markdown": "workspace:*",
         "@corvi/repositories": "workspace:*",
         "@corvi/shell": "workspace:*",
         "@corvi/terminals": "workspace:*",
+        "@corvi/test-support": "workspace:*",
         "@corvi/web": "workspace:*",
       },
       "devDependencies": {
@@ -30,6 +32,7 @@
         "effect": "catalog:",
         "eslint": "^10.14.0",
         "playwright": "^1.65.0",
+        "prettier": "3.10.1",
         "react": "^19.3.1",
         "react-dom": "^19.3.1",
         "typescript-eslint": "^8.72.2",
@@ -170,9 +173,9 @@
       "version": "0.0.0",
       "dependencies": {
         "@corvi/contracts": "workspace:*",
+        "@corvi/markdown": "workspace:*",
         "@corvi/terminals": "workspace:*",
         "effect": "catalog:",
-        "yaml": "^2.9.1",
       },
     },
     "packages/agents": {
@@ -180,8 +183,11 @@
       "version": "0.0.0",
       "dependencies": {
         "@corvi/contracts": "workspace:*",
+        "@corvi/markdown": "workspace:*",
         "effect": "catalog:",
-        "yaml": "^2.9.1",
+      },
+      "devDependencies": {
+        "@corvi/test-support": "workspace:*",
       },
     },
     "packages/changes": {
@@ -190,6 +196,9 @@
       "dependencies": {
         "@corvi/contracts": "workspace:*",
         "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@corvi/test-support": "workspace:*",
       },
     },
     "packages/client": {
@@ -214,12 +223,22 @@
         "effect": "catalog:",
       },
     },
+    "packages/markdown": {
+      "name": "@corvi/markdown",
+      "version": "0.0.0",
+      "dependencies": {
+        "yaml": "^2.9.1",
+      },
+    },
     "packages/repositories": {
       "name": "@corvi/repositories",
       "version": "0.0.0",
       "dependencies": {
         "@corvi/contracts": "workspace:*",
         "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@corvi/test-support": "workspace:*",
       },
     },
     "packages/shell": {
@@ -237,6 +256,10 @@
         "@corvi/contracts": "workspace:*",
       },
     },
+    "packages/test-support": {
+      "name": "@corvi/test-support",
+      "version": "0.0.0",
+    },
     "packages/workflows": {
       "name": "@corvi/workflows",
       "version": "0.0.0",
@@ -246,6 +269,9 @@
         "@corvi/contracts": "workspace:*",
         "@corvi/repositories": "workspace:*",
         "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@corvi/test-support": "workspace:*",
       },
     },
   },
@@ -363,6 +389,8 @@
 
     "@corvi/jira": ["@corvi/jira@workspace:integrations/jira"],
 
+    "@corvi/markdown": ["@corvi/markdown@workspace:packages/markdown"],
+
     "@corvi/opencode": ["@corvi/opencode@workspace:integrations/opencode"],
 
     "@corvi/pi": ["@corvi/pi@workspace:integrations/pi"],
@@ -374,6 +402,8 @@
     "@corvi/shell": ["@corvi/shell@workspace:packages/shell"],
 
     "@corvi/terminals": ["@corvi/terminals@workspace:packages/terminals"],
+
+    "@corvi/test-support": ["@corvi/test-support@workspace:packages/test-support"],
 
     "@corvi/web": ["@corvi/web@workspace:apps/web"],
 
@@ -876,6 +906,8 @@
     "postject": ["postject@1.0.0-alpha.6", "", { "dependencies": { "commander": "^9.4.0" }, "bin": { "postject": "dist/cli.js" } }, "sha512-b9Eb8h2eVqNE8edvKdwqkrY6O7kAwmI8kcnBv1NScolYJbo59XUF0noFq+lxbC1yN20bmC0WBEbDC5H/7ASb0A=="],
 
     "prelude-ls": ["prelude-ls@1.2.1", "", {}, "sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g=="],
+
+    "prettier": ["prettier@3.10.1", "", { "bin": { "prettier": "bin/prettier.cjs" } }, "sha512-70vp3ZUYoPlFbF9uiTdXHUUCGEIp7d4+6p+8DYbkm2jP7x/3i/paXVF6dopSI3zd/CEitrZN1rc4i85xWmmXlg=="],
 
     "progress": ["progress@2.0.3", "", {}, "sha512-7PiHtLll5LdnKIMw100I+8xJXR5gW2QwWYkT6iJva0bXitZKa/XMrSbdmg3r2Xnaidz9Qumd0VPaMrZlF9V9sA=="],
 

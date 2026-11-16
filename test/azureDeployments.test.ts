@@ -61,7 +61,13 @@ test("*-app deploys are read from the deploy run's own parameters, newest first"
 });
 
 test("a version is listed once even when several runs produced it", () => {
-  const entries = acceptedVersions([run(2, "v1"), run(1, "v1")], az, deploySettingsOf(undefined), undefined, 5);
+  const entries = acceptedVersions(
+    [run(2, "v1"), run(1, "v1")],
+    az,
+    deploySettingsOf(undefined),
+    undefined,
+    5,
+  );
   expect(entries).toHaveLength(1);
   // The newest of the repeats wins, not the oldest.
   expect(entries[0]!.runId).toBe(2);
@@ -69,11 +75,19 @@ test("a version is listed once even when several runs produced it", () => {
 
 test("howMany caps the list, same as the build-scraped path", () => {
   const runs = [run(3, "v3"), run(2, "v2"), run(1, "v1")];
-  expect(acceptedVersions(runs, az, deploySettingsOf(undefined), undefined, 2).map((e) => e.version)).toEqual(["v3", "v2"]);
+  expect(acceptedVersions(runs, az, deploySettingsOf(undefined), undefined, 2).map((e) => e.version)).toEqual(
+    ["v3", "v2"],
+  );
 });
 
 test("a run to another environment is not mistaken for an accept deploy", () => {
-  const entries = acceptedVersions([run(1, "v1", "production")], az, deploySettingsOf(undefined), undefined, 5);
+  const entries = acceptedVersions(
+    [run(1, "v1", "production")],
+    az,
+    deploySettingsOf(undefined),
+    undefined,
+    5,
+  );
   expect(entries).toEqual([]);
 });
 
@@ -87,7 +101,13 @@ test("a run without a recognisable version is skipped, not shown as blank", () =
 
 test("a still-deploying run shows its real version and a progress bar, not a placeholder", () => {
   const deploying = run(4, "v4", "accept", "inProgress", null);
-  const entries = acceptedVersions([deploying, run(3, "v3")], az, deploySettingsOf(undefined), 12 * 60_000, 5);
+  const entries = acceptedVersions(
+    [deploying, run(3, "v3")],
+    az,
+    deploySettingsOf(undefined),
+    12 * 60_000,
+    5,
+  );
   const found = entries.find((e) => e.version === "v4");
   expect(found).toMatchObject({
     running: true,

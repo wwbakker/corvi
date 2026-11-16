@@ -56,7 +56,11 @@ const runEffect = (
   change: Change,
   action: string,
   repo?: string,
-): Effect.Effect<void, BadRequestError | CliError | GitHubRateLimited, Changes | Shell | Workspace | Cache | GitFacts> =>
+): Effect.Effect<
+  void,
+  BadRequestError | CliError | GitHubRateLimited,
+  Changes | Shell | Workspace | Cache | GitFacts
+> =>
   Effect.gen(function* () {
     if (action !== "create") {
       return yield* new BadRequestError({ message: `unknown github action: ${action}` });
@@ -92,18 +96,18 @@ const summaryContribution = (
     const limited = perRepo.find((r) => r.detail !== undefined)?.detail;
     return {
       facts: [
-        ...(limited
-          ? [{ id: "rate-limit", label: limited, state: "warn" as const }]
-          : []),
+        ...(limited ? [{ id: "rate-limit", label: limited, state: "warn" as const }] : []),
         // Nothing at all when every thread is resolved: an empty inbox needs no line. And nothing
         // while the gate is shut: the count would come from a cache we could not refresh, which is
         // the number we could not ask for — the limit's own line is what the card says instead.
         ...(unresolved > 0 && limited === undefined
-          ? [{
-              id: "unresolved",
-              label: `${unresolved} unresolved comment${unresolved === 1 ? "" : "s"}`,
-              state: "warn" as const,
-            }]
+          ? [
+              {
+                id: "unresolved",
+                label: `${unresolved} unresolved comment${unresolved === 1 ? "" : "s"}`,
+                state: "warn" as const,
+              },
+            ]
           : []),
       ],
       state: worst(perRepo.map((r) => r.checks)),

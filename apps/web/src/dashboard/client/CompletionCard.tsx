@@ -45,8 +45,8 @@ export function CompletionCard({
 
   useEffect(() => {
     const load = (): Promise<void> =>
-      client
-        .changes.completionProgress(ChangeId.make(changeId))
+      client.changes
+        .completionProgress(ChangeId.make(changeId))
         .then(setProgress)
         .catch(() => {});
     void load();
@@ -59,8 +59,8 @@ export function CompletionCard({
   // the dialog for them would un-waive nothing — the journal is where the mode lives.
   const retry = (): void => {
     setRetrying(true);
-    client
-      .changes.complete(ChangeId.make(changeId), retryBody(progress))
+    client.changes
+      .complete(ChangeId.make(changeId), retryBody(progress))
       .then(({ change }) => onFinished(change))
       .catch(() => {}) // the failure lands in the progress itself, which is where it belongs
       .finally(() => setRetrying(false));

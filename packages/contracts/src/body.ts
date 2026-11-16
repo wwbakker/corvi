@@ -1,5 +1,5 @@
 import { Effect, Schema, SchemaIssue } from "effect";
-import { BadRequestError, DecodeError, type IweError } from "./errors.ts";
+import { BadRequestError, DecodeError, type CorviError } from "./errors.ts";
 
 /**
  * Reading request bodies, kept free of the rest of the web plumbing: the integration modules'
@@ -36,7 +36,7 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> => {
  * top level and, recursively, inside plain objects and arrays. Known keys keep the decoded value
  * (so defaults and transformations survive) and class instances are returned untouched.
  */
-export const mergeUnknownKeys = (decoded: unknown, raw: unknown): unknown => {
+const mergeUnknownKeys = (decoded: unknown, raw: unknown): unknown => {
   if (Array.isArray(decoded) && Array.isArray(raw)) {
     return decoded.map((item, index) => (index < raw.length ? mergeUnknownKeys(item, raw[index]) : item));
   }
@@ -76,8 +76,8 @@ export const decodePreserving = <S extends Schema.Constraint>(
 /** Render a schema issue the way the v3 ArrayFormatter did: one `path: message` line per issue,
  * joined with `; `, so the detail strings callers already show do not change. */
 export const formatIssues = (error: Schema.SchemaError): string =>
-  SchemaIssue.makeFormatterStandardSchemaV1()(error.issue).issues
-    .map((issue) => {
+  SchemaIssue.makeFormatterStandardSchemaV1()(error.issue)
+    .issues.map((issue) => {
       const path = issue.path ?? [];
       return path.length ? `${path.join(".")}: ${issue.message}` : issue.message;
     })
@@ -89,7 +89,7 @@ export const formatIssues = (error: Schema.SchemaError): string =>
 export const bodyAs = <S extends Schema.Constraint>(
   req: Request,
   schema: S,
-): Effect.Effect<Schema.Schema.Type<S>, IweError, S["DecodingServices"]> =>
+): Effect.Effect<Schema.Schema.Type<S>, CorviError, S["DecodingServices"]> =>
   bodyOf(req).pipe(
     Effect.flatMap((body) =>
       decodePreserving(schema, body).pipe(

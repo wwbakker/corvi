@@ -28,7 +28,10 @@ const hostWrite = (window: string, data: string): Effect.Effect<void, CommandFai
 
 export const actionSessions: ActionSessions = {
   newWindowRunning: (changeId, dir, command, options) =>
-    Effect.tryPromise({ try: () => newWindowRunningAsync(changeId, dir, command, options), catch: asFailure }),
+    Effect.tryPromise({
+      try: () => newWindowRunningAsync(changeId, dir, command, options),
+      catch: asFailure,
+    }),
   pastePromptTo: (window, text) => hostWrite(window, `\x1b[200~${text}\x1b[201~`),
   submit: (window) => hostWrite(window, "\r"),
 };

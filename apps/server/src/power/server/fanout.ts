@@ -11,6 +11,7 @@ import { Option, Schema } from "effect";
 
 import { PowerArmResponseSchema, type PowerTargetResultDto } from "@corvi/contracts/power";
 import { resolveRemote } from "../../gateway/server/index.ts";
+import { REDIRECT_STATUSES } from "../../capabilities/url.ts";
 
 /** Which command to fan out. */
 export type PowerVerb = "arm" | "disarm";
@@ -24,13 +25,10 @@ export type FanoutDeps = {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
-const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
+const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /** Statuses `fetch` would follow; the fan-out refuses them instead, so a remote cannot point a
  * request carrying the token at another origin. */
-const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
-
 /** One target's result, never a throw. */
 const one = async (
   source: string,
@@ -114,13 +112,11 @@ export const fanOut = async (
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   return Promise.all(
     sources.map((source) =>
-      one(source, verb, doFetch, timeoutMs).catch(
-        (error): PowerTargetResultDto => ({
-          source,
-          status: "unreachable",
-          detail: messageOf(error),
-        }),
-      ),
+      one(source, verb, doFetch, timeoutMs).catch((error): PowerTargetResultDto => ({
+        source,
+        status: "unreachable",
+        detail: messageOf(error),
+      })),
     ),
   );
 };

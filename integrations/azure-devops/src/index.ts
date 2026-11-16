@@ -44,11 +44,13 @@ const repoItem = (
     const number = yield* prNumberOf(change, repo);
     const { items } = yield* pipelineItems(change, repo, number);
     if (items.length === 0) return [];
-    return [{
-      label: baseName(repo),
-      state: worstItem(items),
-      children: items,
-    }];
+    return [
+      {
+        label: baseName(repo),
+        state: worstItem(items),
+        children: items,
+      },
+    ];
   });
 
 /** The item-level variant of `@corvi/contracts/display`'s `worst`: it reduces `WidgetItem[]` by their state, so a
@@ -89,9 +91,7 @@ const summaryContribution = (
         {
           id: "pipelines",
           label:
-            pipelines > 0
-              ? `${pipelines} pipeline${pipelines === 1 ? "" : "s"} active`
-              : "pipelines idle",
+            pipelines > 0 ? `${pipelines} pipeline${pipelines === 1 ? "" : "s"} active` : "pipelines idle",
           state: pipelines > 0 ? "pending" : "none",
         },
       ],
@@ -129,8 +129,18 @@ export default {
   // An environment variable keeps beating the page: the field shows locked when CORVI_AZURE_* is
   // set.
   settings: [
-    { key: "organization", label: "Organisation", placeholder: "whatever az devops configure holds", env: AZURE_ENV.organization },
-    { key: "project", label: "Project", placeholder: "whatever az devops configure holds", env: AZURE_ENV.project },
+    {
+      key: "organization",
+      label: "Organisation",
+      placeholder: "whatever az devops configure holds",
+      env: AZURE_ENV.organization,
+    },
+    {
+      key: "project",
+      label: "Project",
+      placeholder: "whatever az devops configure holds",
+      env: AZURE_ENV.project,
+    },
     {
       key: "pipeline",
       label: "How a build pipeline is named, and its deploy twin",
@@ -140,15 +150,13 @@ export default {
     {
       key: "versionParameter",
       label: "Version parameter",
-      hint:
-        "Learnt per pipeline when this name does not fit: a pipeline with one other parameter is telling you which it is.",
+      hint: "Learnt per pipeline when this name does not fit: a pipeline with one other parameter is telling you which it is.",
     },
     { key: "environmentParameter", label: "Environment parameter" },
     {
       key: "environments",
       label: "Environments",
-      hint:
-        "In the order they are deployed to, which is the order the page shows them and the order promotion follows.",
+      hint: "In the order they are deployed to, which is the order the page shows them and the order promotion follows.",
       list: true,
       env: DEPLOY_ENVIRONMENTS_ENV,
     },
@@ -161,8 +169,7 @@ export default {
       method: "GET",
       path: "/services",
       // `refresh=1` is the page's Refresh control: read the deploys now instead of as cached.
-      handler: (req) =>
-        Effect.map(deployments(new URL(req.url).searchParams.has("refresh")), Response.json),
+      handler: (req) => Effect.map(deployments(new URL(req.url).searchParams.has("refresh")), Response.json),
     },
     {
       // The versions a service has built and could be given, newest first.
@@ -170,10 +177,7 @@ export default {
       path: "/services/:service/versions",
       // `refresh=1` is the dialog opening: it is about to act on the answer.
       handler: (req, params) =>
-        Effect.map(
-          versionsFor(params.service!, new URL(req.url).searchParams.has("refresh")),
-          Response.json,
-        ),
+        Effect.map(versionsFor(params.service!, new URL(req.url).searchParams.has("refresh")), Response.json),
     },
     {
       // The one irreversible thing on that page: start a deploy. The promotion guard — a later
@@ -189,11 +193,8 @@ export default {
           if (!body?.version || !body.environment) {
             return yield* new BadRequestError({ message: "version and environment required" });
           }
-          return Response.json(
-            yield* deploy(params.service!, body.version, body.environment),
-          );
+          return Response.json(yield* deploy(params.service!, body.version, body.environment));
         }),
     },
   ],
 } satisfies IncludedIntegration;
-

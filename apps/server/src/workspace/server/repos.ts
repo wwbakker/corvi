@@ -71,9 +71,7 @@ export const browse = (
  * Fetched first, and pruned: the branch you want to build on is usually the one a colleague
  * pushed this morning, and a stale list is worse than a slow one — you would pick a base that
  * does not exist or is behind. Tags are skipped, nothing here needs them. */
-export const remoteBranches = (
-  repo: string,
-): Effect.Effect<{ branches: string[]; default?: string }> =>
+export const remoteBranches = (repo: string): Effect.Effect<{ branches: string[]; default?: string }> =>
   Effect.gen(function* () {
     yield* shSoft(["git", "fetch", "--quiet", "--prune", "--no-tags", "origin"], repo);
     const fallback = yield* remoteDefaultBranch(repo);

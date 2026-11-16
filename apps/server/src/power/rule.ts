@@ -22,12 +22,10 @@ export const agentStates = (
   ...windows
     .filter((window) => window.agent)
     .map((window): PowerAgent => ({ label: window.label, working: window.working })),
-  ...subagents.map(
-    (subagent): PowerAgent => ({
-      label: subagent.label,
-      working: subagent.activity === "working",
-    }),
-  ),
+  ...subagents.map((subagent): PowerAgent => ({
+    label: subagent.label,
+    working: subagent.activity === "working",
+  })),
 ];
 
 /** The labels of the agents in `agents` that are working: what the control names as blockers. */
@@ -35,5 +33,4 @@ export const agentBlockers = (agents: readonly PowerAgent[]): readonly string[] 
   agents.filter((agent) => agent.working).map((agent) => agent.label);
 
 /** Whether nothing is working: the machine may count down. No agents at all is quiet. */
-export const isQuiet = (agents: readonly PowerAgent[]): boolean =>
-  agents.every((agent) => !agent.working);
+export const isQuiet = (agents: readonly PowerAgent[]): boolean => agents.every((agent) => !agent.working);

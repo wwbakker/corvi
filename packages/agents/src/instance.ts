@@ -59,8 +59,7 @@ export const pendingInbound = (record: SubagentWithMessages): SubagentMessage | 
  * it does not depend on the messages being number-sorted. */
 export const latestInboundNumber = (messages: readonly SubagentMessage[]): number =>
   messages.reduce(
-    (highest, message) =>
-      message.role !== "subagent" ? Math.max(highest, message.number) : highest,
+    (highest, message) => (message.role !== "subagent" ? Math.max(highest, message.number) : highest),
     0,
   );
 
@@ -69,15 +68,10 @@ export const latestInboundNumber = (messages: readonly SubagentMessage[]): numbe
  * never delivered — a bogus high number, or one submitted for a turn the cursor never reached —
  * credits nothing, so it cannot pin readiness forever. Takes the max over the credited replies, so
  * it does not depend on the messages being number-sorted. */
-export const answeredThrough = (
-  messages: readonly SubagentMessage[],
-  deliveredThrough: number,
-): number =>
+export const answeredThrough = (messages: readonly SubagentMessage[], deliveredThrough: number): number =>
   messages.reduce(
     (highest, message) =>
-      message.role === "subagent" &&
-      message.inReplyTo !== undefined &&
-      message.inReplyTo <= deliveredThrough
+      message.role === "subagent" && message.inReplyTo !== undefined && message.inReplyTo <= deliveredThrough
         ? Math.max(highest, message.inReplyTo)
         : highest,
     0,
@@ -143,15 +137,18 @@ export const viewOf = (
   };
 };
 
-export const latestMessage = (
-  messages: readonly SubagentMessage[],
-): SubagentMessage | undefined =>
+export const latestMessage = (messages: readonly SubagentMessage[]): SubagentMessage | undefined =>
   [...messages].sort((left, right) => left.number - right.number).at(-1);
 
 /** One await target's decision from state alone: ready, lost, interrupted, or `undefined` to keep
  * waiting. `turn` is the inbound turn the outcome concerns. */
 export type AwaitDecision =
-  | { readonly status: "ready"; readonly reason: "replied" | "idle"; readonly turn?: number; readonly reply?: number }
+  | {
+      readonly status: "ready";
+      readonly reason: "replied" | "idle";
+      readonly turn?: number;
+      readonly reply?: number;
+    }
   | { readonly status: "lost"; readonly turn?: number }
   | { readonly status: "interrupted"; readonly turn: number };
 

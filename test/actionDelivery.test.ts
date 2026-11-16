@@ -11,7 +11,7 @@ import * as registry from "../apps/server/src/terminals/server/registry.ts";
 import { setStatus } from "../apps/server/src/terminals/server/status.ts";
 import { listWindowsAsync, newWindowAsync } from "../apps/server/src/terminals/server/windows.ts";
 import { configPath } from "../apps/server/src/workspace/server/index.ts";
-import { testTempDir, waitFor } from "./helpers.ts";
+import { testTempDir, waitFor, rememberEnv } from "./helpers.ts";
 
 /**
  * Action delivery on host sessions. The run opens a host window for the command and the command
@@ -25,17 +25,9 @@ const own = await testTempDir("action-host");
 // The env this file mutates, saved so a co-located test file does not inherit it (bun runs the
 // files of a run in one process) — a config path into this file's own directory, deleted
 // afterwards, would leave later files writing into nothing.
-const savedEnv = {
-  CORVI_HOST_RUNTIME: process.env.CORVI_HOST_RUNTIME,
-  CORVI_CONFIG: process.env.CORVI_CONFIG,
-};
+const restoreEnv = rememberEnv("CORVI_HOST_RUNTIME", "CORVI_CONFIG");
 process.env.CORVI_CONFIG = join(own, "config.json");
-const restoreEnv = (): void => {
-  for (const [key, value] of Object.entries(savedEnv)) {
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
-  }
-};
+
 process.env.CORVI_HOST_RUNTIME = "node";
 await mkdir(join(own, "actions"), { recursive: true });
 await writeFile(configPath(), "{}");
@@ -69,7 +61,12 @@ test("an action runs in a host window and its command takes effect", async () =>
   expect(result.window?.id).toBeDefined();
   await waitFor(
     "the action's command to write the file",
-    async () => (await Bun.file(stamp).text().catch(() => "")).trim() === "ran",
+    async () =>
+      (
+        await Bun.file(stamp)
+          .text()
+          .catch(() => "")
+      ).trim() === "ran",
     20_000,
   );
   expect((await Bun.file(stamp).text()).trim()).toBe("ran");
@@ -111,11 +108,22 @@ test("a kept command window freezes with its label and fires the notify edge", a
   expect(record?.keepOpen).toBe(true);
   expect(record?.notify).toBe(true);
 
-  await waitFor("the command to run", async () => (await Bun.file(stamp).text().catch(() => "")) === "FROZEN-OUTPUT\n", 20_000);
-  await waitFor("the retained window to present as finished", async () => {
-    const frozen = (await listWindowsAsync(change.id)).find((window) => window.id === id);
-    return frozen?.attention === true && frozen?.label === "Freeze me" && frozen?.busy === false;
-  }, 20_000);
+  await waitFor(
+    "the command to run",
+    async () =>
+      (await Bun.file(stamp)
+        .text()
+        .catch(() => "")) === "FROZEN-OUTPUT\n",
+    20_000,
+  );
+  await waitFor(
+    "the retained window to present as finished",
+    async () => {
+      const frozen = (await listWindowsAsync(change.id)).find((window) => window.id === id);
+      return frozen?.attention === true && frozen?.label === "Freeze me" && frozen?.busy === false;
+    },
+    20_000,
+  );
   const frozen = (await listWindowsAsync(change.id)).find((window) => window.id === id);
   expect(frozen?.label).toBe("Freeze me");
   expect(frozen?.note).toContain("exit code 0");
@@ -125,7 +133,11 @@ test("an agent-target action uses a running host agent window instead of a fresh
   const session = await newWindowAsync(change.id, join(process.env.CORVI_ROOT ?? own, change.id));
   const hostSession = (await (await hostClient()).list()).find((entry) => entry.id === session.id);
   expect(hostSession).toBeDefined();
-  setStatus(session.id, hostSession!.incarnation, { state: "working", name: "pi", at: new Date().toISOString() });
+  setStatus(session.id, hostSession!.incarnation, {
+    state: "working",
+    name: "pi",
+    at: new Date().toISOString(),
+  });
 
   const stamp = join(own, "agent-note.txt");
   await Effect.runPromise(

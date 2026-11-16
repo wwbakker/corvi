@@ -8,7 +8,7 @@ import {
   reloadConfigSync,
   type Workspace,
 } from "../apps/server/src/workspace/server/index.ts";
-import { runEffect, withRuntimeConfig } from "./helpers.ts";
+import { runEffect, withRuntimeConfig, withEnv } from "./helpers.ts";
 
 /**
  * The azure-devops extension's settings chain, read live from the one config object. The tests
@@ -47,11 +47,7 @@ test("extensionEnabled is the one enablement rule: an absent list means all of t
 });
 
 test("azureOf walks the chain one level at a time", () => {
-  const previousOrg = process.env.CORVI_AZURE_ORG;
-  const previousProject = process.env.CORVI_AZURE_PROJECT;
-  delete process.env.CORVI_AZURE_ORG;
-  delete process.env.CORVI_AZURE_PROJECT;
-  try {
+  return withEnv({ CORVI_AZURE_ORG: undefined, CORVI_AZURE_PROJECT: undefined }, () => {
     runtimeConfig().extensionSettings = {
       "azure-devops": { organization: "global-org", project: "global-proj" },
     };
@@ -62,30 +58,30 @@ test("azureOf walks the chain one level at a time", () => {
     // The workspace's own bag — what the settings page writes — sits above it.
     expect(
       azureOf(
-        ws({ settings: { extensionSettings: { "azure-devops": { organization: "own-org", project: "own-proj" } } } }),
+        ws({
+          settings: {
+            extensionSettings: { "azure-devops": { organization: "own-org", project: "own-proj" } },
+          },
+        }),
         runtimeConfig(),
       ),
     ).toEqual({ organization: "own-org", project: "own-proj" });
     // Half a per-workspace address still leaves the other half to the level below.
     expect(
-      azureOf(ws({ settings: { extensionSettings: { "azure-devops": { project: "own-proj" } } } }), runtimeConfig()),
+      azureOf(
+        ws({ settings: { extensionSettings: { "azure-devops": { project: "own-proj" } } } }),
+        runtimeConfig(),
+      ),
     ).toEqual({ organization: "global-org", project: "own-proj" });
 
     // With no bag at all, the empty answer is what `azFor` falls back from to `az devops configure`.
     runtimeConfig().extensionSettings = {};
     expect(azureOf(ws(), runtimeConfig())).toEqual({ organization: "", project: "" });
-  } finally {
-    if (previousOrg === undefined) delete process.env.CORVI_AZURE_ORG;
-    else process.env.CORVI_AZURE_ORG = previousOrg;
-    if (previousProject === undefined) delete process.env.CORVI_AZURE_PROJECT;
-    else process.env.CORVI_AZURE_PROJECT = previousProject;
-  }
+  });
 });
 
 test("a declared environment variable beats the bags at every scope", () => {
-  const previousOrg = process.env.CORVI_AZURE_ORG;
-  process.env.CORVI_AZURE_ORG = "https://dev.azure.com/from-env";
-  try {
+  return withEnv({ CORVI_AZURE_ORG: "https://dev.azure.com/from-env" }, () => {
     runtimeConfig().extensionSettings = {
       "azure-devops": { organization: "global-org" },
     };
@@ -98,16 +94,11 @@ test("a declared environment variable beats the bags at every scope", () => {
       ).organization,
     ).toBe("https://dev.azure.com/from-env");
     expect(azureOf(ws(), runtimeConfig()).organization).toBe("https://dev.azure.com/from-env");
-  } finally {
-    if (previousOrg === undefined) delete process.env.CORVI_AZURE_ORG;
-    else process.env.CORVI_AZURE_ORG = previousOrg;
-  }
+  });
 });
 
 test("deploySettingsOf reads the declared environment variable, then the bags, then the default", () => {
-  const previous = process.env.CORVI_AZURE_ENVIRONMENTS;
-  delete process.env.CORVI_AZURE_ENVIRONMENTS;
-  try {
+  return withEnv({ CORVI_AZURE_ENVIRONMENTS: undefined }, () => {
     expect(deploySettingsOf({ environments: ["dev", "accept"] })).toMatchObject({
       environments: ["dev", "accept"],
     });
@@ -134,10 +125,7 @@ test("deploySettingsOf reads the declared environment variable, then the bags, t
       environmentParameter: "environment",
       environments: ["accept", "production"],
     });
-  } finally {
-    if (previous === undefined) delete process.env.CORVI_AZURE_ENVIRONMENTS;
-    else process.env.CORVI_AZURE_ENVIRONMENTS = previous;
-  }
+  });
 });
 
 test("deploySettings reads the extension's own bag through the Settings capability", async () => {
@@ -148,4 +136,3 @@ test("deploySettings reads the extension's own bag through the Settings capabili
     },
   );
 });
-

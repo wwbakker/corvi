@@ -43,6 +43,8 @@
     "outline": "bun scripts/outline.ts",
     "bench:screens": "bun scripts/bench-screens.ts",
     "lint": "eslint .",
+    "format": "prettier --write --ignore-unknown .",
+    "format:check": "prettier --check --ignore-unknown .",
     "effect:lint": "effect-language-service diagnostics --project tsconfig.json --format text",
     "shot": "bun scripts/shot.ts",
     "icons": "bun scripts/icons.ts",
@@ -72,9 +74,11 @@
     "@corvi/desktop": "workspace:*",
     "@corvi/github": "workspace:*",
     "@corvi/jira": "workspace:*",
+    "@corvi/markdown": "workspace:*",
     "@corvi/repositories": "workspace:*",
     "@corvi/shell": "workspace:*",
     "@corvi/terminals": "workspace:*",
+    "@corvi/test-support": "workspace:*",
     "@corvi/web": "workspace:*"
   },
   "devDependencies": {
@@ -87,6 +91,7 @@
     "effect": "catalog:",
     "eslint": "^10.14.0",
     "playwright": "^1.65.0",
+    "prettier": "3.10.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "typescript-eslint": "^8.72.2"

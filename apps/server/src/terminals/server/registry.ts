@@ -10,9 +10,10 @@
  *
  * `mergeRecords` is pure and unit-tested; `rebuild`/`save` are the only I/O.
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { stateDir } from "@corvi/configuration/node";
+import { writeAtomicSync } from "../../capabilities/files.ts";
 import { WINDOW_TITLE_MAX } from "@corvi/contracts/terminal";
 
 /** Which substrate owns a window. Every window is a host session now; the field remains in the
@@ -81,7 +82,8 @@ export const read = (): Persisted => {
     };
     if (parsed.version !== 1 || typeof parsed.changes !== "object" || parsed.changes === null) return empty();
     const changes: Record<string, WindowRecord[]> = {};
-    for (const [changeId, records] of Object.entries(parsed.changes)) changes[changeId] = parseRecords(records);
+    for (const [changeId, records] of Object.entries(parsed.changes))
+      changes[changeId] = parseRecords(records);
     const closed = Array.isArray(parsed.closed)
       ? parsed.closed.filter((id): id is string => typeof id === "string")
       : [];
@@ -111,7 +113,9 @@ export const parseRecords = (records: unknown): WindowRecord[] => {
     const panes = [...record.panes];
     const title = typeof record.title === "string" ? record.title.trim().slice(0, WINDOW_TITLE_MAX) : "";
     const activePane =
-      typeof record.activePane === "string" && panes.includes(record.activePane) ? record.activePane : panes[0]!;
+      typeof record.activePane === "string" && panes.includes(record.activePane)
+        ? record.activePane
+        : panes[0]!;
     out.push({
       id: record.id,
       kind: "host",
@@ -132,9 +136,7 @@ export const parseRecords = (records: unknown): WindowRecord[] => {
 
 const write = (registry: Persisted): void => {
   mkdirSync(dirname(path()), { recursive: true });
-  const tmp = `${path()}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify(registry));
-  renameSync(tmp, path());
+  writeAtomicSync(path(), JSON.stringify(registry));
 };
 
 const same = (left: readonly WindowRecord[], right: readonly WindowRecord[]): boolean =>
@@ -155,7 +157,8 @@ export const closedIds = (): readonly string[] => read().closed;
  * caller already does: closes, and the sweep that prunes a tombstone once its pty is gone). */
 export const saveClosed = (ids: readonly string[]): void => {
   const registry = read();
-  if (registry.closed.length === ids.length && registry.closed.every((id, index) => id === ids[index])) return;
+  if (registry.closed.length === ids.length && registry.closed.every((id, index) => id === ids[index]))
+    return;
   write({ ...registry, closed: [...ids] });
 };
 
@@ -178,7 +181,10 @@ export const withRegistryLock = <T>(work: () => Promise<T>): Promise<T> => {
  * split that crashed between opening its session and saving): otherwise that shell would be
  * invisible and immortal. A pane the user closed never reaches here — `hostLive` tombstones it,
  * so it cannot be re-adopted while its pty lingers. Pure. */
-export const mergeRecords = (previous: readonly WindowRecord[], live: readonly LiveWindow[]): WindowRecord[] => {
+export const mergeRecords = (
+  previous: readonly WindowRecord[],
+  live: readonly LiveWindow[],
+): WindowRecord[] => {
   const remaining = new Map(live.map((window) => [window.id, window]));
   const ordered: WindowRecord[] = [];
   for (const record of previous) {

@@ -1,10 +1,4 @@
-import {
-  CHANGE_STATES,
-  IDEATION,
-  isFinished,
-  type Change,
-  type ChangeState,
-} from "@corvi/changes/record";
+import { CHANGE_STATES, IDEATION, isFinished, type Change, type ChangeState } from "@corvi/changes/record";
 import { allowedTransition } from "@corvi/changes/rules";
 import { InvalidChangeEdit } from "./errors.ts";
 

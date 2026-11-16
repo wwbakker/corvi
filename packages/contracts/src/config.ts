@@ -5,17 +5,24 @@
  * keeps unknown keys (the shared decode-then-merge at the decode sites): a hand-edited key Corvi
  * does not know about belongs to a version that does.
  */
-import { Schema } from "effect"
+import { Schema } from "effect";
 
-import { DeviceSchema } from "./devices.ts"
-
+import { DeviceSchema } from "./devices.ts";
 
 /** One extension's settings bag: `extensionSettings[name][key]`, where a value is one string or a
  * list of strings. Shared by both levels; the core carries it without looking inside. */
-const ExtensionBag = Schema.Record(Schema.String, Schema.mutableKey(Schema.Record(Schema.String, Schema.mutableKey(Schema.Union([Schema.String, Schema.mutable(Schema.Array(Schema.String))])))))
+const ExtensionBag = Schema.Record(
+  Schema.String,
+  Schema.mutableKey(
+    Schema.Record(
+      Schema.String,
+      Schema.mutableKey(Schema.Union([Schema.String, Schema.mutable(Schema.Array(Schema.String))])),
+    ),
+  ),
+);
 
 /** A map of environment variables added to every CLI run: `env[name] = value`. */
-const EnvMap = Schema.Record(Schema.String, Schema.mutableKey(Schema.String))
+const EnvMap = Schema.Record(Schema.String, Schema.mutableKey(Schema.String));
 
 /** The settings, complete: every setting Corvi knows, at any level. Each key is optional — an
  * absent value means "not set", and the next level down answers (inside a workspace: the global
@@ -50,14 +57,14 @@ const settingsFields = {
   /** The environment added to every CLI run here. Entries resolve per key: a workspace entry
    * beats the global one for its key and leaves the others inherited. */
   env: Schema.optional(EnvMap),
-}
+};
 
-export const SettingsOverrides = Schema.Struct(settingsFields)
-export type SettingsOverridesDto = typeof SettingsOverrides.Type
+export const SettingsOverrides = Schema.Struct(settingsFields);
+export type SettingsOverridesDto = typeof SettingsOverrides.Type;
 
 /** A workspace id ends up in cache keys and in `?workspace=`, and a change records it forever:
  * it has to be a word. */
-export const WorkspaceId = Schema.String.pipe(Schema.check(Schema.isPattern(/^[\w.-]+$/)))
+export const WorkspaceId = Schema.String.pipe(Schema.check(Schema.isPattern(/^[\w.-]+$/)));
 
 /** Where a remote workspace lives: the server that hosts it, the workspace's id there, and the
  * device token this client presents to it. The token is a secret and is masked in every page
@@ -69,8 +76,8 @@ export const RemoteWorkspace = Schema.Struct({
   workspace: WorkspaceId,
   /** The device token this client presents to that server. */
   token: Schema.optional(Schema.String),
-})
-export type RemoteWorkspaceDto = typeof RemoteWorkspace.Type
+});
+export type RemoteWorkspaceDto = typeof RemoteWorkspace.Type;
 
 /** A context you work in: a client, or your own projects — an identity (`id`, `name`) and either
  * a scope over the settings or a remote workspace. Mirrors `@corvi/configuration/config`'s
@@ -83,19 +90,19 @@ export const Workspace = Schema.Struct({
   /** Where this workspace is hosted, when it is not local. Mutually exclusive with `settings`:
    * a remote workspace's settings live on the server that hosts it. */
   remote: Schema.optional(RemoteWorkspace),
-})
-export type WorkspaceDto = typeof Workspace.Type
+});
+export type WorkspaceDto = typeof Workspace.Type;
 
 /** The workspace a change without one belongs to: the first one, which for everybody who has
  * not configured any is the only one. There is no such thing as no workspaces: a machine that
  * has not configured any gets this one. */
-export const DEFAULT_WORKSPACE: WorkspaceDto = { id: "default", name: "Default workspace" }
+export const DEFAULT_WORKSPACE: WorkspaceDto = { id: "default", name: "Default workspace" };
 
 /** A directory copied into a worktree is a name next to the code, not a path. */
-export const DirectoryName = Schema.String.pipe(Schema.check(Schema.isPattern(/^[^/\\]+$/)))
+export const DirectoryName = Schema.String.pipe(Schema.check(Schema.isPattern(/^[^/\\]+$/)));
 
 /** An environment variable name, for an `env` map. */
-export const EnvVarName = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/)))
+export const EnvVarName = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/)));
 
 /** The external listener: a second loopback port an authenticated remote client reaches, off by
  * default. Top-level (like `devices`), not a workspace setting: remote access is this machine's
@@ -103,23 +110,19 @@ export const EnvVarName = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-
 export const RemoteAccess = Schema.Struct({
   enabled: Schema.Boolean,
   port: Schema.Number.pipe(
-    Schema.check(
-      Schema.isInt(),
-      Schema.isGreaterThanOrEqualTo(1),
-      Schema.isLessThanOrEqualTo(65535),
-    ),
+    Schema.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(65535)),
   ),
-})
-export type RemoteAccessDto = typeof RemoteAccess.Type
+});
+export type RemoteAccessDto = typeof RemoteAccess.Type;
 
 /** The port the external listener uses when the file does not name one. */
-export const DEFAULT_REMOTE_ACCESS_PORT = 4110
+export const DEFAULT_REMOTE_ACCESS_PORT = 4110;
 
 /** What remote access is when nothing is configured: off, on the default port. */
 export const DEFAULT_REMOTE_ACCESS: RemoteAccessDto = {
   enabled: false,
   port: DEFAULT_REMOTE_ACCESS_PORT,
-}
+};
 
 /** The config file's own shape, as it is written: the settings at the top level (where they are
  * the defaults every workspace inherits) and the workspaces beside them. Everything is optional
@@ -138,8 +141,8 @@ export const ConfigFile = Schema.Struct({
    * a hand-mangled port falls back to the default instead of emptying the config. */
   remoteAccess: Schema.optional(Schema.Any),
   workspaces: Schema.optional(Schema.mutable(Schema.Array(Schema.Any))),
-})
-export type ConfigFileDto = typeof ConfigFile.Type
+});
+export type ConfigFileDto = typeof ConfigFile.Type;
 
 /** The resolved shape: file, environment and defaults combined. Not a decoder of anything on
  * disk (the resolved config is computed, never read); it states the boundary a CLI/IPC surface
@@ -163,5 +166,5 @@ export const Resolved = Schema.Struct({
   devices: Schema.mutable(Schema.Array(DeviceSchema)),
   remoteAccess: RemoteAccess,
   workspaces: Schema.mutable(Schema.Array(Workspace)),
-})
-export type ResolvedDto = typeof Resolved.Type
+});
+export type ResolvedDto = typeof Resolved.Type;

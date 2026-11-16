@@ -6,7 +6,20 @@ import { Effect } from "effect";
 
 import { closeHostClient, hostClient } from "../apps/server/src/terminals/server/host.ts";
 import * as registry from "../apps/server/src/terminals/server/registry.ts";
-import { closePaneAsync, focusPaneAsync, isKeptOpen, listWindowsAsync, moveWindowAsync, newWindowAsync, newWindowRunningAsync, renameWindowAsync, selectWindowAsync, selectWindowByIdAsync, splitPaneAsync, stopHostTerminals } from "../apps/server/src/terminals/server/windows.ts";
+import {
+  closePaneAsync,
+  focusPaneAsync,
+  isKeptOpen,
+  listWindowsAsync,
+  moveWindowAsync,
+  newWindowAsync,
+  newWindowRunningAsync,
+  renameWindowAsync,
+  selectWindowAsync,
+  selectWindowByIdAsync,
+  splitPaneAsync,
+  stopHostTerminals,
+} from "../apps/server/src/terminals/server/windows.ts";
 import { stateDir } from "@corvi/configuration/node";
 import { WINDOW_TITLE_MAX } from "@corvi/contracts/terminal";
 import { TerminalSessions, terminalSessionsLayer } from "../apps/server/src/change/lifecycle-layer.ts";
@@ -88,13 +101,14 @@ test("a window can be named from its record: trimmed, persisted, cleared, and on
     readonly changes: Record<string, { readonly id: string; readonly title?: string }[]>;
   };
   expect(file.changes[namedChange]?.find((entry) => entry.id === window.id)).not.toHaveProperty("title");
-  expect((await listWindowsAsync(namedChange)).find((entry) => entry.id === window.id)?.title).toBeUndefined();
+  expect(
+    (await listWindowsAsync(namedChange)).find((entry) => entry.id === window.id)?.title,
+  ).toBeUndefined();
 
   // The writer caps as the reader does: a caller that skips the route cannot store a name the
   // next read would silently shrink.
   await renameWindowAsync(namedChange, window.id, "y".repeat(WINDOW_TITLE_MAX + 10));
   expect(stored()?.title).toBe("y".repeat(WINDOW_TITLE_MAX));
-
 
   // A window that is not there is an error, exactly as selecting one by id is.
   await expect(renameWindowAsync(namedChange, "w-missing", "x")).rejects.toThrow(/no window w-missing/);
@@ -105,12 +119,16 @@ test("naming an action window leaves its action label alone", async () => {
   // `label` is what makes a window an action run (`@corvi_action`); a name is a separate fact, so
   // renaming one must not stop it being presented as a command window.
   const namedChange = "REG-RENAME-ACTION";
-  const action = await newWindowRunningAsync(namedChange, dir, "sleep 30", { announce: { label: "Build", notify: false } });
+  const action = await newWindowRunningAsync(namedChange, dir, "sleep 30", {
+    announce: { label: "Build", notify: false },
+  });
   await renameWindowAsync(namedChange, action, "Release build");
   const record = registry.records(namedChange).find((entry) => entry.id === action)!;
   expect(record.label).toBe("Build");
   expect(record.title).toBe("Release build");
-  expect((await listWindowsAsync(namedChange)).find((entry) => entry.id === action)?.label).toBe("Release build");
+  expect((await listWindowsAsync(namedChange)).find((entry) => entry.id === action)?.label).toBe(
+    "Release build",
+  );
   await stopHostTerminals(namedChange);
 }, 60_000);
 
@@ -218,7 +236,9 @@ test("adopts a live pane whose window exists, so a crash mid-split leaves no orp
   // A split that opened its host session but crashed before saving its record: the pane's metadata
   // names the window, so a rebuild adopts it instead of leaving an invisible, immortal shell.
   const orphan = randomUUID();
-  await (await hostClient()).open(orphan, {
+  await (
+    await hostClient()
+  ).open(orphan, {
     cwd: dir,
     command: ["/bin/sh"],
     cols: 80,
@@ -236,7 +256,9 @@ test("keeps a window whose other panes exit while a split is in flight", async (
   // The split's session exists (metadata names the window) but the window's own pane exits before
   // the split's record is saved. The record would otherwise drop and orphan the new shell.
   const orphan = randomUUID();
-  await (await hostClient()).open(orphan, {
+  await (
+    await hostClient()
+  ).open(orphan, {
     cwd: dir,
     command: ["/bin/sh"],
     cols: 80,
@@ -279,7 +301,8 @@ test("the socket resolves the pane it names, not the active one", async () => {
   const secondPane = record.panes[1]!;
   expect(record.activePane).toBe(secondPane); // the split is focused
 
-  const { openSession, closeAttachments, flushScreens } = await import("../apps/server/src/terminals/server/session.ts");
+  const { openSession, closeAttachments, flushScreens } =
+    await import("../apps/server/src/terminals/server/session.ts");
   // The page names the first pane; the session it gets is that pane's, not the active one.
   const session = await openSession(changeId, dir, { cols: 80, rows: 24 }, firstPane);
   expect(session.sessionId).toBe(firstPane);
@@ -293,7 +316,8 @@ test("a named pane that is gone is refused; no other session is attached or crea
   const before = await (await hostClient()).list();
   const beforeIds = new Set(before.map((session) => session.id));
 
-  const { openSession, closeAttachments, flushScreens } = await import("../apps/server/src/terminals/server/session.ts");
+  const { openSession, closeAttachments, flushScreens } =
+    await import("../apps/server/src/terminals/server/session.ts");
   // An explicitly named pane that no longer exists fails closed: it must not attach the active
   // window and must not start a shell.
   await expect(openSession(staleChange, dir, { cols: 80, rows: 24 }, "w-gone-pane")).rejects.toThrow(
@@ -318,7 +342,9 @@ test("completing/cancelling a change stops its host sessions through the lifecyc
   // call), not the raw windows helper: this is the path a completed change takes.
   await Effect.runPromise(
     Effect.provide(
-      Effect.flatMap(TerminalSessions, (sessions) => sessions.stop(changeId as Parameters<typeof sessions.stop>[0])),
+      Effect.flatMap(TerminalSessions, (sessions) =>
+        sessions.stop(changeId as Parameters<typeof sessions.stop>[0]),
+      ),
       terminalSessionsLayer,
     ),
   );
@@ -326,7 +352,10 @@ test("completing/cancelling a change stops its host sessions through the lifecyc
   // The host sessions are killed, not merely forgotten.
   await waitFor(
     "the change's host sessions to be gone",
-    async () => (await (await hostClient()).list()).every((session) => session.metadata?.change !== changeId || !session.alive),
+    async () =>
+      (await (await hostClient()).list()).every(
+        (session) => session.metadata?.change !== changeId || !session.alive,
+      ),
     15_000,
   );
 }, 30_000);

@@ -1,11 +1,6 @@
 import { type JSX, useCallback, useRef, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
-import {
-  aborted,
-  type CardInfo,
-  type Change,
-  type WidgetItem,
-} from "../../app-root/api.ts";
+import { aborted, type CardInfo, type Change, type WidgetItem } from "../../app-root/api.ts";
 import { changeKey, useChangeClient, useSource, useSourceAvailability } from "../../app-root/sources.ts";
 import { gateFailureOf } from "../../app-root/sourceOwner.ts";
 import { cached, putCached } from "../../app-root/cache.ts";
@@ -49,8 +44,7 @@ export function PerRepoCard({
   const availability = useSourceAvailability(source);
   const generation = availability.generation;
   const blocked = availability.status._tag !== "available";
-  const key = (repo: string): string =>
-    `${changeKey(source, changeId)}@${generation}:${info.name}:${repo}`;
+  const key = (repo: string): string => `${changeKey(source, changeId)}@${generation}:${info.name}:${repo}`;
   // undefined while that repository is still loading; seeded from the cache so coming back to a
   // change shows its last known rows immediately.
   const [items, setItems] = useState<Record<string, WidgetItem[] | undefined>>(() =>
@@ -69,8 +63,8 @@ export function PerRepoCard({
       const seq = (loadSeqs.current.get(repo) ?? 0) + 1;
       loadSeqs.current.set(repo, seq);
       const latest = (): boolean => loadSeqs.current.get(repo) === seq;
-      return client
-        .dashboard.cardRepo(ChangeId.make(changeId), info.name, repo, { signal })
+      return client.dashboard
+        .cardRepo(ChangeId.make(changeId), info.name, repo, { signal })
         .then((r) => {
           if (!latest()) return;
           putCached(key(repo), r.items);
@@ -96,8 +90,7 @@ export function PerRepoCard({
   // The repositories by their content: the array itself is rebuilt on every render, and a new
   // loader identity would restart the poll.
   const loadAll = useCallback(
-    (signal: AbortSignal): Promise<unknown> =>
-      Promise.all(repos.map((repo) => loadRepo(repo, signal))),
+    (signal: AbortSignal): Promise<unknown> => Promise.all(repos.map((repo) => loadRepo(repo, signal))),
     [loadRepo, repos.join(",")],
   );
   const { refreshing, updated } = usePolled(loadAll, 15_000);
@@ -109,8 +102,8 @@ export function PerRepoCard({
     if (blocked) return Promise.resolve();
     const seq = ++actSeq.current;
     setBusy(repo);
-    return client
-      .dashboard.cardRepoAction(ChangeId.make(changeId), info.name, actionId, arg)
+    return client.dashboard
+      .cardRepoAction(ChangeId.make(changeId), info.name, actionId, arg)
       .then((r) => {
         if (actSeq.current !== seq) return;
         putCached(key(repo), r.items);

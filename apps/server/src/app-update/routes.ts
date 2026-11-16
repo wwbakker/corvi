@@ -9,12 +9,12 @@
  */
 import { Effect } from "effect";
 
-import { BadRequestError, ConflictError, isIweError, type IweError } from "@corvi/contracts/errors";
+import { BadRequestError, ConflictError, type CorviError } from "@corvi/contracts/errors";
 import { layer as repositoriesLayer } from "@corvi/repositories/node";
 import type { Repositories } from "@corvi/repositories";
 import { runRoute } from "../capabilities/effect/run.ts";
 import { guard, json } from "../capabilities/web.ts";
-import { messageOf } from "../capabilities/effect/support.ts";
+import { asCorviError as asCorviErrorBase } from "../capabilities/effect/http.ts";
 import {
   startUpdate,
   updateStatus,
@@ -27,24 +27,17 @@ import {
 
 /** The one place an app-update refusal becomes an HTTP status: nothing to update is the caller's
  * business (400 with the reason the dialog shows), and a run already going is a conflict. */
-const asIwe = (error: unknown): IweError => {
+const asCorviError = (error: unknown): CorviError => {
   if (error instanceof UpdateRefused) return new BadRequestError({ message: error.reason });
   if (error instanceof UpdateBusy) return new ConflictError({ message: error.reason });
-  if (isIweError(error)) return error;
-  return new BadRequestError({ message: messageOf(error) });
+  return asCorviErrorBase(error);
 };
 
 const respond = <A, E>(
   effect: Effect.Effect<A, E, Repositories>,
   encode: (value: A) => Response,
 ): Promise<Response> =>
-  runRoute(
-    effect.pipe(
-      Effect.mapError(asIwe),
-      Effect.map(encode),
-      Effect.provide(repositoriesLayer),
-    ),
-  );
+  runRoute(effect.pipe(Effect.mapError(asCorviError), Effect.map(encode), Effect.provide(repositoriesLayer)));
 
 const encodeStart = (start: UpdateStart): Response =>
   json(start.status, start._tag === "Started" ? 202 : 200);

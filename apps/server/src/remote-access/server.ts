@@ -78,9 +78,7 @@ export const makeRemoteAccess = (options: {
       if (Result.isFailure(started)) {
         const message = started.failure instanceof Error ? started.failure.message : String(started.failure);
         setRemoteAccessStatus({ enabled: true, listening: false, error: message });
-        console.error(
-          `could not start the external listener on 127.0.0.1:${remoteAccess.port}: ${message}`,
-        );
+        console.error(`could not start the external listener on 127.0.0.1:${remoteAccess.port}: ${message}`);
         console.error("remote access is unavailable until that port is free; serving locally.");
         // A mapping to a listener that never came up is dead: remove it.
         yield* reconcileTailscale({ listening: false });

@@ -1,10 +1,7 @@
 import { expect, test } from "bun:test";
 import { Effect, Result } from "effect";
 import { BadRequestError } from "@corvi/contracts/errors";
-import {
-  pairRemoteWorkspace,
-  type PairedRemote,
-} from "../apps/server/src/workspace/server/index.ts";
+import { pairRemoteWorkspace, type PairedRemote } from "../apps/server/src/workspace/server/index.ts";
 import { workspaceRoutes } from "../apps/server/src/workspace/routes.ts";
 
 /**
@@ -48,7 +45,10 @@ test("pairing redeems the code and offers the remote's workspaces", async () => 
     if (url.pathname === "/api/devices/pairing-codes/redeem") {
       expect(await req.json()).toEqual({ code: "abcd", name: "laptop" });
       return Response.json(
-        { device: { id: "dev-1", name: "laptop", createdAt: "2026-01-01T00:00:00.000Z" }, token: "raw-token" },
+        {
+          device: { id: "dev-1", name: "laptop", createdAt: "2026-01-01T00:00:00.000Z" },
+          token: "raw-token",
+        },
         { status: 201 },
       );
     }
@@ -175,10 +175,7 @@ test("aborting the request cancels a hung remote", async () => {
 
 /** The route as the page reaches it, through the same guard the server composes. */
 const postPairRemote = async (body: unknown): Promise<Response> => {
-  const routes = workspaceRoutes as unknown as Record<
-    string,
-    { POST: (req: Request) => Promise<Response> }
-  >;
+  const routes = workspaceRoutes as unknown as Record<string, { POST: (req: Request) => Promise<Response> }>;
   return routes["/api/workspaces/pair-remote"]!.POST!(
     new Request("http://127.0.0.1:4000/api/workspaces/pair-remote", {
       method: "POST",
@@ -193,7 +190,10 @@ test("the pair-remote route marks its token-bearing answer no-store", async () =
     const path = new URL(req.url).pathname;
     if (path.endsWith("/api/devices/pairing-codes/redeem")) {
       return Response.json(
-        { device: { id: "dev-1", name: "laptop", createdAt: "2026-01-01T00:00:00.000Z" }, token: "raw-token" },
+        {
+          device: { id: "dev-1", name: "laptop", createdAt: "2026-01-01T00:00:00.000Z" },
+          token: "raw-token",
+        },
         { status: 201 },
       );
     }

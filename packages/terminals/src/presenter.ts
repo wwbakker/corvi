@@ -4,11 +4,7 @@
  * Pure — raw window facts in, presentation out — like the agents package's presenter. A run
  * with nothing announced is not this presenter's window; it falls through to the core's defaults. */
 import type { TerminalPresenter } from "@corvi/contracts/terminal";
-import {
-  COMMAND_ACTION_OPTION,
-  COMMAND_EXIT_OPTION,
-  COMMAND_NOTIFY_OPTION,
-} from "./model.ts";
+import { COMMAND_ACTION_OPTION, COMMAND_EXIT_OPTION, COMMAND_NOTIFY_OPTION } from "./model.ts";
 
 export const commandWindowPresenter: TerminalPresenter = {
   present: (window) => {
@@ -16,7 +12,8 @@ export const commandWindowPresenter: TerminalPresenter = {
     if (!label) return undefined;
     const rawExit = window.options[COMMAND_EXIT_OPTION]?.trim();
     // An exit code is a small number; anything else (absent, half-written) is "still running".
-    const exit = rawExit !== undefined && rawExit !== "" && /^\d+$/.test(rawExit) ? Number(rawExit) : undefined;
+    const exit =
+      rawExit !== undefined && rawExit !== "" && /^\d+$/.test(rawExit) ? Number(rawExit) : undefined;
     const wants = window.options[COMMAND_NOTIFY_OPTION] === "1";
     return {
       label,

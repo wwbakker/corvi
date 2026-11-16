@@ -32,4 +32,3 @@ export const worst = (states: WidgetStateDto[]): WidgetStateDto =>
         : states.includes("ok")
           ? "ok"
           : "none";
-

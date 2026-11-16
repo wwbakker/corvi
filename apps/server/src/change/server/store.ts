@@ -2,10 +2,11 @@ import { join, dirname, isAbsolute, relative, resolve } from "node:path";
 import type { Dirent } from "node:fs";
 import { readdir, readFile, mkdir, rename } from "node:fs/promises";
 import { Effect, Schema } from "effect";
+import { isNotFound } from "@corvi/changes/node";
 import type { Change } from "@corvi/changes/record";
 import { FORMAT_VERSION, PLAN_FILE } from "@corvi/changes/record";
 import { ChangeId } from "@corvi/contracts/changes";
-import { ChangeFormatTooNew } from "@corvi/changes/errors";
+import { ChangeFormatTooNew, formatTooNew } from "@corvi/changes/errors";
 import { Change as ChangeSchema } from "./schema.ts";
 import { BadRequestError, DecodeError, InternalError, NotFoundError } from "@corvi/contracts/errors";
 import { decodePreserving, formatIssues } from "@corvi/contracts/body";
@@ -49,16 +50,12 @@ export const archiveRoot = (): string => settingsOf(workspaceById()).archiveRoot
  * workspace's changes root, named after the change. A change that already exists and predates a
  * root override stays where it is: the writers prefer `existingDir`, and only fall back to this
  * when creating. */
-export const changeDir = (change: {
-  readonly id: string;
-  readonly workspace?: string;
-}): string => join(settingsOf(workspaceById(change.workspace)).changesRoot, change.id);
+export const changeDir = (change: { readonly id: string; readonly workspace?: string }): string =>
+  join(settingsOf(workspaceById(change.workspace)).changesRoot, change.id);
 
 /** Where one change travels to when it is done: its workspace's archive root. */
-export const archiveDir = (change: {
-  readonly id: string;
-  readonly workspace?: string;
-}): string => join(settingsOf(workspaceById(change.workspace)).archiveRoot, change.id);
+export const archiveDir = (change: { readonly id: string; readonly workspace?: string }): string =>
+  join(settingsOf(workspaceById(change.workspace)).archiveRoot, change.id);
 
 /** File-backed change records and associated documents. */
 
@@ -69,11 +66,7 @@ const fileExists = (path: string): Effect.Effect<boolean> => fs(() => file(path)
  * journal; a legacy sidecar from a former feature (notes.md) stays reachable. `wt.toml` is
  * deliberately not here any more: Corvi computes the worktree path itself (apps/server/src/vendors/git.ts),
  * so a file left by the days when wt owned it is an ordinary leftover. */
-export const CORE_SIDECARS: ReadonlySet<string> = new Set([
-  "change.json",
-  "completion.json",
-  PLAN_FILE,
-]);
+export const CORE_SIDECARS: ReadonlySet<string> = new Set(["change.json", "completion.json", PLAN_FILE]);
 
 /** Every directory this change may live in: each scope's active root first — the active copy
  * wins — then each scope's archive. */
@@ -110,19 +103,11 @@ const guardFormat = (id: string): Effect.Effect<void, ChangeFormatTooNew> =>
           Effect.catchDefect(() => Effect.succeed("")),
         )
       : "";
-    const raw = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)))(
-      text,
-    ).pipe(Effect.orElseSucceed(() => ({}) as Record<string, unknown>));
+    const raw = yield* Schema.decodeUnknownEffect(
+      Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
+    )(text).pipe(Effect.orElseSucceed(() => ({}) as Record<string, unknown>));
     const recordFormat = typeof raw.formatVersion === "number" ? raw.formatVersion : 1;
-    if (recordFormat > FORMAT_VERSION)
-      return yield* new ChangeFormatTooNew({
-        changeId: ChangeId.make(id),
-        recordFormat,
-        appFormat: FORMAT_VERSION,
-        message:
-          `change ${id} was written by a newer version of Corvi ` +
-          `(record format ${recordFormat}, this one writes ${FORMAT_VERSION}); upgrade to edit it`,
-      });
+    if (recordFormat > FORMAT_VERSION) return yield* formatTooNew(ChangeId.make(id), recordFormat);
   });
 
 // Decode with unknown keys preserved: a change.json carries whatever the code that wrote it
@@ -152,9 +137,7 @@ export const readChange = (id: string): Effect.Effect<Change | null, DecodeError
   Effect.gen(function* () {
     const dir = yield* existingDir(id);
     if (!dir) return null;
-    const text = yield* Effect.tryPromise(() => file(join(dir, "change.json")).text()).pipe(
-      Effect.orDie,
-    );
+    const text = yield* Effect.tryPromise(() => file(join(dir, "change.json")).text()).pipe(Effect.orDie);
     return yield* decodeChange(text, dir);
   });
 
@@ -163,15 +146,7 @@ export const readChange = (id: string): Effect.Effect<Change | null, DecodeError
 export const writeChange = (change: Change): Effect.Effect<void, ChangeFormatTooNew> =>
   Effect.gen(function* () {
     const recordFormat = change.formatVersion ?? FORMAT_VERSION;
-    if (recordFormat > FORMAT_VERSION)
-      return yield* new ChangeFormatTooNew({
-        changeId: ChangeId.make(change.id),
-        recordFormat,
-        appFormat: FORMAT_VERSION,
-        message:
-          `change ${change.id} was written by a newer version of Corvi ` +
-          `(record format ${recordFormat}, this one writes ${FORMAT_VERSION}); upgrade to edit it`,
-      });
+    if (recordFormat > FORMAT_VERSION) return yield* formatTooNew(ChangeId.make(change.id), recordFormat);
     const dir = (yield* existingDir(change.id)) ?? changeDir(change);
     yield* fs(() => mkdir(dir, { recursive: true }));
     // The record's revision moves on every write, whichever store writes it: the lifecycle's
@@ -180,9 +155,7 @@ export const writeChange = (change: Change): Effect.Effect<void, ChangeFormatToo
     // is authoritative; a fresh record starts at 1.
     const prior = yield* readChange(change.id).pipe(
       Effect.map((current) => Number((current as { revision?: unknown } | null)?.revision ?? 0)),
-      Effect.catch(() =>
-        Effect.succeed(Number((change as { revision?: unknown }).revision ?? 0)),
-      ),
+      Effect.catch(() => Effect.succeed(Number((change as { revision?: unknown }).revision ?? 0))),
     );
     const record = { ...change, revision: prior + 1, formatVersion: FORMAT_VERSION };
     yield* fs(() => writeAtomic(join(dir, "change.json"), JSON.stringify(record, null, 2) + "\n"));
@@ -195,13 +168,14 @@ export const readSidecar = (id: string, name: string): Effect.Effect<string> =>
   Effect.gen(function* () {
     const dir = yield* existingDir(id);
     if (!dir) return "";
-    return yield* fs(() => file(join(dir, name)).text()).pipe(
-      Effect.catchDefect(() => Effect.succeed("")),
-    );
+    return yield* fs(() => file(join(dir, name)).text()).pipe(Effect.catchDefect(() => Effect.succeed("")));
   });
 
-
-export const writeSidecar = (id: string, name: string, text: string): Effect.Effect<void, ChangeFormatTooNew> =>
+export const writeSidecar = (
+  id: string,
+  name: string,
+  text: string,
+): Effect.Effect<void, ChangeFormatTooNew> =>
   Effect.gen(function* () {
     yield* guardFormat(id);
     const dir = (yield* existingDir(id)) ?? changeDir({ id });
@@ -330,10 +304,7 @@ const directoriesIn = (dir: string): Effect.Effect<string[]> =>
 export const listChanges = (): Effect.Effect<Change[]> =>
   Effect.gen(function* () {
     const listings = yield* Effect.all(
-      changePairs().flatMap(({ root, archiveRoot }) => [
-        directoriesIn(root),
-        directoriesIn(archiveRoot),
-      ]),
+      changePairs().flatMap(({ root, archiveRoot }) => [directoriesIn(root), directoriesIn(archiveRoot)]),
     );
     // A completed change can leave its directory behind — a terminal writing in it, a build
     // dropping target/ into it — while change.json has already moved to the archive. Both names
@@ -354,11 +325,7 @@ export const listChanges = (): Effect.Effect<Change[]> =>
 
 /** Whether a filesystem failure is "the path is not there" — the one read error a strict read
  * treats as "nothing to read" rather than a failure. */
-const isMissing = (cause: unknown): boolean =>
-  typeof cause === "object" && cause !== null && (cause as { code?: unknown }).code === "ENOENT";
-
-const describeCause = (cause: unknown): string =>
-  cause instanceof Error ? cause.message : String(cause);
+const describeCause = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause));
 
 /** The directory names under one root, read strictly: a root that does not exist yet is empty,
  * any other read failure propagates. */
@@ -369,7 +336,7 @@ const directoriesInStrict = (dir: string): Effect.Effect<readonly string[], Inte
         const entries = await readdir(dir, { withFileTypes: true });
         return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
       } catch (cause) {
-        if (isMissing(cause)) return [] as string[];
+        if (isNotFound(cause)) return [] as string[];
         throw cause;
       }
     },
@@ -384,7 +351,7 @@ const readChangeTextStrict = (path: string): Effect.Effect<string | undefined, I
       try {
         return await readFile(path, "utf8");
       } catch (cause) {
-        if (isMissing(cause)) return undefined;
+        if (isNotFound(cause)) return undefined;
         throw cause;
       }
     },

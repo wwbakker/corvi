@@ -33,6 +33,7 @@ must not disappear with them.
 ```sh
 bun run typecheck
 bun run lint
+bun run format:check
 bun run boundaries
 bun run test
 ```

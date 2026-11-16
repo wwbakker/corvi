@@ -59,12 +59,14 @@ type Harness = {
 /** `header` answers at once (a normal read); `body` answers the headers but leaves the body open
  * until the request is retired, which is the headers/body race; `chunks` answers in two pieces;
  * `hang` sends one piece and then waits to be retired. */
-const harness = (config: {
-  readonly snapshots?: RemoteAvailabilitySnapshotDto[];
-  readonly origin?: "header" | "body" | "silent" | "chunks" | "hang";
-  /** The local retry route hangs until its request is aborted (disposal). */
-  readonly retryHang?: boolean;
-} = {}): Harness => {
+const harness = (
+  config: {
+    readonly snapshots?: RemoteAvailabilitySnapshotDto[];
+    readonly origin?: "header" | "body" | "silent" | "chunks" | "hang";
+    /** The local retry route hangs until its request is aborted (disposal). */
+    readonly retryHang?: boolean;
+  } = {},
+): Harness => {
   const queue = [...(config.snapshots ?? [])];
   let fetchCount = 0;
   let availabilityCount = 0;
@@ -218,7 +220,9 @@ test("an older same-instance event cannot roll back a newer revision", async () 
   h.owner.refresh();
   await until(() => h.owner.availability().instance, "i1");
   h.owner.applyEvent(
-    JSON.stringify(snapshot({ instance: "i1", revision: 5, availability: [entry("r", unavailable, "g1", 5)] })),
+    JSON.stringify(
+      snapshot({ instance: "i1", revision: 5, availability: [entry("r", unavailable, "g1", 5)] }),
+    ),
   );
   h.owner.applyEvent(
     JSON.stringify(snapshot({ instance: "i1", revision: 3, availability: [entry("r", available, "g1", 3)] })),
@@ -228,7 +232,10 @@ test("an older same-instance event cannot roll back a newer revision", async () 
 });
 
 test("a generation change retires an in-flight read as stale and an in-flight write as uncertain", async () => {
-  const h = harness({ snapshots: [snapshot({ availability: [entry("r", available, "g1")] })], origin: "body" });
+  const h = harness({
+    snapshots: [snapshot({ availability: [entry("r", available, "g1")] })],
+    origin: "body",
+  });
   h.owner.refresh();
   await until(() => h.owner.availability().entries.r?.status._tag, "available");
 
@@ -250,7 +257,10 @@ test("a generation change retires an in-flight read as stale and an in-flight wr
 });
 
 test("a target change between headers and body also retires the read", async () => {
-  const h = harness({ snapshots: [snapshot({ availability: [entry("r", available, "g1")] })], origin: "body" });
+  const h = harness({
+    snapshots: [snapshot({ availability: [entry("r", available, "g1")] })],
+    origin: "body",
+  });
   h.owner.refresh();
   await until(() => h.owner.availability().entries.r?.status._tag, "available");
 
@@ -263,7 +273,10 @@ test("a target change between headers and body also retires the read", async () 
 });
 
 test("an event-stream reconnection retires in-flight work and re-establishes the epoch", async () => {
-  const h = harness({ snapshots: [snapshot({ availability: [entry("r", available, "g1")] })], origin: "body" });
+  const h = harness({
+    snapshots: [snapshot({ availability: [entry("r", available, "g1")] })],
+    origin: "body",
+  });
   h.owner.refresh();
   await until(() => h.owner.availability().entries.r?.status._tag, "available");
   const read = h.owner.clientFor("r").terminals.list();
@@ -292,7 +305,10 @@ test("a non-cooperative silent body is unstuck by retirement, and a disposed own
 });
 
 test("disposal aborts the owner's work and two owners do not share state", async () => {
-  const a = harness({ snapshots: [snapshot({ availability: [entry("r", available, "g1")] })], origin: "body" });
+  const a = harness({
+    snapshots: [snapshot({ availability: [entry("r", available, "g1")] })],
+    origin: "body",
+  });
   const b = harness({ snapshots: [snapshot({ availability: [entry("r", available, "g1")] })] });
   a.owner.refresh();
   b.owner.refresh();
@@ -364,9 +380,12 @@ test("a capability acquired before a retarget is spent: old sends never reach th
   // stale, and none of them leaves the browser as a request.
   expect((await refusal(oldClient.terminals.list()))?.kind).toBe("stale-target");
   expect(
-    (await refusal(oldClient.terminals.windowAction(ChangeId.make("C1"), { action: "select", index: 0 })))?.kind,
+    (await refusal(oldClient.terminals.windowAction(ChangeId.make("C1"), { action: "select", index: 0 })))
+      ?.kind,
   ).toBe("stale-target");
-  expect((await refusal(oldWire.request("PUT", "/ext/notes/x", Schema.Struct({}))))?.kind).toBe("stale-target");
+  expect((await refusal(oldWire.request("PUT", "/ext/notes/x", Schema.Struct({}))))?.kind).toBe(
+    "stale-target",
+  );
   expect(h.fetches()).toBe(before);
 
   // A capability acquired now is bound to g2 and does reach the target.
@@ -382,7 +401,9 @@ test("a capability outlives a same-generation outage and sends again on recovery
   const before = h.fetches();
   // Same target, reachability lost: the capability is not spent, only held back.
   h.owner.applyEvent(
-    JSON.stringify(snapshot({ instance: "i1", revision: 2, availability: [entry("r", unavailable, "g1", 2)] })),
+    JSON.stringify(
+      snapshot({ instance: "i1", revision: 2, availability: [entry("r", unavailable, "g1", 2)] }),
+    ),
   );
   await until(() => h.owner.availability().entries.r?.status._tag, "unavailable");
   expect((await refusal(client.terminals.list()))?.kind).toBe("unavailable");

@@ -4,7 +4,8 @@
  * Files are the source of truth for profiles, exactly like actions. Instances are the server's
  * own records and messages; the extension relays turns through `next`/`turn`, and the CLI drives
  * create/open/close/send/await/result. */
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
+import { BadRequestError } from "@corvi/contracts/errors";
 
 import {
   SubagentCreateRequestSchema,
@@ -15,10 +16,16 @@ import {
   SubagentSendRequestSchema,
   SubagentTurnRequestSchema,
 } from "@corvi/contracts/subagents";
-import { BadRequestError } from "@corvi/contracts/errors";
-import { bodyAs, guard, json, withChange } from "../capabilities/web.ts";
+import { bodyAs, guard, json, queryAs, withChange } from "../capabilities/web.ts";
 import { runRoute } from "../capabilities/effect/run.ts";
-import { deleteSubagentFile, deleteRepositorySubagentFile, repositorySubagentFiles, subagentFiles, writeSubagentFile, writeRepositorySubagentFile } from "./server/files.ts";
+import {
+  deleteSubagentFile,
+  deleteRepositorySubagentFile,
+  repositorySubagentFiles,
+  subagentFiles,
+  writeSubagentFile,
+  writeRepositorySubagentFile,
+} from "./server/files.ts";
 import { profilesFor } from "./server/run.ts";
 import {
   closeSubagent,
@@ -59,25 +66,20 @@ export const subagentsRoutes = guard({
     DELETE: (req) =>
       runRoute(
         Effect.gen(function* () {
-          const params = Object.fromEntries(new URL(req.url).searchParams);
-          const ref = yield* Schema.decodeUnknownEffect(SubagentFileRefSchema)(params).pipe(
-            Effect.mapError(() => new BadRequestError({ message: "scope and id are required" })),
-          );
+          const ref = yield* queryAs(req, SubagentFileRefSchema, "scope and id are required");
           return json(yield* deleteSubagentFile(ref));
         }),
       ),
   },
 
   "/api/changes/:id/subagent-profiles": {
-    GET: (req) =>
-      withChange(req.params.id, (change) => Effect.map(profilesFor(change), json)),
+    GET: (req) => withChange(req.params.id, (change) => Effect.map(profilesFor(change), json)),
   },
 
   // The Repositories view's files: one block per checkout, written and deleted like any other
   // scope — the route names the change, the body (or query) names the repository.
   "/api/changes/:id/subagent-files": {
-    GET: (req) =>
-      withChange(req.params.id, (change) => Effect.map(repositorySubagentFiles(change), json)),
+    GET: (req) => withChange(req.params.id, (change) => Effect.map(repositorySubagentFiles(change), json)),
     PUT: (req) =>
       withChange(req.params.id, (change) =>
         Effect.gen(function* () {
@@ -88,10 +90,7 @@ export const subagentsRoutes = guard({
     DELETE: (req) =>
       withChange(req.params.id, (change) =>
         Effect.gen(function* () {
-          const params = Object.fromEntries(new URL(req.url).searchParams);
-          const ref = yield* Schema.decodeUnknownEffect(SubagentRepositoryFileRefSchema)(params).pipe(
-            Effect.mapError(() => new BadRequestError({ message: "repository and id are required" })),
-          );
+          const ref = yield* queryAs(req, SubagentRepositoryFileRefSchema, "repository and id are required");
           return json(yield* deleteRepositorySubagentFile(change, ref));
         }),
       ),
@@ -120,7 +119,8 @@ export const subagentsRoutes = guard({
   },
 
   "/api/changes/:id/subagents/:subagent": {
-    GET: (req) => withChange(req.params.id, (change) => Effect.map(showSubagent(change, req.params.subagent), json)),
+    GET: (req) =>
+      withChange(req.params.id, (change) => Effect.map(showSubagent(change, req.params.subagent), json)),
   },
 
   "/api/changes/:id/subagents/:subagent/open": {
@@ -175,7 +175,9 @@ export const subagentsRoutes = guard({
         Effect.gen(function* () {
           const afterRaw = new URL(req.url).searchParams.get("after");
           const after = afterRaw === null ? undefined : Number(afterRaw);
-          return json(yield* nextForSubagent(change, req.params.subagent, Number.isFinite(after) ? after : undefined));
+          return json(
+            yield* nextForSubagent(change, req.params.subagent, Number.isFinite(after) ? after : undefined),
+          );
         }),
       ),
   },

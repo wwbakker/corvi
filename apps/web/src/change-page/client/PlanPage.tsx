@@ -48,8 +48,8 @@ export function PlanPage({
     load: () =>
       client.changes.plan(ChangeId.make(changeId)).then(({ text, revision }) => ({ text, revision })),
     save: (value, baseRevision) =>
-      client
-        .changes.writePlan(ChangeId.make(changeId), {
+      client.changes
+        .writePlan(ChangeId.make(changeId), {
           text: value,
           ...(baseRevision !== undefined ? { baseRevision } : {}),
         })
@@ -73,11 +73,7 @@ export function PlanPage({
           <button type="button" title="drop these edits and load the file" onClick={reload}>
             Reload
           </button>
-          <button
-            type="button"
-            title="overwrite the file with what is here"
-            onClick={keepMine}
-          >
+          <button type="button" title="overwrite the file with what is here" onClick={keepMine}>
             Keep mine
           </button>
         </div>
@@ -86,7 +82,7 @@ export function PlanPage({
         fill
         value={text}
         readOnly={readOnly}
-        remember={documentKey("plan", `${key}@${generation ?? ""}`)}
+        remember={documentKey(`plan@${generation ?? ""}`, key)}
         placeholder="What this change is, and how it might work. The agent reads and edits this file (PLAN.md)."
         onChange={change}
         onBlur={flush}

@@ -47,10 +47,10 @@ type Pr = {
  * null when no review is required at all — so the absence of a decision is the signal that
  * nothing is waiting on one. `CHANGES_REQUESTED` is a decision too: a reviewer asked for
  * changes, and that blocks whether or not the repository requires an approval. */
-export type ReviewState = "approved" | "changes-requested" | "required" | "none";
+type ReviewState = "approved" | "changes-requested" | "required" | "none";
 
 // Pure and synchronous: nothing for an Effect to wrap.
-export function reviewState(pr: { reviewDecision?: string | null }): ReviewState {
+function reviewState(pr: { reviewDecision?: string | null }): ReviewState {
   switch (pr.reviewDecision) {
     case "APPROVED":
       return "approved";
@@ -70,9 +70,7 @@ export function readiness(
   pr: { reviewDecision?: string | null; mergeable?: string | null },
   unresolved = 0,
 ): { text: string; tone?: WidgetState } {
-  const comments = unresolved
-    ? `${unresolved} unresolved comment${unresolved === 1 ? "" : "s"}`
-    : undefined;
+  const comments = unresolved ? `${unresolved} unresolved comment${unresolved === 1 ? "" : "s"}` : undefined;
   const say = (text: string, tone?: WidgetState): { text: string; tone: WidgetState | undefined } => ({
     text: [comments, text].filter(Boolean).join(" · "),
     tone: comments ? ("warn" as WidgetState) : tone,
@@ -142,9 +140,13 @@ const effectiveBranchName = (
   if (spec?.branch.kind === "existing") {
     const name = spec.branch.name;
     return Effect.flatMap(GitFacts, (facts) => facts.existingBranch(repo, name)).pipe(
-      Effect.flatMap((branch) => branch
-        ? Effect.succeed(branch)
-        : Effect.fail(new BadRequestError({ message: `could not resolve existing branch ${name} in ${repo}` }))),
+      Effect.flatMap((branch) =>
+        branch
+          ? Effect.succeed(branch)
+          : Effect.fail(
+              new BadRequestError({ message: `could not resolve existing branch ${name} in ${repo}` }),
+            ),
+      ),
     );
   }
   const effective = effectiveBranchOf(change.branch, spec?.branch ?? { kind: "change" });
@@ -225,7 +227,10 @@ const DETAILS_TTL = 120_000;
  * change to three rounds. */
 export const REPOSITORY_CONCURRENCY = 4;
 
-const shownPr = (change: Change, repo: string): Effect.Effect<FoundPr | undefined, BadRequestError | GitHubRateLimited, Changes | GitFacts | Cache> =>
+const shownPr = (
+  change: Change,
+  repo: string,
+): Effect.Effect<FoundPr | undefined, BadRequestError | GitHubRateLimited, Changes | GitFacts | Cache> =>
   swr(`gh:pr:${change.id}:${repo}`, PR_TTL, prQuery(change, repo));
 
 /** Owner and name from a pull request URL, so counting threads costs no extra lookup. */
@@ -284,9 +289,7 @@ const DetailsSchema = Schema.Struct({
                               Schema.Array(
                                 Schema.Struct({
                                   author: Schema.optional(
-                                    Schema.NullOr(
-                                      Schema.Struct({ login: Schema.optional(Schema.String) }),
-                                    ),
+                                    Schema.NullOr(Schema.Struct({ login: Schema.optional(Schema.String) })),
                                   ),
                                 }),
                               ),
@@ -301,9 +304,7 @@ const DetailsSchema = Schema.Struct({
               stack: Schema.optional(
                 Schema.NullOr(Schema.Struct({ number: Schema.Number, size: Schema.Number })),
               ),
-              stackEntry: Schema.optional(
-                Schema.NullOr(Schema.Struct({ position: Schema.Number })),
-              ),
+              stackEntry: Schema.optional(Schema.NullOr(Schema.Struct({ position: Schema.Number }))),
             }),
           ),
         }),
@@ -494,8 +495,8 @@ export const prItem = (
     const notable = pr.isDraft
       ? "draft"
       : ["MERGED", "CLOSED"].includes(pr.state)
-      ? pr.state.toLowerCase()
-      : undefined;
+        ? pr.state.toLowerCase()
+        : undefined;
     // Surprising enough to say: the work goes to a branch with another name.
     const branch = yield* effectiveBranchName(change, repo, hit.worktree);
     const elsewhere = hit.head !== branch ? `pushed as ${hit.head}` : undefined;
@@ -681,9 +682,10 @@ const isStacked = (
   number: number,
 ): Effect.Effect<string | undefined, GitHubRateLimited> =>
   Effect.gen(function* () {
-    const repository = (
-      yield* ghSoft(["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], worktree)
-    ).stdout;
+    const repository = (yield* ghSoft(
+      ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+      worktree,
+    )).stdout;
     if (!repository) return undefined;
     const pr = yield* ghSoft(["gh", "api", `repos/${repository}/pulls/${number}`], worktree);
     const parsed = yield* cliJson(
@@ -716,13 +718,8 @@ export const createPr = (
     if (against.length) {
       // The pull request exists by now: not learning its number costs the stack nicety, not the
       // create.
-      const view = yield* ghSoft(
-        ["gh", "pr", "view", "--json", "number", "-q", ".number"],
-        worktree,
-      ).pipe(
-        Effect.catchTag("GitHubRateLimited", () =>
-          Effect.succeed({ code: 1, stdout: "", stderr: "" }),
-        ),
+      const view = yield* ghSoft(["gh", "pr", "view", "--json", "number", "-q", ".number"], worktree).pipe(
+        Effect.catchTag("GitHubRateLimited", () => Effect.succeed({ code: 1, stdout: "", stderr: "" })),
       );
       const number = Number(view.stdout);
       if (number) yield* stackOnBase(worktree, target!, number);
@@ -730,4 +727,3 @@ export const createPr = (
     // The cached answer says there is no pull request, and it was right until a moment ago.
     yield* invalidate(`gh:pr:${change.id}:`);
   });
-

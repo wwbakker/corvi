@@ -6,10 +6,12 @@
  * rather than hidden. Model and effort are checked loosely on purpose — a model catalog changes
  * with the harness, so an unknown id is a runtime concern, never a parse failure. */
 import { Result, Schema } from "effect";
-import { parse as parseYaml } from "yaml";
 
 import { ChangePhase } from "@corvi/contracts/changes";
 import { SubagentHarness } from "@corvi/contracts/subagents";
+import { splitFrontmatter } from "@corvi/markdown/frontmatter";
+
+export { splitFrontmatter };
 
 /** The thinking levels pi's `--thinking` takes; opencode's equivalent is mapped from them by the
  * harness adapters. An unknown level is passed through (the harness decides), so this list is
@@ -44,23 +46,6 @@ const invalid = (...reasons: string[]): Result.Result<Profile, InvalidProfileFil
 
 const isHarness = Schema.is(SubagentHarness);
 const isPhase = Schema.is(ChangePhase);
-
-/** The frontmatter block and the body below it. A file without the `---` pair has no settings to
- * read, whatever its body says. The raw frontmatter text comes back too, so a caller can rewrite
- * a body without reprinting what the user wrote above it. */
-export const splitFrontmatter = (
-  text: string,
-): { fields: unknown; frontmatter: string; body: string } | undefined => {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n([\s\S]*))?$/.exec(text);
-  if (!match) return undefined;
-  let fields: unknown;
-  try {
-    fields = parseYaml(match[1] ?? "");
-  } catch {
-    return undefined;
-  }
-  return { fields, frontmatter: match[1] ?? "", body: (match[2] ?? "").trim() };
-};
 
 /** Parse one profile file. Unknown frontmatter keys are tolerated — a file may carry more than
  * this vocabulary uses — but every key it knows is checked. */

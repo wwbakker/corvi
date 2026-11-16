@@ -2,7 +2,17 @@ import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
 import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
-import { budget, checkoutsOf, closePages, requireFreshWebBundle, runSh, serverEnv, testRun, testTempDir, until, waitForUrl } from "./helpers.ts";
+import {
+  budget,
+  checkoutsOf,
+  closePages,
+  requireFreshWebBundle,
+  runSh,
+  testTempDir,
+  until,
+  startTestServer,
+  stopTestServer,
+} from "./helpers.ts";
 import { ensureHost } from "../apps/server/src/terminals/host/client.ts";
 
 /**
@@ -39,7 +49,10 @@ let server: ReturnType<typeof Bun.spawn>;
  * restore test does, which would otherwise hand a new host the real `pi`. */
 let fakePath = "";
 
-const fileText = (path: string): Promise<string> => Bun.file(path).text().catch(() => "");
+const fileText = (path: string): Promise<string> =>
+  Bun.file(path)
+    .text()
+    .catch(() => "");
 
 /** Wait until the pane's socket is attached to the window the page names: the pty is alive by then
  * and buffers input until the shell reads it, so a command typed afterwards cannot be lost. */
@@ -47,12 +60,9 @@ const awaitAttached = (page: Page): Promise<void> =>
   page.waitForSelector(".terminal-screen[data-attached]", { timeout: budget(60_000) }).then(() => undefined);
 
 const startServer = async (port = 0): Promise<void> => {
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp, { CORVI_PORT: String(port), PATH: fakePath }),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp, {
+    env: { CORVI_PORT: String(port), PATH: fakePath },
+  }));
 };
 
 beforeAll(async () => {
@@ -66,12 +76,7 @@ beforeAll(async () => {
   await writeFile(fakePi, "#!/bin/sh\nexec /bin/sh\n");
   await chmod(fakePi, 0o755);
   fakePath = `${fakeBin}:${process.env.PATH ?? ""}`;
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp, { PATH: fakePath }),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp, { env: { PATH: fakePath } }));
   browser = await chromium.launch();
 }, budget(120_000));
 
@@ -82,11 +87,7 @@ afterEach(async () => {
 afterAll(async () => {
   if (!usable) return;
   await browser?.close();
-  server?.kill();
-  await server?.exited;
-  await ensureHost({ socket: join(tmp, "state", "corvi", "host.sock"), checkout: process.cwd(), buildId: process.env.CORVI_BUILD ?? "dev", runtime: "node" })
-    .then((result) => result.client.shutdown())
-    .catch(() => undefined);
+  await stopTestServer(server, tmp);
   await rm(tmp, { recursive: true, force: true });
 }, budget(60_000));
 
@@ -128,7 +129,8 @@ type BrowserTerminal = {
 
 const terminalText = (page: Page): Promise<string> =>
   page.evaluate(() => {
-    const element = document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal }) | null;
+    const element = document.querySelector(".terminal-screen") as
+      (HTMLElement & { corviTerminal?: BrowserTerminal }) | null;
     const term = element?.corviTerminal;
     if (!term) return "";
     const buffer = term.buffer.active;
@@ -140,7 +142,8 @@ const terminalText = (page: Page): Promise<string> =>
 /** The grid xterm is showing: the pty's `stty size` has to match it. */
 const terminalSize = (page: Page): Promise<{ cols: number; rows: number }> =>
   page.evaluate(() => {
-    const element = document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal }) | null;
+    const element = document.querySelector(".terminal-screen") as
+      (HTMLElement & { corviTerminal?: BrowserTerminal }) | null;
     const term = element?.corviTerminal;
     return { cols: term?.cols ?? 0, rows: term?.rows ?? 0 };
   });
@@ -148,7 +151,8 @@ const terminalSize = (page: Page): Promise<{ cols: number; rows: number }> =>
 /** The shell's cursor, in the grid's own coordinates. */
 const terminalCursor = (page: Page): Promise<{ x: number; y: number }> =>
   page.evaluate(() => {
-    const element = document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal }) | null;
+    const element = document.querySelector(".terminal-screen") as
+      (HTMLElement & { corviTerminal?: BrowserTerminal }) | null;
     const term = element?.corviTerminal;
     return { x: term?.buffer.active.cursorX ?? 0, y: term?.buffer.active.cursorY ?? 0 };
   });
@@ -159,7 +163,9 @@ const typeUntilText = async (page: Page, command: string, needle: string): Promi
   await page.keyboard.type(`${command}\n`);
   const shown = await until(async () => (await terminalText(page)).includes(needle), true, budget(30_000));
   if (!shown) {
-    throw new Error(`the terminal never showed ${needle} (tail ${JSON.stringify((await terminalText(page)).slice(-200))})`);
+    throw new Error(
+      `the terminal never showed ${needle} (tail ${JSON.stringify((await terminalText(page)).slice(-200))})`,
+    );
   }
 };
 
@@ -170,7 +176,9 @@ const runCommand = async (page: Page, command: string, file: string, want: strin
   await page.keyboard.type(`${command}\n`);
   const wrote = await until(async () => (await fileText(file)) === want, true, budget(60_000));
   if (!wrote) {
-    throw new Error(`the command never wrote ${file} with ${JSON.stringify(want)} (saw ${JSON.stringify(await fileText(file))})`);
+    throw new Error(
+      `the command never wrote ${file} with ${JSON.stringify(want)} (saw ${JSON.stringify(await fileText(file))})`,
+    );
   }
   expect(await fileText(file)).toBe(want);
 };
@@ -191,242 +199,303 @@ const ptySize = async (page: Page, file: string, guard = ""): Promise<{ rows: nu
     reported = (await fileText(file)).trim();
   }
   if (!/^\d+ \d+$/.test(reported)) {
-    throw new Error(`no tty size reported (saw ${JSON.stringify(reported)}; screen tail ${JSON.stringify((await terminalText(page)).slice(-300))})`);
+    throw new Error(
+      `no tty size reported (saw ${JSON.stringify(reported)}; screen tail ${JSON.stringify((await terminalText(page)).slice(-300))})`,
+    );
   }
   const [rows = 0, cols = 0] = reported.split(/\s+/).map(Number);
   return { rows, cols };
 };
 
-test.skipIf(!usable)("a line wider than the terminal wraps at the grid, and backspace takes it back", async () => {
-  const id = "ACC-WRAP";
-  await createChange(id);
-  const page = await openTerminal(id);
-  // Readiness: the prompt is printed and the cursor sits still at it.
-  await typeUntilText(page, "echo WRAP-READY", "WRAP-READY");
-  await Bun.sleep(400);
+test.skipIf(!usable)(
+  "a line wider than the terminal wraps at the grid, and backspace takes it back",
+  async () => {
+    const id = "ACC-WRAP";
+    await createChange(id);
+    const page = await openTerminal(id);
+    // Readiness: the prompt is printed and the cursor sits still at it.
+    await typeUntilText(page, "echo WRAP-READY", "WRAP-READY");
+    await Bun.sleep(400);
 
-  const { cols } = await terminalSize(page);
-  const before = await terminalCursor(page);
-  const x0 = before.x;
-  const y0 = before.y;
-  // Exactly to the end of the row and five characters past it: the tail must land on the next row
-  // if the shell's width is the grid's.
-  const tail = "TAILZ";
-  const line = "Q".repeat(cols - x0 + 5 - tail.length) + tail;
-  await page.keyboard.type(line);
-  await until(async () => (await terminalText(page)).includes(tail), true, budget(10_000));
-  // The cursor reaches the next row at the cell the grid says; a pty at another width lands
-  // somewhere else (or leaves the tail mid-row), which is exactly the 80x24 mismatch.
-  const expected = { x: 5, y: y0 + 1 };
-  const settled = await until(
-    () => terminalCursor(page).then((c) => `${c.x},${c.y}`),
-    `${expected.x},${expected.y}`,
-    budget(10_000),
-  );
-  expect(settled).toBe(`${expected.x},${expected.y}`);
-  expect(await terminalCursor(page)).toEqual(expected);
+    const { cols } = await terminalSize(page);
+    const before = await terminalCursor(page);
+    const x0 = before.x;
+    const y0 = before.y;
+    // Exactly to the end of the row and five characters past it: the tail must land on the next row
+    // if the shell's width is the grid's.
+    const tail = "TAILZ";
+    const line = "Q".repeat(cols - x0 + 5 - tail.length) + tail;
+    await page.keyboard.type(line);
+    await until(async () => (await terminalText(page)).includes(tail), true, budget(10_000));
+    // The cursor reaches the next row at the cell the grid says; a pty at another width lands
+    // somewhere else (or leaves the tail mid-row), which is exactly the 80x24 mismatch.
+    const expected = { x: 5, y: y0 + 1 };
+    const settled = await until(
+      () => terminalCursor(page).then((c) => `${c.x},${c.y}`),
+      `${expected.x},${expected.y}`,
+      budget(10_000),
+    );
+    expect(settled).toBe(`${expected.x},${expected.y}`);
+    expect(await terminalCursor(page)).toEqual(expected);
 
-  // Backspace removes the wrapped tail and returns the cursor to the exact cell the grid implies:
-  // the line ends at the right margin, which zsh reports as the start of the row below.
-  for (let i = 0; i < tail.length; i++) await page.keyboard.press("Backspace");
-  const removed = await until(async () => (await terminalText(page)).includes(tail), false, budget(10_000));
-  expect(removed).toBe(false);
-  const back = await until(
-    () => terminalCursor(page).then((c) => `${c.x},${c.y}`),
-    `0,${y0 + 1}`,
-    budget(10_000),
-  );
-  expect(back).toBe(`0,${y0 + 1}`);
-  await page.keyboard.press("Control+C");
-  await page.close();
-}, budget(90_000));
+    // Backspace removes the wrapped tail and returns the cursor to the exact cell the grid implies:
+    // the line ends at the right margin, which zsh reports as the start of the row below.
+    for (let i = 0; i < tail.length; i++) await page.keyboard.press("Backspace");
+    const removed = await until(async () => (await terminalText(page)).includes(tail), false, budget(10_000));
+    expect(removed).toBe(false);
+    const back = await until(
+      () => terminalCursor(page).then((c) => `${c.x},${c.y}`),
+      `0,${y0 + 1}`,
+      budget(10_000),
+    );
+    expect(back).toBe(`0,${y0 + 1}`);
+    await page.keyboard.press("Control+C");
+    await page.close();
+  },
+  budget(90_000),
+);
 
-test.skipIf(!usable)("each window keeps its own shell and its own screen across a reload and a restart", async () => {
-  const id = "ACC-RESTORE";
-  const dir = await createChange(id);
-  const page = await openTerminal(id);
-  const tabs = page.locator(".window-tab:not(.new):not(.overview)");
-  await tabs.first().waitFor({ timeout: 15_000 });
+test.skipIf(!usable)(
+  "each window keeps its own shell and its own screen across a reload and a restart",
+  async () => {
+    const id = "ACC-RESTORE";
+    const dir = await createChange(id);
+    const page = await openTerminal(id);
+    const tabs = page.locator(".window-tab:not(.new):not(.overview)");
+    await tabs.first().waitFor({ timeout: 15_000 });
 
-  // Window 1: its own shell, with a variable only it has, and a distinctive screen.
-  const marker = join(dir, "win-set.txt");
-  await runCommand(page, `export WIN_ONE=yes; echo "$WIN_ONE" > ${marker}`, marker, "yes\n");
-  await typeUntilText(page, "seq -f 'W1-DEEP-%g' 1 80", "W1-DEEP-80");
+    // Window 1: its own shell, with a variable only it has, and a distinctive screen.
+    const marker = join(dir, "win-set.txt");
+    await runCommand(page, `export WIN_ONE=yes; echo "$WIN_ONE" > ${marker}`, marker, "yes\n");
+    await typeUntilText(page, "seq -f 'W1-DEEP-%g' 1 80", "W1-DEEP-80");
 
-  // A second window is its own shell, showing its own screen. The pane reconnects to it when the
-  // active window changes; wait for the switch (window 1's marker leaves the screen) before
-  // typing, or the keystrokes land in window 1 and the test retries into the void.
-  await page.locator(".window-tab.new").click();
-  expect(await until(() => tabs.count(), 2)).toBe(2);
-  await until(async () => (await terminalText(page)).includes("W1-DEEP-80"), false, budget(20_000));
-  await typeUntilText(page, "seq -f 'W2-DEEP-%g' 1 80", "W2-DEEP-80");
-  const second = await terminalText(page);
-  expect(second).toContain("W2-DEEP-80");
-  expect(second).not.toContain("W1-DEEP-80");
+    // A second window is its own shell, showing its own screen. The pane reconnects to it when the
+    // active window changes; wait for the switch (window 1's marker leaves the screen) before
+    // typing, or the keystrokes land in window 1 and the test retries into the void.
+    await page.locator(".window-tab.new").click();
+    expect(await until(() => tabs.count(), 2)).toBe(2);
+    await until(async () => (await terminalText(page)).includes("W1-DEEP-80"), false, budget(20_000));
+    await typeUntilText(page, "seq -f 'W2-DEEP-%g' 1 80", "W2-DEEP-80");
+    const second = await terminalText(page);
+    expect(second).toContain("W2-DEEP-80");
+    expect(second).not.toContain("W1-DEEP-80");
 
-  // Snapshot the visible window and reload: the active window (2) restores its own screen, and
-  // window 1 restores its own when selected again.
-  await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
-  await Bun.sleep(400);
-  await page.reload();
-  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
-  await page.locator(".terminal-screen").click();
-  expect(await until(async () => (await terminalText(page)).includes("W2-DEEP-80"), true, budget(20_000))).toBe(true);
-  expect(await terminalText(page)).not.toContain("W1-DEEP-80");
+    // Snapshot the visible window and reload: the active window (2) restores its own screen, and
+    // window 1 restores its own when selected again.
+    await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+    await Bun.sleep(400);
+    await page.reload();
+    await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+    await page.locator(".terminal-screen").click();
+    expect(
+      await until(async () => (await terminalText(page)).includes("W2-DEEP-80"), true, budget(20_000)),
+    ).toBe(true);
+    expect(await terminalText(page)).not.toContain("W1-DEEP-80");
 
-  await tabs.first().click();
-  expect(await until(async () => (await terminalText(page)).includes("W1-DEEP-80"), true, budget(20_000))).toBe(true);
-  expect(await terminalText(page)).not.toContain("W2-DEEP-80");
+    await tabs.first().click();
+    expect(
+      await until(async () => (await terminalText(page)).includes("W1-DEEP-80"), true, budget(20_000)),
+    ).toBe(true);
+    expect(await terminalText(page)).not.toContain("W2-DEEP-80");
 
-  // A server restart adopts the host and its shells; the page reconnects without a reload.
-  const port = Number(new URL(url).port);
-  server.kill();
-  await server.exited;
-  await startServer(port);
-  await page.reload();
-  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
-  await page.locator(".terminal-screen").click();
-  expect(await until(async () => (await terminalText(page)).includes("W1-DEEP-80"), true, budget(20_000))).toBe(true);
-  // The variable is re-read from the adopted shell, not merely the screen: the restart must not
-  // have silently started a fresh shell behind the same window.
-  const survived = join(dir, "win-survived.txt");
-  await runCommand(page, `echo "$WIN_ONE" > ${survived}`, survived, "yes\n");
-  expect(await fileText(survived)).toBe("yes\n");
-  await tabs.nth(1).click();
-  expect(await until(async () => (await terminalText(page)).includes("W2-DEEP-80"), true, budget(20_000))).toBe(true);
-  expect(await terminalText(page)).not.toContain("W1-DEEP-80");
-  await page.close();
-}, budget(180_000));
+    // A server restart adopts the host and its shells; the page reconnects without a reload.
+    const port = Number(new URL(url).port);
+    server.kill();
+    await server.exited;
+    await startServer(port);
+    await page.reload();
+    await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+    await page.locator(".terminal-screen").click();
+    expect(
+      await until(async () => (await terminalText(page)).includes("W1-DEEP-80"), true, budget(20_000)),
+    ).toBe(true);
+    // The variable is re-read from the adopted shell, not merely the screen: the restart must not
+    // have silently started a fresh shell behind the same window.
+    const survived = join(dir, "win-survived.txt");
+    await runCommand(page, `echo "$WIN_ONE" > ${survived}`, survived, "yes\n");
+    expect(await fileText(survived)).toBe("yes\n");
+    await tabs.nth(1).click();
+    expect(
+      await until(async () => (await terminalText(page)).includes("W2-DEEP-80"), true, budget(20_000)),
+    ).toBe(true);
+    expect(await terminalText(page)).not.toContain("W1-DEEP-80");
+    await page.close();
+  },
+  budget(180_000),
+);
 
-test.skipIf(!usable)("switching directly between two change terminal pages attaches the second", async () => {
-  const firstId = "ACC-SWITCH-A";
-  const secondId = "ACC-SWITCH-B";
-  await createChange(firstId);
-  await createChange(secondId);
+test.skipIf(!usable)(
+  "switching directly between two change terminal pages attaches the second",
+  async () => {
+    const firstId = "ACC-SWITCH-A";
+    const secondId = "ACC-SWITCH-B";
+    await createChange(firstId);
+    await createChange(secondId);
 
-  const page = await openTerminal(firstId);
-  await typeUntilText(page, "echo SWITCH_A_MARK", "SWITCH_A_MARK");
+    const page = await openTerminal(firstId);
+    await typeUntilText(page, "echo SWITCH_A_MARK", "SWITCH_A_MARK");
 
-  // Give the second change its own terminal window without using the page we are testing for the
-  // switch. Closing this setup page only detaches it; the shell and screen stay warm in the host.
-  const setup = await openTerminal(secondId);
-  await typeUntilText(setup, "echo SWITCH_B_MARK", "SWITCH_B_MARK");
-  await setup.close();
+    // Give the second change its own terminal window without using the page we are testing for the
+    // switch. Closing this setup page only detaches it; the shell and screen stay warm in the host.
+    const setup = await openTerminal(secondId);
+    await typeUntilText(setup, "echo SWITCH_B_MARK", "SWITCH_B_MARK");
+    await setup.close();
 
-  // The page is still on A's terminal. Click B's window in the sidebar: this is a direct
-  // terminal-page to terminal-page navigation, no reload and no intermediate page.
-  const secondGroup = page.locator(".sidebar .change-entry", { hasText: secondId });
-  const secondWindow = secondGroup.locator(".entry.sub.window").first();
-  await secondWindow.waitFor({ timeout: budget(20_000) });
-  await secondWindow.click();
-  await page.waitForURL(`**/changes/${secondId}/terminals`, { timeout: budget(20_000) });
-  expect(await until(async () => (await terminalText(page)).includes("SWITCH_B_MARK"), true, budget(20_000))).toBe(true);
-  expect(await terminalText(page)).not.toContain("SWITCH_A_MARK");
-  // The pane is not stranded on the pre-URL hint after the switch.
-  expect(await page.locator(".terminal-status", { hasText: "starting terminal…" }).count()).toBe(0);
-  await page.close();
-}, budget(120_000));
+    // The page is still on A's terminal. Click B's window in the sidebar: this is a direct
+    // terminal-page to terminal-page navigation, no reload and no intermediate page.
+    const secondGroup = page.locator(".sidebar .change-entry", { hasText: secondId });
+    const secondWindow = secondGroup.locator(".entry.sub.window").first();
+    await secondWindow.waitFor({ timeout: budget(20_000) });
+    await secondWindow.click();
+    await page.waitForURL(`**/changes/${secondId}/terminals`, { timeout: budget(20_000) });
+    expect(
+      await until(async () => (await terminalText(page)).includes("SWITCH_B_MARK"), true, budget(20_000)),
+    ).toBe(true);
+    expect(await terminalText(page)).not.toContain("SWITCH_A_MARK");
+    // The pane is not stranded on the pre-URL hint after the switch.
+    expect(await page.locator(".terminal-status", { hasText: "starting terminal…" }).count()).toBe(0);
+    await page.close();
+  },
+  budget(120_000),
+);
 
-test.skipIf(!usable)("a hidden terminal stays attached across Plan and back", async () => {
-  const id = "ACC-HIDDEN";
-  await createChange(id);
-  const terminalRequests: string[] = [];
-  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-  page.on("request", (request) => {
-    if (new URL(request.url()).pathname === `/api/changes/${id}/terminal`) terminalRequests.push(request.url());
-  });
-  await page.goto(`${url}/changes/${id}/terminals`);
-  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
-  await page.locator(".terminal-screen").click();
-  await awaitAttached(page);
-  await typeUntilText(page, "echo HIDDEN_MARK", "HIDDEN_MARK");
-  // The initial page settling can ask for the URL more than once (availability/owner settling);
-  // this test pins the hidden-pane property: Plan and back must add no further request.
-  const before = terminalRequests.length;
-  expect(before).toBeGreaterThanOrEqual(1);
+test.skipIf(!usable)(
+  "a hidden terminal stays attached across Plan and back",
+  async () => {
+    const id = "ACC-HIDDEN";
+    await createChange(id);
+    const terminalRequests: string[] = [];
+    const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname === `/api/changes/${id}/terminal`)
+        terminalRequests.push(request.url());
+    });
+    await page.goto(`${url}/changes/${id}/terminals`);
+    await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+    await page.locator(".terminal-screen").click();
+    await awaitAttached(page);
+    await typeUntilText(page, "echo HIDDEN_MARK", "HIDDEN_MARK");
+    // The initial page settling can ask for the URL more than once (availability/owner settling);
+    // this test pins the hidden-pane property: Plan and back must add no further request.
+    const before = terminalRequests.length;
+    expect(before).toBeGreaterThanOrEqual(1);
 
-  // The same change's Plan hides the terminal pane. It must keep its socket and screen rather
-  // than clear the URL and reconnect when the terminal page comes back.
-  const group = page.locator(".sidebar .change-entry", { hasText: id });
-  await group.locator(".entry.sub.change").click();
-  await page.waitForURL(`**/changes/${id}`, { timeout: budget(20_000) });
-  await group.locator(".entry.sub.window").first().click();
-  await page.waitForURL(`**/changes/${id}/terminals`, { timeout: budget(20_000) });
-  await awaitAttached(page);
-  expect(await until(async () => (await terminalText(page)).includes("HIDDEN_MARK"), true, budget(20_000))).toBe(true);
-  await Bun.sleep(300);
-  expect(terminalRequests).toHaveLength(before);
-  await page.close();
-}, budget(120_000));
+    // The same change's Plan hides the terminal pane. It must keep its socket and screen rather
+    // than clear the URL and reconnect when the terminal page comes back.
+    const group = page.locator(".sidebar .change-entry", { hasText: id });
+    await group.locator(".entry.sub.change").click();
+    await page.waitForURL(`**/changes/${id}`, { timeout: budget(20_000) });
+    await group.locator(".entry.sub.window").first().click();
+    await page.waitForURL(`**/changes/${id}/terminals`, { timeout: budget(20_000) });
+    await awaitAttached(page);
+    expect(
+      await until(async () => (await terminalText(page)).includes("HIDDEN_MARK"), true, budget(20_000)),
+    ).toBe(true);
+    await Bun.sleep(300);
+    expect(terminalRequests).toHaveLength(before);
+    await page.close();
+  },
+  budget(120_000),
+);
 
-test.skipIf(!usable)("a subagent window is the size the page shows", async () => {
-  const id = "ACC-SUB";
-  await createChange(id);
-  const created = await fetch(`${url}/api/changes/${id}/subagents`, {
-    method: "POST",
-    body: JSON.stringify({ profile: "builtin:reviewer", prompt: "geometry" }),
-  });
-  expect(created.status).toBe(201);
+test.skipIf(!usable)(
+  "a subagent window is the size the page shows",
+  async () => {
+    const id = "ACC-SUB";
+    await createChange(id);
+    const created = await fetch(`${url}/api/changes/${id}/subagents`, {
+      method: "POST",
+      body: JSON.stringify({ profile: "builtin:reviewer", prompt: "geometry" }),
+    });
+    expect(created.status).toBe(201);
 
-  const page = await openTerminal(id);
-  // A subagent's window is a window of its change, labelled from the subagent: the strip selects
-  // it like any other, and the pane then attaches to that shell.
-  const subagentTab = page.locator(".window-tab:not(.new):not(.overview)", { hasText: "Reviewer" });
-  await subagentTab.first().waitFor({ timeout: 15_000 });
-  await subagentTab.first().click();
-  // Prove the shell under the pane answers before typing the long guarded command, or a mid-type
-  // reconnect could split it.
-  await typeUntilText(page, "echo SUB-READY", "SUB-READY");
+    const page = await openTerminal(id);
+    // A subagent's window is a window of its change, labelled from the subagent: the strip selects
+    // it like any other, and the pane then attaches to that shell.
+    const subagentTab = page.locator(".window-tab:not(.new):not(.overview)", { hasText: "Reviewer" });
+    await subagentTab.first().waitFor({ timeout: 15_000 });
+    await subagentTab.first().click();
+    // Prove the shell under the pane answers before typing the long guarded command, or a mid-type
+    // reconnect could split it.
+    await typeUntilText(page, "echo SUB-READY", "SUB-READY");
 
-  // The guard is the subagent window's own environment: only its shell can answer.
-  const size = await ptySize(page, join(tmp, "subagent-size.txt"), '-n "$CORVI_SUBAGENT_ID"');
-  expect(size).toEqual(await terminalSize(page));
-  await page.close();
-}, budget(120_000));
+    // The guard is the subagent window's own environment: only its shell can answer.
+    const size = await ptySize(page, join(tmp, "subagent-size.txt"), '-n "$CORVI_SUBAGENT_ID"');
+    expect(size).toEqual(await terminalSize(page));
+    await page.close();
+  },
+  budget(120_000),
+);
 
-test.skipIf(!usable)("an action window freezes over its output, and its agent status shows", async () => {
-  const id = "ACC-ACTION";
-  await createChange(id);
-  const written = await fetch(`${url}/api/actions/files`, {
-    method: "PUT",
-    body: JSON.stringify({
-      scope: "global",
-      id: "freeze-me",
-      text: '---\nlabel: Freeze Me\nkind: command\ntarget: new\nkeepOpen: true\nnotify: true\n---\necho ACTION-FROZEN\n',
-    }),
-  });
-  expect(written.status).toBe(200);
+test.skipIf(!usable)(
+  "an action window freezes over its output, and its agent status shows",
+  async () => {
+    const id = "ACC-ACTION";
+    await createChange(id);
+    const written = await fetch(`${url}/api/actions/files`, {
+      method: "PUT",
+      body: JSON.stringify({
+        scope: "global",
+        id: "freeze-me",
+        text: "---\nlabel: Freeze Me\nkind: command\ntarget: new\nkeepOpen: true\nnotify: true\n---\necho ACTION-FROZEN\n",
+      }),
+    });
+    expect(written.status).toBe(200);
 
-  const page = await openTerminal(id);
-  const tabs = page.locator(".window-tab:not(.new):not(.overview)");
-  // Run it from the page's own menu, the path a person takes.
-  await page.getByRole("button", { name: "Actions ▾" }).click();
-  await page.locator(".menu-items button", { hasText: "Freeze Me" }).click();
+    const page = await openTerminal(id);
+    const tabs = page.locator(".window-tab:not(.new):not(.overview)");
+    // Run it from the page's own menu, the path a person takes.
+    await page.getByRole("button", { name: "Actions ▾" }).click();
+    await page.locator(".menu-items button", { hasText: "Freeze Me" }).click();
 
-  // The kept-open window stays in the strip, labelled from the action.
-  const frozen = tabs.filter({ hasText: "Freeze Me" });
-  await frozen.first().waitFor({ timeout: 20_000 });
-  // Its output is still there: the window did not vanish with the command.
-  await frozen.first().click();
-  expect(await until(async () => (await terminalText(page)).includes("ACTION-FROZEN"), true, budget(20_000))).toBe(true);
+    // The kept-open window stays in the strip, labelled from the action.
+    const frozen = tabs.filter({ hasText: "Freeze Me" });
+    await frozen.first().waitFor({ timeout: 20_000 });
+    // Its output is still there: the window did not vanish with the command.
+    await frozen.first().click();
+    expect(
+      await until(async () => (await terminalText(page)).includes("ACTION-FROZEN"), true, budget(20_000)),
+    ).toBe(true);
 
-  // The agent-status channel, through the endpoint the CLI uses. It is a live fact about a
-  // running process, so it is reported for the change's live shell — the frozen command window's
-  // pty has ended, and a status for it is refused by design.
-  const listing = (await (await fetch(`${url}/api/changes/${id}/terminal/windows`)).json()) as { id: string; label: string }[];
-  const live = listing.find((entry) => entry.label === id);
-  expect(live).toBeDefined();
-  const { client } = await ensureHost({ socket: join(tmp, "state", "corvi", "host.sock"), checkout: process.cwd(), buildId: process.env.CORVI_BUILD ?? "dev", runtime: "node" });
-  const incarnation = (await client.list()).find((entry) => entry.id === live!.id)?.incarnation;
-  client.close();
-  expect(incarnation).toBeDefined();
-  const reported = await fetch(`${url}/api/terminals/status`, {
-    method: "POST",
-    body: JSON.stringify({ sessionId: live!.id, incarnation, status: "working", name: "pi", sessionName: "orders-api" }),
-  });
-  expect(reported.ok).toBe(true);
-  // The watcher pushes the window list when the presented facts change; the strip then names the
-  // session the agent gave.
-  expect(await until(async () => (await tabs.filter({ hasText: "orders-api" }).count()) > 0, true, budget(20_000))).toBe(true);
-  await page.close();
-}, budget(120_000));
+    // The agent-status channel, through the endpoint the CLI uses. It is a live fact about a
+    // running process, so it is reported for the change's live shell — the frozen command window's
+    // pty has ended, and a status for it is refused by design.
+    const listing = (await (await fetch(`${url}/api/changes/${id}/terminal/windows`)).json()) as {
+      id: string;
+      label: string;
+    }[];
+    const live = listing.find((entry) => entry.label === id);
+    expect(live).toBeDefined();
+    const { client } = await ensureHost({
+      socket: join(tmp, "state", "corvi", "host.sock"),
+      checkout: process.cwd(),
+      buildId: process.env.CORVI_BUILD ?? "dev",
+      runtime: "node",
+    });
+    const incarnation = (await client.list()).find((entry) => entry.id === live!.id)?.incarnation;
+    client.close();
+    expect(incarnation).toBeDefined();
+    const reported = await fetch(`${url}/api/terminals/status`, {
+      method: "POST",
+      body: JSON.stringify({
+        sessionId: live!.id,
+        incarnation,
+        status: "working",
+        name: "pi",
+        sessionName: "orders-api",
+      }),
+    });
+    expect(reported.ok).toBe(true);
+    // The watcher pushes the window list when the presented facts change; the strip then names the
+    // session the agent gave.
+    expect(
+      await until(
+        async () => (await tabs.filter({ hasText: "orders-api" }).count()) > 0,
+        true,
+        budget(20_000),
+      ),
+    ).toBe(true);
+    await page.close();
+  },
+  budget(120_000),
+);

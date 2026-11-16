@@ -21,24 +21,19 @@ const FILE = "notes.md";
  * The notes for a change: the extension's own file first, and when it does not exist yet the
  * legacy change-root sidecar. A change with neither reads as "".
  */
-export const readNotes = (
-  change: Change,
-): Effect.Effect<string, RouteError, ExtensionStore | Changes> =>
+export const readNotes = (change: Change): Effect.Effect<string, RouteError, ExtensionStore | Changes> =>
   Effect.gen(function* () {
     const store = yield* ExtensionStore;
-    const stored = yield* store.read(change, FILE).pipe(
-      Effect.catchTag("NotFoundError", () => Effect.succeed(null)),
-    );
+    const stored = yield* store
+      .read(change, FILE)
+      .pipe(Effect.catchTag("NotFoundError", () => Effect.succeed(null)));
     if (stored !== null) return stored;
     const changes = yield* Changes;
     return yield* changes.readSidecar(change, FILE);
   });
 
 /** Write the notes to the extension's own store, never the legacy path. */
-export const writeNotes = (
-  change: Change,
-  text: string,
-): Effect.Effect<void, RouteError, ExtensionStore> =>
+export const writeNotes = (change: Change, text: string): Effect.Effect<void, RouteError, ExtensionStore> =>
   Effect.gen(function* () {
     const store = yield* ExtensionStore;
     yield* store.write(change, FILE, text);

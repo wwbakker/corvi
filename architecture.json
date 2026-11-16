@@ -2,53 +2,29 @@
   "packages": {
     "@corvi/contracts": {
       "dependsOn": [],
-      "external": [
-        "effect"
-      ]
+      "external": ["effect"]
     },
     "@corvi/configuration": {
-      "dependsOn": [
-        "@corvi/contracts"
-      ]
+      "dependsOn": ["@corvi/contracts"]
     },
     "@corvi/changes": {
-      "dependsOn": [
-        "@corvi/contracts"
-      ]
+      "dependsOn": ["@corvi/contracts"]
     },
     "@corvi/repositories": {
-      "dependsOn": [
-        "@corvi/contracts"
-      ]
+      "dependsOn": ["@corvi/contracts"]
     },
     "@corvi/terminals": {
-      "dependsOn": [
-        "@corvi/contracts"
-      ]
+      "dependsOn": ["@corvi/contracts"]
     },
     "@corvi/agents": {
-      "dependsOn": [
-        "@corvi/contracts"
-      ]
+      "dependsOn": ["@corvi/contracts", "@corvi/markdown"]
     },
     "@corvi/actions": {
-      "dependsOn": [
-        "@corvi/contracts",
-        "@corvi/terminals"
-      ],
-      "external": [
-        "effect",
-        "yaml",
-        "node:fs",
-        "node:fs/promises",
-        "node:path",
-        "node:url"
-      ]
+      "dependsOn": ["@corvi/contracts", "@corvi/markdown", "@corvi/terminals"],
+      "external": ["effect", "node:fs", "node:fs/promises", "node:path", "node:url"]
     },
     "@corvi/shell": {
-      "dependsOn": [
-        "@corvi/contracts"
-      ]
+      "dependsOn": ["@corvi/contracts"]
     },
     "@corvi/workflows": {
       "dependsOn": [
@@ -61,55 +37,29 @@
       ]
     },
     "@corvi/client": {
-      "dependsOn": [
-        "@corvi/contracts"
-      ]
+      "dependsOn": ["@corvi/contracts"]
     },
     "@corvi/cli": {
-      "dependsOn": [
-        "@corvi/client",
-        "@corvi/configuration",
-        "@corvi/contracts"
-      ],
-      "external": [
-        "effect"
-      ],
+      "dependsOn": ["@corvi/client", "@corvi/configuration", "@corvi/contracts"],
+      "external": ["effect"],
       "node": true
     },
     "@corvi/github": {
-      "dependsOn": [
-        "@corvi/contracts",
-        "@corvi/shell"
-      ]
+      "dependsOn": ["@corvi/contracts", "@corvi/shell"]
     },
     "@corvi/jira": {
-      "dependsOn": [
-        "@corvi/contracts",
-        "@corvi/configuration",
-        "@corvi/shell"
-      ]
+      "dependsOn": ["@corvi/contracts", "@corvi/configuration", "@corvi/shell"]
     },
     "@corvi/azure-devops": {
-      "dependsOn": [
-        "@corvi/contracts",
-        "@corvi/configuration",
-        "@corvi/github",
-        "@corvi/shell"
-      ]
+      "dependsOn": ["@corvi/contracts", "@corvi/configuration", "@corvi/github", "@corvi/shell"]
     },
     "@corvi/pi": {
       "dependsOn": [],
-      "external": [
-        "@earendil-works/pi-coding-agent",
-        "node:fs"
-      ]
+      "external": ["@earendil-works/pi-coding-agent", "node:fs"]
     },
     "@corvi/opencode": {
       "dependsOn": [],
-      "external": [
-        "@opencode-ai/plugin",
-        "node:fs"
-      ]
+      "external": ["@opencode-ai/plugin", "node:fs"]
     },
     "@corvi/server": {
       "dependsOn": [
@@ -140,12 +90,16 @@
       ]
     },
     "@corvi/desktop": {
-      "dependsOn": [
-        "@corvi/web",
-        "@corvi/contracts",
-        "@corvi/configuration"
-      ],
+      "dependsOn": ["@corvi/web", "@corvi/contracts", "@corvi/configuration"],
       "node": true
+    },
+    "@corvi/markdown": {
+      "dependsOn": [],
+      "external": ["yaml"]
+    },
+    "@corvi/test-support": {
+      "dependsOn": [],
+      "external": ["node:fs/promises", "node:os", "node:path"]
     }
   }
 }

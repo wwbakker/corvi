@@ -35,7 +35,10 @@ test("an active target is offered where its delivery makes sense", () => {
   const shell = tab({ icon: "terminal" });
   // A prompt goes to the agent you are looking at; a command goes to a plain shell.
   expect(applicableActions([promptActive, commandActive, anywhere], agent)).toEqual([promptActive, anywhere]);
-  expect(applicableActions([promptActive, commandActive, anywhere], shell)).toEqual([commandActive, anywhere]);
+  expect(applicableActions([promptActive, commandActive, anywhere], shell)).toEqual([
+    commandActive,
+    anywhere,
+  ]);
   // With nothing on screen, only the targets that name their own window.
   expect(applicableActions([promptActive, commandActive, anywhere], undefined)).toEqual([anywhere]);
 });

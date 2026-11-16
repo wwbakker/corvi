@@ -1,21 +1,33 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { existsSync, mkdtempSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
+import type { AddressInfo } from "node:net";
+import { mkdir, mkdtemp, realpath } from "node:fs/promises";
 import { cpus, loadavg } from "node:os";
 import { join } from "node:path";
-import type { Browser } from "playwright";
-import { claimRunPidFile, isRunToken, pidAlive } from "../scripts/clean-test.ts";
+import { chromium, webkit, type Browser, type Page } from "playwright";
+import { claimRunPidFile, isRunToken } from "../scripts/clean-test.ts";
 import { testTempBase } from "../scripts/test-temp.ts";
 import { Effect, Layer, Result, Schema } from "effect";
 import { TestClock, TestConsole } from "effect/testing";
 import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
-import { runtimeConfig, type Config } from "../apps/server/src/workspace/server/index.ts";
+import {
+  configPath,
+  reloadConfigSync,
+  runtimeConfig,
+  type Config,
+} from "../apps/server/src/workspace/server/index.ts";
 import { capabilitiesLayer } from "../apps/server/src/integrations/services.ts";
 import type { Capabilities } from "../apps/server/src/integrations/api/capabilities.ts";
 import { setRepos } from "../apps/server/src/change/provisioning.ts";
 import { sh, type ShellResult } from "../apps/server/src/capabilities/shell.ts";
 import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
-import { CacheLive, ChangesLive, GitFactsLive, SettingsLive } from "../apps/server/src/integrations/services.ts";
+import {
+  CacheLive,
+  ChangesLive,
+  GitFactsLive,
+  SettingsLive,
+} from "../apps/server/src/integrations/services.ts";
 import type { CliError } from "@corvi/contracts/errors";
 import { toResponse } from "../apps/server/src/capabilities/effect/http.ts";
 import { swr } from "../apps/server/src/capabilities/cache.ts";
@@ -24,12 +36,7 @@ import type { Change } from "@corvi/changes/record";
 import { cancelChange } from "../apps/server/src/change/server/index.ts";
 import { fileDiff, localChanges } from "../apps/server/src/integrations/review/server.ts";
 import type { LocalStatus } from "@corvi/contracts/integrations/review";
-import {
-  deploy,
-  versionsFor,
-  type Buildable,
-} from "@corvi/azure-devops/server";
-
+import { deploy, versionsFor, type Buildable } from "@corvi/azure-devops/server";
 
 /** Whether this process has written the run's pid-file yet. */
 let announced = false;
@@ -68,10 +75,94 @@ export const testRun = (): string => {
 };
 
 /** A temp dir whose name carries the run token, so the cleaner can tell whose it is. */
-const tempDirName = (label: string): string =>
-  join(testTempBase(), `corvi-${testRun()}-${label}-`);
+const tempDirName = (label: string): string => join(testTempBase(), `corvi-${testRun()}-${label}-`);
 
 export const testTempDir = (label: string): Promise<string> => mkdtemp(tempDirName(label));
+
+/** A file's own changes roots: a token-named temp dir with `changes` and `changes-archive` under
+ * it, exported through the environment before any test in the file reads the configuration.
+ * Product code that deletes a change or an archive mutates exactly these roots, so a file cannot
+ * disturb another's state. `realpath` matters: the store compares resolved paths. */
+export const useOwnChangeRoot = async (label: string): Promise<string> => {
+  const tmp = await realpath(await testTempDir(label));
+  process.env.CORVI_ROOT = join(tmp, "changes");
+  process.env.CORVI_ARCHIVE_ROOT = join(tmp, "changes-archive");
+  return tmp;
+};
+
+/** One commit in a test repository, with a fixed identity so git never asks. */
+export const commitIn = (repo: string, message: string): Promise<ShellResult> =>
+  runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", message], repo);
+
+/** A test repository: one commit on `branch` (main by default). With `remote`, the seed is cloned
+ * into a bare origin and the returned clone tracks it, configured with the test identity unless
+ * `configure: false`. */
+export const gitRepo = async (
+  tmp: string,
+  name: string,
+  options: { readonly branch?: string; readonly remote?: boolean; readonly configure?: boolean } = {},
+): Promise<string> => {
+  const branch = options.branch ?? "main";
+  const seed = join(tmp, options.remote ? `${name}-seed` : name);
+  await runSh(["git", "init", "-b", branch, seed]);
+  await Bun.write(join(seed, "README.md"), `${name}\n`);
+  await runSh(["git", "add", "."], seed);
+  await commitIn(seed, "init");
+  if (!options.remote) return seed;
+  const origin = join(tmp, `${name}.git`);
+  await runSh(["git", "clone", "--bare", "--quiet", seed, origin]);
+  const clone = join(tmp, name);
+  await runSh(["git", "clone", "--quiet", origin, clone]);
+  if (options.configure !== false) {
+    await runSh(["git", "config", "user.email", "t@t"], clone);
+    await runSh(["git", "config", "user.name", "t"], clone);
+  }
+  return clone;
+};
+
+/** Remember the named environment values and return the function that puts them back exactly —
+ * an unset key deleted again, not written as "undefined". For the files whose environment is set
+ * for the whole file (`beforeAll`/module load) rather than one test body. */
+export const rememberEnv = (...names: readonly string[]): (() => void) => {
+  const saved = new Map(names.map((name) => [name, process.env[name]]));
+  return () => {
+    for (const [name, value] of saved) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  };
+};
+
+/** Run `body` with an environment patch, restoring every key exactly as it was — an absent key
+ * removed again, not written as the string "undefined". The environment twin of
+ * `withRuntimeConfig`. */
+export const withEnv = async <T>(
+  patch: Readonly<Record<string, string | undefined>>,
+  body: () => Promise<T> | T,
+): Promise<T> => {
+  const saved = new Map(Object.keys(patch).map((key) => [key, process.env[key]]));
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  try {
+    return await body();
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+};
+
+/** Write a test configuration file and put it into effect without a restart. */
+export const writeTestConfig = (value: unknown): void => {
+  writeFileSync(configPath(), JSON.stringify(value));
+  reloadConfigSync();
+};
+
+/** The common shape: a config holding just these workspaces. */
+export const writeTestWorkspaces = (workspaces: unknown[]): void => writeTestConfig({ workspaces });
 
 /** This file's own world, applied before any test in it reads the configuration: `CORVI_ROOT`
  * and its siblings point into a directory no other test file shares. Product code that deletes
@@ -104,7 +195,12 @@ export const stopRunHost = async (tmp: string): Promise<void> => {
   const socket = join(tmp, "state", "corvi", "host.sock");
   if (!existsSync(socket)) return;
   const { ensureHost } = await import("../apps/server/src/terminals/host/client.ts");
-  const client = await ensureHost({ socket, checkout: process.cwd(), buildId: process.env.CORVI_BUILD ?? "dev", runtime: "node" })
+  const client = await ensureHost({
+    socket,
+    checkout: process.cwd(),
+    buildId: process.env.CORVI_BUILD ?? "dev",
+    runtime: "node",
+  })
     .then((result) => result.client)
     .catch(() => undefined);
   await client?.shutdown().catch(() => undefined);
@@ -162,10 +258,7 @@ export const serverEnv = (
  * own line rather than a poll: a random port picked here once landed on a busy one, and then
  * the test said only "connection refused" (test/node-runtime.test.ts). Rejects if the
  * server exits first, or says nothing within a minute. */
-export const waitForUrl = async (
-  proc: ReturnType<typeof Bun.spawn>,
-  timeoutMs = 60_000,
-): Promise<string> => {
+export const waitForUrl = async (proc: ReturnType<typeof Bun.spawn>, timeoutMs = 60_000): Promise<string> => {
   const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
   const decoder = new TextDecoder();
   let seen = "";
@@ -191,6 +284,38 @@ export const waitForUrl = async (
     ),
   );
   return await Promise.race([line, failure, timeout]);
+};
+
+/** Start a test server on an OS-picked port, with the run's isolated environment, and wait for
+ * its readiness line. The caller owns the temp dir and the teardown. */
+export const startTestServer = async (
+  tmp: string,
+  options: {
+    readonly env?: Record<string, string>;
+    readonly cwd?: string;
+    readonly stderr?: "pipe" | "ignore" | "inherit";
+  } = {},
+): Promise<{ server: ReturnType<typeof Bun.spawn>; url: string }> => {
+  const server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    env: serverEnv(tmp, options.env),
+    stdout: "pipe",
+    stderr: options.stderr ?? (process.env.CORVI_TEST_LOUD ? "inherit" : "ignore"),
+  });
+  return { server, url: await waitForUrl(server) };
+};
+
+/** Stop the server and the terminal host it started, in the order a test's teardown needs: the
+ * host outlives the server by design, so it is asked to shut down explicitly. */
+export const stopTestServer = async (
+  server: ReturnType<typeof Bun.spawn> | undefined,
+  tmp: string,
+): Promise<void> => {
+  if (server !== undefined) {
+    server.kill();
+    await server.exited.catch(() => undefined);
+  }
+  await stopRunHost(tmp);
 };
 
 /** How contended the machine is right now, as a multiplier: 1 on an idle box, up to 4 when it is
@@ -292,9 +417,7 @@ const newestFile = (dir: string): number => {
  * the newest source is refused, and the message names the build that fixes it. `bun run test`
  * builds first and cannot trip it. The web directory is a parameter so a fixture can pin the
  * rule (test/webBundle.test.ts). */
-export const requireFreshWebBundle = (
-  webDir: string = join(import.meta.dir, "..", "apps", "web"),
-): void => {
+export const requireFreshWebBundle = (webDir: string = join(import.meta.dir, "..", "apps", "web")): void => {
   const sources = newestFile(join(webDir, "src"));
   const built = newestFile(join(webDir, "dist"));
   if (built === 0 || sources > built) {
@@ -305,51 +428,49 @@ export const requireFreshWebBundle = (
   }
 };
 
-/** A machine-wide lock for the one piece of state every suite on the computer shares: the system
- * clipboard. The clipboard test's whole subject is that a copy reaches it and a paste comes back
- * out — and with two suites running at once (several agents on one machine routinely run this
- * suite concurrently), one run's `writeText("")` erases the other's marker mid-wait and both
- * flake. Held around that test's body, the clipboard has one user at a time no matter how many
- * suites are up.
- *
- * `mkdir` is the lock, because creating a directory is atomic; the owner's pid is kept inside
- * it, and a lock whose owner is gone is taken over — or one old enough that its owner died
- * between making it and naming itself. The name carries the uid: the lock lives under the shared
- * test temp base and is dot-prefixed, so a foreign user's lock is distinct and the
- * scripts/clean-test.ts sweep of `corvi-*` never touches either. It sits under that base, not one
- * suite's own root, so concurrent suites on the machine share it. */
-export const withMachineLock = async <T>(what: string, body: () => Promise<T>): Promise<T> => {
-  const uid = process.getuid?.() ?? "me";
-  const dir = join(testTempBase(), `.corvi-test-${uid}-${what}.lock`);
-  const deadline = Date.now() + budget(90_000);
-  for (;;) {
-    try {
-      await mkdir(dir);
-      writeFileSync(join(dir, "owner"), String(process.pid));
-      break;
-    } catch {
-      let owner = 0;
-      try {
-        owner = Number(readFileSync(join(dir, "owner"), "utf8").trim());
-      } catch {
-        // no owner named yet, or unreadable: treated as no owner
-      }
-      const ageMs = Date.now() - ((await stat(dir).catch(() => undefined))?.mtimeMs ?? Date.now());
-      if (!pidAlive(owner) && ageMs > 5_000) {
-        // A stale lock of ours, or one the sticky bit will not let us remove: either way the
-        // deadline below is what ends the wait, so every pass sleeps.
-        await rm(dir, { recursive: true, force: true }).catch(() => undefined);
-      }
-    }
-    if (Date.now() > deadline) {
-      throw new Error(`timed out waiting for the machine's ${what} lock (${dir})`);
-    }
-    await Bun.sleep(200);
-  }
+/** A port nothing listens on yet: bind port 0, take the number, close the probe. */
+export const reservePort = async (): Promise<number> => {
+  const probe = createServer();
+  await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", () => resolve()));
+  const port = (probe.address() as AddressInfo).port;
+  await new Promise<void>((resolve) => probe.close(() => resolve()));
+  return port;
+};
+
+/** The viewport the page tests drive, and the numbers a layout assertion reads. */
+export const VIEWPORT = { width: 1280, height: 900 } as const;
+
+/** The engine the page tests drive. Chromium is the app's own engine (Electron); `CORVI_ENGINE`
+ * runs the same file in WebKit where Playwright's bundle supports it. A missing engine is a skip,
+ * not a failure, and a bundle older than the web sources is refused before the browser starts —
+ * a page test must not read yesterday's UI. The caller keeps its `let browser: Browser` and this
+ * fills it; tests guard on `usable` before using it. */
+export const openEngine = async (assign: (browser: Browser) => void): Promise<boolean> => {
+  const engineName = process.env.CORVI_ENGINE === "webkit" ? "webkit" : "chromium";
+  const engine = engineName === "webkit" ? webkit : chromium;
+  if (!(await Bun.file(engine.executablePath()).exists())) return false;
+  // A stale bundle is a failure, not a skip: the engine is there and the page would be old.
+  requireFreshWebBundle();
   try {
-    return await body();
+    assign(await engine.launch());
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** Run `body` on a fresh page at the shared viewport, closing it whatever happens. A page that is
+ * not closed keeps its pty attached and the next test's client gates cannot be satisfied. */
+export const withPage = async <T>(
+  browser: Browser,
+  body: (page: Page) => Promise<T>,
+  viewport: { readonly width: number; readonly height: number } = VIEWPORT,
+): Promise<T> => {
+  const page = await browser.newPage({ viewport });
+  try {
+    return await body(page);
   } finally {
-    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    await page.close().catch(() => undefined);
   }
 };
 
@@ -369,10 +490,8 @@ export const runEffect = <A, E>(effect: Effect.Effect<A, E, Capabilities>): Prom
   Effect.runPromise(Effect.provide(effect, capabilitiesLayer(workspaceById(undefined))));
 
 /** The same, as the workspace named: for the tests that exercise per-workspace behaviour. */
-export const runEffectWith = <A, E>(
-  workspace: Workspace,
-  effect: Effect.Effect<A, E, never>,
-): Promise<A> => Effect.runPromise(Effect.provide(effect, capabilitiesLayer(workspace)));
+export const runEffectWith = <A, E>(workspace: Workspace, effect: Effect.Effect<A, E, never>): Promise<A> =>
+  Effect.runPromise(Effect.provide(effect, capabilitiesLayer(workspace)));
 
 /** Run an effect under Effect's `TestClock`, where time moves only when the effect advances it
  * with `TestClock.adjust`. The capabilities are merged in as `runEffect` does, so the same effect
@@ -381,9 +500,7 @@ export const runEffectWith = <A, E>(
  * The test clock starts at the wall clock's `now`: the cache's `ageOf` stays synchronous and on
  * the wall clock by contract, so a freshly produced entry must still read as fresh next to it.
  * Only relative advances matter, so the tests reason in offsets and behave the same at any date. */
-export const runEffectWithTestClock = <A, E>(
-  effect: Effect.Effect<A, E, never>,
-): Promise<A> =>
+export const runEffectWithTestClock = <A, E>(effect: Effect.Effect<A, E, never>): Promise<A> =>
   Effect.runPromise(
     Effect.andThen(TestClock.setTime(Date.now()), effect).pipe(
       Effect.provide(
@@ -467,10 +584,7 @@ export const fakeShell = (
  * exactly as the host provides both. `sh` reads the Shell from context and delegates, so a core
  * integration function can be driven with no subprocess. Extension effects additionally read
  * `Cache`, `Settings` and `Changes` from context, so those ride along with their live layers. */
-export const runWithShell = <A, E, R>(
-  shell: FakeShell,
-  effect: Effect.Effect<A, E, R>,
-): Promise<A> =>
+export const runWithShell = <A, E, R>(shell: FakeShell, effect: Effect.Effect<A, E, R>): Promise<A> =>
   Effect.runPromise(
     Effect.provide(
       effect as Effect.Effect<A, E, never>,
@@ -561,6 +675,47 @@ export const runRouteWithShell = (
     ),
   );
 
+type GuardedHandler = (req: Request, server?: unknown) => Promise<Response>;
+type GuardedTable = Record<string, Partial<Record<string, GuardedHandler>>>;
+
+/** Call a `guard`ed route table by its method and pattern, with the path parameters Bun's router
+ * would have filled in and a same-origin request. The route tables are structural values, so this
+ * keeps the one cast here rather than in every test. */
+export const callGuarded = (
+  routes: unknown,
+  method: string,
+  path: string,
+  options: {
+    readonly params?: Record<string, string>;
+    readonly body?: unknown;
+    readonly headers?: Record<string, string>;
+  } = {},
+): Promise<Response> => {
+  const handler = (routes as GuardedTable)[path]?.[method];
+  if (handler === undefined) return Promise.reject(new Error(`no ${method} ${path}`));
+  const req = new Request(`http://127.0.0.1:4000${path}`, {
+    method,
+    headers: {
+      "content-type": "application/json",
+      "sec-fetch-site": "same-origin",
+      ...options.headers,
+    },
+    ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+  });
+  Object.assign(req, { params: options.params ?? {} });
+  return handler(req);
+};
+
+/** A failed `Result`, or a thrown error when the test expected a failure and got a success. The
+ * one narrowing for the many `Result.isFailure` blocks. */
+export const failureOf = <A, E>(
+  result:
+    { readonly _tag: "Success"; readonly success: A } | { readonly _tag: "Failure"; readonly failure: E },
+): E => {
+  if (result._tag === "Success") throw new Error("expected a failed result");
+  return result.failure;
+};
+
 /** One CLI call, Promise-shaped for the tests: a timed-out CLI is exit code 124, so tests
  * branch on `code` exactly as the server does. */
 export const runSh = (cmd: readonly string[], cwd?: string): Promise<ShellResult> =>
@@ -624,22 +779,17 @@ export const runCancel = async (
 };
 
 /** What is uncommitted in one repository, Promise-shaped for the tests. */
-export const runLocalChanges = (
-  ...args: Parameters<typeof localChanges>
-): Promise<LocalStatus> => runEffect(localChanges(...args));
+export const runLocalChanges = (...args: Parameters<typeof localChanges>): Promise<LocalStatus> =>
+  runEffect(localChanges(...args));
 
 /** One file's diff, Promise-shaped for the tests. */
 export const runFileDiff = (...args: Parameters<typeof fileDiff>): Promise<string> =>
   runEffect(fileDiff(...args));
 
 /** Recent builds of a service, Promise-shaped for the tests. */
-export const runVersionsFor = (
-  ...args: Parameters<typeof versionsFor>
-): Promise<Buildable[]> => runEffect(versionsFor(...args));
+export const runVersionsFor = (...args: Parameters<typeof versionsFor>): Promise<Buildable[]> =>
+  runEffect(versionsFor(...args));
 
 /** Triggering a deploy, Promise-shaped for the tests. */
-export const runDeploy = (
-  ...args: Parameters<typeof deploy>
-): Promise<{ runId: number; url?: string }> => runEffect(deploy(...args));
-
-
+export const runDeploy = (...args: Parameters<typeof deploy>): Promise<{ runId: number; url?: string }> =>
+  runEffect(deploy(...args));

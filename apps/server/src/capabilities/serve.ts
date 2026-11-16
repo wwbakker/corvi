@@ -22,16 +22,10 @@ export type ServerWebSocket<Data> = WsSocket & { data: Data };
  * `onAbort` is called when the raw socket closes before the handshake completes (a client that
  * sent `Upgrade` without valid WebSocket headers), so a bridge can tear down what it opened. */
 export type Server = {
-  upgrade: (
-    request: Request,
-    options?: { data?: unknown; onAbort?: () => void },
-  ) => boolean;
+  upgrade: (request: Request, options?: { data?: unknown; onAbort?: () => void }) => boolean;
 };
 
-type Handler = (
-  request: Request,
-  server: Server,
-) => Response | undefined | Promise<Response | undefined>;
+type Handler = (request: Request, server: Server) => Response | undefined | Promise<Response | undefined>;
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;
 

@@ -13,9 +13,7 @@ export const accountId = (
 ): Effect.Effect<string | undefined, BadRequestError> =>
   Effect.gen(function* () {
     if (!configured.trim()) {
-      return (
-        yield* jiraFetch<{ accountId?: string }>("/rest/api/3/myself", { site })
-      ).accountId;
+      return (yield* jiraFetch<{ accountId?: string }>("/rest/api/3/myself", { site })).accountId;
     }
     // Already an account id: Atlassian's are opaque strings, and a name never looks like one.
     if (!configured.includes("@") && !configured.includes(" ")) return configured;

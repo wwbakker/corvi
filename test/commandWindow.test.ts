@@ -1,11 +1,7 @@
 import { expect, test } from "bun:test";
 
 import type { RawWindow } from "@corvi/contracts/terminal";
-import {
-  COMMAND_ACTION_OPTION,
-  COMMAND_EXIT_OPTION,
-  COMMAND_NOTIFY_OPTION,
-} from "@corvi/terminals/model";
+import { COMMAND_ACTION_OPTION, COMMAND_EXIT_OPTION, COMMAND_NOTIFY_OPTION } from "@corvi/terminals/model";
 import { commandWindowPresenter } from "@corvi/terminals/presenter";
 
 /** A window's raw facts, with the wrapper's option names the presenter reads. */

@@ -8,6 +8,7 @@
 import { Result } from "effect";
 
 import type { SubagentSource } from "@corvi/contracts/subagents";
+import { keyOf, mergeScopedFiles } from "@corvi/markdown/scoped";
 import { parseProfileFile, type Profile, type InvalidProfileFile } from "./profile.ts";
 
 /** One file as discovery reads it: its id is the filename without `.md`. */
@@ -44,68 +45,24 @@ export type ProfileDiscovery = {
   readonly skipped: readonly SkippedProfileFile[];
 };
 
-/** The scope ranks, most specific first. Two repositories are equal — both are listed. */
-const rank: Record<SubagentSource, number> = {
-  repository: 3,
-  workspace: 2,
-  global: 1,
-  builtin: 0,
-};
-
-/** `repository:orders-api:reviewer`, `workspace:personal:reviewer`, `global:reviewer`,
- * `builtin:reviewer`. */
-export const keyOf = (source: SubagentSource, origin: string | undefined, id: string): string =>
-  source === "global" || source === "builtin" ? `${source}:${id}` : `${source}:${origin ?? ""}:${id}`;
+export { keyOf };
 
 /** Parse every file and apply the precedence rules. Order survives: files come in scope order
  * (built-in, global, workspace, repositories) and the list keeps it. */
 export const mergeProfileFiles = (files: readonly ProfileFileInput[]): ProfileDiscovery => {
-  const parsed: { readonly file: ProfileFileInput; readonly key: string; readonly profile: Profile }[] = [];
-  const skipped: SkippedProfileFile[] = [];
-  for (const file of files) {
-    const key = keyOf(file.source, file.origin, file.id);
-    if (file.readable === false) {
-      skipped.push({ key, reasons: ["cannot read this file"] });
-      continue;
-    }
+  const merged = mergeScopedFiles<ProfileFileInput, Profile>(files, (file) => {
+    if (file.readable === false) return { reasons: ["cannot read this file"] };
     const result = parseProfileFile(file.text);
-    if (Result.isFailure(result)) {
-      skipped.push({ key, reasons: result.failure.reasons });
-      continue;
-    }
-    parsed.push({ file, key, profile: result.success });
-  }
-
-  const byId = new Map<string, typeof parsed>();
-  for (const found of parsed) {
-    const same = byId.get(found.file.id) ?? [];
-    same.push(found);
-    byId.set(found.file.id, same);
-  }
-  const winners = new Set<(typeof parsed)[number]>();
-  for (const same of byId.values()) {
-    const repositories = same.filter((found) => found.file.source === "repository");
-    if (repositories.length > 0) {
-      for (const found of repositories) winners.add(found);
-      continue;
-    }
-    winners.add(
-      same.reduce((best, found) => (rank[found.file.source] > rank[best.file.source] ? found : best)),
-    );
-  }
-
+    return Result.isSuccess(result) ? { value: result.success } : { reasons: result.failure.reasons };
+  });
   return {
-    profiles: parsed
-      .filter((found) => winners.has(found))
-      .map(
-        (found): DiscoveredProfile => ({
-          key: found.key,
-          id: found.file.id,
-          source: found.file.source,
-          sourceLabel: found.file.originLabel ?? found.file.origin,
-          profile: found.profile,
-        }),
-      ),
-    skipped,
+    profiles: merged.entries.map(({ key, file, value }) => ({
+      key,
+      id: file.id,
+      source: file.source,
+      sourceLabel: file.originLabel ?? file.origin,
+      profile: value,
+    })),
+    skipped: merged.skipped,
   };
 };

@@ -39,8 +39,7 @@ for (const name of ["pi", "opencode"] as const) {
     runExtensionCommand(command, { [name]: extensionsDir });
 
   /** Whether anything at all is at the installed path. */
-  const present = async (): Promise<boolean> =>
-    (await lstat(installed).catch(() => undefined)) !== undefined;
+  const present = async (): Promise<boolean> => (await lstat(installed).catch(() => undefined)) !== undefined;
 
   /** An install of this extension made by another checkout, in the same shape. */
   const otherInstall = async (): Promise<void> => {
@@ -188,9 +187,7 @@ for (const name of ["pi", "opencode"] as const) {
 
       expect((await run(`install:${name}`)).code).toBe(1);
       expect((await run(`uninstall:${name}`)).code).toBe(1);
-      expect(await Bun.file(join(installed, "index.ts")).text()).toBe(
-        "// somebody's own extension\n",
-      );
+      expect(await Bun.file(join(installed, "index.ts")).text()).toBe("// somebody's own extension\n");
     });
   }
 }

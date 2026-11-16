@@ -7,7 +7,7 @@
  * never a claim about the remote's shells: a workspace that cannot be reached is not a workspace
  * whose terminals died.
  */
-import { Schema } from "effect"
+import { Schema } from "effect";
 
 /** Why a remote workspace is not reachable. Fixed, server-authored kinds — never a raw remote
  * error body, a credential, or a URL that carries one. */
@@ -16,8 +16,8 @@ export const RemoteAvailabilityReasonSchema = Schema.Union([
   Schema.TaggedStruct("authentication", { message: Schema.String }),
   Schema.TaggedStruct("configuration", { message: Schema.String }),
   Schema.TaggedStruct("stalled", { message: Schema.String }),
-])
-export type RemoteAvailabilityReasonDto = typeof RemoteAvailabilityReasonSchema.Type
+]);
+export type RemoteAvailabilityReasonDto = typeof RemoteAvailabilityReasonSchema.Type;
 
 /** One remote workspace's reachability. The union makes invalid combinations unrepresentable:
  * `checking` and `available` carry no reason, and `unavailable` always names one. */
@@ -25,8 +25,8 @@ export const RemoteAvailabilityStatusSchema = Schema.Union([
   Schema.TaggedStruct("checking", {}),
   Schema.TaggedStruct("available", {}),
   Schema.TaggedStruct("unavailable", { reason: RemoteAvailabilityReasonSchema }),
-])
-export type RemoteAvailabilityStatusDto = typeof RemoteAvailabilityStatusSchema.Type
+]);
+export type RemoteAvailabilityStatusDto = typeof RemoteAvailabilityStatusSchema.Type;
 
 /** One source's availability, with the opaque identity of the target it describes.
  *
@@ -43,15 +43,15 @@ export type RemoteAvailabilityStatusDto = typeof RemoteAvailabilityStatusSchema.
  * target. Availability never proves a shell died, so losing it is not a reason to destroy
  * anything. */
 /** A monotonic publish counter: a whole number, never negative. */
-const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)))
+const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 
 export const RemoteAvailabilitySchema = Schema.Struct({
   source: Schema.String,
   status: RemoteAvailabilityStatusSchema,
   generation: Schema.String,
   revision: Revision,
-})
-export type RemoteAvailabilityDto = typeof RemoteAvailabilitySchema.Type
+});
+export type RemoteAvailabilityDto = typeof RemoteAvailabilitySchema.Type;
 
 /** The whole map as a route or an event carries it.
  *
@@ -65,5 +65,5 @@ export const RemoteAvailabilitySnapshotSchema = Schema.Struct({
   instance: Schema.String,
   revision: Revision,
   availability: Schema.mutable(Schema.Array(RemoteAvailabilitySchema)),
-})
-export type RemoteAvailabilitySnapshotDto = typeof RemoteAvailabilitySnapshotSchema.Type
+});
+export type RemoteAvailabilitySnapshotDto = typeof RemoteAvailabilitySnapshotSchema.Type;

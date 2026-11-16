@@ -76,7 +76,9 @@ async function verify(): Promise<void> {
   const installed = await sh(["bun", "install"]);
   if (installed.code !== 0) {
     console.error(installed.stderr || installed.stdout);
-    console.error("could not install dependencies — the page would not build, and the app would be a black window");
+    console.error(
+      "could not install dependencies — the page would not build, and the app would be a black window",
+    );
     process.exit(1);
   }
   await ensureElectron();
@@ -86,7 +88,9 @@ async function verify(): Promise<void> {
     await buildWeb();
   } catch (e) {
     console.error(e instanceof Error ? (e.stack ?? e.message) : String(e));
-    console.error("the page does not build — the app would be a black window; fix the errors above and reinstall");
+    console.error(
+      "the page does not build — the app would be a black window; fix the errors above and reinstall",
+    );
     process.exit(1);
   }
 }

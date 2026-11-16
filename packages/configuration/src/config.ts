@@ -9,7 +9,7 @@
  */
 
 import type { Device } from "./devices.ts";
-import type { RemoteAccessDto, RemoteWorkspaceDto } from "@corvi/contracts/config";
+import type { RemoteAccessDto, RemoteWorkspaceDto, ResolvedDto } from "@corvi/contracts/config";
 
 /** Where a remote workspace lives, as a domain value: the contract's record, named once here. */
 export type RemoteWorkspace = RemoteWorkspaceDto;
@@ -80,23 +80,14 @@ export type Workspace = {
 
 export { DEFAULT_WORKSPACE } from "@corvi/contracts/config";
 
-export type EffectiveSettings = {
-  changesRoot: string;
-  archiveRoot: string;
-  repositoriesDirectory: string;
-  notificationSound: boolean;
-  contextMenu: boolean;
-  ideationPrompt: string;
-  /** The plan template in effect: literal Markdown, or the empty string for none. */
-  planTemplate: string;
-  worktreeCopy: string[];
-  /** Which extensions exist here; `undefined` means all of them. */
-  extensions?: string[];
+/** What applies in one scope: the resolved contract's fields without the top-level sections,
+ * with the extension bag merged rather than optional. */
+export type EffectiveSettings = Omit<
+  ResolvedDto,
+  "devices" | "remoteAccess" | "workspaces" | "extensionSettings"
+> & {
   /** The extension bags, merged per extension and per key across the two levels. */
   extensionSettings: Record<string, Record<string, string | string[]>>;
-  /** The environment added to every CLI run here, `~` expanded at use: the global entries and
-   * the workspace's, the workspace's winning per key. */
-  env: Record<string, string>;
 };
 
 /**
@@ -105,51 +96,12 @@ export type EffectiveSettings = {
  * workspace's overrides beside them. `settingsFor` (`./settings`) resolves one scope from the
  * two. Environment variables still win, so tests and one-off runs need no file.
  */
-export type Config = {
-  /** Where per-change directories (worktrees, change.json) are created. */
-  changesRoot: string;
-  /** Where completed changes are moved, so the changes root holds the work in flight. A
-   * setting of its own rather than a child of `changesRoot`: an archive can live on another
-   * disk, and listing the changes root never has to filter it out. */
-  archiveRoot: string;
-  /** Directory the repository browser opens on. The browser is unbounded — it can walk anywhere
-   * under `/` from here — so this is a starting point, not a boundary. */
-  repositoriesDirectory: string;
-  /** Whether a notification plays the system sound; the settings page's one notification
-   * decision so far. */
-  notificationSound: boolean;
-  /** Whether right-clicking shows the browser's own menu — Chromium's, which the host draws in the
-   * app window because Electron has none of its own. A page that handles its own right-click (the
-   * terminal, whose menu is the page's own) is untouched either way. See docs/manual/interface.md. */
-  contextMenu: boolean;
-  /** The prompt pasted into a change's terminal to brief an agent about an idea, with the
-   * change's facts filled in (`@corvi/actions/render`). Editable in the settings; an empty
-   * value means the built-in `brief` action's body. */
-  ideationPrompt: string;
-  /** The starting text of a new idea's PLAN.md, seeded into the wizard's plan editor: literal
-   * Markdown, nothing filled in. An empty value means no template — a plan starts empty. */
-  planTemplate: string;
-  /** IDE and build-tool directories copied from the repository into a new worktree, with the
-   * paths inside them rewritten. Empty disables it. See `apps/server/src/capabilities/os.ts`. */
-  worktreeCopy: string[];
-  /** Which extensions exist at the global level. Absent means all of them; an empty list means
-   * none. A workspace's own list overrides it. */
-  extensions?: string[];
-  /** The global extension settings bag: `extensionSettings[name][key]` holds the field the
-   * extension's `settings` declaration names, which is where the extension reads it back. A
-   * value is one string or a list of them. The core carries the bag without looking inside; a
-   * workspace's bag overrides it key by key. */
-  extensionSettings?: Record<string, Record<string, string | string[]>>;
-  /** The global entries of the environment added to every CLI run, `~` expanded at use. A
-   * workspace's `env` overrides them key by key. */
-  env: Record<string, string>;
-  /** The devices paired to this server. Stored with only a hash of each token; the resolved
-   * snapshot carries the same records so a request can verify a presented token. */
-  devices: Device[];
-  /** The external listener's resolved settings: off by default, always loopback. */
-  remoteAccess: RemoteAccessDto;
-  /** The contexts you switch between. Never empty: when nothing is configured, the default
-   * workspace stands in. Each one's `settings` holds its overrides. */
+/** The resolved configuration: the contract's resolved fields, with this package's workspace
+ * value beside them. Environment variables still win at read time, so tests and one-off runs
+ * need no file. */
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+
+export type Config = Mutable<Omit<ResolvedDto, "workspaces">> & {
   workspaces: Workspace[];
 };
 

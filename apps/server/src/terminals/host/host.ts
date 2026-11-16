@@ -35,20 +35,27 @@
  * labels, the agent-status registry, and re-association after a restart.
  */
 import { randomBytes } from "node:crypto";
+import { envNumber } from "../../capabilities/effect/support.ts";
 import { chmodSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { spawn, type IPty } from "node-pty";
-import { parseRequest, requestIdFrom, requestTypeOf, PROTOCOL, type HostRequest, type Owner, type SessionInfo } from "./protocol.ts";
+import {
+  parseRequest,
+  requestIdFrom,
+  requestTypeOf,
+  PROTOCOL,
+  type HostRequest,
+  type Owner,
+  type SessionInfo,
+} from "./protocol.ts";
 import { parseOsc } from "./osc.ts";
 
 const DEFAULT_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
 
 /** The replay bound, read once when the host process starts. A non-numeric, non-positive or
  * non-finite override falls back to the default rather than disabling the bound. */
-const replayBufferBytes = (): number => {
-  const value = Number(process.env.CORVI_HOST_REPLAY_BYTES);
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : DEFAULT_MAX_BUFFER_BYTES;
-};
+const replayBufferBytes = (): number =>
+  Math.floor(envNumber("CORVI_HOST_REPLAY_BYTES", DEFAULT_MAX_BUFFER_BYTES));
 
 const MAX_BUFFER_BYTES = replayBufferBytes();
 const MAX_DEAD_SESSIONS = 64;
@@ -166,11 +173,20 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
     socket.write(`${JSON.stringify(message)}\n`);
   };
 
-  const respond = (connection: Connection, request: HostRequest, extra: Record<string, unknown> = {}): void => {
+  const respond = (
+    connection: Connection,
+    request: HostRequest,
+    extra: Record<string, unknown> = {},
+  ): void => {
     send(connection.socket, { type: "ok", request: request.type, requestId: request.requestId, ...extra });
   };
 
-  const fail = (connection: Connection, request: HostRequest | undefined, type: string, message: string): void => {
+  const fail = (
+    connection: Connection,
+    request: HostRequest | undefined,
+    type: string,
+    message: string,
+  ): void => {
     send(connection.socket, { type: "error", request: type, requestId: request?.requestId, message });
   };
 
@@ -293,7 +309,13 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
       session.status = undefined;
       touch();
       for (const connection of session.subscribers) {
-        send(connection.socket, { type: "exit", id, incarnation: session.incarnation, exitCode, signal: sig });
+        send(connection.socket, {
+          type: "exit",
+          id,
+          incarnation: session.incarnation,
+          exitCode,
+          signal: sig,
+        });
       }
       evictDead();
     });
@@ -403,7 +425,10 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
           finished = true;
           void close();
         };
-        connection.socket.write(`${JSON.stringify({ type: "ok", request: request.type, requestId: request.requestId })}\n`, finish);
+        connection.socket.write(
+          `${JSON.stringify({ type: "ok", request: request.type, requestId: request.requestId })}\n`,
+          finish,
+        );
         setTimeout(finish, 250);
         return;
       }
@@ -543,7 +568,11 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
           } catch (error) {
             // A line that is not JSON cannot carry a requestId; the client surfaces it as a
             // protocol error rather than a reply to any call.
-            send(socket, { type: "error", request: "parse", message: error instanceof Error ? error.message : String(error) });
+            send(socket, {
+              type: "error",
+              request: "parse",
+              message: error instanceof Error ? error.message : String(error),
+            });
             continue;
           }
           try {

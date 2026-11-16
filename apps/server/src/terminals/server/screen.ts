@@ -165,7 +165,9 @@ export const makeScreen = (size: { readonly cols: number; readonly rows: number 
       const bytes = (text: string): number => new TextEncoder().encode(text).length;
       const draw = (scrollback: number): string => {
         const serialized = addon.serialize({ scrollback });
-        return serialized === "" ? "" : `${serialized}${mouseEncoding(term)}${absoluteCursor(term)}${SHOW_CURSOR}`;
+        return serialized === ""
+          ? ""
+          : `${serialized}${mouseEncoding(term)}${absoluteCursor(term)}${SHOW_CURSOR}`;
       };
       const full = draw(SCREEN_SCROLLBACK);
       // A screen larger than the cap is trimmed to its most recent rows, with a bounded number of

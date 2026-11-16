@@ -9,7 +9,7 @@ import {
   ConflictError,
   DecodeError,
   formatError,
-  isIweError,
+  isCorviError,
   NotFoundError,
 } from "@corvi/contracts/errors";
 
@@ -64,19 +64,19 @@ test("a thrown non-Error becomes a 400 with its String() form", async () => {
 });
 
 test("an object tagged outside the taxonomy is not treated as ours", () => {
-  expect(isIweError({ _tag: "OtherError", message: "not ours" })).toBe(false);
+  expect(isCorviError({ _tag: "OtherError", message: "not ours" })).toBe(false);
 });
 
-test("isIweError accepts every taxonomy tag and rejects non-errors", () => {
-  expect(isIweError(new NotFoundError({ message: "x" }))).toBe(true);
-  expect(isIweError(new BadRequestError({ message: "x" }))).toBe(true);
-  expect(isIweError(new ConflictError({ message: "x" }))).toBe(true);
-  expect(isIweError(cliError())).toBe(true);
-  expect(isIweError(new DecodeError({ source: "cli", message: "x" }))).toBe(true);
-  expect(isIweError(new Error("x"))).toBe(false);
-  expect(isIweError("x")).toBe(false);
-  expect(isIweError(null)).toBe(false);
-  expect(isIweError(undefined)).toBe(false);
+test("isCorviError accepts every taxonomy tag and rejects non-errors", () => {
+  expect(isCorviError(new NotFoundError({ message: "x" }))).toBe(true);
+  expect(isCorviError(new BadRequestError({ message: "x" }))).toBe(true);
+  expect(isCorviError(new ConflictError({ message: "x" }))).toBe(true);
+  expect(isCorviError(cliError())).toBe(true);
+  expect(isCorviError(new DecodeError({ source: "cli", message: "x" }))).toBe(true);
+  expect(isCorviError(new Error("x"))).toBe(false);
+  expect(isCorviError("x")).toBe(false);
+  expect(isCorviError(null)).toBe(false);
+  expect(isCorviError(undefined)).toBe(false);
 });
 
 test("formatError is the message the UI shows", () => {

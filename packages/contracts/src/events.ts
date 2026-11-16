@@ -6,11 +6,11 @@
  * event name, and its data. The page (2.4) listens for `source` and routes by the envelope, so
  * the local stream's shape is unchanged.
  */
-import { Schema } from "effect"
+import { Schema } from "effect";
 
 /** One event name a Corvi server broadcasts. */
-export const EventNameSchema = Schema.Literals(["changes", "windows", "notify", "update", "power"])
-export type EventNameDto = typeof EventNameSchema.Type
+export const EventNameSchema = Schema.Literals(["changes", "windows", "notify", "update", "power"]);
+export type EventNameDto = typeof EventNameSchema.Type;
 
 /** A remote workspace's event as the local page receives it. */
 export const SourceEventSchema = Schema.Struct({
@@ -19,5 +19,5 @@ export const SourceEventSchema = Schema.Struct({
   event: EventNameSchema,
   /** The remote event's payload (empty for the state events). */
   data: Schema.String,
-})
-export type SourceEventDto = typeof SourceEventSchema.Type
+});
+export type SourceEventDto = typeof SourceEventSchema.Type;

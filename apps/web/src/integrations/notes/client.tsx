@@ -24,13 +24,7 @@ const url = (path: string, workspace?: string): string =>
  * Free-text notes for a change. Saved a moment after you stop typing and again when the widget
  * goes away, so navigating off does not lose the last sentence.
  */
-export function NotesCard({
-  changeId,
-  workspace,
-}: {
-  changeId: string;
-  workspace?: string;
-}): JSX.Element {
+export function NotesCard({ changeId, workspace }: { changeId: string; workspace?: string }): JSX.Element {
   // The same notes are read and written through the extension's namespace, as the change's
   // workspace, so the server resolves the change from the right root.
   const endpoint = url(`/ext/notes/changes/${changeId}/notes`, workspace);
@@ -50,14 +44,10 @@ export function NotesCard({
   const { text, change, saved, flush, stale, reload, keepMine } = useSavedText({
     key: `${changeKey(source, changeId)}@${generation}:notes`,
     canSave: !blocked,
-    load: () =>
-      wire
-        .request("GET", endpoint, TextSchema)
-        .then(({ text }) => ({ text: text ?? null })),
+    load: () => wire.request("GET", endpoint, TextSchema).then(({ text }) => ({ text: text ?? null })),
     // The notes route has no revision to save against: its saves cannot conflict, and a file
     // changed underneath is only ever caught by the re-reads (useSavedText).
-    save: (value) =>
-      wire.request("PUT", endpoint, TextSchema, { body: { text: value } }).then(() => ({})),
+    save: (value) => wire.request("PUT", endpoint, TextSchema, { body: { text: value } }).then(() => ({})),
   });
 
   return (
@@ -73,11 +63,7 @@ export function NotesCard({
           <button type="button" title="drop these edits and load the file" onClick={reload}>
             Reload
           </button>
-          <button
-            type="button"
-            title="overwrite the file with what is here"
-            onClick={keepMine}
-          >
+          <button type="button" title="overwrite the file with what is here" onClick={keepMine}>
             Keep mine
           </button>
         </div>

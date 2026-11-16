@@ -21,9 +21,10 @@ export function Progress({ startedAt, expectedMs }: { startedAt: string; expecte
   const fraction = expectedMs ? Math.min(elapsed / expectedMs, 1) : undefined;
   // The numbers, once, for both the tooltip and the accessible name: a narrow cell hides the
   // elapsed text, and a screen reader must not lose it with it.
-  const label = expectedMs === undefined
-    ? `${duration(elapsed)} elapsed`
-    : `${duration(elapsed)} elapsed, typically ${duration(expectedMs)}`;
+  const label =
+    expectedMs === undefined
+      ? `${duration(elapsed)} elapsed`
+      : `${duration(elapsed)} elapsed, typically ${duration(expectedMs)}`;
   return (
     <span className="progress" role="img" aria-label={label} title={label}>
       <span className="bar">

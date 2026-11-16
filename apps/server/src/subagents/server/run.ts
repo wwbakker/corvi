@@ -5,39 +5,16 @@
  * workspace directories beside the config file (so `CORVI_CONFIG` moves both), the repository
  * scope inside each checkout. Discovery is per request — a small directory read — so an edit or a
  * new file needs no restart. */
-import { basename, dirname, join } from "node:path";
 import { Effect } from "effect";
 
 import { discoverProfiles, type ProfileRoots } from "@corvi/agents/node";
 import type { DiscoveredProfile, ProfileDiscovery } from "@corvi/agents/discovery";
 import type { SubagentProfilesResponseDto } from "@corvi/contracts/subagents";
 import type { Change } from "@corvi/changes/record";
-import { checkoutFor } from "../../vendors/git.ts";
-import { configPath, workspaceOf } from "../../workspace/server/index.ts";
+import { fileRootsFor } from "../../capabilities/fileRoots.ts";
 
 export const profileRootsFor = (change: Change): Effect.Effect<ProfileRoots> =>
-  Effect.gen(function* () {
-    const base = dirname(configPath());
-    const workspace = workspaceOf(change);
-    const repositories: { name: string; dir: string }[] = [];
-    for (const spec of change.checkouts ?? []) {
-      const checkout = yield* checkoutFor(change, spec.path);
-      if (checkout) {
-        repositories.push({ name: basename(spec.path), dir: join(checkout, ".corvi", "subagents") });
-      }
-    }
-    return {
-      global: join(base, "subagents"),
-      workspaces: [
-        {
-          id: workspace.id,
-          label: workspace.name,
-          dir: join(base, "workspaces", workspace.id, "subagents"),
-        },
-      ],
-      repositories,
-    };
-  });
+  fileRootsFor(change, "subagents");
 
 /** The full discovery — runnable profiles and the skipped files with their reasons. */
 export const discoveryFor = (change: Change): Effect.Effect<ProfileDiscovery> =>

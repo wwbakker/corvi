@@ -18,7 +18,12 @@ import {
   splitPane,
   terminalSocketPath,
 } from "./server/index.ts";
-import { openSession, terminalUnavailable, type TerminalSocket, type TerminalSession } from "./server/session.ts";
+import {
+  openSession,
+  terminalUnavailable,
+  type TerminalSocket,
+  type TerminalSession,
+} from "./server/session.ts";
 import { applyStatus } from "./server/status.ts";
 import { bodyAs, json, withChange } from "../capabilities/web.ts";
 
@@ -104,7 +109,8 @@ export const terminalsRoutes = guard({
           const body = yield* bodyAs(req, TerminalStatusSchema);
           yield* Effect.tryPromise({
             try: () => applyStatus(body),
-            catch: (error) => new BadRequestError({ message: error instanceof Error ? error.message : String(error) }),
+            catch: (error) =>
+              new BadRequestError({ message: error instanceof Error ? error.message : String(error) }),
           });
           return json({ ok: true });
         }),
@@ -157,8 +163,7 @@ export const terminalsRoutes = guard({
                 Effect.mapError((failure) => new BadRequestError({ message: failure.message })),
               );
             } else yield* selectWindow(c.id, body.index ?? 0);
-          }
-          else if (body.action === "move") {
+          } else if (body.action === "move") {
             yield* moveWindow(c.id, body.from ?? 0, body.to ?? 0);
           } else if (body.action === "rename") {
             if (windowId === undefined) {

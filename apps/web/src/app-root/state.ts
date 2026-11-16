@@ -28,7 +28,9 @@ import { makeWindowsStore, type SourceWindows, type WindowsStore } from "./windo
 
 /** The flat map the navigation column, the tab strip and the change page read: every source's
  * windows keyed by `changeKey(source, id)`, because two servers can mint the same change id. */
-const flattenWindows = (bySource: Readonly<Record<string, SourceWindows>>): Record<string, TerminalWindow[]> => {
+const flattenWindows = (
+  bySource: Readonly<Record<string, SourceWindows>>,
+): Record<string, TerminalWindow[]> => {
   const windows: Record<string, TerminalWindow[]> = {};
   for (const [source, entry] of Object.entries(bySource)) {
     for (const [id, list] of Object.entries(entry.byChange)) windows[changeKey(source, id)] = [...list];
@@ -76,7 +78,10 @@ export function useWindows(): {
         // The generation captured when the work was queued is what the capability is bound to: an
         // owner retarget refuses an old queued action as stale instead of it acquiring the new
         // target's client (which would not wait for this page's reconfigure effect).
-        list: (sourceId: string, generation: string): Promise<Readonly<Record<string, readonly TerminalWindow[]>>> =>
+        list: (
+          sourceId: string,
+          generation: string,
+        ): Promise<Readonly<Record<string, readonly TerminalWindow[]>>> =>
           owner.clientForGeneration(sourceId, generation).terminals.list(),
         act: (sourceId: string, generation: string, changeId: string, action) =>
           owner
@@ -127,7 +132,8 @@ export function useWindows(): {
       [current],
     ),
     rename: useCallback(
-      (source: string, id: string, windowId: string, title: string) => void current.rename(source, id, windowId, title),
+      (source: string, id: string, windowId: string, title: string) =>
+        void current.rename(source, id, windowId, title),
       [current],
     ),
     refresh: reload,
@@ -293,12 +299,17 @@ export function useChanges(): {
         if (reads.current.get(source.id) !== seq) return;
         // A retarget or an outage while it was in flight: this answer is not the current target's.
         if (!currentTarget()) return;
-        setBySource((all) => ({ ...all, [source.id]: { changes: list, stale: false, generation: target.generation } }));
+        setBySource((all) => ({
+          ...all,
+          [source.id]: { changes: list, stale: false, generation: target.generation },
+        }));
         setError(null);
       } catch (failure) {
         if (reads.current.get(source.id) !== seq) return;
         if (!currentTarget()) return;
-        setBySource((all) => (all[source.id] === undefined ? all : { ...all, [source.id]: { ...all[source.id]!, stale: true } }));
+        setBySource((all) =>
+          all[source.id] === undefined ? all : { ...all, [source.id]: { ...all[source.id]!, stale: true } },
+        );
         // A gate transition is the banner's job, not the page's: a checking/unavailable/cancelled
         // read is expected while the workspace is away. A real failure — or an uncertain write,
         // which a read never is — is surfaced.
@@ -389,7 +400,10 @@ export function useChanges(): {
     return flat;
   }, [bySource, sources]);
   const staleSources = useMemo(
-    () => Object.entries(bySource).filter(([, entry]) => entry.stale).map(([id]) => id),
+    () =>
+      Object.entries(bySource)
+        .filter(([, entry]) => entry.stale)
+        .map(([id]) => id),
     [bySource],
   );
 

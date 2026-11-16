@@ -78,8 +78,7 @@ function NewIssueDialog({
 
 /** Assignees Z-A with the unassigned last, then status, then key: the people axis first,
  * because that is how you scan a board. */
-const byAssignee = (a: string, b: string): number =>
-  !a && !b ? 0 : !a ? 1 : !b ? -1 : b.localeCompare(a);
+const byAssignee = (a: string, b: string): number => (!a && !b ? 0 : !a ? 1 : !b ? -1 : b.localeCompare(a));
 
 const bySprintOrder = (a: Issue, b: Issue): number =>
   byAssignee(a.assignee, b.assignee) ||
@@ -92,8 +91,7 @@ export function IssueTable({
   workspace,
   selectedKey,
   onSelect,
-  hint =
-    "Pick the issue this change is about, create a new one, or leave this pick empty and name " +
+  hint = "Pick the issue this change is about, create a new one, or leave this pick empty and name " +
     "the change yourself.",
 }: {
   /** Whose Jira: a second client is a second site, and its board is not this one's. */
@@ -221,9 +219,7 @@ export function IssueTable({
                 className="group"
                 onClick={() =>
                   setCollapsed(
-                    isCollapsed
-                      ? collapsed.filter((n) => n !== group.name)
-                      : [...collapsed, group.name],
+                    isCollapsed ? collapsed.filter((n) => n !== group.name) : [...collapsed, group.name],
                   )
                 }
               >

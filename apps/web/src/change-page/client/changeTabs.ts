@@ -23,9 +23,7 @@ export const changeNav = (
 ): { id: string; title: string }[] => [
   { id: "plan", title: "Plan" },
   { id: "dashboard", title: "Dashboard" },
-  ...tabs
-    .filter((tab) => !CORE.has(tab.id))
-    .map(({ id, title }) => ({ id, title })),
+  ...tabs.filter((tab) => !CORE.has(tab.id)).map(({ id, title }) => ({ id, title })),
   ...(options.finished ? [{ id: "transcripts", title: "Transcripts" }] : []),
 ];
 
@@ -33,8 +31,7 @@ export const changeNav = (
  * including a tab that has gone, such as review on a workspace that dropped the extension — the
  * plan. */
 export type ResolvedChangePage =
-  | { kind: "dashboard" | "plan" | "terminals" | "transcripts" }
-  | { kind: "tab"; tab: ChangeTabInfo };
+  { kind: "dashboard" | "plan" | "terminals" | "transcripts" } | { kind: "tab"; tab: ChangeTabInfo };
 
 export const resolveChangePage = (
   page: string,

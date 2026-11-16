@@ -33,14 +33,22 @@ if (!(await Bun.file(join(source, "Contents", "Info.plist")).exists())) {
 // Quit any sandbox still running, by path: the one thing this script exists to keep separate.
 await sh(["osascript", "-e", `tell application ${JSON.stringify(target)} to quit`]);
 await rm(target, { recursive: true, force: true });
-await sh(["cp", "-R", source, target]);
+
+const must = (result: { readonly code: number; readonly stderr: string }, what: string): void => {
+  if (result.code !== 0) {
+    console.error(`${what}: ${result.stderr.trim() || "no output"}`);
+    process.exit(1);
+  }
+};
+
+must(await sh(["cp", "-R", source, target]), `could not copy ${source} to ${target}`);
 
 const plist = join(target, "Contents", "Info.plist");
-const set = (key: string, value: string): Promise<unknown> =>
+const set = (key: string, value: string): Promise<{ readonly code: number; readonly stderr: string }> =>
   sh(["/usr/libexec/PlistBuddy", "-c", `Set :${key} ${value}`, plist]);
-await set("CFBundleIdentifier", ID);
-await set("CFBundleName", NAME);
-await set("CFBundleDisplayName", NAME);
+must(await set("CFBundleIdentifier", ID), `could not set ${ID} in ${plist}`);
+must(await set("CFBundleName", NAME), `could not set ${NAME} in ${plist}`);
+must(await set("CFBundleDisplayName", NAME), `could not set ${NAME} in ${plist}`);
 
 console.log(`${target}`);
 console.log(`  serves its own fresh port at launch, as ${ID}`);

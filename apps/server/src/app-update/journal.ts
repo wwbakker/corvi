@@ -12,23 +12,18 @@ import { Effect, Schema } from "effect";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { isNotFound } from "@corvi/changes/node";
 import { OperationProgressSchema, type OperationProgressDto } from "@corvi/contracts/api";
 import { stateDir } from "@corvi/configuration/node";
 
 const FILE = "app-update.json";
 
-export class UpdateJournalError extends Schema.TaggedError<UpdateJournalError>()(
-  "UpdateJournalError",
-  {
-    message: Schema.String,
-    // The cause is an opaque in-process throwable that is never serialized; `Schema.Unknown`
-    // preserves it exactly (on decode `Schema.Defect()` is lossy).
-    cause: Schema.optional(Schema.Unknown),
-  },
-) {}
-
-const isNotFound = (cause: unknown): boolean =>
-  typeof cause === "object" && cause !== null && "code" in cause && (cause as { code?: string }).code === "ENOENT";
+export class UpdateJournalError extends Schema.TaggedError<UpdateJournalError>()("UpdateJournalError", {
+  message: Schema.String,
+  // The cause is an opaque in-process throwable that is never serialized; `Schema.Unknown`
+  // preserves it exactly (on decode `Schema.Defect()` is lossy).
+  cause: Schema.optional(Schema.Unknown),
+}) {}
 
 const path = (): string => join(stateDir(), FILE);
 
@@ -49,9 +44,7 @@ export const readJournal = (): Effect.Effect<OperationProgressDto | null, Update
     );
   });
 
-export const writeJournal = (
-  progress: OperationProgressDto,
-): Effect.Effect<void, UpdateJournalError> =>
+export const writeJournal = (progress: OperationProgressDto): Effect.Effect<void, UpdateJournalError> =>
   Effect.tryPromise({
     try: async () => {
       const target = path();
@@ -60,6 +53,5 @@ export const writeJournal = (
       await writeFile(temp, JSON.stringify(progress, null, 2) + "\n");
       await rename(temp, target);
     },
-    catch: (cause: unknown) =>
-      new UpdateJournalError({ message: `could not write ${path()}`, cause }),
+    catch: (cause: unknown) => new UpdateJournalError({ message: `could not write ${path()}`, cause }),
   });

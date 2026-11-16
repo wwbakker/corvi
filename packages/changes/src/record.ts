@@ -67,7 +67,7 @@ export const PLAN_FILE = "PLAN.md";
 
 /** The states a change is over in. Both are archived and neither is worked on again; they differ
  * in what happened, which is worth keeping — a change that was abandoned is not one that landed. */
-export const FINISHED_STATES: ChangeState[] = ["Completed", "Cancelled"];
+const FINISHED_STATES: ChangeState[] = ["Completed", "Cancelled"];
 
 /** Whether this change is over. `completedAt` is the fact — it is set by finishing the change,
  * whichever way — and the state says which way. An idea is not finished: it is work you have
@@ -141,9 +141,7 @@ export const targetOf = (spec: CheckoutSpec): string | undefined => spec.target 
 /** The combination that cannot exist, said once: a new worktree cannot take over the branch a
  * source checkout has checked out, and an existing branch must be named. Returns the sentence
  * refusing the spec, or undefined when it stands. */
-export const checkoutSpecProblem = (
-  spec: Pick<CheckoutSpec, "location" | "branch">,
-): string | undefined =>
+export const checkoutSpecProblem = (spec: Pick<CheckoutSpec, "location" | "branch">): string | undefined =>
   spec.location === "new" && spec.branch.kind === "current"
     ? "a new worktree cannot use the branch a source checkout has checked out"
     : spec.branch.kind === "existing" && !spec.branch.name.trim()

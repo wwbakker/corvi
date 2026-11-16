@@ -1,8 +1,16 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { chromium, webkit, type Browser, type Page } from "playwright";
-import { closePages, requireFreshWebBundle, serverEnv, testRun, testTempDir, waitForUrl, stopRunHost } from "./helpers.ts";
+import { type Browser, type Page } from "playwright";
+import {
+  closePages,
+  openEngine,
+  testTempDir,
+  startTestServer,
+  stopTestServer,
+  VIEWPORT,
+  withPage,
+} from "./helpers.ts";
 import { editorText, fillEditor } from "./editor.ts";
 
 /**
@@ -19,21 +27,9 @@ import { editorText, fillEditor } from "./editor.ts";
  * installed the page checks skip; the fixture's API assertions still run.
  */
 let browser: Browser;
-const engineName = process.env.CORVI_ENGINE === "webkit" ? "webkit" : "chromium";
-const usable = await (async (): Promise<boolean> => {
-  try {
-    const engine = engineName === "webkit" ? webkit : chromium;
-    if (!(await Bun.file(engine.executablePath()).exists())) return false;
-    browser = await engine.launch();
-    return true;
-  } catch {
-    return false;
-  }
-})();
-
-// The assertions below read the built bundle: a bundle older than the sources would be
-// yesterday's UI, and is refused here (test/helpers.ts, docs/guides/testing.md).
-if (usable) requireFreshWebBundle();
+const usable = await openEngine((opened) => {
+  browser = opened;
+});
 
 let tmp: string;
 let url: string;
@@ -71,12 +67,7 @@ const typed = "typed **more**";
 
 beforeAll(async () => {
   tmp = await testTempDir("plan-page");
-  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  url = await waitForUrl(server);
+  ({ server, url } = await startTestServer(tmp));
   // The idea with its plan, as the wizard's "Create idea" would write it.
   const created = await fetch(`${url}/api/changes`, {
     method: "POST",
@@ -90,8 +81,7 @@ afterAll(async () => {
   // Whatever pages a failed test left open are screenshotted for CI's failure artifacts first.
   await closePages(browser, "plan");
   await browser?.close();
-  server?.kill();
-  await stopRunHost(tmp);
+  await stopTestServer(server, tmp);
   await rm(tmp, { recursive: true, force: true });
 });
 
@@ -140,8 +130,7 @@ const mark = "rgb(86, 95, 108)"; // --md-mark
 test.skipIf(!usable)(
   "the plan tab shows the markup as source: every character visible, colored like an editor",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-    try {
+    await withPage(browser, async (page) => {
       await page.goto(`${url}/changes/PROJ-1/plan`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".md-editor .cm-line");
       await loaded(page);
@@ -169,16 +158,48 @@ test.skipIf(!usable)(
       const spans = await painted(page);
       const look = (text: string): Omit<Painted, "text"> | undefined => {
         const found = spans.find((s) => s.text.trim() === text);
-        return found && { color: found.color, weight: found.weight, style: found.style, decoration: found.decoration };
+        return (
+          found && {
+            color: found.color,
+            weight: found.weight,
+            style: found.style,
+            decoration: found.decoration,
+          }
+        );
       };
       expect(look("#")).toEqual({ color: mark, weight: "400", style: "normal", decoration: "none" });
-      expect(look("The plan")).toEqual({ color: heading, weight: "700", style: "normal", decoration: "none" });
-      expect(look("bold")).toEqual({ color: "rgb(223, 227, 234)", weight: "700", style: "normal", decoration: "none" });
-      expect(look("italic")).toEqual({ color: "rgb(223, 227, 234)", weight: "400", style: "italic", decoration: "none" });
-      expect(look("struck")).toEqual({ color: "rgb(223, 227, 234)", weight: "400", style: "normal", decoration: "line-through" });
+      expect(look("The plan")).toEqual({
+        color: heading,
+        weight: "700",
+        style: "normal",
+        decoration: "none",
+      });
+      expect(look("bold")).toEqual({
+        color: "rgb(223, 227, 234)",
+        weight: "700",
+        style: "normal",
+        decoration: "none",
+      });
+      expect(look("italic")).toEqual({
+        color: "rgb(223, 227, 234)",
+        weight: "400",
+        style: "italic",
+        decoration: "none",
+      });
+      expect(look("struck")).toEqual({
+        color: "rgb(223, 227, 234)",
+        weight: "400",
+        style: "normal",
+        decoration: "line-through",
+      });
       expect(look("code")).toEqual({ color: code, weight: "400", style: "normal", decoration: "none" });
       expect(look("link")).toEqual({ color: link, weight: "400", style: "normal", decoration: "none" });
-      expect(look("https://example.test")).toEqual({ color: link, weight: "400", style: "normal", decoration: "none" });
+      expect(look("https://example.test")).toEqual({
+        color: link,
+        weight: "400",
+        style: "normal",
+        decoration: "none",
+      });
       expect(look(">")).toEqual({ color: mark, weight: "400", style: "normal", decoration: "none" });
       expect(look("quoted")).toEqual({ color: quote, weight: "400", style: "italic", decoration: "none" });
       expect(look("-")).toEqual({ color: mark, weight: "400", style: "normal", decoration: "none" });
@@ -186,163 +207,166 @@ test.skipIf(!usable)(
       // roles: a key in the keyword blue, a literal purple, the punctuation around them dim —
       // `brace` and `separator` reach `punctuation` through their parents.
       expect(look('"id"')).toEqual({ color: heading, weight: "400", style: "normal", decoration: "none" });
-      expect(look('"improve-plan-view"')).toEqual({ color: link, weight: "400", style: "normal", decoration: "none" });
+      expect(look('"improve-plan-view"')).toEqual({
+        color: link,
+        weight: "400",
+        style: "normal",
+        decoration: "none",
+      });
       expect(look("{")).toEqual({ color: mark, weight: "400", style: "normal", decoration: "none" });
       expect(look("}")).toEqual({ color: mark, weight: "400", style: "normal", decoration: "none" });
       // The other curated languages reach the same roles — a Lezer grammar (Python) and a legacy
       // stream parser (Scala) alike: keywords wear the keyword blue, comments the quote grey.
       expect(look("def")).toEqual({ color: heading, weight: "400", style: "normal", decoration: "none" });
       expect(look("object")).toEqual({ color: heading, weight: "400", style: "normal", decoration: "none" });
-      expect(look("# shaped as we go")).toEqual({ color: quote, weight: "400", style: "italic", decoration: "none" });
-    } finally {
-      await page.close();
-    }
+      expect(look("# shaped as we go")).toEqual({
+        color: quote,
+        weight: "400",
+        style: "italic",
+        decoration: "none",
+      });
+    });
   },
   60_000,
 );
 
-test.skipIf(!usable)("typing keeps the highlighting and saves through the debounce", async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  try {
-    await page.goto(`${url}/changes/PROJ-1/plan`, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector(".md-editor .cm-line");
-    await loaded(page);
+test.skipIf(!usable)(
+  "typing keeps the highlighting and saves through the debounce",
+  async () => {
+    await withPage(browser, async (page) => {
+      await page.goto(`${url}/changes/PROJ-1/plan`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector(".md-editor .cm-line");
+      await loaded(page);
 
-    // Type on the document's empty last line (the plan ends in a newline).
-    await page.locator(".md-editor .cm-line").last().click();
-    const saved = page.waitForResponse(
-      (r) => r.request().method() === "PUT" && r.url().endsWith("/plan"),
-    );
-    await page.keyboard.type(typed);
-    await saved;
+      // Type on the document's empty last line (the plan ends in a newline).
+      await page.locator(".md-editor .cm-line").last().click();
+      const saved = page.waitForResponse((r) => r.request().method() === "PUT" && r.url().endsWith("/plan"));
+      await page.keyboard.type(typed);
+      await saved;
 
-    // The new markup is highlighted as it is typed, and what was saved is what is shown.
-    const spans = await painted(page);
-    expect(spans.find((s) => s.text === "more")?.weight).toBe("700");
-    expect(await editorText(page.locator(".md-editor"))).toBe(source + typed);
-    expect(await onDisk()).toBe(source + typed);
-  } finally {
-    await page.close();
-  }
-}, 60_000);
+      // The new markup is highlighted as it is typed, and what was saved is what is shown.
+      const spans = await painted(page);
+      expect(spans.find((s) => s.text === "more")?.weight).toBe("700");
+      expect(await editorText(page.locator(".md-editor"))).toBe(source + typed);
+      expect(await onDisk()).toBe(source + typed);
+    });
+  },
+  60_000,
+);
 
-test.skipIf(!usable)("the editor's affordances are there: a section folds and Ctrl-F finds", async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  try {
-    await page.goto(`${url}/changes/PROJ-1/plan`, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector(".md-editor .cm-line");
-    await loaded(page);
+test.skipIf(!usable)(
+  "the editor's affordances are there: a section folds and Ctrl-F finds",
+  async () => {
+    await withPage(browser, async (page) => {
+      await page.goto(`${url}/changes/PROJ-1/plan`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector(".md-editor .cm-line");
+      await loaded(page);
 
-    // A heading folds its section at the gutter's mark — the fold ranges are the Markdown
-    // grammar's own — and unfolds again. The mark is the gutter's span on foldable lines; the
-    // gutter's hidden width-measuring spacer carries copies of every mark, so visible ones.
-    await page.locator('.cm-foldGutter span[title="Fold line"]:visible').first().click();
-    await page.locator(".cm-foldPlaceholder").first().waitFor();
-    await page.locator('.cm-foldGutter span[title="Unfold line"]:visible').first().click();
-    await page.waitForSelector(".cm-foldPlaceholder", { state: "detached" });
+      // A heading folds its section at the gutter's mark — the fold ranges are the Markdown
+      // grammar's own — and unfolds again. The mark is the gutter's span on foldable lines; the
+      // gutter's hidden width-measuring spacer carries copies of every mark, so visible ones.
+      await page.locator('.cm-foldGutter span[title="Fold line"]:visible').first().click();
+      await page.locator(".cm-foldPlaceholder").first().waitFor();
+      await page.locator('.cm-foldGutter span[title="Unfold line"]:visible').first().click();
+      await page.waitForSelector(".cm-foldPlaceholder", { state: "detached" });
 
-    // Find opens the search panel and finds the plan's own words. The shortcut needs the
-    // editor's focus — the fold marks live outside its keymap.
-    await page.locator(".md-editor .cm-content").click();
-    await page.keyboard.press("ControlOrMeta+f");
-    const panel = page.locator(".cm-panel");
-    await panel.waitFor();
-    // The panel commits on keystrokes (its field listens for keyup), so type the query.
-    await panel.locator("input").first().pressSequentially("quoted");
-    await page.locator(".cm-searchMatch").first().waitFor();
-    await page.keyboard.press("Escape");
-    await page.waitForSelector(".cm-panel", { state: "detached" });
-  } finally {
-    await page.close();
-  }
-}, 60_000);
+      // Find opens the search panel and finds the plan's own words. The shortcut needs the
+      // editor's focus — the fold marks live outside its keymap.
+      await page.locator(".md-editor .cm-content").click();
+      await page.keyboard.press("ControlOrMeta+f");
+      const panel = page.locator(".cm-panel");
+      await panel.waitFor();
+      // The panel commits on keystrokes (its field listens for keyup), so type the query.
+      await panel.locator("input").first().pressSequentially("quoted");
+      await page.locator(".cm-searchMatch").first().waitFor();
+      await page.keyboard.press("Escape");
+      await page.waitForSelector(".cm-panel", { state: "detached" });
+    });
+  },
+  60_000,
+);
 
-test.skipIf(!usable)("a finished change's plan is a read-only record", async () => {
-  // Finished the way an early change is: abandoned. No checkouts, so nothing goes but the idea.
-  const cancelled = await fetch(`${url}/api/changes/PROJ-1/cancel`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ force: true }),
-  });
-  expect(cancelled.status).toBe(200);
+test.skipIf(!usable)(
+  "a finished change's plan is a read-only record",
+  async () => {
+    // Finished the way an early change is: abandoned. No checkouts, so nothing goes but the idea.
+    const cancelled = await fetch(`${url}/api/changes/PROJ-1/cancel`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ force: true }),
+    });
+    expect(cancelled.status).toBe(200);
 
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  try {
-    await page.goto(`${url}/changes/PROJ-1/plan`, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector(".md-editor .cm-line");
-    await loaded(page);
+    await withPage(browser, async (page) => {
+      await page.goto(`${url}/changes/PROJ-1/plan`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector(".md-editor .cm-line");
+      await loaded(page);
 
-    // The record is readable and uneditable: the markup is still all there.
-    expect(await page.locator(".md-editor .cm-content").getAttribute("contenteditable")).toBe(
-      "false",
-    );
-    expect(await editorText(page.locator(".md-editor"))).toBe(source + typed);
-  } finally {
-    await page.close();
-  }
-}, 60_000);
+      // The record is readable and uneditable: the markup is still all there.
+      expect(await page.locator(".md-editor .cm-content").getAttribute("contenteditable")).toBe("false");
+      expect(await editorText(page.locator(".md-editor"))).toBe(source + typed);
+    });
+  },
+  60_000,
+);
 
-test.skipIf(!usable)("the wizard's plan is the same editor, and its heading names the change", async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  try {
-    await page.goto(`${url}/new`, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector(".wizard-plan .md-editor");
+test.skipIf(!usable)(
+  "the wizard's plan is the same editor, and its heading names the change",
+  async () => {
+    await withPage(browser, async (page) => {
+      await page.goto(`${url}/new`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector(".wizard-plan .md-editor");
 
-    await page.locator(".wizard-plan .md-editor .cm-content").click();
-    await page.keyboard.type("# Starting **plan**");
+      await page.locator(".wizard-plan .md-editor .cm-content").click();
+      await page.keyboard.type("# Starting **plan**");
 
-    expect(await editorText(page.locator(".wizard-plan .md-editor"))).toBe("# Starting **plan**");
-    const spans = await painted(page);
-    expect(spans.find((s) => s.text === "#")?.color).toBe(mark);
-    expect(spans.find((s) => s.text === "plan")?.weight).toBe("700");
+      expect(await editorText(page.locator(".wizard-plan .md-editor"))).toBe("# Starting **plan**");
+      const spans = await painted(page);
+      expect(spans.find((s) => s.text === "#")?.color).toBe(mark);
+      expect(spans.find((s) => s.text === "plan")?.weight).toBe("700");
 
-    // The heading is the title's one-way source: the read-only field follows it, and the id
-    // follows the title until set by hand. (Scoped to the details form: the steps' dialogs carry
-    // fields of their own with familiar names.)
-    await page.waitForFunction(() =>
-      [...document.querySelectorAll(".wizard-sections .form input")].some(
-        (i) => (i as HTMLInputElement).value === "starting-plan",
-      ),
-    );
-    const details = page.locator(".wizard-sections .form");
-    expect(await details.getByLabel("Title").inputValue()).toBe("Starting **plan**");
-    expect(await details.getByLabel("Change id").inputValue()).toBe("starting-plan");
+      // The heading is the title's one-way source: the read-only field follows it, and the id
+      // follows the title until set by hand. (Scoped to the details form: the steps' dialogs carry
+      // fields of their own with familiar names.)
+      await page.waitForFunction(() =>
+        [...document.querySelectorAll(".wizard-sections .form input")].some(
+          (i) => (i as HTMLInputElement).value === "starting-plan",
+        ),
+      );
+      const details = page.locator(".wizard-sections .form");
+      expect(await details.getByLabel("Title").inputValue()).toBe("Starting **plan**");
+      expect(await details.getByLabel("Change id").inputValue()).toBe("starting-plan");
 
-    // A bracket closes itself, and typing its end replaces the offered one.
-    await page.keyboard.type(" (parens)");
-    expect(await editorText(page.locator(".wizard-plan .md-editor"))).toBe(
-      "# Starting **plan** (parens)",
-    );
-  } finally {
-    await page.close();
-  }
-}, 60_000);
+      // A bracket closes itself, and typing its end replaces the offered one.
+      await page.keyboard.type(" (parens)");
+      expect(await editorText(page.locator(".wizard-plan .md-editor"))).toBe("# Starting **plan** (parens)");
+    });
+  },
+  60_000,
+);
 
-test.skipIf(!usable)("Tab adds a tab in the editor, and Escape-then-Tab moves on", async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  try {
-    await page.goto(`${url}/new`, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector(".wizard-plan .md-editor");
-    await page.locator(".wizard-plan .md-editor .cm-content").click();
+test.skipIf(!usable)(
+  "Tab adds a tab in the editor, and Escape-then-Tab moves on",
+  async () => {
+    await withPage(browser, async (page) => {
+      await page.goto(`${url}/new`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector(".wizard-plan .md-editor");
+      await page.locator(".wizard-plan .md-editor .cm-content").click();
 
-    // A tab goes into the text, and the keystroke is consumed: the focus stays the editor's.
-    await page.keyboard.type("one");
-    await page.keyboard.press("Tab");
-    expect(await editorText(page.locator(".wizard-plan .md-editor"))).toBe("one\t");
-    expect(
-      await page.evaluate(() => document.activeElement?.closest(".md-editor") !== null),
-    ).toBe(true);
+      // A tab goes into the text, and the keystroke is consumed: the focus stays the editor's.
+      await page.keyboard.type("one");
+      await page.keyboard.press("Tab");
+      expect(await editorText(page.locator(".wizard-plan .md-editor"))).toBe("one\t");
+      expect(await page.evaluate(() => document.activeElement?.closest(".md-editor") !== null)).toBe(true);
 
-    // Escape arms the way out — the next Tab moves on to the next control instead.
-    await page.keyboard.press("Escape");
-    await page.keyboard.press("Tab");
-    expect(
-      await page.evaluate(() => document.activeElement?.closest(".md-editor") === null),
-    ).toBe(true);
-  } finally {
-    await page.close();
-  }
-}, 60_000);
+      // Escape arms the way out — the next Tab moves on to the next control instead.
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Tab");
+      expect(await page.evaluate(() => document.activeElement?.closest(".md-editor") === null)).toBe(true);
+    });
+  },
+  60_000,
+);
 
 test("a plan write against the revision it read is refused, not an overwrite", async () => {
   // The contract under the editor's saves (useSavedText): what the route guarantees, browser or
@@ -395,8 +419,7 @@ test.skipIf(!usable)(
     expect(created.status).toBe(201);
     const planFile = join(tmp, "changes", "PROJ-3", "PLAN.md");
 
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-    try {
+    await withPage(browser, async (page) => {
       await page.goto(`${url}/changes/PROJ-3/plan`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".plan-page .md-editor .cm-line");
       await loaded(page);
@@ -406,9 +429,8 @@ test.skipIf(!usable)(
       await Bun.write(planFile, "their quiet edit");
       await page.waitForFunction(
         () =>
-          document
-            .querySelector(".plan-page .cm-content")
-            ?.textContent?.includes("their quiet edit") ?? false,
+          document.querySelector(".plan-page .cm-content")?.textContent?.includes("their quiet edit") ??
+          false,
         undefined,
         { timeout: 8000 },
       );
@@ -430,9 +452,7 @@ test.skipIf(!usable)(
       await page.getByRole("button", { name: "Reload" }).click();
       await banner.waitFor({ state: "detached" });
       expect(await editorText(page.locator(".plan-page .md-editor"))).toBe("their last word");
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );

@@ -2,19 +2,11 @@ import { Effect } from "effect";
 
 import { ChangeId } from "@corvi/contracts/changes";
 import { ChangeWork, withCheckoutLock } from "@corvi/workflows";
-import {
-  BadRequestError,
-  ConflictError,
-  isIweError,
-  type IweError,
-} from "@corvi/contracts/errors";
-import { messageOf } from "../../capabilities/effect/support.ts";
+import { ConflictError, type CorviError } from "@corvi/contracts/errors";
+import { InvalidTransition } from "@corvi/changes/errors";
+import { asCorviError as asCorviErrorBase } from "../../capabilities/effect/http.ts";
 import { type Change, type ProvisionResult } from "@corvi/changes/record";
-import {
-  finishCheckouts,
-  prepareCheckouts,
-  type RefreshOutcome,
-} from "../provisioning.ts";
+import { finishCheckouts, prepareCheckouts, type RefreshOutcome } from "../provisioning.ts";
 import { startTicket } from "../tickets.ts";
 import { changeWorkLayer } from "../lifecycle-layer.ts";
 import { changePairs, readChange } from "./store.ts";
@@ -29,22 +21,12 @@ export type Started = {
 
 /** The transport boundary for a workflow error: conflicts stay conflicts, everything else is the
  * taxonomy the route mapper knows. */
-const asIwe = (change: Change, error: unknown): IweError => {
-  if (isIweError(error)) return error;
-  if (typeof error === "object" && error !== null && "_tag" in error) {
-    const tag = String((error as { _tag: unknown })._tag);
-    const raw = "message" in error ? (error as { message: unknown }).message : undefined;
-    if (tag === "InvalidTransition") {
-      return new ConflictError({
+const asCorviError = (change: Change, error: unknown): CorviError =>
+  error instanceof InvalidTransition
+    ? new ConflictError({
         message: `${change.id} has already started (${change.state ?? "Implementation"})`,
-      });
-    }
-    // Our typed errors carry the sentence the user sees; the tag is a last resort for a
-    // foreign tagged error, never the first choice — it would show the page the type name.
-    return new BadRequestError({ message: raw ? String(raw) : tag });
-  }
-  return new BadRequestError({ message: messageOf(error) });
-};
+      })
+    : asCorviErrorBase(error);
 
 /**
  * Start the work through the workflow: the phase moves first (persisted, so a start that fails
@@ -54,7 +36,7 @@ const asIwe = (change: Change, error: unknown): IweError => {
  * not fast-forward reports and continues; it never blocks the transition and never rewrites a
  * branch. The configured ticket move runs afterwards, reported under its own name, never fatal.
  */
-const startBody = (change: Change): Effect.Effect<Started, IweError> =>
+const startBody = (change: Change): Effect.Effect<Started, CorviError> =>
   Effect.gen(function* () {
     const work = yield* ChangeWork;
 
@@ -69,9 +51,7 @@ const startBody = (change: Change): Effect.Effect<Started, IweError> =>
 
         const outcome = yield* work
           .startChange(ChangeId.make(change.id))
-          .pipe(
-            Effect.mapError((error): IweError => asIwe(change, error)),
-          );
+          .pipe(Effect.mapError((error): CorviError => asCorviError(change, error)));
 
         return yield* finishCheckouts(change, outcome.reports);
       }),
@@ -91,5 +71,5 @@ const startBody = (change: Change): Effect.Effect<Started, IweError> =>
 
 /** Start the work: the checkout run under this change's checkout lock — and the ticket move
  * outside it. */
-export const startChangeWithWorkflow = (change: Change): Effect.Effect<Started, IweError> =>
+export const startChangeWithWorkflow = (change: Change): Effect.Effect<Started, CorviError> =>
   startBody(change);

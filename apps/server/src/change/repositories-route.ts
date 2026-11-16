@@ -4,17 +4,17 @@
  * domain failures to the transport taxonomy. The data comes from the change store's repository
  * links — the association surface, not the record-format migration — and this route reads only.
  */
-import { Effect, Layer } from "effect"
+import { Effect, Layer } from "effect";
 
-import { layer as changesNodeLayer, progressLayer, storeLayer } from "@corvi/changes/node"
-import type { RepositoryViewDto } from "@corvi/contracts/api"
-import { ChangeId } from "@corvi/contracts/changes"
-import { layer as repositoriesNodeLayer } from "@corvi/repositories/node"
-import { ChangeWork, layer as changeWorkLayer, type RepositoryView } from "@corvi/workflows"
-import { InternalError, NotFoundError } from "@corvi/contracts/errors"
-import { runRoute } from "../capabilities/effect/run.ts"
-import { guard, json } from "../capabilities/web.ts"
-import { changePairs } from "./server/store.ts"
+import { layer as changesNodeLayer, progressLayer, storeLayer } from "@corvi/changes/node";
+import type { RepositoryViewDto } from "@corvi/contracts/api";
+import { ChangeId } from "@corvi/contracts/changes";
+import { layer as repositoriesNodeLayer } from "@corvi/repositories/node";
+import { ChangeWork, layer as changeWorkLayer, type RepositoryView } from "@corvi/workflows";
+import { InternalError, NotFoundError } from "@corvi/contracts/errors";
+import { runRoute } from "../capabilities/effect/run.ts";
+import { guard, json } from "../capabilities/web.ts";
+import { changePairs } from "./server/store.ts";
 
 const toDto = (view: RepositoryView): RepositoryViewDto => ({
   repositoryId: view.repository.repositoryId,
@@ -22,10 +22,10 @@ const toDto = (view: RepositoryView): RepositoryViewDto => ({
   state: view.state,
   checkoutLocation: view.checkoutLocation,
   checkout: view.checkout,
-})
+});
 
 const param = (req: Request, name: string): string =>
-  (req as Request & { params?: Record<string, string> }).params?.[name] ?? ""
+  (req as Request & { params?: Record<string, string> }).params?.[name] ?? "";
 
 /** Built per request: the layers describe no resources, so construction is cheap and reads see
  * the current configuration. */
@@ -35,15 +35,15 @@ const sliceLayer = (): Layer.Layer<ChangeWork> =>
     Layer.provide(storeLayer({ roots: changePairs() })),
     Layer.provide(repositoriesNodeLayer),
     Layer.provide(progressLayer({ roots: changePairs() })),
-  )
+  );
 
 export const inspectRepositories = (req: Request): Promise<Response> =>
   runRoute(
     Effect.gen(function* () {
-      const changeId = ChangeId.make(param(req, "id"))
-      const work = yield* ChangeWork
-      const views = yield* work.inspectChangeRepositories(changeId)
-      return json(views.map(toDto))
+      const changeId = ChangeId.make(param(req, "id"));
+      const work = yield* ChangeWork;
+      const views = yield* work.inspectChangeRepositories(changeId);
+      return json(views.map(toDto));
     }).pipe(
       Effect.catchTags({
         ChangeNotFound: (error) =>
@@ -54,10 +54,10 @@ export const inspectRepositories = (req: Request): Promise<Response> =>
       }),
       Effect.provide(sliceLayer()),
     ),
-  )
+  );
 
 export const repositoriesRoutes = guard({
   "/api/changes/:id/checkouts": {
     GET: (req: Request) => inspectRepositories(req),
   },
-})
+});

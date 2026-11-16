@@ -2,7 +2,12 @@ import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { Schema } from "effect";
 
-import { SubagentAwaitResponseSchema, SubagentMessageSchema, SubagentRecordSchema, SubagentTurnRequestSchema } from "@corvi/contracts/subagents";
+import {
+  SubagentAwaitResponseSchema,
+  SubagentMessageSchema,
+  SubagentRecordSchema,
+  SubagentTurnRequestSchema,
+} from "@corvi/contracts/subagents";
 import { WindowActionBodySchema } from "@corvi/contracts/api";
 import { WINDOW_TITLE_MAX } from "@corvi/contracts/terminal";
 
@@ -102,7 +107,10 @@ test("the await response is per-target outcomes with no bare identity", () => {
   // `turn` and `reply` are positive message numbers like every other turn reference.
   for (const invalid of [0, -3, 1.5]) {
     expect(() =>
-      decode({ status: "ready", outcomes: [{ id: "s1", status: "ready", reason: "replied", turn: invalid }] }),
+      decode({
+        status: "ready",
+        outcomes: [{ id: "s1", status: "ready", reason: "replied", turn: invalid }],
+      }),
     ).toThrow();
   }
 });

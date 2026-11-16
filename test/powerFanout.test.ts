@@ -1,11 +1,10 @@
 import { afterEach, beforeAll, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
 import { powerRoutes } from "../apps/server/src/power/routes.ts";
 import { fanOut } from "../apps/server/src/power/server/fanout.ts";
-import { configPath, reloadConfigSync } from "../apps/server/src/workspace/server/index.ts";
+import { writeTestWorkspaces } from "./helpers.ts";
 
 /**
  * The power fan-out, against a fake upstream: every outcome becomes one per-target result, the
@@ -52,11 +51,6 @@ const fakeUpstream = async (): Promise<Upstream> => {
   };
 };
 
-const writeConfig = (workspaces: unknown[]): void => {
-  writeFileSync(configPath(), JSON.stringify({ workspaces }));
-  reloadConfigSync();
-};
-
 const remoteWorkspace = (id: string, url: string, token = "remote-token"): unknown => ({
   id,
   name: id,
@@ -82,11 +76,9 @@ afterEach(() => {
 
 test("an armed remote answers under the requested source, with the token and the local target", async () => {
   const upstream = await newUpstream();
-  writeConfig([remoteWorkspace("remote-client", upstream.url)]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", upstream.url)]);
 
-  expect(await fanOut("arm", ["remote-client"])).toEqual([
-    { source: "remote-client", status: "armed" },
-  ]);
+  expect(await fanOut("arm", ["remote-client"])).toEqual([{ source: "remote-client", status: "armed" }]);
   expect(upstream.seen).toHaveLength(1);
   const seen = upstream.seen[0]!;
   expect(seen.method).toBe("POST");
@@ -101,7 +93,7 @@ test("a disarm fans out to the disarm route and reports disarmed", async () => {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ results: [{ source: "", status: "disarmed" }] }));
   });
-  writeConfig([remoteWorkspace("remote-client", upstream.url)]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", upstream.url)]);
 
   expect(await fanOut("disarm", ["remote-client"])).toEqual([
     { source: "remote-client", status: "disarmed" },
@@ -115,7 +107,7 @@ test("a 404 is an older server without the route: unsupported", async () => {
     res.writeHead(404);
     res.end();
   });
-  writeConfig([remoteWorkspace("remote-client", upstream.url)]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", upstream.url)]);
   expect(await fanOut("arm", ["remote-client"])).toEqual([
     {
       source: "remote-client",
@@ -131,7 +123,7 @@ test("a 401 is refused", async () => {
     res.writeHead(401);
     res.end();
   });
-  writeConfig([remoteWorkspace("remote-client", upstream.url)]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", upstream.url)]);
   expect((await fanOut("arm", ["remote-client"]))[0]).toMatchObject({
     source: "remote-client",
     status: "refused",
@@ -145,7 +137,7 @@ test("a redirect is refused, not followed", async () => {
     res.writeHead(302, { location: "http://127.0.0.1:1/stolen" });
     res.end();
   });
-  writeConfig([remoteWorkspace("remote-client", upstream.url)]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", upstream.url)]);
   expect(await fanOut("arm", ["remote-client"])).toEqual([
     { source: "remote-client", status: "refused", detail: "the remote redirected the request" },
   ]);
@@ -157,7 +149,7 @@ test("a malformed 200 is refused", async () => {
     res.writeHead(200, { "content-type": "application/json" });
     res.end("not a power response");
   });
-  writeConfig([remoteWorkspace("remote-client", upstream.url)]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", upstream.url)]);
   expect((await fanOut("arm", ["remote-client"]))[0]).toMatchObject({
     source: "remote-client",
     status: "refused",
@@ -170,7 +162,7 @@ test("a 200 that never names this target is refused", async () => {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ results: [{ source: "someone-else", status: "armed" }] }));
   });
-  writeConfig([remoteWorkspace("remote-client", upstream.url)]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", upstream.url)]);
   expect((await fanOut("arm", ["remote-client"]))[0]).toMatchObject({
     source: "remote-client",
     status: "refused",
@@ -178,7 +170,7 @@ test("a 200 that never names this target is refused", async () => {
 });
 
 test("a missing workspace and an invalid url are reported, not fetched", async () => {
-  writeConfig([remoteWorkspace("invalid", "ftp://example.test")]);
+  writeTestWorkspaces([remoteWorkspace("invalid", "ftp://example.test")]);
   expect(await fanOut("arm", ["ghost"])).toEqual([
     { source: "ghost", status: "unsupported", detail: "no such remote workspace" },
   ]);
@@ -197,7 +189,7 @@ test("a connection refused is unreachable", async () => {
   await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", () => resolve()));
   const port = (probe.address() as AddressInfo).port;
   await new Promise<void>((resolve) => probe.close(() => resolve()));
-  writeConfig([remoteWorkspace("down", `http://127.0.0.1:${port}`)]);
+  writeTestWorkspaces([remoteWorkspace("down", `http://127.0.0.1:${port}`)]);
 
   expect((await fanOut("arm", ["down"]))[0]).toMatchObject({
     source: "down",
@@ -210,7 +202,7 @@ test("a hung remote is cut off by the timeout and reads unreachable", async () =
   upstream.answer(() => {
     // Never respond: only the request's own timeout can end this.
   });
-  writeConfig([remoteWorkspace("slow", upstream.url)]);
+  writeTestWorkspaces([remoteWorkspace("slow", upstream.url)]);
 
   expect((await fanOut("arm", ["slow"], { timeoutMs: 50 }))[0]).toMatchObject({
     source: "slow",
@@ -220,7 +212,7 @@ test("a hung remote is cut off by the timeout and reads unreachable", async () =
 
 test("one unavailable remote does not fail the others", async () => {
   const upstream = await newUpstream();
-  writeConfig([remoteWorkspace("up", upstream.url)]);
+  writeTestWorkspaces([remoteWorkspace("up", upstream.url)]);
   expect(await fanOut("arm", ["up", "ghost"])).toEqual([
     { source: "up", status: "armed" },
     { source: "ghost", status: "unsupported", detail: "no such remote workspace" },
@@ -251,7 +243,7 @@ test("a 200 whose body stalls is unreachable, not a malformed answer", async () 
     res.write('{ "results": [');
     // Never end: the headers arrived, the body does not finish, and the timeout must win.
   });
-  writeConfig([remoteWorkspace("slow", upstream.url)]);
+  writeTestWorkspaces([remoteWorkspace("slow", upstream.url)]);
 
   expect((await fanOut("arm", ["slow"], { timeoutMs: 50 }))[0]).toMatchObject({
     source: "slow",
@@ -261,7 +253,7 @@ test("a 200 whose body stalls is unreachable, not a malformed answer", async () 
 
 test("duplicate targets get one result each while the remote is asked once", async () => {
   const upstream = await newUpstream();
-  writeConfig([remoteWorkspace("remote-client", upstream.url)]);
+  writeTestWorkspaces([remoteWorkspace("remote-client", upstream.url)]);
 
   expect(await postRoute("/api/power/arm", { targets: ["remote-client", "remote-client"] })).toEqual({
     results: [

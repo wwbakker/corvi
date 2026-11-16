@@ -102,8 +102,7 @@ const clients: Record<string, ClientModule> = {
 };
 
 /** The editor an integration's client half ships for its card, when it has one. */
-export const editorOf = (extension: string): EditComponent | undefined =>
-  clients[extension]?.edit;
+export const editorOf = (extension: string): EditComponent | undefined => clients[extension]?.edit;
 
 /** One integration's step. The server only offers steps whose integration is enabled and every
  * included step ships a client half; a disagreement is said rather than rendered blank. */

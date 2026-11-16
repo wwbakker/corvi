@@ -7,13 +7,7 @@
  * barrel, which keeps the module graph acyclic while the chain stays stated once; the env
  * variable names (`ENV_OVERRIDES`) are the app's and stay in `./legacySettings.ts`.
  */
-export {
-  settingsView,
-  settingsViewSync,
-  problems,
-  writeSettings,
-  blankWorkspace,
-} from "./settings.ts";
+export { settingsView, settingsViewSync, problems, writeSettings, blankWorkspace } from "./settings.ts";
 
 /** The mask a stored secret is replaced by in the view: the page's contract with the server, so
  * the two halves and their tests name it once (`./secrets.ts`). */

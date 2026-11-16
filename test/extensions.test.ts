@@ -1,9 +1,8 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { changeDir, createChange, readChange, writeChange } from "../apps/server/src/change/server/index.ts";
-import { checkoutsOf, runEffect, withRuntimeConfig  } from "./helpers.ts";
+import { checkoutsOf, runEffect, withRuntimeConfig, testTempDir, rememberEnv } from "./helpers.ts";
 import { Effect } from "effect";
 import {
   changeTabsFor,
@@ -20,17 +19,19 @@ import { planIssueCompletion } from "@corvi/jira";
 import { refOf, refLabel } from "@corvi/contracts/integrations/github-issues";
 import { ticketOf } from "@corvi/jira/jira";
 import { unknownIntegrationNames } from "../apps/server/src/integrations/included.ts";
-import { runtimeConfig, reloadConfigSync, type Workspace } from "../apps/server/src/workspace/server/index.ts";
+import {
+  runtimeConfig,
+  reloadConfigSync,
+  type Workspace,
+} from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "@corvi/changes/record";
-
 /**
  * A changes root of its own, because creating a change writes one.
  */
 let tmp: string;
-const originalConfig = process.env.CORVI_CONFIG;
-
+const restoreConfig = rememberEnv("CORVI_CONFIG");
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "corvi-extensions-"));
+  tmp = await testTempDir("extensions");
   process.env.CORVI_ROOT = tmp;
   process.env.CORVI_ARCHIVE_ROOT = join(tmp, "archive");
   // A config of its own: the changes root is not the only environment that leaks in. A
@@ -39,22 +40,17 @@ beforeAll(async () => {
   process.env.CORVI_CONFIG = join(tmp, "runtimeConfig().json");
   reloadConfigSync();
 });
-
 afterAll(async () => {
   await rm(tmp, { recursive: true, force: true });
-  if (originalConfig === undefined) delete process.env.CORVI_CONFIG;
-  else process.env.CORVI_CONFIG = originalConfig;
+  restoreConfig();
   reloadConfigSync();
 });
-
 const ws = (patch: Partial<Workspace> = {}): Workspace => ({ id: "test", name: "Test", ...patch });
-
 const route = (method: "GET" | "POST", path: string): CompiledRoute => ({
   method,
   segments: path.split("/").filter((segment) => segment !== ""),
   handler: () => Effect.succeed(new Response()),
 });
-
 test("extension routes match :param patterns, first fit wins", () => {
   const routes = [
     route("GET", "/services/:service/versions"),
@@ -79,7 +75,6 @@ test("extension routes match :param patterns, first fit wins", () => {
   expect(match("GET", "other")).toBeUndefined();
   expect(match("GET", "services/web/versions/extra")).toBeUndefined();
 });
-
 test("extension route params are percent-decoded", () => {
   const candidate = route("GET", "/services/:service/versions");
   const match = (part: string): Record<string, string> | undefined =>
@@ -91,9 +86,8 @@ test("extension route params are percent-decoded", () => {
   // A malformed escape falls back to the raw segment rather than throwing.
   expect(match("a%zz")).toEqual({ service: "a%zz" });
 });
-
 test("a remote URL is read in every shape GitHub answers to", () => {
-  const parse = (url: string): { owner: string; name: string; } | undefined => repoFromRemote(url);
+  const parse = (url: string): { owner: string; name: string } | undefined => repoFromRemote(url);
   expect(parse("https://github.com/owner/name.git")).toEqual({ owner: "owner", name: "name" });
   expect(parse("https://github.com/owner/name")).toEqual({ owner: "owner", name: "name" });
   expect(parse("git@github.com:owner/name.git")).toEqual({ owner: "owner", name: "name" });
@@ -105,15 +99,18 @@ test("a remote URL is read in every shape GitHub answers to", () => {
   expect(parse("https://gitlab.com/owner/name.git")).toBeUndefined();
   expect(parse("/some/local/path")).toBeUndefined();
 });
-
 test("a change's ticket is read from the extension's bag", () => {
-  const bag: Change = { id: "A", branch: "A", checkouts: checkoutsOf([]), extensions: { jira: { key: "PROJ-2" } }, createdAt: "" };
+  const bag: Change = {
+    id: "A",
+    branch: "A",
+    checkouts: checkoutsOf([]),
+    extensions: { jira: { key: "PROJ-2" } },
+    createdAt: "",
+  };
   const neither: Change = { id: "C", branch: "C", checkouts: checkoutsOf([]), createdAt: "" };
-
   expect(ticketOf(bag)).toBe("PROJ-2");
   expect(ticketOf(neither)).toBeUndefined();
 });
-
 test("a change.json key the core no longer names survives a rewrite", async () => {
   const id = "PROJ-UNKNOWN-FILE";
   const dir = changeDir({ id: id });
@@ -126,17 +123,14 @@ test("a change.json key the core no longer names survives a rewrite", async () =
       2,
     )}\n`,
   );
-
   // The decoder preserves the key the core no longer types...
   const read = await runEffect(readChange(id));
   expect((read as { jira?: unknown } | null)?.jira).toBe("PROJ-1");
-
   // ...and a rewrite serializes what the preserve decode kept: the field is not lost.
   await runEffect(writeChange(read!));
   const again = JSON.parse(await Bun.file(join(dir, "change.json")).text()) as Record<string, unknown>;
   expect(again.jira).toBe("PROJ-1");
 });
-
 test("a nested change.json key the core no longer names survives a rewrite", async () => {
   const id = "PROJ-UNKNOWN-NESTED";
   const dir = changeDir({ id: id });
@@ -154,20 +148,17 @@ test("a nested change.json key the core no longer names survives a rewrite", asy
       2,
     )}\n`,
   );
-
   // The decoder keeps an unknown key inside a nested struct (a newer version's checkout field),
   // not just at the record's top level.
   const read = await runEffect(readChange(id));
   const checkouts = (read as { checkouts?: Record<string, unknown>[] } | null)?.checkouts ?? [];
   expect(checkouts[0]?.legacy).toBe(true);
-
   await runEffect(writeChange(read!));
   const again = JSON.parse(await Bun.file(join(dir, "change.json")).text()) as {
     checkouts: Record<string, unknown>[];
   };
   expect(again.checkouts[0]?.legacy).toBe(true);
 });
-
 test("a change.json carrying prototype-named keys round-trips them as own keys", async () => {
   const id = "PROJ-PROTOTYPE";
   const dir = changeDir({ id: id });
@@ -179,7 +170,6 @@ test("a change.json carrying prototype-named keys round-trips them as own keys",
       `"createdAt":"2026-01-01T00:00:00.000Z",` +
       `"constructor":{"a":1},"toString":"keep-me","__proto__":{"polluted":"yes"},"extra":1}`,
   );
-
   const at = (value: Record<string, unknown>, key: string): unknown => value[key];
   const read = (await runEffect(readChange(id))) as unknown as Record<string, unknown>;
   expect(Object.hasOwn(read, "constructor")).toBe(true);
@@ -189,7 +179,6 @@ test("a change.json carrying prototype-named keys round-trips them as own keys",
   expect(Object.hasOwn(read, "__proto__")).toBe(true);
   expect(at(read, "__proto__")).toEqual({ polluted: "yes" });
   expect(Object.getPrototypeOf(read)).toBe(Object.prototype);
-
   await runEffect(writeChange(read as unknown as Change));
   const written = JSON.parse(await Bun.file(join(dir, "change.json")).text()) as Record<string, unknown>;
   expect(Object.hasOwn(written, "constructor")).toBe(true);
@@ -200,8 +189,6 @@ test("a change.json carrying prototype-named keys round-trips them as own keys",
   expect(at(written, "__proto__")).toEqual({ polluted: "yes" });
   expect(Object.getPrototypeOf(written)).toBe(Object.prototype);
 });
-
-
 test("an extension's issue is named by repository and number, and read from the bag", () => {
   const change: Change = {
     id: "A",
@@ -215,32 +202,30 @@ test("an extension's issue is named by repository and number, and read from the 
   expect(refLabel("owner/thing", ref!)).toBe("owner/thing#7");
   expect(refOf({ id: "B", branch: "B", checkouts: checkoutsOf([]), createdAt: "" })).toBeUndefined();
 });
-
 test("a workspace's enablement list may only name included integrations", () => {
   expect(unknownIntegrationNames(["jira", "github-issues"])).toEqual([]);
   expect(unknownIntegrationNames(["jira", "memory"])).toEqual(["memory"]);
   // An absent list means all of them, so it names nothing unknown.
   expect(unknownIntegrationNames(undefined)).toEqual([]);
 });
-
 test("a workspace that names no extensions has them all", () => {
   const enabled = extensionsFor(ws()).map((e) => e.name);
   // The built-ins, whatever they are — and the jira extension among them.
   expect(enabled).toEqual(loaded.map((e) => e.name));
   expect(enabled).toContain("jira");
 });
-
 test("a workspace that names its extensions gets exactly those, in registration order", () => {
-  const enabled = extensionsFor(ws({ settings: { extensions: ["github", "github-issues"] } })).map((e) => e.name);
+  const enabled = extensionsFor(ws({ settings: { extensions: ["github", "github-issues"] } })).map(
+    (e) => e.name,
+  );
   expect(enabled).toEqual(["github", "github-issues"]);
   // An empty list means none: an extension cannot sneak back in.
   expect(extensionsFor(ws({ settings: { extensions: [] } }))).toEqual([]);
   // A name nothing loaded answers for is simply not there.
-  expect(extensionsFor(ws({ settings: { extensions: ["github-issues", "nonexistent"] } })).map((e) => e.name)).toEqual([
-    "github-issues",
-  ]);
+  expect(
+    extensionsFor(ws({ settings: { extensions: ["github-issues", "nonexistent"] } })).map((e) => e.name),
+  ).toEqual(["github-issues"]);
 });
-
 test("the wizard's steps follow the phases and the enablement", () => {
   const withJira = wizardStepsFor(ws({ settings: { extensions: ["jira", "github-issues"] } }));
   // Issue steps first (they prefill the change), repository-aware steps after the repositories.
@@ -252,7 +237,6 @@ test("the wizard's steps follow the phases and the enablement", () => {
   const withoutJira = wizardStepsFor(ws({ settings: { extensions: ["github-issues"] } }));
   expect(withoutJira.map((s) => s.extension)).toEqual(["github-issues"]);
 });
-
 test("an extension's page is offered only in a context that has it", () => {
   const withBoth = pagesFor(ws({ settings: { extensions: ["azure-devops", "leftovers"] } }));
   expect(withBoth.map((p) => [p.extension, p.id])).toEqual([
@@ -263,7 +247,6 @@ test("an extension's page is offered only in a context that has it", () => {
   const withoutLeftovers = pagesFor(ws({ settings: { extensions: ["azure-devops"] } }));
   expect(withoutLeftovers.map((p) => p.extension)).not.toContain("leftovers");
 });
-
 test("a change tab is offered only in a context that has the integration", () => {
   expect(changeTabsFor(ws({ settings: { extensions: ["review"] } }))).toEqual([
     { id: "review", title: "Review changes", extension: "review" },
@@ -271,7 +254,6 @@ test("a change tab is offered only in a context that has the integration", () =>
   // A context that dropped review has no tab for it, not an empty one.
   expect(changeTabsFor(ws({ settings: { extensions: ["notes"] } }))).toEqual([]);
 });
-
 test("dashboard widgets follow the enablement", async () => {
   await withRuntimeConfig(
     {
@@ -290,13 +272,19 @@ test("dashboard widgets follow the enablement", async () => {
     },
   );
 });
-
 test("a completion step is planned only when the change has something for it", () => {
   // The jira planner: planned for a change with a ticket in its bag, absent without one.
-  const withBag: Change = { id: "B", branch: "B", checkouts: checkoutsOf([]), createdAt: "", extensions: { jira: { key: "PROJ-2" } } };
+  const withBag: Change = {
+    id: "B",
+    branch: "B",
+    checkouts: checkoutsOf([]),
+    createdAt: "",
+    extensions: { jira: { key: "PROJ-2" } },
+  };
   expect(planIssueCompletion(withBag, runtimeConfig())?.label).toBe("move PROJ-2 to Done");
-  expect(planIssueCompletion({ id: "C", branch: "C", checkouts: checkoutsOf([]), createdAt: "" }, runtimeConfig())).toBeUndefined();
-
+  expect(
+    planIssueCompletion({ id: "C", branch: "C", checkouts: checkoutsOf([]), createdAt: "" }, runtimeConfig()),
+  ).toBeUndefined();
   // The github-issues planner: the label names the issue without a subprocess, so the plan is
   // honest about what is coming before anything runs.
   const ghPlanned = planIssueClose({
@@ -309,17 +297,18 @@ test("a completion step is planned only when the change has something for it", (
   expect(ghPlanned?.label).toBe("close thing#9");
   expect(planIssueClose({ id: "E", branch: "E", checkouts: checkoutsOf([]), createdAt: "" })).toBeUndefined();
 });
-
 test("the wizard's payload lands on the change record, verbatim and per extension", async () => {
-  const created = await runEffect(createChange({
-    id: "PROJ-BAG",
-    checkouts: checkoutsOf(["/tmp/whatever-repo"]),
-    workspace: "test",
-    extensions: {
-      jira: { key: "PROJ-5" },
-      "github-issues": { repo: "/repos/thing", number: 12 },
-    },
-  }));
+  const created = await runEffect(
+    createChange({
+      id: "PROJ-BAG",
+      checkouts: checkoutsOf(["/tmp/whatever-repo"]),
+      workspace: "test",
+      extensions: {
+        jira: { key: "PROJ-5" },
+        "github-issues": { repo: "/repos/thing", number: 12 },
+      },
+    }),
+  );
   const read = await Effect.runPromise(readChange("PROJ-BAG"));
   // The core stores what the extensions picked and never looks inside: both survive as written.
   expect(read?.extensions).toEqual({
