@@ -6,6 +6,7 @@
  * Failure is the caller's: a missing file rejects, exactly as `Bun.file(...).text()` did, and
  * every caller already treats that as "no file" where that is what it means.
  */
+import { renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 
@@ -55,6 +56,28 @@ export const writeAtomic = async (
     await rename(temp, path);
   } catch (error) {
     await unlink(temp).catch(() => {});
+    throw error;
+  }
+};
+
+/** The synchronous twin of `writeAtomic`, for the callers that persist on a tick rather than a
+ * request (the window registry, screen snapshots, the published port). Same unique temp name and
+ * cleanup, so two writers cannot clobber each other's temp file. */
+export const writeAtomicSync = (
+  path: string,
+  data: string | Uint8Array,
+  options?: { readonly mode?: number },
+): void => {
+  const temp = `${path}.${process.pid}.${tempCounter++}.tmp`;
+  try {
+    writeFileSync(temp, data, options?.mode === undefined ? undefined : { mode: options.mode });
+    renameSync(temp, path);
+  } catch (error) {
+    try {
+      unlinkSync(temp);
+    } catch {
+      // The temp may not have been created; the original error is the one to report.
+    }
     throw error;
   }
 };

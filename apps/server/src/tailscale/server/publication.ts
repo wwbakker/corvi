@@ -6,11 +6,12 @@
  * cannot tell the 443 mapping is its own, and the user has to clean up by hand. Read once at
  * startup and installed into the runtime (`setTailscalePublishedPort`); nothing else is stored.
  */
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Schema } from "effect";
 
 import { ID, stateDir } from "@corvi/configuration/node";
+import { writeAtomicSync } from "../../capabilities/files.ts";
 
 /** The one field: a real TCP port, so a hand-mangled file (or a value from a version that meant
  * something else) is no record rather than a wrong one. */
@@ -44,9 +45,7 @@ export const persistPublishedPort = (port: number | undefined): void => {
       return;
     }
     mkdirSync(dirname(publicationPath()), { recursive: true });
-    const temp = `${publicationPath()}.${process.pid}.tmp`;
-    writeFileSync(temp, JSON.stringify({ port }), { mode: 0o600 });
-    renameSync(temp, publicationPath());
+    writeAtomicSync(publicationPath(), JSON.stringify({ port }), { mode: 0o600 });
   } catch (error) {
     console.error("could not record the published Tailscale port:", error);
   }

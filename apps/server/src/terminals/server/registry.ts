@@ -10,9 +10,10 @@
  *
  * `mergeRecords` is pure and unit-tested; `rebuild`/`save` are the only I/O.
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { stateDir } from "@corvi/configuration/node";
+import { writeAtomicSync } from "../../capabilities/files.ts";
 import { WINDOW_TITLE_MAX } from "@corvi/contracts/terminal";
 
 /** Which substrate owns a window. Every window is a host session now; the field remains in the
@@ -135,9 +136,7 @@ export const parseRecords = (records: unknown): WindowRecord[] => {
 
 const write = (registry: Persisted): void => {
   mkdirSync(dirname(path()), { recursive: true });
-  const tmp = `${path()}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify(registry));
-  renameSync(tmp, path());
+  writeAtomicSync(path(), JSON.stringify(registry));
 };
 
 const same = (left: readonly WindowRecord[], right: readonly WindowRecord[]): boolean =>

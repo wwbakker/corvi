@@ -12,9 +12,10 @@
  * store used; the writer is now the hub (`./session.ts`), and the decision is
  * `docs/decisions/server-owned-screen.md`.
  */
-import { appendFileSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { stateDir } from "@corvi/configuration/node";
+import { writeAtomicSync } from "../../capabilities/files.ts";
 
 export type Snapshot = {
   /** The serialized screen, replayed into a headless xterm (or a page) to reconstruct it. */
@@ -88,9 +89,7 @@ const persist = (): boolean => {
     const out: Record<string, Snapshot> = {};
     for (const [key, value] of snapshots) out[key] = value;
     mkdirSync(dirname(path()), { recursive: true });
-    const tmp = `${path()}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify({ version: 1, snapshots: out }));
-    renameSync(tmp, path());
+    writeAtomicSync(path(), JSON.stringify({ version: 1, snapshots: out }));
     return true;
   } catch (error) {
     logFailure("could not write the snapshot store", error);
