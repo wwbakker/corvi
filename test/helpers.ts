@@ -689,6 +689,16 @@ export const callGuarded = (
   return handler(req);
 };
 
+/** A failed `Result`, or a thrown error when the test expected a failure and got a success. The
+ * one narrowing for the many `Result.isFailure` blocks. */
+export const failureOf = <A, E>(
+  result:
+    { readonly _tag: "Success"; readonly success: A } | { readonly _tag: "Failure"; readonly failure: E },
+): E => {
+  if (result._tag === "Success") throw new Error("expected a failed result");
+  return result.failure;
+};
+
 /** One CLI call, Promise-shaped for the tests: a timed-out CLI is exit code 124, so tests
  * branch on `code` exactly as the server does. */
 export const runSh = (cmd: readonly string[], cwd?: string): Promise<ShellResult> =>

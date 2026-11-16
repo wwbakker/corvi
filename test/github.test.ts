@@ -59,6 +59,7 @@ import {
   runWithShellWithTestClock,
   testTempDir,
   type FakeShell,
+  failureOf,
 } from "./helpers.ts";
 
 /**
@@ -953,7 +954,10 @@ test("mergePr: a stack that cannot start the merge fails with what GitHub said",
   });
   const either = await runEither(shell, mergePr(change(), repo, 7));
   expect(Result.isFailure(either)).toBe(true);
-  if (Result.isFailure(either)) expect(either.failure.message).toContain("could not start the merge of #7");
+  {
+    const failure = failureOf(either);
+    expect(failure.message).toContain("could not start the merge of #7");
+  }
 });
 
 test("mergePr: a gated stack question is the answer, not a guess about stacking", async () => {
@@ -974,7 +978,10 @@ test("mergePr: a gated stack question is the answer, not a guess about stacking"
   const either = await runEither(shell, mergePr(change(), repo, 7));
   expect(Result.isFailure(either)).toBe(true);
   // Not "not stacked, so try squashing": the merge gh would attempt spends the same budget.
-  if (Result.isFailure(either)) expect(either.failure._tag).toBe("GitHubRateLimited");
+  {
+    const failure = failureOf(either);
+    expect(failure._tag).toBe("GitHubRateLimited");
+  }
   expect(shell.calls.map((c) => c.cmd.join(" "))).not.toContain("gh pr merge 7 --squash");
   forgetRateLimit();
 });
@@ -1006,12 +1013,15 @@ test("mergePr: a gated confirmation says which merge is unaccounted for", async 
 
   const either = await runEither(shell, mergePr(change(), repo, 7));
   expect(Result.isFailure(either)).toBe(true);
-  if (Result.isFailure(either)) {
-    // Neither "still running" nor "not merged": what is unknown, and when GitHub answers again.
-    expect(either.failure._tag).toBe("BadRequestError");
-    expect(either.failure.message).toMatch(
-      /^could not confirm the merge of #7: GitHub rate limit reached; resets at \d\d:\d\d UTC \(in \d+ minutes\)$/,
-    );
+  {
+    const failure = failureOf(either);
+    {
+      // Neither "still running" nor "not merged": what is unknown, and when GitHub answers again.
+      expect(failure._tag).toBe("BadRequestError");
+      expect(failure.message).toMatch(
+        /^could not confirm the merge of #7: GitHub rate limit reached; resets at \d\d:\d\d UTC \(in \d+ minutes\)$/,
+      );
+    }
   }
   forgetRateLimit();
 });
@@ -1041,11 +1051,14 @@ test("mergePr: a gated poll says which merge is unaccounted for", async () => {
 
   const either = await runEither(shell, mergePr(change(), repo, 7));
   expect(Result.isFailure(either)).toBe(true);
-  if (Result.isFailure(either)) {
-    expect(either.failure._tag).toBe("BadRequestError");
-    expect(either.failure.message).toMatch(
-      /^could not confirm the merge of #7: GitHub rate limit reached; resets at \d\d:\d\d UTC \(in \d+ minutes\)$/,
-    );
+  {
+    const failure = failureOf(either);
+    {
+      expect(failure._tag).toBe("BadRequestError");
+      expect(failure.message).toMatch(
+        /^could not confirm the merge of #7: GitHub rate limit reached; resets at \d\d:\d\d UTC \(in \d+ minutes\)$/,
+      );
+    }
   }
   // The pull request was never asked to confirm either: the same budget is shut.
   expect(shell.calls.map((c) => c.cmd.join(" "))).not.toContain("gh api repos/org/repo/pulls/7 -q .merged");
@@ -1056,7 +1069,10 @@ test("mergePr: no worktree is a bad request before any merge is attempted", asyn
   const repo = "/repos/merge-nowt";
   const either = await runEither(ghShell({ repo, noWorktree: true }), mergePr(change(), repo, 7));
   expect(Result.isFailure(either)).toBe(true);
-  if (Result.isFailure(either)) expect(either.failure._tag).toBe("BadRequestError");
+  {
+    const failure = failureOf(either);
+    expect(failure._tag).toBe("BadRequestError");
+  }
 });
 
 // --- Creating a pull request ------------------------------------------------------------------
@@ -1115,7 +1131,10 @@ test("createPr: no worktree and a failed push both stop before a pull request ex
   });
   const failed = await runEither(shell, createPr(change(), repo));
   expect(Result.isFailure(failed)).toBe(true);
-  if (Result.isFailure(failed)) expect(failed.failure._tag).toBe("CliError");
+  {
+    const failure = failureOf(failed);
+    expect(failure._tag).toBe("CliError");
+  }
 });
 
 test("createPr forgets the change's cached pull-request reads", async () => {
@@ -1353,7 +1372,10 @@ test("createIssue: no GitHub remote, a failing gh and an unreadable URL are bad 
   });
   const refused = await runExtensionEither(failed, createIssue("/r/create-fail", "T", undefined));
   expect(Result.isFailure(refused) && refused.failure._tag).toBe("BadRequestError");
-  if (Result.isFailure(refused)) expect(refused.failure.message).toContain("no permission");
+  {
+    const failure = failureOf(refused);
+    expect(failure.message).toContain("no permission");
+  }
 
   const unreadable = fakeShell({
     "git remote get-url origin": "https://github.com/owner/name.git\n",
@@ -1361,8 +1383,10 @@ test("createIssue: no GitHub remote, a failing gh and an unreadable URL are bad 
   });
   const noNumber = await runExtensionEither(unreadable, createIssue("/r/create-nonum", "T", undefined));
   expect(Result.isFailure(noNumber)).toBe(true);
-  if (Result.isFailure(noNumber))
-    expect(noNumber.failure.message).toContain("could not read the new issue's number");
+  {
+    const failure = failureOf(noNumber);
+    expect(failure.message).toContain("could not read the new issue's number");
+  }
 });
 
 test("completing a change closes its issue with a word about where the work landed", async () => {
@@ -1660,10 +1684,11 @@ test("the link route refuses a finished change: its completion already closed it
       { id: "PROJ-GH-LINK-DONE" },
     ),
   );
-  if (Result.isFailure(either)) {
-    expect(either.failure._tag).toBe("BadRequestError");
-  } else {
-    throw new Error("expected the finished change to refuse the write");
+  {
+    const failure = failureOf(either);
+    {
+      expect(failure._tag).toBe("BadRequestError");
+    }
   }
   // The link stands as it was.
   expect(refOf((await runLink(readChange("PROJ-GH-LINK-DONE")))!)).toEqual({
