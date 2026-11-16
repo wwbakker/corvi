@@ -288,6 +288,23 @@ const isAcknowledged = (reason: LifecycleReason, acknowledgements: readonly Ackn
         : acknowledgement.subject === undefined),
   );
 
+/** The refusal both operations share: a hard reason blocks, an unacknowledged one asks, and
+ * nothing left means the operation may run. */
+const acknowledgementOutcome = (
+  operation: "complete" | "cancel",
+  reasons: readonly LifecycleReason[],
+  acknowledgements: readonly Acknowledgement[],
+  toMerge: readonly OutstandingPullRequest[] = [],
+): LifecycleOutcome | undefined => {
+  if (reasons.some((reason) => reason.kind === "hard")) {
+    return { _tag: "Blocked", operation, reasons, toMerge };
+  }
+  if (reasons.some((reason) => !isAcknowledged(reason, acknowledgements))) {
+    return { _tag: "NeedsAcknowledgement", operation, reasons, toMerge };
+  }
+  return undefined;
+};
+
 /** The checkouts a teardown destroys: every worktree, whatever branch it holds. */
 const worktreeLinks = (links: readonly Repository[]): readonly Repository[] =>
   links.filter((link) => link.location === "new");
@@ -592,21 +609,14 @@ export const layer = Layer.effect(
             );
             return link ? [{ link, number: pullRequest.number }] : [];
           });
-          if (reasons.some((reason) => reason.kind === "hard"))
-            return {
-              _tag: "Blocked",
-              operation: "complete",
-              reasons,
-              toMerge: mergeList(change, toMerge),
-            } satisfies LifecycleOutcome;
           const acknowledgements = input.acknowledgements ?? [];
-          if (reasons.some((reason) => !isAcknowledged(reason, acknowledgements)))
-            return {
-              _tag: "NeedsAcknowledgement",
-              operation: "complete",
-              reasons,
-              toMerge: mergeList(change, toMerge),
-            } satisfies LifecycleOutcome;
+          const refusal = acknowledgementOutcome(
+            "complete",
+            reasons,
+            acknowledgements,
+            mergeList(change, toMerge),
+          );
+          if (refusal) return refusal;
 
           // The plan first: a page opened mid-operation shows what is still coming.
           const issueSteps = yield* issues.plan(change);
@@ -682,29 +692,15 @@ export const layer = Layer.effect(
                 kind: reason.kind,
                 text: reason.text,
               }));
-              const unacknowledged = fresh.some(
-                (reason) => reason.kind === "forceable" && !isAcknowledged(reason, acknowledgements),
-              );
-              if (safety._tag === "Unsafe" || unacknowledged) {
+              const refusal = acknowledgementOutcome("complete", fresh, acknowledgements);
+              if (refusal) {
                 yield* record(change.changeId, {
                   id: "worktrees",
                   label: "remove the worktrees",
                   state: "failed",
                   detail: "the checkout changed since the assessment",
                 });
-                return safety._tag === "Unsafe"
-                  ? ({
-                      _tag: "Blocked",
-                      operation: "complete",
-                      reasons: fresh,
-                      toMerge: [],
-                    } satisfies LifecycleOutcome)
-                  : ({
-                      _tag: "NeedsAcknowledgement",
-                      operation: "complete",
-                      reasons: fresh,
-                      toMerge: [],
-                    } satisfies LifecycleOutcome);
+                return refusal;
               }
             }
             const removal = yield* Effect.result(
@@ -757,16 +753,9 @@ export const layer = Layer.effect(
 
           const sourceLinks = yield* links.listRepositories(input.changeId);
           const reasons = yield* cancellationReasons(change, sourceLinks);
-          if (reasons.some((reason) => reason.kind === "hard"))
-            return { _tag: "Blocked", operation: "cancel", reasons, toMerge: [] } satisfies LifecycleOutcome;
           const acknowledgements = input.acknowledgements ?? [];
-          if (reasons.some((reason) => !isAcknowledged(reason, acknowledgements)))
-            return {
-              _tag: "NeedsAcknowledgement",
-              operation: "cancel",
-              reasons,
-              toMerge: [],
-            } satisfies LifecycleOutcome;
+          const refusal = acknowledgementOutcome("cancel", reasons, acknowledgements);
+          if (refusal) return refusal;
 
           const loose: string[] = [];
           // The plan first: a page opened mid-operation shows what is still coming.
@@ -904,23 +893,8 @@ export const layer = Layer.effect(
                 kind: reason.kind,
                 text: reason.text,
               }));
-              const unacknowledged = fresh.some(
-                (reason) => reason.kind === "forceable" && !isAcknowledged(reason, acknowledgements),
-              );
-              if (safety._tag === "Unsafe" || unacknowledged)
-                return safety._tag === "Unsafe"
-                  ? ({
-                      _tag: "Blocked",
-                      operation: "cancel",
-                      reasons: fresh,
-                      toMerge: [],
-                    } satisfies LifecycleOutcome)
-                  : ({
-                      _tag: "NeedsAcknowledgement",
-                      operation: "cancel",
-                      reasons: fresh,
-                      toMerge: [],
-                    } satisfies LifecycleOutcome);
+              const refusal = acknowledgementOutcome("cancel", fresh, acknowledgements);
+              if (refusal) return refusal;
             }
             yield* removeCheckout(AbsolutePath.make(checkoutLocationOf(change, link)));
             // Only a branch Corvi created for this worktree is deleted; a borrowed one stays.
