@@ -24,6 +24,7 @@ import {
   runWithShell,
   type FakeShell,
   testTempDir,
+  withEnv,
 } from "./helpers.ts";
 /** Every effect below goes through the shared cache and the contract's capabilities, and every
  * test starts from a cold one so a key one test warmed cannot answer for another. */
@@ -321,9 +322,7 @@ test("a failed or unreadable duration query has no estimate, not an error", asyn
   expect(await runWithShell(garbage, expectedDuration(az(), 503))).toBeUndefined();
 });
 test("expectedDuration asks az for as much history as CORVI_AZURE_HISTORY names", async () => {
-  const original = process.env.CORVI_AZURE_HISTORY;
-  process.env.CORVI_AZURE_HISTORY = "3";
-  try {
+  return withEnv({ CORVI_AZURE_HISTORY: "3" }, async () => {
     let seen = "";
     const shell = fakeShell((cmd) => {
       seen = cmd.join(" ");
@@ -332,10 +331,7 @@ test("expectedDuration asks az for as much history as CORVI_AZURE_HISTORY names"
     expect(await runWithShell(shell, expectedDuration(az(), 504))).toBeUndefined();
     expect(seen).toContain("--top 3");
     expect(seen).toContain("--status completed");
-  } finally {
-    if (original === undefined) delete process.env.CORVI_AZURE_HISTORY;
-    else process.env.CORVI_AZURE_HISTORY = original;
-  }
+  });
 });
 test("versionOf asks nothing for a run that did not succeed", async () => {
   const shell = fakeShell();
