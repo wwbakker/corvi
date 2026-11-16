@@ -81,6 +81,26 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         ),
       );
 
+    /** A non-zero exit as a `Git.OperationError`, or the result unchanged. `message` overrides
+     * git's stderr (a context-specific sentence, or a hint-filtered one). */
+    const expectOk = (
+      result: CommandResult,
+      operation: Git.OperationError["operation"],
+      directory: string,
+      fallback: string,
+      options: { readonly message?: string; readonly exitCode?: boolean } = {},
+    ): Effect.Effect<CommandResult, Git.OperationError> =>
+      result.exitCode === 0
+        ? Effect.succeed(result)
+        : Effect.fail(
+            new Git.OperationError({
+              operation,
+              directory,
+              message: options.message ?? (result.stderr.trim() || fallback),
+              ...(options.exitCode ? { exitCode: result.exitCode } : {}),
+            }),
+          );
+
     const discover = Effect.fn("Git.repo.discover")(function* (directory: AbsolutePath) {
       if (!(yield* Effect.sync(() => isDirectory(directory)))) return undefined;
       const [top, gitDir, commonDir] = yield* Effect.all([
@@ -341,12 +361,7 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
       // NUL-separated so a path is never quoted or split; a rename or copy carries its origin as
       // the next field, which is skipped.
       const result = yield* run("status", repository.worktree, ["status", "--porcelain=v2", "-z"]);
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "status",
-          directory: repository.worktree,
-          message: result.stderr.trim() || "git status failed",
-        });
+      yield* expectOk(result, "status", repository.worktree, "git status failed");
       // The path follows a fixed number of space-separated fields, and may itself hold spaces.
       const pathAfter = (entry: string, fields: number): string => entry.split(" ").slice(fields).join(" ");
       const tracked: string[] = [];
@@ -372,12 +387,7 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         "-z",
         "--untracked-files=all",
       ]);
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "status",
-          directory: repository.worktree,
-          message: result.stderr.trim() || result.stdout.trim() || "git status failed",
-        });
+      yield* expectOk(result, "status", repository.worktree, result.stdout.trim() || "git status failed");
       return parseBranchStatus(result.stdout);
     });
 
@@ -442,13 +452,10 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
       const result = yield* run("push", repository.worktree, ["push", "-u", input.remote, input.branch]);
       // git says what it did on stderr, and the last line of it is the useful half.
       const said = (result.stderr.trim() || result.stdout.trim()).split("\n");
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "push",
-          directory: repository.worktree,
-          message: said.join("\n") || "git push failed",
-          exitCode: result.exitCode,
-        });
+      yield* expectOk(result, "push", repository.worktree, "git push failed", {
+        message: said.join("\n") || "git push failed",
+        exitCode: true,
+      });
       return said.pop() ?? "";
     });
 
@@ -459,12 +466,7 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         "-z",
         "--untracked-files=all",
       ]);
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "status",
-          directory: repository.worktree,
-          message: result.stderr.trim() || "git status failed",
-        });
+      yield* expectOk(result, "status", repository.worktree, "git status failed");
       const pathAfter = (entry: string, fields: number): string => entry.split(" ").slice(fields).join(" ");
       const found: Git.ChangedPath[] = [];
       const add = (path: string, change: Git.PathChange): void => {
@@ -666,12 +668,7 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
       branch: string,
     ) {
       const result = yield* run("remove", repository.worktree, ["branch", "-D", branch]);
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "remove",
-          directory: repository.worktree,
-          message: result.stderr.trim() || "git branch -D failed",
-        });
+      yield* expectOk(result, "remove", repository.worktree, "git branch -D failed");
     });
 
     const fetchRemote = Effect.fn("Git.sync.fetchRemote")(function* (
@@ -679,22 +676,12 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
       remote = "origin",
     ) {
       const result = yield* run("checkout", repository.worktree, ["fetch", "--quiet", remote]);
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "checkout",
-          directory: repository.worktree,
-          message: result.stderr.trim() || "git fetch failed",
-        });
+      yield* expectOk(result, "checkout", repository.worktree, "git fetch failed");
     });
 
     const pullFastForward = Effect.fn("Git.sync.pullFastForward")(function* (repository: Git.Repository) {
       const result = yield* run("pull", repository.worktree, ["pull", "--ff-only"]);
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "pull",
-          directory: repository.worktree,
-          message: result.stderr.trim() || "git pull --ff-only failed",
-        });
+      yield* expectOk(result, "pull", repository.worktree, "git pull --ff-only failed");
     });
 
     const mergeFastForwardOnly = Effect.fn("Git.sync.mergeFastForwardOnly")(function* (
@@ -733,12 +720,7 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
           ? ["switch", "--create", input.branch, ...(input.base ? ["--no-track", input.base] : [])]
           : ["switch", input.branch];
       const result = yield* run("checkout", repository.worktree, args);
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "checkout",
-          directory: repository.worktree,
-          message: result.stderr.trim() || "git switch failed",
-        });
+      yield* expectOk(result, "checkout", repository.worktree, "git switch failed");
     });
 
     const remove = Effect.fn("Git.worktree.remove")(function* (input: {
@@ -752,12 +734,7 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         ...(input.force ? ["--force"] : []),
         input.directory,
       ]);
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "remove",
-          directory: input.directory,
-          message: result.stderr.trim() || "git worktree remove failed",
-        });
+      yield* expectOk(result, "remove", input.directory, "git worktree remove failed");
     });
 
     const addWorktree = Effect.fn("Git.worktree.add")(function* (input: {
@@ -783,12 +760,7 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
             ]
           : ["worktree", "add", input.directory, input.branch];
       const result = yield* run("create", input.repository.worktree, args);
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "create",
-          directory: input.directory,
-          message: result.stderr.trim() || "git worktree add failed",
-        });
+      yield* expectOk(result, "create", input.directory, "git worktree add failed");
       const repository = yield* discover(input.directory);
       if (repository) {
         const attached = yield* branch(repository);
