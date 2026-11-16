@@ -11,6 +11,7 @@ import {
   until,
   startTestServer,
   VIEWPORT,
+  withPage,
 } from "./helpers.ts";
 
 /**
@@ -98,76 +99,79 @@ const storedTokenInFile = async (): Promise<string | undefined> => {
 test.skipIf(!usable)(
   "a remote workspace is added, paired, saved masked, edited and removed",
   async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("nav.tabs");
+    await withPage(
+      browser,
+      async (page) => {
+        await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
+        await page.waitForSelector("nav.tabs");
 
-    // Add a context and make it remote. Anchored label regexes: a wrapping label's name includes
-    // its hint, and "Name" would otherwise also match "This device's name".
-    await page.getByRole("button", { name: "+ add a context" }).click();
-    await page.getByLabel(/^Name/).fill("Remote client");
-    await page.getByLabel(/^Id/).fill("remote-client");
-    await page.getByLabel(/^Hosted on another server/).check();
+        // Add a context and make it remote. Anchored label regexes: a wrapping label's name includes
+        // its hint, and "Name" would otherwise also match "This device's name".
+        await page.getByRole("button", { name: "+ add a context" }).click();
+        await page.getByLabel(/^Name/).fill("Remote client");
+        await page.getByLabel(/^Id/).fill("remote-client");
+        await page.getByLabel(/^Hosted on another server/).check();
 
-    // A remote workspace has no settings of its own here, so those sections are gone.
-    expect(await page.getByRole("button", { name: "Locations" }).count()).toBe(0);
+        // A remote workspace has no settings of its own here, so those sections are gone.
+        expect(await page.getByRole("button", { name: "Locations" }).count()).toBe(0);
 
-    await page.getByLabel(/^Remote address/).fill(remote.url);
-    await page.getByLabel(/^Remote workspace/).fill("client");
+        await page.getByLabel(/^Remote address/).fill(remote.url);
+        await page.getByLabel(/^Remote workspace/).fill("client");
 
-    // Pair: the helper redeems the code on the stub, fills the token, and offers the picker.
-    await page.getByLabel(/^Pairing code/).fill("abcd");
-    await page.getByLabel(/^This device's name/).fill("laptop");
-    await page.getByRole("button", { name: "Pair", exact: true }).click();
-    const token = page.getByLabel(/^Device token/);
-    await until(async () => (await token.inputValue()) === "raw-token", true, 10_000);
-    const picker = page.getByRole("combobox");
-    await picker.waitFor();
-    await picker.selectOption("client");
+        // Pair: the helper redeems the code on the stub, fills the token, and offers the picker.
+        await page.getByLabel(/^Pairing code/).fill("abcd");
+        await page.getByLabel(/^This device's name/).fill("laptop");
+        await page.getByRole("button", { name: "Pair", exact: true }).click();
+        const token = page.getByLabel(/^Device token/);
+        await until(async () => (await token.inputValue()) === "raw-token", true, 10_000);
+        const picker = page.getByRole("combobox");
+        await picker.waitFor();
+        await picker.selectOption("client");
 
-    await page.getByRole("button", { name: "Save" }).click();
-    await page.locator(".hint.saved").waitFor();
+        await page.getByRole("button", { name: "Save" }).click();
+        await page.locator(".hint.saved").waitFor();
 
-    // The token is stored, and the settings read masks it — the page never receives it.
-    expect(await storedRemote()).toEqual({
-      url: remote.url,
-      workspace: "client",
-      token: MASK,
-    });
-    // The file itself holds the raw token: the page flow is pinned end to end, not just at the
-    // masked view.
-    expect(await storedTokenInFile()).toBe("raw-token");
+        // The token is stored, and the settings read masks it — the page never receives it.
+        expect(await storedRemote()).toEqual({
+          url: remote.url,
+          workspace: "client",
+          token: MASK,
+        });
+        // The file itself holds the raw token: the page flow is pinned end to end, not just at the
+        // masked view.
+        expect(await storedTokenInFile()).toBe("raw-token");
 
-    // A reload shows the stored workspace with its token masked, not the raw token.
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await page.getByRole("button", { name: "Remote client" }).click();
-    const reloaded = page.getByLabel(/^Device token/);
-    await reloaded.waitFor();
-    expect(await reloaded.inputValue()).toBe(MASK);
+        // A reload shows the stored workspace with its token masked, not the raw token.
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await page.getByRole("button", { name: "Remote client" }).click();
+        const reloaded = page.getByLabel(/^Device token/);
+        await reloaded.waitFor();
+        expect(await reloaded.inputValue()).toBe(MASK);
 
-    // A benign edit — the name — keeps the stored token: the target is unchanged.
-    await page.getByLabel(/^Name/).fill("Remote client two");
-    await page.getByRole("button", { name: "Save" }).click();
-    await page.locator(".hint.saved").waitFor();
-    expect(await storedRemote()).toEqual({ url: remote.url, workspace: "client", token: MASK });
-    expect(await storedTokenInFile()).toBe("raw-token");
+        // A benign edit — the name — keeps the stored token: the target is unchanged.
+        await page.getByLabel(/^Name/).fill("Remote client two");
+        await page.getByRole("button", { name: "Save" }).click();
+        await page.locator(".hint.saved").waitFor();
+        expect(await storedRemote()).toEqual({ url: remote.url, workspace: "client", token: MASK });
+        expect(await storedTokenInFile()).toBe("raw-token");
 
-    // Changing the target drops the stored token — the old host's credential must not travel to
-    // a different server or workspace — and the editor says so before Save.
-    await page.getByLabel(/^Remote workspace/).fill("personal");
-    await page.getByText("no longer applies").waitFor();
-    await page.getByRole("button", { name: "Save" }).click();
-    await page.locator(".hint.saved").waitFor();
-    expect(await storedRemote()).toEqual({ url: remote.url, workspace: "personal" });
-    expect(await storedTokenInFile()).toBeUndefined();
+        // Changing the target drops the stored token — the old host's credential must not travel to
+        // a different server or workspace — and the editor says so before Save.
+        await page.getByLabel(/^Remote workspace/).fill("personal");
+        await page.getByText("no longer applies").waitFor();
+        await page.getByRole("button", { name: "Save" }).click();
+        await page.locator(".hint.saved").waitFor();
+        expect(await storedRemote()).toEqual({ url: remote.url, workspace: "personal" });
+        expect(await storedTokenInFile()).toBeUndefined();
 
-    // Removing the context drops it from the file.
-    await page.getByRole("button", { name: "Remove this context" }).click();
-    await page.getByRole("button", { name: "Save" }).click();
-    await page.locator(".hint.saved").waitFor();
-    expect(await storedRemote()).toBeUndefined();
-
-    await page.close();
+        // Removing the context drops it from the file.
+        await page.getByRole("button", { name: "Remove this context" }).click();
+        await page.getByRole("button", { name: "Save" }).click();
+        await page.locator(".hint.saved").waitFor();
+        expect(await storedRemote()).toBeUndefined();
+      },
+      VIEWPORT,
+    );
   },
   90_000,
 );

@@ -144,139 +144,151 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "the azure-devops page reads live on arrival, and a deploying cell shows its progress",
   async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    const started = new Date(Date.now() - 3 * 60_000).toISOString();
-    // One service deploying on accept with a known typical duration, one settled: the two cells the
-    // page has to tell apart. Answered here rather than by the server, so the test needs no Azure
-    // DevOps login.
-    const fixture = {
-      services: [
-        {
-          name: "example-api",
-          pipeline: { id: 1, name: "deploy-example-api" },
-          build: { id: 2, name: "build-example-api" },
-          environments: [
+    await withPage(
+      browser,
+      async (page) => {
+        const started = new Date(Date.now() - 3 * 60_000).toISOString();
+        // One service deploying on accept with a known typical duration, one settled: the two cells the
+        // page has to tell apart. Answered here rather than by the server, so the test needs no Azure
+        // DevOps login.
+        const fixture = {
+          services: [
             {
-              environment: "accept",
-              version: "20261109.4",
-              at: started,
-              state: "pending",
-              detail: "deploying 20261109.4",
-              url: "https://dev.azure.com/example/proj/_build/results?buildId=9",
-              expectedMs: 10 * 60_000,
+              name: "example-api",
+              pipeline: { id: 1, name: "deploy-example-api" },
+              build: { id: 2, name: "build-example-api" },
+              environments: [
+                {
+                  environment: "accept",
+                  version: "20261109.4",
+                  at: started,
+                  state: "pending",
+                  detail: "deploying 20261109.4",
+                  url: "https://dev.azure.com/example/proj/_build/results?buildId=9",
+                  expectedMs: 10 * 60_000,
+                },
+              ],
+            },
+            {
+              name: "example-service",
+              pipeline: { id: 3, name: "deploy-example-service" },
+              build: { id: 4, name: "build-example-service" },
+              environments: [
+                {
+                  environment: "accept",
+                  version: "20261109.1",
+                  at: "2026-11-09T08:10:00Z",
+                  state: "ok",
+                  detail: "3h ago",
+                  url: "https://dev.azure.com/example/proj/_build/results?buildId=7",
+                },
+              ],
             },
           ],
-        },
-        {
-          name: "example-service",
-          pipeline: { id: 3, name: "deploy-example-service" },
-          build: { id: 4, name: "build-example-service" },
-          environments: [
-            {
-              environment: "accept",
-              version: "20261109.1",
-              at: "2026-11-09T08:10:00Z",
-              state: "ok",
-              detail: "3h ago",
-              url: "https://dev.azure.com/example/proj/_build/results?buildId=7",
-            },
-          ],
-        },
-      ],
-    };
+        };
 
-    // Every read the page asks for, and whether the first answer had already landed when it was
-    // asked: everything asked before that is the arrival, and has to be the live read.
-    const asked: { search: string; beforeFirstAnswer: boolean }[] = [];
-    let answered = false;
-    // Set when a read has to still be in flight a moment later, so its state can be read.
-    let hold = false;
-    await page.route("**/api/ext/azure-devops/services*", async (route) => {
-      asked.push({ search: new URL(route.request().url()).search, beforeFirstAnswer: !answered });
-      if (hold) await new Promise((resolve) => setTimeout(resolve, 1500));
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(fixture),
-      });
-      answered = true;
-    });
+        // Every read the page asks for, and whether the first answer had already landed when it was
+        // asked: everything asked before that is the arrival, and has to be the live read.
+        const asked: { search: string; beforeFirstAnswer: boolean }[] = [];
+        let answered = false;
+        // Set when a read has to still be in flight a moment later, so its state can be read.
+        let hold = false;
+        await page.route("**/api/ext/azure-devops/services*", async (route) => {
+          asked.push({ search: new URL(route.request().url()).search, beforeFirstAnswer: !answered });
+          if (hold) await new Promise((resolve) => setTimeout(resolve, 1500));
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify(fixture),
+          });
+          answered = true;
+        });
 
-    await page.goto(`${url}/azure-devops`, { waitUntil: "domcontentloaded" });
-    const refresh = page.locator('button[aria-label="Refresh"]');
-    await refresh.waitFor();
+        await page.goto(`${url}/azure-devops`, { waitUntil: "domcontentloaded" });
+        const refresh = page.locator('button[aria-label="Refresh"]');
+        await refresh.waitFor();
 
-    // The control is named, so it is reachable without seeing it — the icon is the only label. It
-    // says a read is in flight with `aria-disabled`, which keeps the focus and the tooltip.
-    // Waiting on the tooltip, not on `aria-disabled`: that reads "false" from first paint, because
-    // the first load never marks, so it would race the answer.
-    await page.waitForFunction(
-      () =>
-        document
-          .querySelector('button[aria-label="Refresh"]')
-          ?.getAttribute("title")
-          ?.startsWith("updated ") ?? false,
-      undefined,
-      { timeout: 20_000 },
+        // The control is named, so it is reachable without seeing it — the icon is the only label. It
+        // says a read is in flight with `aria-disabled`, which keeps the focus and the tooltip.
+        // Waiting on the tooltip, not on `aria-disabled`: that reads "false" from first paint, because
+        // the first load never marks, so it would race the answer.
+        await page.waitForFunction(
+          () =>
+            document
+              .querySelector('button[aria-label="Refresh"]')
+              ?.getAttribute("title")
+              ?.startsWith("updated ") ?? false,
+          undefined,
+          { timeout: 20_000 },
+        );
+        expect(await refresh.getAttribute("title")).toMatch(
+          /^updated (\d+s|\d+m\d+s) ago · refreshing every /,
+        );
+        expect(await refresh.getAttribute("aria-disabled")).toBe("false");
+
+        // Arriving is the moment you want the truth: every read asked for before the first answer
+        // landed is the live one. (StrictMode puts two mounts through the effect; the one that survives
+        // has to be it.)
+        expect(asked.length).toBeGreaterThan(0);
+        expect(asked.filter((a) => a.beforeFirstAnswer).every((a) => a.search.includes("refresh=1"))).toBe(
+          true,
+        );
+
+        // The answer had a deploying environment, so the cadence flipped and the effect restarted: the
+        // read that follows is a tick, and must not be live — otherwise every tick is a live read.
+        for (let i = 0; i < 50 && asked.length < 2; i++) await page.waitForTimeout(100);
+        expect(asked.length).toBeGreaterThanOrEqual(2);
+        expect(asked[1]!.search).not.toContain("refresh=1");
+
+        // The deploying environment draws the shared bar; the settled one has nothing to draw.
+        const pending = page.locator("tbody tr", { hasText: "example-api" });
+        const settled = page.locator("tbody tr", { hasText: "example-service" });
+        expect(await pending.locator(".progress").count()).toBe(1);
+        expect(await settled.locator(".progress").count()).toBe(0);
+
+        // Its numbers are the bar's accessible name — a narrow cell hides the elapsed text, and a screen
+        // reader must not lose the numbers with it.
+        const bar = pending.getByRole("img", { name: /elapsed/ });
+        expect(await bar.count()).toBe(1);
+        expect(await bar.getAttribute("aria-label")).toMatch(/^\d+m\d+s elapsed, typically 10m00s$/);
+
+        // And the bar costs no height: the two rows are the same size.
+        const heights = await page
+          .locator("tbody tr")
+          .evaluateAll((rows) => rows.map((r) => Math.round(r.getBoundingClientRect().height)));
+        expect(heights).toHaveLength(2);
+        expect(heights[0]).toBe(heights[1]);
+
+        // Reduced motion is honoured, not merely declared: a held read makes the spin visible, and with
+        // the preference set there is nothing turning while it is in flight.
+        hold = true;
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await refresh.click();
+        await page.waitForFunction(
+          () =>
+            document.querySelector('button[aria-label="Refresh"]')?.getAttribute("aria-disabled") === "true",
+        );
+        expect(await refresh.locator("svg").evaluate((svg) => getComputedStyle(svg).animationName)).toBe(
+          "none",
+        );
+        // And the converse, against the same flight: with the preference off the arrow does turn, so the
+        // rule itself is pinned and not only its absence. Deleting the spin fails here.
+        await page.emulateMedia({ reducedMotion: "no-preference" });
+        expect(await refresh.locator("svg").evaluate((svg) => getComputedStyle(svg).animationName)).toBe(
+          "refresh-spin",
+        );
+        // Let the held read finish, so the page is quiet before it closes.
+        hold = false;
+        await page.waitForFunction(
+          () =>
+            document.querySelector('button[aria-label="Refresh"]')?.getAttribute("aria-disabled") === "false",
+          undefined,
+          { timeout: 20_000 },
+        );
+        await page.emulateMedia({ reducedMotion: "no-preference" });
+      },
+      VIEWPORT,
     );
-    expect(await refresh.getAttribute("title")).toMatch(/^updated (\d+s|\d+m\d+s) ago · refreshing every /);
-    expect(await refresh.getAttribute("aria-disabled")).toBe("false");
-
-    // Arriving is the moment you want the truth: every read asked for before the first answer
-    // landed is the live one. (StrictMode puts two mounts through the effect; the one that survives
-    // has to be it.)
-    expect(asked.length).toBeGreaterThan(0);
-    expect(asked.filter((a) => a.beforeFirstAnswer).every((a) => a.search.includes("refresh=1"))).toBe(true);
-
-    // The answer had a deploying environment, so the cadence flipped and the effect restarted: the
-    // read that follows is a tick, and must not be live — otherwise every tick is a live read.
-    for (let i = 0; i < 50 && asked.length < 2; i++) await page.waitForTimeout(100);
-    expect(asked.length).toBeGreaterThanOrEqual(2);
-    expect(asked[1]!.search).not.toContain("refresh=1");
-
-    // The deploying environment draws the shared bar; the settled one has nothing to draw.
-    const pending = page.locator("tbody tr", { hasText: "example-api" });
-    const settled = page.locator("tbody tr", { hasText: "example-service" });
-    expect(await pending.locator(".progress").count()).toBe(1);
-    expect(await settled.locator(".progress").count()).toBe(0);
-
-    // Its numbers are the bar's accessible name — a narrow cell hides the elapsed text, and a screen
-    // reader must not lose the numbers with it.
-    const bar = pending.getByRole("img", { name: /elapsed/ });
-    expect(await bar.count()).toBe(1);
-    expect(await bar.getAttribute("aria-label")).toMatch(/^\d+m\d+s elapsed, typically 10m00s$/);
-
-    // And the bar costs no height: the two rows are the same size.
-    const heights = await page
-      .locator("tbody tr")
-      .evaluateAll((rows) => rows.map((r) => Math.round(r.getBoundingClientRect().height)));
-    expect(heights).toHaveLength(2);
-    expect(heights[0]).toBe(heights[1]);
-
-    // Reduced motion is honoured, not merely declared: a held read makes the spin visible, and with
-    // the preference set there is nothing turning while it is in flight.
-    hold = true;
-    await page.emulateMedia({ reducedMotion: "reduce" });
-    await refresh.click();
-    await page.waitForFunction(
-      () => document.querySelector('button[aria-label="Refresh"]')?.getAttribute("aria-disabled") === "true",
-    );
-    expect(await refresh.locator("svg").evaluate((svg) => getComputedStyle(svg).animationName)).toBe("none");
-    // And the converse, against the same flight: with the preference off the arrow does turn, so the
-    // rule itself is pinned and not only its absence. Deleting the spin fails here.
-    await page.emulateMedia({ reducedMotion: "no-preference" });
-    expect(await refresh.locator("svg").evaluate((svg) => getComputedStyle(svg).animationName)).toBe(
-      "refresh-spin",
-    );
-    // Let the held read finish, so the page is quiet before it closes.
-    hold = false;
-    await page.waitForFunction(
-      () => document.querySelector('button[aria-label="Refresh"]')?.getAttribute("aria-disabled") === "false",
-      undefined,
-      { timeout: 20_000 },
-    );
-    await page.emulateMedia({ reducedMotion: "no-preference" });
-    await page.close();
   },
   60_000,
 );
@@ -683,35 +695,39 @@ test.skipIf(!usable)(
     // put back while the answer is pending, so the address bar and the page never disagree. After
     // answering, Back and Forward still walk the history in both directions: the guard's restore
     // strands no entry.
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("nav.tabs");
-    // A clean visit away and back first, so Back has somewhere to go.
-    await page.getByRole("button", { name: "Changes", exact: true }).click();
-    await page.waitForFunction(() => location.pathname === "/");
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await page.waitForFunction(() => location.pathname === "/settings");
-    await page.waitForSelector("nav.tabs");
-    await editField(page, "typed and left behind");
+    await withPage(
+      browser,
+      async (page) => {
+        await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
+        await page.waitForSelector("nav.tabs");
+        // A clean visit away and back first, so Back has somewhere to go.
+        await page.getByRole("button", { name: "Changes", exact: true }).click();
+        await page.waitForFunction(() => location.pathname === "/");
+        await page.getByRole("button", { name: "Settings", exact: true }).click();
+        await page.waitForFunction(() => location.pathname === "/settings");
+        await page.waitForSelector("nav.tabs");
+        await editField(page, "typed and left behind");
 
-    await page.goBack();
-    // The prompt by its own words: the directory fields keep their pickers in the DOM, closed.
-    const prompt = page.locator("dialog", { hasText: "Unsaved settings" });
-    await prompt.waitFor();
-    expect(new URL(page.url()).pathname).toBe("/settings");
-    await page.getByRole("button", { name: "Discard and leave", exact: true }).click();
-    await page.waitForFunction(() => location.pathname === "/");
+        await page.goBack();
+        // The prompt by its own words: the directory fields keep their pickers in the DOM, closed.
+        const prompt = page.locator("dialog", { hasText: "Unsaved settings" });
+        await prompt.waitFor();
+        expect(new URL(page.url()).pathname).toBe("/settings");
+        await page.getByRole("button", { name: "Discard and leave", exact: true }).click();
+        await page.waitForFunction(() => location.pathname === "/");
 
-    // Back to the settings the guard put back — a fresh page, clean, no question — and Forward to
-    // where the answer left off.
-    await page.goBack();
-    await page.waitForFunction(() => location.pathname === "/settings");
-    await page.waitForSelector("nav.tabs");
-    expect(await prompt.count()).toBe(0);
-    await page.goForward();
-    await page.waitForFunction(() => location.pathname === "/");
-    expect(await prompt.count()).toBe(0);
-    await page.close();
+        // Back to the settings the guard put back — a fresh page, clean, no question — and Forward to
+        // where the answer left off.
+        await page.goBack();
+        await page.waitForFunction(() => location.pathname === "/settings");
+        await page.waitForSelector("nav.tabs");
+        expect(await prompt.count()).toBe(0);
+        await page.goForward();
+        await page.waitForFunction(() => location.pathname === "/");
+        expect(await prompt.count()).toBe(0);
+      },
+      VIEWPORT,
+    );
   },
   30_000,
 );
@@ -721,34 +737,38 @@ test.skipIf(!usable)(
   async () => {
     // Save and leave runs the page's own save, so its failure is the page's own: the dialog
     // closes, the error banner explains, and the draft is still there to retry or to leave.
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.route(
-      (u) => u.pathname === "/api/settings",
-      async (route) => {
-        if (route.request().method() === "PUT") {
-          await route.fulfill({
-            status: 500,
-            contentType: "application/json",
-            body: JSON.stringify({ error: "the disk is full" }),
-          });
-          return;
-        }
-        await route.continue();
+    await withPage(
+      browser,
+      async (page) => {
+        await page.route(
+          (u) => u.pathname === "/api/settings",
+          async (route) => {
+            if (route.request().method() === "PUT") {
+              await route.fulfill({
+                status: 500,
+                contentType: "application/json",
+                body: JSON.stringify({ error: "the disk is full" }),
+              });
+              return;
+            }
+            await route.continue();
+          },
+        );
+        await editSettings(page, "kept when the save fails");
+        await page.getByRole("button", { name: "Changes", exact: true }).click();
+        // The prompt by its own words: the directory fields keep their pickers in the DOM, closed.
+        const prompt = page.locator("dialog", { hasText: "Unsaved settings" });
+        await prompt.waitFor();
+        await page.getByRole("button", { name: "Save and leave", exact: true }).click();
+        await prompt.waitFor({ state: "detached" });
+        expect(new URL(page.url()).pathname).toBe("/settings");
+        expect(await page.getByLabel("Transition on completing one").inputValue()).toBe(
+          "kept when the save fails",
+        );
+        expect((await page.locator(".error-banner").innerText()).trim()).toContain("the disk is full");
       },
+      VIEWPORT,
     );
-    await editSettings(page, "kept when the save fails");
-    await page.getByRole("button", { name: "Changes", exact: true }).click();
-    // The prompt by its own words: the directory fields keep their pickers in the DOM, closed.
-    const prompt = page.locator("dialog", { hasText: "Unsaved settings" });
-    await prompt.waitFor();
-    await page.getByRole("button", { name: "Save and leave", exact: true }).click();
-    await prompt.waitFor({ state: "detached" });
-    expect(new URL(page.url()).pathname).toBe("/settings");
-    expect(await page.getByLabel("Transition on completing one").inputValue()).toBe(
-      "kept when the save fails",
-    );
-    expect((await page.locator(".error-banner").innerText()).trim()).toContain("the disk is full");
-    await page.close();
   },
   30_000,
 );
@@ -759,27 +779,31 @@ test.skipIf(!usable)(
     // The marker sits in the heading's flex line and comes and goes as you type, so any size or
     // margin it contributes changes the height of the heading — and the whole card — on every
     // keystroke. It must be smaller than the title and take no space of its own.
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
-    const card = page.locator(".widget:has(.md-editor)");
-    await card.waitFor();
-    const heading = card.locator("h3");
-    const height = (): Promise<number> => heading.evaluate((h) => h.getBoundingClientRect().height);
-    const cardHeight = (): Promise<number> =>
-      card.evaluate((section) => section.getBoundingClientRect().height);
+    await withPage(
+      browser,
+      async (page) => {
+        await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
+        const card = page.locator(".widget:has(.md-editor)");
+        await card.waitFor();
+        const heading = card.locator("h3");
+        const height = (): Promise<number> => heading.evaluate((h) => h.getBoundingClientRect().height);
+        const cardHeight = (): Promise<number> =>
+          card.evaluate((section) => section.getBoundingClientRect().height);
 
-    const before = { heading: await height(), card: await cardHeight() };
-    await fillEditor(card.locator(".md-editor"), "a note");
-    await card.locator("h3 .summary", { hasText: "unsaved" }).waitFor();
+        const before = { heading: await height(), card: await cardHeight() };
+        await fillEditor(card.locator(".md-editor"), "a note");
+        await card.locator("h3 .summary", { hasText: "unsaved" }).waitFor();
 
-    expect(await height()).toBe(before.heading);
-    expect(await cardHeight()).toBe(before.card);
-    const sizes = await heading.evaluate((h) => ({
-      title: parseFloat(getComputedStyle(h).fontSize),
-      marker: parseFloat(getComputedStyle(h.querySelector(".summary")!).fontSize),
-    }));
-    expect(sizes.marker).toBeLessThan(sizes.title);
-    await page.close();
+        expect(await height()).toBe(before.heading);
+        expect(await cardHeight()).toBe(before.card);
+        const sizes = await heading.evaluate((h) => ({
+          title: parseFloat(getComputedStyle(h).fontSize),
+          marker: parseFloat(getComputedStyle(h.querySelector(".summary")!).fontSize),
+        }));
+        expect(sizes.marker).toBeLessThan(sizes.title);
+      },
+      VIEWPORT,
+    );
   },
   30_000,
 );
@@ -789,20 +813,24 @@ test.skipIf(!usable)(
   async () => {
     // The textarea it replaced had a resize grip, and a long note deserves more than one fixed
     // window: the corner drags the box taller and the text scrolls inside it.
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
-    const editor = page.locator(".widget:has(.md-editor) .md-editor");
-    await editor.waitFor();
-    const before = await editor.boundingBox();
-    if (!before) throw new Error("the notes editor did not lay out");
-    await page.mouse.move(before.x + before.width - 1, before.y + before.height - 1);
-    await page.mouse.down();
-    await page.mouse.move(before.x + before.width - 1, before.y + before.height + 80, { steps: 5 });
-    await page.mouse.up();
-    const after = await editor.boundingBox();
-    if (!after) throw new Error("the notes editor went away");
-    expect(after.height).toBeGreaterThan(before.height + 40);
-    await page.close();
+    await withPage(
+      browser,
+      async (page) => {
+        await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
+        const editor = page.locator(".widget:has(.md-editor) .md-editor");
+        await editor.waitFor();
+        const before = await editor.boundingBox();
+        if (!before) throw new Error("the notes editor did not lay out");
+        await page.mouse.move(before.x + before.width - 1, before.y + before.height - 1);
+        await page.mouse.down();
+        await page.mouse.move(before.x + before.width - 1, before.y + before.height + 80, { steps: 5 });
+        await page.mouse.up();
+        const after = await editor.boundingBox();
+        if (!after) throw new Error("the notes editor went away");
+        expect(after.height).toBeGreaterThan(before.height + 40);
+      },
+      VIEWPORT,
+    );
   },
   30_000,
 );
@@ -813,19 +841,23 @@ test.skipIf(!usable)(
     // left, the status cards on the right — the plan is a tab of its own now. At this width both
     // are present, so the grid has two columns and
     // the status region starts where the documents end.
-    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-    await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
-    const documents = page.locator(".column.documents");
-    await documents.locator(".md-editor").waitFor();
-    const status = page.locator(".column.status");
-    await status.locator(".widget").first().waitFor();
-    expect(await status.locator(".widget").count()).toBeGreaterThan(0);
+    await withPage(
+      browser,
+      async (page) => {
+        await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
+        const documents = page.locator(".column.documents");
+        await documents.locator(".md-editor").waitFor();
+        const status = page.locator(".column.status");
+        await status.locator(".widget").first().waitFor();
+        expect(await status.locator(".widget").count()).toBeGreaterThan(0);
 
-    const docBox = await documents.boundingBox();
-    const statusBox = await status.boundingBox();
-    if (!docBox || !statusBox) throw new Error("the dashboard's columns did not lay out");
-    expect(statusBox.x).toBeGreaterThanOrEqual(docBox.x + docBox.width);
-    await page.close();
+        const docBox = await documents.boundingBox();
+        const statusBox = await status.boundingBox();
+        if (!docBox || !statusBox) throw new Error("the dashboard's columns did not lay out");
+        expect(statusBox.x).toBeGreaterThanOrEqual(docBox.x + docBox.width);
+      },
+      { width: 1440, height: 900 },
+    );
   },
   30_000,
 );
@@ -996,14 +1028,18 @@ test.skipIf(!usable)(
   async () => {
     // The first browser consumer of the new slice: the card fetches the typed operation, decodes
     // the DTO, and shows the projected state and the branch the worktree actually holds.
-    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-    await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
-    const card = page.locator('[data-testid="checkouts"]');
-    await card.locator(".checkout-row").first().waitFor();
-    expect(await card.locator(".checkout-name").first().innerText()).toBe("example-api");
-    expect(await card.locator(".checkout-state").first().innerText()).toBe("Active");
-    expect(await card.locator(".checkout-detail").first().innerText()).toContain(`${id}-x`);
-    await page.close();
+    await withPage(
+      browser,
+      async (page) => {
+        await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
+        const card = page.locator('[data-testid="checkouts"]');
+        await card.locator(".checkout-row").first().waitFor();
+        expect(await card.locator(".checkout-name").first().innerText()).toBe("example-api");
+        expect(await card.locator(".checkout-state").first().innerText()).toBe("Active");
+        expect(await card.locator(".checkout-detail").first().innerText()).toContain(`${id}-x`);
+      },
+      { width: 1440, height: 900 },
+    );
   },
   30_000,
 );
@@ -1303,100 +1339,107 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "a narrow window hides the navigation behind a drawer",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 600, height: 800 } });
-    await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector(".widget");
+    await withPage(
+      browser,
+      async (page) => {
+        await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
+        await page.waitForSelector(".widget");
 
-    // The column is out of the flow: the content owns the window, rather than sitting under it.
-    const [content, sidebar, viewport] = await Promise.all([
-      page.locator(".content").boundingBox(),
-      // Its own rect, not Playwright's boundingBox: a hidden element has no visible box, and the
-      // closed drawer is deliberately hidden.
-      page.locator(".sidebar").evaluate((el) => {
-        const r = el.getBoundingClientRect();
-        return { x: r.x, y: r.y, width: r.width, height: r.height };
-      }),
-      page.evaluate(() => document.documentElement.clientWidth),
-    ]);
-    if (!content || !sidebar) throw new Error("the narrow layout did not lay out");
-    expect(Math.abs(content.x)).toBeLessThanOrEqual(1);
-    expect(Math.abs(content.y)).toBeLessThanOrEqual(1);
-    expect(Math.abs(content.width - viewport)).toBeLessThanOrEqual(1);
-    // Off-screen, and out of the tab order and the accessibility tree with it.
-    expect(sidebar.x + sidebar.width).toBeLessThanOrEqual(1);
-    expect(await page.locator(".sidebar").evaluate((el) => getComputedStyle(el).visibility)).toBe("hidden");
+        // The column is out of the flow: the content owns the window, rather than sitting under it.
+        const [content, sidebar, viewport] = await Promise.all([
+          page.locator(".content").boundingBox(),
+          // Its own rect, not Playwright's boundingBox: a hidden element has no visible box, and the
+          // closed drawer is deliberately hidden.
+          page.locator(".sidebar").evaluate((el) => {
+            const r = el.getBoundingClientRect();
+            return { x: r.x, y: r.y, width: r.width, height: r.height };
+          }),
+          page.evaluate(() => document.documentElement.clientWidth),
+        ]);
+        if (!content || !sidebar) throw new Error("the narrow layout did not lay out");
+        expect(Math.abs(content.x)).toBeLessThanOrEqual(1);
+        expect(Math.abs(content.y)).toBeLessThanOrEqual(1);
+        expect(Math.abs(content.width - viewport)).toBeLessThanOrEqual(1);
+        // Off-screen, and out of the tab order and the accessibility tree with it.
+        expect(sidebar.x + sidebar.width).toBeLessThanOrEqual(1);
+        expect(await page.locator(".sidebar").evaluate((el) => getComputedStyle(el).visibility)).toBe(
+          "hidden",
+        );
 
-    // The toggle opens the drawer, and the backdrop comes with it. The toggle stays clickable above
-    // both, and says which state it is in.
-    const toggle = page.locator(".drawer-toggle");
-    expect(await toggle.isVisible()).toBe(true);
-    expect(await toggle.getAttribute("aria-expanded")).toBe("false");
-    await toggle.click();
-    await page.locator(".drawer-backdrop").waitFor();
-    expect(await toggle.getAttribute("aria-expanded")).toBe("true");
-    const drawer = await page.locator(".sidebar").boundingBox();
-    if (!drawer) throw new Error("the drawer did not lay out");
-    expect(Math.abs(drawer.x)).toBeLessThanOrEqual(1);
-    expect(await page.locator(".sidebar").evaluate((el) => getComputedStyle(el).visibility)).toBe("visible");
-    // An open drawer owns the scroll.
-    expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).toBe("hidden");
+        // The toggle opens the drawer, and the backdrop comes with it. The toggle stays clickable above
+        // both, and says which state it is in.
+        const toggle = page.locator(".drawer-toggle");
+        expect(await toggle.isVisible()).toBe(true);
+        expect(await toggle.getAttribute("aria-expanded")).toBe("false");
+        await toggle.click();
+        await page.locator(".drawer-backdrop").waitFor();
+        expect(await toggle.getAttribute("aria-expanded")).toBe("true");
+        const drawer = await page.locator(".sidebar").boundingBox();
+        if (!drawer) throw new Error("the drawer did not lay out");
+        expect(Math.abs(drawer.x)).toBeLessThanOrEqual(1);
+        expect(await page.locator(".sidebar").evaluate((el) => getComputedStyle(el).visibility)).toBe(
+          "visible",
+        );
+        // An open drawer owns the scroll.
+        expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).toBe("hidden");
 
-    // The toggle closes it too: a second click puts it away.
-    await toggle.click();
-    await page.locator(".drawer-backdrop").waitFor({ state: "detached" });
-    expect(await toggle.getAttribute("aria-expanded")).toBe("false");
+        // The toggle closes it too: a second click puts it away.
+        await toggle.click();
+        await page.locator(".drawer-backdrop").waitFor({ state: "detached" });
+        expect(await toggle.getAttribute("aria-expanded")).toBe("false");
 
-    // Open it again for the Escape check.
-    await toggle.click();
-    await page.locator(".drawer-backdrop").waitFor();
+        // Open it again for the Escape check.
+        await toggle.click();
+        await page.locator(".drawer-backdrop").waitFor();
 
-    // Escape closes it: the backdrop goes, the toggle says so, and the scroll comes back.
-    await page.keyboard.press("Escape");
-    await page.locator(".drawer-backdrop").waitFor({ state: "detached" });
-    expect(await toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).not.toBe("hidden");
+        // Escape closes it: the backdrop goes, the toggle says so, and the scroll comes back.
+        await page.keyboard.press("Escape");
+        await page.locator(".drawer-backdrop").waitFor({ state: "detached" });
+        expect(await toggle.getAttribute("aria-expanded")).toBe("false");
+        expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).not.toBe("hidden");
 
-    // A backdrop click closes it too.
-    await toggle.click();
-    await page.locator(".drawer-backdrop").waitFor();
-    await page.locator(".drawer-backdrop").click({ position: { x: 550, y: 700 } });
-    await page.locator(".drawer-backdrop").waitFor({ state: "detached" });
+        // A backdrop click closes it too.
+        await toggle.click();
+        await page.locator(".drawer-backdrop").waitFor();
+        await page.locator(".drawer-backdrop").click({ position: { x: 550, y: 700 } });
+        await page.locator(".drawer-backdrop").waitFor({ state: "detached" });
 
-    // Clicking a change in the drawer goes there and closes the drawer behind it.
-    await toggle.click();
-    await page.locator(".drawer-backdrop").waitFor();
-    await page.locator(".sidebar .entry.change", { hasText: other }).click();
-    await page.locator(".drawer-backdrop").waitFor({ state: "detached" });
-    expect(new URL(page.url()).pathname).toContain(other);
+        // Clicking a change in the drawer goes there and closes the drawer behind it.
+        await toggle.click();
+        await page.locator(".drawer-backdrop").waitFor();
+        await page.locator(".sidebar .entry.change", { hasText: other }).click();
+        await page.locator(".drawer-backdrop").waitFor({ state: "detached" });
+        expect(new URL(page.url()).pathname).toContain(other);
 
-    // A resize above the breakpoint closes an open drawer, puts the column back in the flow, and
-    // takes the toggle away.
-    await toggle.click();
-    await page.locator(".drawer-backdrop").waitFor();
-    await page.setViewportSize({ width: 1000, height: 800 });
-    await page.locator(".drawer-backdrop").waitFor({ state: "detached" });
-    await page.locator(".drawer-toggle").waitFor({ state: "hidden" });
-    expect(await toggle.isVisible()).toBe(false);
-    const [wideSidebar, wideContent] = await Promise.all([
-      page.locator(".sidebar").boundingBox(),
-      page.locator(".content").boundingBox(),
-    ]);
-    if (!wideSidebar || !wideContent) throw new Error("the wide layout did not lay out");
-    expect(wideContent.x).toBeGreaterThanOrEqual(wideSidebar.x + wideSidebar.width - 1);
+        // A resize above the breakpoint closes an open drawer, puts the column back in the flow, and
+        // takes the toggle away.
+        await toggle.click();
+        await page.locator(".drawer-backdrop").waitFor();
+        await page.setViewportSize({ width: 1000, height: 800 });
+        await page.locator(".drawer-backdrop").waitFor({ state: "detached" });
+        await page.locator(".drawer-toggle").waitFor({ state: "hidden" });
+        expect(await toggle.isVisible()).toBe(false);
+        const [wideSidebar, wideContent] = await Promise.all([
+          page.locator(".sidebar").boundingBox(),
+          page.locator(".content").boundingBox(),
+        ]);
+        if (!wideSidebar || !wideContent) throw new Error("the wide layout did not lay out");
+        expect(wideContent.x).toBeGreaterThanOrEqual(wideSidebar.x + wideSidebar.width - 1);
 
-    // On the terminal page the toggle sits clear of the window's first tab.
-    await page.setViewportSize({ width: 600, height: 800 });
-    await page.goto(`${url}/changes/${id}/terminals`, { waitUntil: "domcontentloaded" });
-    const firstTab = page.locator(".change-bar .window-tab").first();
-    await firstTab.waitFor();
-    const [toggleBox, tabBox] = await Promise.all([
-      page.locator(".drawer-toggle").boundingBox(),
-      firstTab.boundingBox(),
-    ]);
-    if (!toggleBox || !tabBox) throw new Error("the terminal chrome did not lay out");
-    expect(toggleBox.x + toggleBox.width).toBeLessThanOrEqual(tabBox.x + 1);
-
-    await page.close();
+        // On the terminal page the toggle sits clear of the window's first tab.
+        await page.setViewportSize({ width: 600, height: 800 });
+        await page.goto(`${url}/changes/${id}/terminals`, { waitUntil: "domcontentloaded" });
+        const firstTab = page.locator(".change-bar .window-tab").first();
+        await firstTab.waitFor();
+        const [toggleBox, tabBox] = await Promise.all([
+          page.locator(".drawer-toggle").boundingBox(),
+          firstTab.boundingBox(),
+        ]);
+        if (!toggleBox || !tabBox) throw new Error("the terminal chrome did not lay out");
+        expect(toggleBox.x + toggleBox.width).toBeLessThanOrEqual(tabBox.x + 1);
+      },
+      { width: 600, height: 800 },
+    );
   },
   60_000,
 );
@@ -1409,69 +1452,75 @@ test.skipIf(!usable)(
     // lights the main process placed in it (docs/manual/interface.md). Injected rather than
     // driven through Electron, because the page's half of the contract is what is being checked — the
     // lights' pixels are the main process's, and only a real window has those.
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    // The bridge's whole contract, or the page is right to complain: a host missing a method makes a
-    // React tree that throws on mount, which shows up as a test that waits for a selector forever.
-    const complaints: string[] = [];
-    page.on("pageerror", (e) => complaints.push(e.message));
-    await page.addInitScript(() => {
-      (window as unknown as { corviHost?: unknown }).corviHost = {
-        platform: "darwin",
-        notify: () => {},
-        onOpenWindow: () => {},
-        setContextMenu: () => {},
-        restart: () => {},
-      };
-    });
-    await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
-    const strip = page.locator(".change-bar");
-    await strip.locator(".window-tab.overview").waitFor();
-    const region = (sel: string): Promise<string> =>
-      page
-        .locator(sel)
-        .first()
-        .evaluate((el) => getComputedStyle(el).getPropertyValue("-webkit-app-region"))
-        .then((value) => value.trim());
+    await withPage(
+      browser,
+      async (page) => {
+        // The bridge's whole contract, or the page is right to complain: a host missing a method makes a
+        // React tree that throws on mount, which shows up as a test that waits for a selector forever.
+        const complaints: string[] = [];
+        page.on("pageerror", (e) => complaints.push(e.message));
+        await page.addInitScript(() => {
+          (window as unknown as { corviHost?: unknown }).corviHost = {
+            platform: "darwin",
+            notify: () => {},
+            onOpenWindow: () => {},
+            setContextMenu: () => {},
+            restart: () => {},
+          };
+        });
+        await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+        const strip = page.locator(".change-bar");
+        await strip.locator(".window-tab.overview").waitFor();
+        const region = (sel: string): Promise<string> =>
+          page
+            .locator(sel)
+            .first()
+            .evaluate((el) => getComputedStyle(el).getPropertyValue("-webkit-app-region"))
+            .then((value) => value.trim());
 
-    expect(await region(".change-bar")).toBe("drag");
-    // The row is the window's and nothing else is in it: no name to click, and the terminals' tabs are
-    // controls — their own drag reorders them. Renaming is an action in the menu in the row below,
-    // which is not part of the drag region at all (docs/manual/interface.md).
-    expect(await strip.locator(".subject").count()).toBe(0);
-    expect(await region(".change-bar .window-tab")).toBe("no-drag");
+        expect(await region(".change-bar")).toBe("drag");
+        // The row is the window's and nothing else is in it: no name to click, and the terminals' tabs are
+        // controls — their own drag reorders them. Renaming is an action in the menu in the row below,
+        // which is not part of the drag region at all (docs/manual/interface.md).
+        expect(await strip.locator(".subject").count()).toBe(0);
+        expect(await region(".change-bar .window-tab")).toBe("no-drag");
 
-    // The switcher is a compact pill at the column's right edge: about half the width the heading took,
-    // and clear of the lights by being on the far side of the column from them.
-    const switcher = page.locator(".sidebar button.workspace");
-    const switcherBox = await switcher.boundingBox();
-    const sidebar = await page.locator(".sidebar").boundingBox();
-    if (!switcherBox || !sidebar) throw new Error("the sidebar did not lay out");
-    expect(sidebar.x + sidebar.width - (switcherBox.x + switcherBox.width)).toBeLessThanOrEqual(12);
-    expect(switcherBox.width).toBeLessThan(sidebar.width / 2);
-    expect(switcherBox.x).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset);
-    expect(sidebar.width).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset + 160);
-    expect(await region(".sidebar > .band")).toBe("drag");
+        // The switcher is a compact pill at the column's right edge: about half the width the heading took,
+        // and clear of the lights by being on the far side of the column from them.
+        const switcher = page.locator(".sidebar button.workspace");
+        const switcherBox = await switcher.boundingBox();
+        const sidebar = await page.locator(".sidebar").boundingBox();
+        if (!switcherBox || !sidebar) throw new Error("the sidebar did not lay out");
+        expect(sidebar.x + sidebar.width - (switcherBox.x + switcherBox.width)).toBeLessThanOrEqual(12);
+        expect(switcherBox.width).toBeLessThan(sidebar.width / 2);
+        expect(switcherBox.x).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset);
+        expect(sidebar.width).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset + 160);
+        expect(await region(".sidebar > .band")).toBe("drag");
 
-    // The column's line begins below that row rather than beside it: the band and the column are one
-    // surface, and a line between them would draw the seam the palette is there to avoid. It is drawn
-    // (a pseudo-element) rather than a border, because a border cannot start partway down its edge.
-    const column = page.locator(".sidebar");
-    expect(await column.evaluate((el) => getComputedStyle(el).borderRightWidth)).toBe("0px");
-    expect(await column.evaluate((el) => getComputedStyle(el, "::after").top)).toBe(`${TITLE_BAR_HEIGHT}px`);
-    expect(await column.evaluate((el) => getComputedStyle(el, "::after").backgroundColor)).not.toBe(
-      "rgba(0, 0, 0, 0)",
+        // The column's line begins below that row rather than beside it: the band and the column are one
+        // surface, and a line between them would draw the seam the palette is there to avoid. It is drawn
+        // (a pseudo-element) rather than a border, because a border cannot start partway down its edge.
+        const column = page.locator(".sidebar");
+        expect(await column.evaluate((el) => getComputedStyle(el).borderRightWidth)).toBe("0px");
+        expect(await column.evaluate((el) => getComputedStyle(el, "::after").top)).toBe(
+          `${TITLE_BAR_HEIGHT}px`,
+        );
+        expect(await column.evaluate((el) => getComputedStyle(el, "::after").backgroundColor)).not.toBe(
+          "rgba(0, 0, 0, 0)",
+        );
+
+        // The switcher's list opens inside the window rather than past its edge, and the click reaches the
+        // control at all: the row it sits in is the region you drag the window by.
+        await switcher.click();
+        const menu = await page.locator(".menu-items").boundingBox();
+        if (!menu) throw new Error("the workspace menu did not open");
+        const viewport = await page.evaluate(() => window.innerWidth);
+        expect(menu.x).toBeGreaterThanOrEqual(0);
+        expect(menu.x + menu.width).toBeLessThanOrEqual(viewport);
+        expect(complaints).toEqual([]);
+      },
+      VIEWPORT,
     );
-
-    // The switcher's list opens inside the window rather than past its edge, and the click reaches the
-    // control at all: the row it sits in is the region you drag the window by.
-    await switcher.click();
-    const menu = await page.locator(".menu-items").boundingBox();
-    if (!menu) throw new Error("the workspace menu did not open");
-    const viewport = await page.evaluate(() => window.innerWidth);
-    expect(menu.x).toBeGreaterThanOrEqual(0);
-    expect(menu.x + menu.width).toBeLessThanOrEqual(viewport);
-    expect(complaints).toEqual([]);
-    await page.close();
   },
   30_000,
 );
@@ -1481,20 +1530,24 @@ test.skipIf(!usable)(
     // Renaming is an action in the change's own row (docs/manual/interface.md): the menu's
     // Rename change opens a field beside the state and the actions, and what it is given is what the
     // column's entry and the window's title say afterwards.
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
-    await page.locator(".change-bar .window-tab.overview").waitFor();
+    await withPage(
+      browser,
+      async (page) => {
+        await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+        await page.locator(".change-bar .window-tab.overview").waitFor();
 
-    await page.locator(".change-tabs button", { hasText: "Actions" }).click();
-    await page.getByRole("button", { name: "Rename change" }).click();
-    const input = page.locator(".change-tabs input.subject");
-    await input.waitFor();
-    await input.fill("A name of my own");
-    await input.press("Enter");
+        await page.locator(".change-tabs button", { hasText: "Actions" }).click();
+        await page.getByRole("button", { name: "Rename change" }).click();
+        const input = page.locator(".change-tabs input.subject");
+        await input.waitFor();
+        await input.fill("A name of my own");
+        await input.press("Enter");
 
-    await page.locator(".sidebar .entry.change .subject", { hasText: "A name of my own" }).waitFor();
-    expect(await page.title()).toBe("A name of my own");
-    await page.close();
+        await page.locator(".sidebar .entry.change .subject", { hasText: "A name of my own" }).waitFor();
+        expect(await page.title()).toBe("A name of my own");
+      },
+      VIEWPORT,
+    );
   },
   30_000,
 );
@@ -1504,17 +1557,21 @@ test.skipIf(!usable)(
   async () => {
     // One control in two places: the overview's header has it, and so does the column beside the
     // Ideas heading — the entries it adds to. Both say the same word and open the same wizard.
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(url, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector(".change-card");
+    await withPage(
+      browser,
+      async (page) => {
+        await page.goto(url, { waitUntil: "domcontentloaded" });
+        await page.waitForSelector(".change-card");
 
-    expect((await page.locator(".page > header .create").innerText()).trim()).toBe("New");
-    expect((await page.locator(".sidebar .ideas-row .create").innerText()).trim()).toBe("New");
+        expect((await page.locator(".page > header .create").innerText()).trim()).toBe("New");
+        expect((await page.locator(".sidebar .ideas-row .create").innerText()).trim()).toBe("New");
 
-    await page.locator(".sidebar .ideas-row .create").click();
-    await page.waitForSelector(".wizard");
-    expect(new URL(page.url()).pathname).toBe("/new");
-    await page.close();
+        await page.locator(".sidebar .ideas-row .create").click();
+        await page.waitForSelector(".wizard");
+        expect(new URL(page.url()).pathname).toBe("/new");
+      },
+      VIEWPORT,
+    );
   },
   30_000,
 );
@@ -1524,63 +1581,67 @@ test.skipIf(!usable)(
   async () => {
     // The promise this change is about: leaving /new loses nothing. The form lives in the App
     // (apps/web/src/wizard/draft.ts), and the column's row under Ideas is the way back to it.
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(url, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector(".change-card");
+    await withPage(
+      browser,
+      async (page) => {
+        await page.goto(url, { waitUntil: "domcontentloaded" });
+        await page.waitForSelector(".change-card");
 
-    await page.locator(".sidebar .ideas-row .create").click();
-    await page.waitForSelector(".wizard");
-    // The draft row is where "here" is while the wizard is open, not the overview entry.
-    expect(await page.locator(".sidebar .entry.change.state-ideation.current").count()).toBe(1);
-    expect(await page.locator(".sidebar > button.entry.current").count()).toBe(0);
+        await page.locator(".sidebar .ideas-row .create").click();
+        await page.waitForSelector(".wizard");
+        // The draft row is where "here" is while the wizard is open, not the overview entry.
+        expect(await page.locator(".sidebar .entry.change.state-ideation.current").count()).toBe(1);
+        expect(await page.locator(".sidebar > button.entry.current").count()).toBe(0);
 
-    await fillEditor(
-      page.locator(".wizard-plan .md-editor"),
-      "# A half-written idea\n\nThe first paragraph of the plan.",
+        await fillEditor(
+          page.locator(".wizard-plan .md-editor"),
+          "# A half-written idea\n\nThe first paragraph of the plan.",
+        );
+
+        // The row says what the draft is called while it is being typed: its plan's heading.
+        const row = page.locator(".sidebar .entry.change.state-ideation");
+        await page.waitForFunction(
+          () =>
+            document.querySelector(".sidebar .entry.change.state-ideation .subject")?.textContent ===
+            "A half-written idea",
+        );
+
+        // Leave for the overview: the draft is no longer the page, and the row is where it waits.
+        await page.locator(".sidebar > button.entry", { hasText: "Changes" }).click();
+        await page.waitForSelector(".change-card");
+        expect(await row.count()).toBe(1);
+        expect(await page.locator(".sidebar .entry.change.state-ideation.current").count()).toBe(0);
+
+        // Back through the row: the plan and the fields are where they were left. (The fields are
+        // found in the details form: the steps' dialogs carry fields of their own with familiar
+        // names.)
+        await row.click();
+        await page.waitForSelector(".wizard-body");
+        expect(new URL(page.url()).pathname).toBe("/new");
+        expect(await page.locator(".wizard-sections .form").getByLabel("Title").inputValue()).toBe(
+          "A half-written idea",
+        );
+        expect(await editorText(page.locator(".wizard-plan .md-editor"))).toBe(
+          "# A half-written idea\n\nThe first paragraph of the plan.",
+        );
+
+        // The other way in — the New button — opens the same draft, not a second, empty one.
+        await page.locator(".sidebar > button.entry", { hasText: "Changes" }).click();
+        await page.waitForSelector(".change-card");
+        await page.locator(".sidebar .ideas-row .create").click();
+        await page.waitForSelector(".wizard-body");
+        expect(await page.locator(".wizard-sections .form").getByLabel("Title").inputValue()).toBe(
+          "A half-written idea",
+        );
+        expect(await row.count()).toBe(1);
+
+        // Discarding is the one thing that throws it away.
+        await page.getByRole("button", { name: "Discard" }).click();
+        await page.waitForSelector(".change-card");
+        expect(await row.count()).toBe(0);
+      },
+      VIEWPORT,
     );
-
-    // The row says what the draft is called while it is being typed: its plan's heading.
-    const row = page.locator(".sidebar .entry.change.state-ideation");
-    await page.waitForFunction(
-      () =>
-        document.querySelector(".sidebar .entry.change.state-ideation .subject")?.textContent ===
-        "A half-written idea",
-    );
-
-    // Leave for the overview: the draft is no longer the page, and the row is where it waits.
-    await page.locator(".sidebar > button.entry", { hasText: "Changes" }).click();
-    await page.waitForSelector(".change-card");
-    expect(await row.count()).toBe(1);
-    expect(await page.locator(".sidebar .entry.change.state-ideation.current").count()).toBe(0);
-
-    // Back through the row: the plan and the fields are where they were left. (The fields are
-    // found in the details form: the steps' dialogs carry fields of their own with familiar
-    // names.)
-    await row.click();
-    await page.waitForSelector(".wizard-body");
-    expect(new URL(page.url()).pathname).toBe("/new");
-    expect(await page.locator(".wizard-sections .form").getByLabel("Title").inputValue()).toBe(
-      "A half-written idea",
-    );
-    expect(await editorText(page.locator(".wizard-plan .md-editor"))).toBe(
-      "# A half-written idea\n\nThe first paragraph of the plan.",
-    );
-
-    // The other way in — the New button — opens the same draft, not a second, empty one.
-    await page.locator(".sidebar > button.entry", { hasText: "Changes" }).click();
-    await page.waitForSelector(".change-card");
-    await page.locator(".sidebar .ideas-row .create").click();
-    await page.waitForSelector(".wizard-body");
-    expect(await page.locator(".wizard-sections .form").getByLabel("Title").inputValue()).toBe(
-      "A half-written idea",
-    );
-    expect(await row.count()).toBe(1);
-
-    // Discarding is the one thing that throws it away.
-    await page.getByRole("button", { name: "Discard" }).click();
-    await page.waitForSelector(".change-card");
-    expect(await row.count()).toBe(0);
-    await page.close();
   },
   30_000,
 );
@@ -1588,82 +1649,86 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "the repository browser asks where the checkout lives and which branch it uses",
   async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(url, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector(".change-card");
+    await withPage(
+      browser,
+      async (page) => {
+        await page.goto(url, { waitUntil: "domcontentloaded" });
+        await page.waitForSelector(".change-card");
 
-    await page.locator(".sidebar .ideas-row .create").click();
-    await page.waitForSelector(".wizard");
-    // Straight to the repositories: the wizard is one screen, and the section's Edit… opens
-    // the browser dialog — this is about the browser, not the idea's fields.
-    await page.locator(".wizard-sections .repos-field").getByRole("button", { name: "Edit…" }).click();
-    await page.waitForSelector("dialog .browser");
+        await page.locator(".sidebar .ideas-row .create").click();
+        await page.waitForSelector(".wizard");
+        // Straight to the repositories: the wizard is one screen, and the section's Edit… opens
+        // the browser dialog — this is about the browser, not the idea's fields.
+        await page.locator(".wizard-sections .repos-field").getByRole("button", { name: "Edit…" }).click();
+        await page.waitForSelector("dialog .browser");
 
-    // The fixture repository is in the configured start directory, one Add away.
-    await page
-      .locator(".listing .entries li", { hasText: "example-api" })
-      .getByRole("button", { name: "Add", exact: true })
-      .click();
-    const row = page.locator(".selected-pane li.selection");
-    await row.waitFor();
+        // The fixture repository is in the configured start directory, one Add away.
+        await page
+          .locator(".listing .entries li", { hasText: "example-api" })
+          .getByRole("button", { name: "Add", exact: true })
+          .click();
+        const row = page.locator(".selected-pane li.selection");
+        await row.waitFor();
 
-    // Every field is named, with its explanation an icon away: the two questions and the two
-    // branch questions say which is which instead of reading as anonymous boxes.
-    expect(
-      (await row.locator(".field .caption").allInnerTexts()).map((s) => s.replace("ⓘ", "").trim()),
-    ).toEqual(["Checkout", "Branch", "Starts from", "Merges into"]);
-    expect(await row.locator(".field .info[title]").count()).toBe(4);
+        // Every field is named, with its explanation an icon away: the two questions and the two
+        // branch questions say which is which instead of reading as anonymous boxes.
+        expect(
+          (await row.locator(".field .caption").allInnerTexts()).map((s) => s.replace("ⓘ", "").trim()),
+        ).toEqual(["Checkout", "Branch", "Starts from", "Merges into"]);
+        expect(await row.locator(".field .info[title]").count()).toBe(4);
 
-    // The two questions, as the selects say them — and where the row starts: a worktree on the
-    // change's own branch.
-    const location = row.locator("select").nth(0);
-    const branchKind = row.locator("select").nth(1);
-    expect(await location.inputValue()).toBe("new");
-    expect((await location.locator("option").allInnerTexts()).map((s) => s.trim())).toEqual([
-      "New worktree",
-      "In place",
-    ]);
-    expect(await branchKind.inputValue()).toBe("change");
-    expect((await branchKind.locator("option").allInnerTexts()).map((s) => s.trim())).toEqual([
-      "New branch",
-      "Current branch",
-      "Existing branch",
-    ]);
+        // The two questions, as the selects say them — and where the row starts: a worktree on the
+        // change's own branch.
+        const location = row.locator("select").nth(0);
+        const branchKind = row.locator("select").nth(1);
+        expect(await location.inputValue()).toBe("new");
+        expect((await location.locator("option").allInnerTexts()).map((s) => s.trim())).toEqual([
+          "New worktree",
+          "In place",
+        ]);
+        expect(await branchKind.inputValue()).toBe("change");
+        expect((await branchKind.locator("option").allInnerTexts()).map((s) => s.trim())).toEqual([
+          "New branch",
+          "Current branch",
+          "Existing branch",
+        ]);
 
-    // A new worktree cannot adopt the branch a source checkout has checked out: the option says
-    // why instead of being offered. The disabled attribute is what the browser enforces.
-    const current = branchKind.locator("option", { hasText: "Current branch" });
-    expect(await current.getAttribute("disabled")).not.toBeNull();
-    expect(await current.getAttribute("title")).toBe(
-      "a new worktree cannot use the branch a source checkout has checked out",
+        // A new worktree cannot adopt the branch a source checkout has checked out: the option says
+        // why instead of being offered. The disabled attribute is what the browser enforces.
+        const current = branchKind.locator("option", { hasText: "Current branch" });
+        expect(await current.getAttribute("disabled")).not.toBeNull();
+        expect(await current.getAttribute("title")).toBe(
+          "a new worktree cannot use the branch a source checkout has checked out",
+        );
+
+        // A created branch starts somewhere and merges somewhere; an existing branch is named
+        // instead of started.
+        expect(await row.locator("select.base").count()).toBe(1);
+        expect(await row.locator("select.name").count()).toBe(0);
+        expect(await row.locator("select.target").count()).toBe(1);
+        await branchKind.selectOption("existing");
+        expect(await row.locator("select.name").count()).toBe(1);
+        expect(await row.locator("select.base").count()).toBe(0);
+        expect(await row.locator("select.target").count()).toBe(1);
+        expect(
+          (await row.locator(".field .caption").allInnerTexts()).map((s) => s.replace("ⓘ", "").trim()),
+        ).toEqual(["Checkout", "Branch", "Branch name", "Merges into"]);
+
+        // In place, the current branch becomes the offer — and taking it drops both branch pickers:
+        // what a pull request merges into is the one branch question left.
+        await location.selectOption("original");
+        expect(await current.getAttribute("disabled")).toBeNull();
+        await branchKind.selectOption("current");
+        expect(await row.locator("select.name").count()).toBe(0);
+        expect(await row.locator("select.base").count()).toBe(0);
+        expect(await row.locator("select.target").count()).toBe(1);
+
+        // Going back to a worktree cannot keep it: the row falls back to the change's own branch.
+        await location.selectOption("new");
+        expect(await branchKind.inputValue()).toBe("change");
+      },
+      VIEWPORT,
     );
-
-    // A created branch starts somewhere and merges somewhere; an existing branch is named
-    // instead of started.
-    expect(await row.locator("select.base").count()).toBe(1);
-    expect(await row.locator("select.name").count()).toBe(0);
-    expect(await row.locator("select.target").count()).toBe(1);
-    await branchKind.selectOption("existing");
-    expect(await row.locator("select.name").count()).toBe(1);
-    expect(await row.locator("select.base").count()).toBe(0);
-    expect(await row.locator("select.target").count()).toBe(1);
-    expect(
-      (await row.locator(".field .caption").allInnerTexts()).map((s) => s.replace("ⓘ", "").trim()),
-    ).toEqual(["Checkout", "Branch", "Branch name", "Merges into"]);
-
-    // In place, the current branch becomes the offer — and taking it drops both branch pickers:
-    // what a pull request merges into is the one branch question left.
-    await location.selectOption("original");
-    expect(await current.getAttribute("disabled")).toBeNull();
-    await branchKind.selectOption("current");
-    expect(await row.locator("select.name").count()).toBe(0);
-    expect(await row.locator("select.base").count()).toBe(0);
-    expect(await row.locator("select.target").count()).toBe(1);
-
-    // Going back to a worktree cannot keep it: the row falls back to the change's own branch.
-    await location.selectOption("new");
-    expect(await branchKind.inputValue()).toBe("change");
-    await page.close();
   },
   30_000,
 );
@@ -1671,16 +1736,22 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "the state selector speaks the record's vocabulary",
   async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector(".change-tabs select");
-    const options = (await page.locator(".change-tabs select option").allInnerTexts()).map((s) => s.trim());
-    // The words are the record's: the rename of record format v2 reaches the page.
-    expect(options).toContain("Implementation");
-    expect(options).toContain("Verification");
-    expect(options).not.toContain("In Progress");
-    expect(options).not.toContain("Awaiting Review");
-    await page.close();
+    await withPage(
+      browser,
+      async (page) => {
+        await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+        await page.waitForSelector(".change-tabs select");
+        const options = (await page.locator(".change-tabs select option").allInnerTexts()).map((s) =>
+          s.trim(),
+        );
+        // The words are the record's: the rename of record format v2 reaches the page.
+        expect(options).toContain("Implementation");
+        expect(options).toContain("Verification");
+        expect(options).not.toContain("In Progress");
+        expect(options).not.toContain("Awaiting Review");
+      },
+      VIEWPORT,
+    );
   },
   30_000,
 );
@@ -1691,32 +1762,36 @@ test.skipIf(!usable)(
     // Two levels, two rows: the window's row says which surface — the change's own views or one of its
     // terminals — and the row under it says which of those views. Plan is the first of them (where a
     // change opens), and the Overview tab is current for every one of them.
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
-    expect(await page.locator(".change-bar .window-tab.overview.current").count()).toBe(1);
+    await withPage(
+      browser,
+      async (page) => {
+        await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+        expect(await page.locator(".change-bar .window-tab.overview.current").count()).toBe(1);
 
-    // Plan first, then the dashboard, then the extensions' tabs in load order.
-    expect((await page.locator(".change-tabs .tab").allInnerTexts()).map((s) => s.trim())).toEqual([
-      "Plan",
-      "Dashboard",
-      "Review changes",
-    ]);
-    expect((await page.locator(".change-tabs .tab.current").innerText()).trim()).toBe("Plan");
+        // Plan first, then the dashboard, then the extensions' tabs in load order.
+        expect((await page.locator(".change-tabs .tab").allInnerTexts()).map((s) => s.trim())).toEqual([
+          "Plan",
+          "Dashboard",
+          "Review changes",
+        ]);
+        expect((await page.locator(".change-tabs .tab.current").innerText()).trim()).toBe("Plan");
 
-    const review = page.locator(".change-tabs .tab", { hasText: "Review changes" });
-    await review.click();
-    await page.waitForURL(`**/changes/${id}/review`);
-    expect((await page.locator(".change-tabs .tab.current").innerText()).trim()).toBe("Review changes");
-    expect(await page.locator(".change-bar .window-tab.overview.current").count()).toBe(1);
+        const review = page.locator(".change-tabs .tab", { hasText: "Review changes" });
+        await review.click();
+        await page.waitForURL(`**/changes/${id}/review`);
+        expect((await page.locator(".change-tabs .tab.current").innerText()).trim()).toBe("Review changes");
+        expect(await page.locator(".change-bar .window-tab.overview.current").count()).toBe(1);
 
-    // The Overview tab stands for the views as a whole: while one of them is showing, clicking it
-    // changes nothing — it is the way back from a terminal, not a jump to another view.
-    await page.locator(".change-bar .window-tab.overview").click();
-    await page.waitForTimeout(300);
-    expect(new URL(page.url()).pathname).toBe(`/changes/${id}/review`);
-    expect((await page.locator(".change-tabs .tab.current").innerText()).trim()).toBe("Review changes");
-    expect(await page.locator(".change-bar .window-tab.overview.current").count()).toBe(1);
-    await page.close();
+        // The Overview tab stands for the views as a whole: while one of them is showing, clicking it
+        // changes nothing — it is the way back from a terminal, not a jump to another view.
+        await page.locator(".change-bar .window-tab.overview").click();
+        await page.waitForTimeout(300);
+        expect(new URL(page.url()).pathname).toBe(`/changes/${id}/review`);
+        expect((await page.locator(".change-tabs .tab.current").innerText()).trim()).toBe("Review changes");
+        expect(await page.locator(".change-bar .window-tab.overview.current").count()).toBe(1);
+      },
+      VIEWPORT,
+    );
   },
   30_000,
 );

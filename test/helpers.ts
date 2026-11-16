@@ -461,8 +461,12 @@ export const openEngine = async (assign: (browser: Browser) => void): Promise<bo
 
 /** Run `body` on a fresh page at the shared viewport, closing it whatever happens. A page that is
  * not closed keeps its pty attached and the next test's client gates cannot be satisfied. */
-export const withPage = async <T>(browser: Browser, body: (page: Page) => Promise<T>): Promise<T> => {
-  const page = await browser.newPage({ viewport: VIEWPORT });
+export const withPage = async <T>(
+  browser: Browser,
+  body: (page: Page) => Promise<T>,
+  viewport: { readonly width: number; readonly height: number } = VIEWPORT,
+): Promise<T> => {
+  const page = await browser.newPage({ viewport });
   try {
     return await body(page);
   } finally {

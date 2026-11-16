@@ -14,6 +14,7 @@ import {
   until,
   startTestServer,
   VIEWPORT,
+  withPage,
 } from "./helpers.ts";
 
 /**
@@ -154,74 +155,80 @@ test.skipIf(!usable)("the dialog names this machine, arms it, and cancels", asyn
 test.skipIf(!usable)(
   "a machine whose read fails drops out of the selection and the rest still arm",
   async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(url, { waitUntil: "domcontentloaded" });
-    await page.locator(".sidebar .icon-entry[aria-label='Power']").click();
-    const dialog = page.locator("dialog.power-dialog");
-    await dialog.waitFor();
-    const remoteRow = await waitForRemote(dialog);
+    await withPage(
+      browser,
+      async (page) => {
+        await page.goto(url, { waitUntil: "domcontentloaded" });
+        await page.locator(".sidebar .icon-entry[aria-label='Power']").click();
+        const dialog = page.locator("dialog.power-dialog");
+        await dialog.waitFor();
+        const remoteRow = await waitForRemote(dialog);
 
-    // Tick the remote while its read works, then take it offline.
-    await remoteRow.locator("input").check();
-    expect(await remoteRow.locator("input").isChecked()).toBe(true);
-    remoteFailing = true;
+        // Tick the remote while its read works, then take it offline.
+        await remoteRow.locator("input").check();
+        expect(await remoteRow.locator("input").isChecked()).toBe(true);
+        remoteFailing = true;
 
-    // A remote power event refetches; the failed read drops it from the selection and disables
-    // its row, so it cannot block this machine.
-    expect(await until(async () => pushRemote !== undefined, true)).toBe(true);
-    pushRemote!("event: power\ndata: \n\n");
-    await dialog.locator(".power-machine .hint.error").first().waitFor();
-    expect(await remoteRow.locator("input").isChecked()).toBe(false);
-    expect(await remoteRow.locator("input").isDisabled()).toBe(true);
+        // A remote power event refetches; the failed read drops it from the selection and disables
+        // its row, so it cannot block this machine.
+        expect(await until(async () => pushRemote !== undefined, true)).toBe(true);
+        pushRemote!("event: power\ndata: \n\n");
+        await dialog.locator(".power-machine .hint.error").first().waitFor();
+        expect(await remoteRow.locator("input").isChecked()).toBe(false);
+        expect(await remoteRow.locator("input").isDisabled()).toBe(true);
 
-    // This machine alone still arms.
-    await dialog.getByRole("button", { name: "Arm shutdown" }).click();
-    await dialog.locator(".power-results", { hasText: "This machine" }).waitFor();
-    expect(await dialog.locator(".power-results").textContent()).toContain("Armed");
-
-    await page.close();
+        // This machine alone still arms.
+        await dialog.getByRole("button", { name: "Arm shutdown" }).click();
+        await dialog.locator(".power-results", { hasText: "This machine" }).waitFor();
+        expect(await dialog.locator(".power-results").textContent()).toContain("Armed");
+      },
+      VIEWPORT,
+    );
   },
 );
 
 test.skipIf(!usable)("a local power event and a remote source power event each refetch", async () => {
-  const page = await browser.newPage({ viewport: VIEWPORT });
-  let localReads = 0;
-  await page.route(
-    (u) => u.pathname === "/api/power",
-    async (route) => {
-      localReads += 1;
-      await route.continue();
+  await withPage(
+    browser,
+    async (page) => {
+      let localReads = 0;
+      await page.route(
+        (u) => u.pathname === "/api/power",
+        async (route) => {
+          localReads += 1;
+          await route.continue();
+        },
+      );
+      await page.goto(url, { waitUntil: "domcontentloaded" });
+      await page.locator(".sidebar .icon-entry[aria-label='Power']").click();
+      const dialog = page.locator("dialog.power-dialog");
+      await dialog.waitFor();
+      await waitForRemote(dialog);
+
+      // A local `power` event (this server's state changed) refetches the machines.
+      const beforeLocal = localReads;
+      await fetch(`${url}/api/power/arm`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ targets: [""] }),
+      });
+      expect(await until(async () => localReads > beforeLocal, true)).toBe(true);
+
+      const beforeDisarm = localReads;
+      await fetch(`${url}/api/power/disarm`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ targets: [""] }),
+      });
+      expect(await until(async () => localReads > beforeDisarm, true)).toBe(true);
+
+      // A remote `power` event arrives on the local stream as a `source` envelope, and the page
+      // refetches the remote machine through the gateway.
+      expect(await until(async () => pushRemote !== undefined, true)).toBe(true);
+      const beforeRemote = remotePowerReads;
+      pushRemote!("event: power\ndata: \n\n");
+      expect(await until(async () => remotePowerReads > beforeRemote, true)).toBe(true);
     },
+    VIEWPORT,
   );
-  await page.goto(url, { waitUntil: "domcontentloaded" });
-  await page.locator(".sidebar .icon-entry[aria-label='Power']").click();
-  const dialog = page.locator("dialog.power-dialog");
-  await dialog.waitFor();
-  await waitForRemote(dialog);
-
-  // A local `power` event (this server's state changed) refetches the machines.
-  const beforeLocal = localReads;
-  await fetch(`${url}/api/power/arm`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ targets: [""] }),
-  });
-  expect(await until(async () => localReads > beforeLocal, true)).toBe(true);
-
-  const beforeDisarm = localReads;
-  await fetch(`${url}/api/power/disarm`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ targets: [""] }),
-  });
-  expect(await until(async () => localReads > beforeDisarm, true)).toBe(true);
-
-  // A remote `power` event arrives on the local stream as a `source` envelope, and the page
-  // refetches the remote machine through the gateway.
-  expect(await until(async () => pushRemote !== undefined, true)).toBe(true);
-  const beforeRemote = remotePowerReads;
-  pushRemote!("event: power\ndata: \n\n");
-  expect(await until(async () => remotePowerReads > beforeRemote, true)).toBe(true);
-
-  await page.close();
 });

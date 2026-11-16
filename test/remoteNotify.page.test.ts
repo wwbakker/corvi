@@ -14,6 +14,7 @@ import {
   until,
   startTestServer,
   VIEWPORT,
+  withPage,
 } from "./helpers.ts";
 
 /**
@@ -111,41 +112,45 @@ afterAll(async () => {
 test.skipIf(!usable)(
   "a remote notify shows a notification and its click opens the remote change",
   async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(url, { waitUntil: "domcontentloaded" });
-    // The page is up: the remote change, read through the gateway, is in the sidebar.
-    await page.getByRole("button", { name: "Remote notice" }).waitFor();
-    // The fan-in has subscribed to the fake remote's stream.
-    await until(async () => pushRemote !== undefined, true, 10_000);
+    await withPage(
+      browser,
+      async (page) => {
+        await page.goto(url, { waitUntil: "domcontentloaded" });
+        // The page is up: the remote change, read through the gateway, is in the sidebar.
+        await page.getByRole("button", { name: "Remote notice" }).waitFor();
+        // The fan-in has subscribed to the fake remote's stream.
+        await until(async () => pushRemote !== undefined, true, 10_000);
 
-    const notice = {
-      change: CHANGE.id,
-      window: "w-1",
-      label: "Agent wants you",
-      note: "what it just said",
-      sound: false,
-    };
-    const frame = `event: notify\ndata: ${JSON.stringify(notice)}\n\n`;
-    // The page's own EventSource may connect a moment after the sidebar first paints, and a
-    // broadcast reaches only listeners already attached: push until the toast is seen rather
-    // than assume one delivery.
-    for (let i = 0; i < 25; i++) {
-      pushRemote?.(frame);
-      if ((await page.locator(".toast").count()) > 0) break;
-      await Bun.sleep(300);
-    }
-    const toast = page.locator(".toast");
-    await toast.waitFor();
-    // It says what the window is called, and names the server it came from.
-    expect(await toast.textContent()).toContain("Agent wants you");
-    expect(await toast.locator(".toast-where").textContent()).toContain("remote-client · NOTIF-1");
+        const notice = {
+          change: CHANGE.id,
+          window: "w-1",
+          label: "Agent wants you",
+          note: "what it just said",
+          sound: false,
+        };
+        const frame = `event: notify\ndata: ${JSON.stringify(notice)}\n\n`;
+        // The page's own EventSource may connect a moment after the sidebar first paints, and a
+        // broadcast reaches only listeners already attached: push until the toast is seen rather
+        // than assume one delivery.
+        for (let i = 0; i < 25; i++) {
+          pushRemote?.(frame);
+          if ((await page.locator(".toast").count()) > 0) break;
+          await Bun.sleep(300);
+        }
+        const toast = page.locator(".toast");
+        await toast.waitFor();
+        // It says what the window is called, and names the server it came from.
+        expect(await toast.textContent()).toContain("Agent wants you");
+        expect(await toast.locator(".toast-where").textContent()).toContain("remote-client · NOTIF-1");
 
-    // Clicking carries the source, so it opens the remote change's terminals page — not the
-    // local change that shares this id.
-    await toast.click();
-    await until(async () => page.url().includes("/changes/NOTIF-1"), true, 10_000);
-    expect(page.url()).toContain("source=remote-client");
-    await page.close();
+        // Clicking carries the source, so it opens the remote change's terminals page — not the
+        // local change that shares this id.
+        await toast.click();
+        await until(async () => page.url().includes("/changes/NOTIF-1"), true, 10_000);
+        expect(page.url()).toContain("source=remote-client");
+      },
+      VIEWPORT,
+    );
   },
   60_000,
 );
