@@ -633,6 +633,37 @@ export const runRouteWithShell = (
     ),
   );
 
+type GuardedHandler = (req: Request, server?: unknown) => Promise<Response>;
+type GuardedTable = Record<string, Partial<Record<string, GuardedHandler>>>;
+
+/** Call a `guard`ed route table by its method and pattern, with the path parameters Bun's router
+ * would have filled in and a same-origin request. The route tables are structural values, so this
+ * keeps the one cast here rather than in every test. */
+export const callGuarded = (
+  routes: unknown,
+  method: string,
+  path: string,
+  options: {
+    readonly params?: Record<string, string>;
+    readonly body?: unknown;
+    readonly headers?: Record<string, string>;
+  } = {},
+): Promise<Response> => {
+  const handler = (routes as GuardedTable)[path]?.[method];
+  if (handler === undefined) return Promise.reject(new Error(`no ${method} ${path}`));
+  const req = new Request(`http://127.0.0.1:4000${path}`, {
+    method,
+    headers: {
+      "content-type": "application/json",
+      "sec-fetch-site": "same-origin",
+      ...options.headers,
+    },
+    ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+  });
+  Object.assign(req, { params: options.params ?? {} });
+  return handler(req);
+};
+
 /** One CLI call, Promise-shaped for the tests: a timed-out CLI is exit code 124, so tests
  * branch on `code` exactly as the server does. */
 export const runSh = (cmd: readonly string[], cwd?: string): Promise<ShellResult> =>

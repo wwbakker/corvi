@@ -39,6 +39,7 @@ import {
   testTempDir,
   withRuntimeConfig,
   type FakeShell,
+  callGuarded,
 } from "./helpers.ts";
 
 /**
@@ -1318,13 +1319,9 @@ afterAll(async () => {
 /** The cards route as server.ts mounts it, called with the path parameter Bun would have
  * filled in (the pattern test/changeTabs.test.ts sets for the guarded routes). */
 const cardsOf = async (id: string): Promise<{ name: string; editable?: boolean }[]> => {
-  const route = integrationRoutes["/api/changes/:id/cards"] as unknown as {
-    GET: (req: Request, srv: unknown) => Promise<Response>;
-  };
-  const req = Object.assign(new Request(`http://127.0.0.1:4000/api/changes/${id}/cards`), {
+  const response = await callGuarded(integrationRoutes, "GET", "/api/changes/:id/cards", {
     params: { id },
   });
-  const response = await route.GET(req, undefined);
   expect(response.status).toBe(200);
   return (await response.json()) as { name: string; editable?: boolean }[];
 };

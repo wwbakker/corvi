@@ -19,7 +19,7 @@ import { devicesRoutes } from "../apps/server/src/devices/routes.ts";
 import { settingsViewSync, writeSettings } from "../apps/server/src/settings/server/index.ts";
 import { MASK } from "../apps/server/src/settings/server/secrets.ts";
 import { configPath, readFileSync, runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
-import { runEffect, runEffectWithTestClock, writeTestConfig } from "./helpers.ts";
+import { runEffect, runEffectWithTestClock, writeTestConfig, callGuarded } from "./helpers.ts";
 
 /**
  * Device identity and pairing: a code is single-use and expires, redemption stores only a hash

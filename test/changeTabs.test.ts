@@ -9,7 +9,7 @@ import { changeDir, createChange } from "../apps/server/src/change/server/index.
 import { provisionRepositories } from "../apps/server/src/change/provisioning.ts";
 import { visibleChangeTabs } from "../apps/server/src/integrations/selectors.ts";
 import { runtimeConfig, workspaceById } from "../apps/server/src/workspace/server/index.ts";
-import { checkoutsOf, runEffect, runSh, useOwnChangeRoot } from "./helpers.ts";
+import { checkoutsOf, runEffect, runSh, useOwnChangeRoot, callGuarded } from "./helpers.ts";
 /**
  * E2's new surface and capability, with no consumer yet: the change-tab route and the read-only
  * `Changes` layer. Both are exercised through the real thing — the guarded route handler and
@@ -30,13 +30,9 @@ afterAll(async () => {
 });
 /** The route as server.ts mounts it, called with the path parameter Bun would have filled in. */
 const tabsOf = async (id: string): Promise<{ id: string; title: string; extension: string }[]> => {
-  const route = integrationRoutes["/api/changes/:id/tabs"] as unknown as {
-    GET: (req: Request, srv: unknown) => Promise<Response>;
-  };
-  const req = Object.assign(new Request(`http://127.0.0.1:4000/api/changes/${id}/tabs`), {
+  const response = await callGuarded(integrationRoutes, "GET", "/api/changes/:id/tabs", {
     params: { id },
   });
-  const response = await route.GET(req, undefined);
   expect(response.status).toBe(200);
   return ((await response.json()) as { tabs: { id: string; title: string; extension: string }[] }).tabs;
 };
@@ -44,13 +40,9 @@ const tabsOf = async (id: string): Promise<{ id: string; title: string; extensio
 const widgetsOf = async (
   id: string,
 ): Promise<{ id: string; title: string; extension: string; column?: "left" | "right" }[]> => {
-  const route = integrationRoutes["/api/changes/:id/widgets"] as unknown as {
-    GET: (req: Request, srv: unknown) => Promise<Response>;
-  };
-  const req = Object.assign(new Request(`http://127.0.0.1:4000/api/changes/${id}/widgets`), {
+  const response = await callGuarded(integrationRoutes, "GET", "/api/changes/:id/widgets", {
     params: { id },
   });
-  const response = await route.GET(req, undefined);
   expect(response.status).toBe(200);
   return (
     (await response.json()) as {

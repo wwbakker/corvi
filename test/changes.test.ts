@@ -27,6 +27,7 @@ import {
   useOwnChangeRoot,
   gitRepo,
   withEnv,
+  callGuarded,
 } from "./helpers.ts";
 let tmp: string;
 let repo: string;
@@ -64,17 +65,8 @@ test("create change, provision a worktree, report status, remove it", async () =
 });
 test("the create response names the new change's directory", async () => {
   const { changeRoutes } = await import("../apps/server/src/change/routes.ts");
-  const route = changeRoutes["/api/changes"] as unknown as {
-    POST: (req: Request, srv: unknown) => Promise<Response>;
-  };
   const create = async (body: unknown): Promise<ProvisionedChangeDto> => {
-    const response = await route.POST(
-      new Request("http://127.0.0.1:4000/api/changes", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-      undefined,
-    );
+    const response = await callGuarded(changeRoutes, "POST", "/api/changes", { body });
     expect(response.status).toBe(201);
     // Decoded as the client does it: the field is only usable if the contract keeps it.
     return Schema.decodeUnknownSync(ProvisionedChangeSchema)(await response.json());
