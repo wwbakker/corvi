@@ -15,6 +15,7 @@ import {
   startTestServer,
   stopTestServer,
   reservePort,
+  withPage,
 } from "./helpers.ts";
 import { startFakeRemote, type FakeRemote } from "./fakeRemote.ts";
 
@@ -88,55 +89,43 @@ afterAll(async () => {
 test.skipIf(!usable)(
   "an offline remote is named unavailable, gated, and recovers on Retry now",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-    const remoteRequests: string[] = [];
-    page.on("request", (request) => {
-      if (new URL(request.url()).pathname.startsWith("/remote/")) remoteRequests.push(request.url());
-    });
-    try {
-      await page.goto(url, { waitUntil: "domcontentloaded" });
-
-      // The selector names the configured remote, marked unavailable once the health check fails.
-      const unavailableItem = page.getByText("Remote offline (Unavailable)", { exact: true });
-      await page.locator("button.workspace").click();
-      await unavailableItem.waitFor({ timeout: budget(20_000) });
-      // It is still selectable.
-      await unavailableItem.click();
-      expect(await page.locator("button.workspace").innerText()).toContain("(Unavailable)");
-
-      // The banner explains and offers recovery plus local configuration.
-      const banner = page.locator(".remote-unavailable");
-      await banner.waitFor({ timeout: budget(20_000) });
-      expect(await banner.innerText()).toContain("unavailable");
-      const retry = banner.getByRole("button", { name: "Retry now" });
-      expect(await retry.count()).toBe(1);
-      expect(await banner.getByRole("button", { name: "Local settings" }).count()).toBe(1);
-
-      // Nothing was sent to the down remote: the gate refused before the network.
-      expect(remoteRequests).toEqual([]);
-      // Retry now asks for a coordinated check; the remote is still down, so the banner stays.
-      await retry.click();
-      await page.waitForTimeout(500);
-      await banner.waitFor();
-
-      // The local shell is untouched.
-      await page.goto(`${url}/changes/${LOCAL}/terminals`, { waitUntil: "domcontentloaded" });
-      await page.waitForSelector(".terminal-screen[data-attached]", { timeout: budget(30_000) });
-
-      // The remote comes up: the bounded reconnect recovers it, and only then is it requested.
-      remote = await fakeRemote(remotePort);
-      await page.goto(url, { waitUntil: "domcontentloaded" });
-      await until(
-        async () => (await page.locator("button.workspace").innerText()).includes("(Unavailable)"),
-        false,
-        budget(40_000),
-      );
-      // The remote's change is now listed, read through the gateway.
-      await page.getByRole("button", { name: "Remote change" }).waitFor({ timeout: budget(30_000) });
-      expect(remoteRequests.some((request) => request.includes("/api/changes"))).toBe(true);
-    } finally {
-      await page.close();
-    }
+    return withPage(
+      browser,
+      async (page) => {
+        const remoteRequests: string[] = [];
+        page.on("request", (request) => {
+          if (new URL(request.url()).pathname.startsWith("/remote/")) remoteRequests.push(request.url());
+        });
+        await page.goto(url, { waitUntil: "domcontentloaded" });
+        const unavailableItem = page.getByText("Remote offline (Unavailable)", { exact: true });
+        await page.locator("button.workspace").click();
+        await unavailableItem.waitFor({ timeout: budget(20_000) });
+        await unavailableItem.click();
+        expect(await page.locator("button.workspace").innerText()).toContain("(Unavailable)");
+        const banner = page.locator(".remote-unavailable");
+        await banner.waitFor({ timeout: budget(20_000) });
+        expect(await banner.innerText()).toContain("unavailable");
+        const retry = banner.getByRole("button", { name: "Retry now" });
+        expect(await retry.count()).toBe(1);
+        expect(await banner.getByRole("button", { name: "Local settings" }).count()).toBe(1);
+        expect(remoteRequests).toEqual([]);
+        await retry.click();
+        await page.waitForTimeout(500);
+        await banner.waitFor();
+        await page.goto(`${url}/changes/${LOCAL}/terminals`, { waitUntil: "domcontentloaded" });
+        await page.waitForSelector(".terminal-screen[data-attached]", { timeout: budget(30_000) });
+        remote = await fakeRemote(remotePort);
+        await page.goto(url, { waitUntil: "domcontentloaded" });
+        await until(
+          async () => (await page.locator("button.workspace").innerText()).includes("(Unavailable)"),
+          false,
+          budget(40_000),
+        );
+        await page.getByRole("button", { name: "Remote change" }).waitFor({ timeout: budget(30_000) });
+        expect(remoteRequests.some((request) => request.includes("/api/changes"))).toBe(true);
+      },
+      { width: 1400, height: 900 },
+    );
   },
   budget(180_000),
 );

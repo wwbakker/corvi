@@ -13,6 +13,7 @@ import {
   startTestServer,
   stopTestServer,
   reservePort,
+  withPage,
 } from "./helpers.ts";
 import { startFakeRemote, type FakeRemote } from "./fakeRemote.ts";
 
@@ -69,31 +70,27 @@ afterAll(async () => {
 test.skipIf(!usable)(
   "a change opened while its remote is down banners, is read-only, and recovers in place",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-    try {
-      await page.goto(`${url}/changes/${REMOTE}/plan?source=remote-client`, {
-        waitUntil: "domcontentloaded",
-      });
-
-      // The banner is by the viewed source, not the chosen workspace.
-      const banner = page.locator(".remote-unavailable");
-      await banner.waitFor({ timeout: budget(30_000) });
-      expect(await banner.innerText()).toContain("unavailable");
-      // The remote's document is not loaded: no stale-or-blank editor shows it as current.
-      expect(await page.getByText("REMOTE PLAN").count()).toBe(0);
-
-      // The remote comes up; Retry now recovers without a reload.
-      remote = await startRemote(remotePort);
-      await banner.getByRole("button", { name: "Retry now" }).click();
-      await until(async () => await page.locator(".remote-unavailable").count(), 0, budget(40_000));
-      expect(await page.locator(".remote-unavailable").count()).toBe(0);
-      await until(async () => (await page.getByText("Remote change").count()) > 0, true, budget(30_000));
-      expect(await page.getByText("Remote change").count()).toBeGreaterThan(0);
-      await until(async () => (await page.getByText("REMOTE PLAN").count()) > 0, true, budget(30_000));
-      expect(await page.getByText("REMOTE PLAN").count()).toBeGreaterThan(0);
-    } finally {
-      await page.close();
-    }
+    return withPage(
+      browser,
+      async (page) => {
+        await page.goto(`${url}/changes/${REMOTE}/plan?source=remote-client`, {
+          waitUntil: "domcontentloaded",
+        });
+        const banner = page.locator(".remote-unavailable");
+        await banner.waitFor({ timeout: budget(30_000) });
+        expect(await banner.innerText()).toContain("unavailable");
+        expect(await page.getByText("REMOTE PLAN").count()).toBe(0);
+        remote = await startRemote(remotePort);
+        await banner.getByRole("button", { name: "Retry now" }).click();
+        await until(async () => await page.locator(".remote-unavailable").count(), 0, budget(40_000));
+        expect(await page.locator(".remote-unavailable").count()).toBe(0);
+        await until(async () => (await page.getByText("Remote change").count()) > 0, true, budget(30_000));
+        expect(await page.getByText("Remote change").count()).toBeGreaterThan(0);
+        await until(async () => (await page.getByText("REMOTE PLAN").count()) > 0, true, budget(30_000));
+        expect(await page.getByText("REMOTE PLAN").count()).toBeGreaterThan(0);
+      },
+      { width: 1440, height: 900 },
+    );
   },
   budget(180_000),
 );
