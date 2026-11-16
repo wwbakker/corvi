@@ -28,7 +28,7 @@ import {
   type Candidate,
 } from "../apps/cli/src/discovery.ts";
 import { pruneInstanceRecords } from "../apps/server/src/app-root/instance.ts";
-import { runSh, testTempDir, startTestServer, stopTestServer } from "./helpers.ts";
+import { runSh, testTempDir, startTestServer, stopTestServer, rememberEnv } from "./helpers.ts";
 
 const CHANGE_ID = "CLI-1";
 
@@ -216,11 +216,10 @@ let tmp: string;
 let repo: string;
 let server: ReturnType<typeof Bun.spawn>;
 let baseUrl: string;
-let savedStateHome: string | undefined;
+const restoreStateHome = rememberEnv("XDG_STATE_HOME");
 
 beforeAll(async () => {
   tmp = await testTempDir("cli-server");
-  savedStateHome = process.env.XDG_STATE_HOME;
   process.env.XDG_STATE_HOME = join(tmp, "state");
 
   // A change record on disk where the server reads them, so the commands have something to act
@@ -259,8 +258,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await stopTestServer(server, tmp);
-  if (savedStateHome === undefined) delete process.env.XDG_STATE_HOME;
-  else process.env.XDG_STATE_HOME = savedStateHome;
+  restoreStateHome();
   await rm(tmp, { recursive: true, force: true });
 });
 

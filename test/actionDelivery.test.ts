@@ -11,7 +11,7 @@ import * as registry from "../apps/server/src/terminals/server/registry.ts";
 import { setStatus } from "../apps/server/src/terminals/server/status.ts";
 import { listWindowsAsync, newWindowAsync } from "../apps/server/src/terminals/server/windows.ts";
 import { configPath } from "../apps/server/src/workspace/server/index.ts";
-import { testTempDir, waitFor } from "./helpers.ts";
+import { testTempDir, waitFor, rememberEnv } from "./helpers.ts";
 
 /**
  * Action delivery on host sessions. The run opens a host window for the command and the command
@@ -25,17 +25,9 @@ const own = await testTempDir("action-host");
 // The env this file mutates, saved so a co-located test file does not inherit it (bun runs the
 // files of a run in one process) — a config path into this file's own directory, deleted
 // afterwards, would leave later files writing into nothing.
-const savedEnv = {
-  CORVI_HOST_RUNTIME: process.env.CORVI_HOST_RUNTIME,
-  CORVI_CONFIG: process.env.CORVI_CONFIG,
-};
+const restoreEnv = rememberEnv("CORVI_HOST_RUNTIME", "CORVI_CONFIG");
 process.env.CORVI_CONFIG = join(own, "config.json");
-const restoreEnv = (): void => {
-  for (const [key, value] of Object.entries(savedEnv)) {
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
-  }
-};
+
 process.env.CORVI_HOST_RUNTIME = "node";
 await mkdir(join(own, "actions"), { recursive: true });
 await writeFile(configPath(), "{}");

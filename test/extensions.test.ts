@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { changeDir, createChange, readChange, writeChange } from "../apps/server/src/change/server/index.ts";
-import { checkoutsOf, runEffect, withRuntimeConfig, testTempDir } from "./helpers.ts";
+import { checkoutsOf, runEffect, withRuntimeConfig, testTempDir, rememberEnv } from "./helpers.ts";
 import { Effect } from "effect";
 import {
   changeTabsFor,
@@ -29,7 +29,7 @@ import type { Change } from "@corvi/changes/record";
  * A changes root of its own, because creating a change writes one.
  */
 let tmp: string;
-const originalConfig = process.env.CORVI_CONFIG;
+const restoreConfig = rememberEnv("CORVI_CONFIG");
 beforeAll(async () => {
   tmp = await testTempDir("extensions");
   process.env.CORVI_ROOT = tmp;
@@ -42,8 +42,7 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   await rm(tmp, { recursive: true, force: true });
-  if (originalConfig === undefined) delete process.env.CORVI_CONFIG;
-  else process.env.CORVI_CONFIG = originalConfig;
+  restoreConfig();
   reloadConfigSync();
 });
 const ws = (patch: Partial<Workspace> = {}): Workspace => ({ id: "test", name: "Test", ...patch });

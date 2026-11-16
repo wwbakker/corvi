@@ -120,6 +120,19 @@ export const gitRepo = async (
   return clone;
 };
 
+/** Remember the named environment values and return the function that puts them back exactly —
+ * an unset key deleted again, not written as "undefined". For the files whose environment is set
+ * for the whole file (`beforeAll`/module load) rather than one test body. */
+export const rememberEnv = (...names: readonly string[]): (() => void) => {
+  const saved = new Map(names.map((name) => [name, process.env[name]]));
+  return () => {
+    for (const [name, value] of saved) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  };
+};
+
 /** Run `body` with an environment patch, restoring every key exactly as it was — an absent key
  * removed again, not written as the string "undefined". The environment twin of
  * `withRuntimeConfig`. */
