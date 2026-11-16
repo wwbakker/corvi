@@ -25,6 +25,7 @@ import {
   type FakeShell,
   testTempDir,
   withEnv,
+  withRuntimeConfig,
 } from "./helpers.ts";
 /** Every effect below goes through the shared cache and the contract's capabilities, and every
  * test starts from a cold one so a key one test warmed cannot answer for another. */
@@ -188,44 +189,38 @@ test("azDefaults reads az devops configure, and reads it once", async () => {
     ].join("\n"),
   });
   // Nothing configured anywhere beats what the CLI itself holds: no bag on the shared config,
-  // no legacy flat field in the file it was loaded from, no environment override. (An earlier
-  // test file may have left any of those behind, so all three are cleared first rather than
-  // assumed — including the file, which is pointed at an empty one and reloaded.)
-  const beforeBag = runtimeConfig().extensionSettings;
-  const beforeConfig = process.env.CORVI_CONFIG;
-  const beforeOrg = process.env.CORVI_AZURE_ORG;
-  const beforeProject = process.env.CORVI_AZURE_PROJECT;
-  const { mkdtemp, rm } = await import("node:fs/promises");
-  const { tmpdir } = await import("node:os");
+  // no legacy flat field in the file it was loaded from, no environment override. The config is
+  // pointed at an empty file and swapped for the duration; the env and the bag are restored
+  // exactly.
+  const { rm } = await import("node:fs/promises");
   const { join } = await import("node:path");
   const { reloadConfigSync } = await import("../apps/server/src/workspace/server/index.ts");
   const empty = await testTempDir("az-empty");
-  runtimeConfig().extensionSettings = undefined;
-  delete process.env.CORVI_AZURE_ORG;
-  delete process.env.CORVI_AZURE_PROJECT;
-  process.env.CORVI_CONFIG = join(empty, "runtimeConfig().json");
-  await Bun.write(process.env.CORVI_CONFIG, "{}");
-  reloadConfigSync();
   try {
-    const first = await runWithShell(shell, azDefaults());
-    expect(first).toEqual({
-      organization: "https://dev.azure.com/fresh",
-      project: "FreshProj",
-    });
-    // The shared cache answers the second ask: the CLI runs once no matter how many
-    // workspaces fall back to it.
-    const calls = shell.calls.length;
-    const second = await runWithShell(shell, azDefaults());
-    expect(second).toEqual(first);
-    expect(shell.calls.length).toBe(calls);
+    return await withEnv(
+      {
+        CORVI_CONFIG: join(empty, "runtimeConfig().json"),
+        CORVI_AZURE_ORG: undefined,
+        CORVI_AZURE_PROJECT: undefined,
+      },
+      () =>
+        withRuntimeConfig({ extensionSettings: undefined }, async () => {
+          await Bun.write(join(empty, "runtimeConfig().json"), "{}");
+          reloadConfigSync();
+          const first = await runWithShell(shell, azDefaults());
+          expect(first).toEqual({
+            organization: "https://dev.azure.com/fresh",
+            project: "FreshProj",
+          });
+          // The shared cache answers the second ask: the CLI runs once no matter how many
+          // workspaces fall back to it.
+          const calls = shell.calls.length;
+          const second = await runWithShell(shell, azDefaults());
+          expect(second).toEqual(first);
+          expect(shell.calls.length).toBe(calls);
+        }),
+    );
   } finally {
-    runtimeConfig().extensionSettings = beforeBag;
-    if (beforeConfig === undefined) delete process.env.CORVI_CONFIG;
-    else process.env.CORVI_CONFIG = beforeConfig;
-    if (beforeOrg === undefined) delete process.env.CORVI_AZURE_ORG;
-    else process.env.CORVI_AZURE_ORG = beforeOrg;
-    if (beforeProject === undefined) delete process.env.CORVI_AZURE_PROJECT;
-    else process.env.CORVI_AZURE_PROJECT = beforeProject;
     await rm(empty, { recursive: true, force: true });
     reloadConfigSync();
   }
