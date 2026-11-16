@@ -1,8 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { type Browser } from "playwright";
 
@@ -16,6 +14,7 @@ import {
   stopTestServer,
   reservePort,
 } from "./helpers.ts";
+import { startFakeRemote, type FakeRemote } from "./fakeRemote.ts";
 
 /**
  * A remote change opened by direct link while its server is down, then recovered in place:
@@ -28,49 +27,15 @@ const usable = await openEngine((opened) => {
 });
 
 const REMOTE = "REMOTE-1";
-const CHANGE = {
-  id: REMOTE,
-  branch: "remote-1",
-  workspace: "client",
-  title: "Remote change",
-  state: "Implementation",
-  createdAt: "2026-01-01T00:00:00.000Z",
-};
-
 /** The remote's server, only once it "comes up". */
-const startRemote = (port: number): Server => {
-  const server = createServer((req, res) => {
-    const url = req.url ?? "";
-    const json = (value: unknown): void => {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify(value));
-    };
-    if (url.startsWith("/api/events")) {
-      res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
-      res.write(": open\n\n");
-      const beat = setInterval(() => res.write(": ping\n\n"), 250);
-      res.on("close", () => clearInterval(beat));
-      return;
-    }
-    if (url.startsWith("/api/changes/") && url.includes("/plan"))
-      return json({ text: "# REMOTE PLAN\n", revision: "1" });
-    if (url.startsWith("/api/changes/")) return json(CHANGE);
-    if (url.startsWith("/api/changes")) return json([CHANGE]);
-    if (url.startsWith("/api/terminals")) return json({});
-    if (url.startsWith("/api/dashboard/")) return json([]);
-    if (url.startsWith("/api/pages")) return json({ pages: [] });
-    if (url.startsWith("/api/workspaces")) return json({ workspaces: [] });
-    json({});
-  });
-  server.listen(port, "127.0.0.1");
-  return server;
-};
+const startRemote = (port: number): Promise<FakeRemote> =>
+  startFakeRemote(port, { changeId: REMOTE, title: "Remote change", plan: "# REMOTE PLAN\n" });
 
 let tmp: string;
 let url: string;
 let server: ReturnType<typeof Bun.spawn>;
 let remotePort: number;
-let remote: Server | undefined;
+let remote: FakeRemote | undefined;
 
 beforeAll(async () => {
   if (!usable) return;
@@ -118,7 +83,7 @@ test.skipIf(!usable)(
       expect(await page.getByText("REMOTE PLAN").count()).toBe(0);
 
       // The remote comes up; Retry now recovers without a reload.
-      remote = startRemote(remotePort);
+      remote = await startRemote(remotePort);
       await banner.getByRole("button", { name: "Retry now" }).click();
       await until(async () => await page.locator(".remote-unavailable").count(), 0, budget(40_000));
       expect(await page.locator(".remote-unavailable").count()).toBe(0);

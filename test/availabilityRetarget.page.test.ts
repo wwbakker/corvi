@@ -1,11 +1,9 @@
 import { afterAll, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { type Browser } from "playwright";
-import { WebSocketServer } from "ws";
 
 import {
   budget,
@@ -20,6 +18,7 @@ import {
   startTestServer,
   reservePort,
 } from "./helpers.ts";
+import { startFakeRemote, type FakeRemote } from "./fakeRemote.ts";
 
 /**
  * Two availability-view races:
@@ -64,134 +63,10 @@ const startServer = async (
     url,
   }));
 
-type FakeRemote = {
-  readonly port: number;
-  readonly received: string[];
-  readonly paths: () => string[];
-  readonly connections: () => number;
-  readonly close: () => void;
-};
-
-const record = (title: string): Record<string, string> => ({
-  id: REMOTE,
-  branch: "remote-1",
-  workspace: "client",
-  title,
-  state: "Implementation",
-  createdAt: "2026-01-01T00:00:00.000Z",
-});
-
-/** A remote Corvi-shaped server, optionally with a terminal socket. */
-const startRemote = async (
+const startRemote = (
   port: number,
-  options: {
-    readonly title: string;
-    readonly plan: string;
-    readonly terminal?: boolean;
-    /** The state the remote reports for the sidebar icon ("ok", "error", ...). */
-    readonly summaryState?: string;
-    /** The one card's summary line, so the dashboard's cached value is visible. */
-    readonly widgetSummary?: string;
-    /** The notes extension: the dashboard lists its widget and its own route serves the text. */
-    readonly notes?: boolean;
-    /** The leftovers extension's page: the page list offers it and its route serves these names. */
-    readonly leftovers?: readonly string[];
-  },
-): Promise<FakeRemote> => {
-  const received: string[] = [];
-  const paths: string[] = [];
-  let connections = 0;
-  const server = createServer((req, res) => {
-    const path = req.url ?? "";
-    paths.push(`${req.method ?? ""} ${path}`);
-    const json = (value: unknown): void => {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify(value));
-    };
-    if (path.startsWith("/api/events")) {
-      res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
-      res.write(": open\n\n");
-      const beat = setInterval(() => res.write(": ping\n\n"), 250);
-      res.on("close", () => clearInterval(beat));
-      return;
-    }
-    if (
-      options.terminal === true &&
-      path.startsWith(`/api/changes/${REMOTE}/terminal`) &&
-      !path.includes("/socket")
-    ) {
-      return json({ url: `/api/changes/${REMOTE}/terminal/socket` });
-    }
-    if (path.startsWith(`/api/changes/${REMOTE}/plan`)) return json({ text: options.plan, revision: "1" });
-    if (path === `/api/changes/${REMOTE}/summary`)
-      return json({ facts: [], state: options.summaryState ?? "ok" });
-    if (path === `/api/changes/${REMOTE}/cards`)
-      return json([{ name: "demo", title: "Demo", perRepo: false, column: "left" }]);
-    if (path.startsWith(`/api/changes/${REMOTE}/cards/demo`))
-      return json({
-        integration: "demo",
-        title: "Demo",
-        state: "ok",
-        summary: "",
-        // The value the card renders: a row whose label names the target, so a cache that kept
-        // the old target's widget would show the old label.
-        items: [{ label: options.widgetSummary ?? "WIDGET", state: "ok" }],
-      });
-    if (path === `/api/changes/${REMOTE}/widgets`)
-      return json({
-        widgets:
-          options.notes === true ? [{ id: "notes", title: "Notes", extension: "notes", column: "left" }] : [],
-      });
-    // The notes extension's own routes, through the gateway's prefix: a GET is the document, a
-    // PUT is a save. Both are recorded so a test can say a blocked editor never wrote.
-    if (path.includes("/ext/notes/")) return json({ text: "NOTES" });
-    if (path === `/api/changes/${REMOTE}/tabs`) return json({ tabs: [] });
-    if (path === `/api/changes/${REMOTE}`) return json(record(options.title));
-    if (path === "/api/changes") return json([record(options.title)]);
-    if (path.startsWith("/api/pages"))
-      return json({
-        pages:
-          options.leftovers === undefined
-            ? []
-            : [{ id: "leftovers", title: "Leftovers", extension: "leftovers" }],
-      });
-    // The wire transport prepends `/api`, so an extension route arrives as `/api/ext/...`.
-    if (path.includes("/ext/leftovers/list"))
-      return json(
-        (options.leftovers ?? []).map((name) => ({
-          name,
-          path: `/tmp/${name}`,
-          entries: [],
-          kilobytes: 1,
-        })),
-      );
-    if (path.startsWith("/api/terminals")) return json({});
-    if (path.startsWith("/api/dashboard/")) return json([]);
-    if (path.startsWith("/api/wizard")) return json({ steps: [], planTemplate: "" });
-    json({});
-  });
-  const wss = new WebSocketServer({ server });
-  wss.on("connection", (socket) => {
-    connections += 1;
-    socket.on("message", (data, isBinary) => {
-      received.push(isBinary ? new TextDecoder().decode(data as Buffer) : data.toString());
-    });
-    // The pane is "attached" once a control frame names its session.
-    socket.send(JSON.stringify({ type: "reset", sessionId: "w-1" }));
-  });
-  await new Promise<void>((resolve) => server.listen(port, "127.0.0.1", () => resolve()));
-  return {
-    port,
-    received,
-    paths: () => paths,
-    connections: () => connections,
-    close: () => {
-      wss.close();
-      server.closeAllConnections?.();
-      server.close();
-    },
-  };
-};
+  options: Omit<Parameters<typeof startFakeRemote>[1], "changeId">,
+): Promise<FakeRemote> => startFakeRemote(port, { changeId: REMOTE, ...options });
 
 afterAll(async () => {
   if (!usable) return;

@@ -1,8 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { createServer, type Server, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { type Browser } from "playwright";
 
@@ -18,6 +16,7 @@ import {
   stopTestServer,
   reservePort,
 } from "./helpers.ts";
+import { startFakeRemote, type FakeRemote } from "./fakeRemote.ts";
 
 /**
  * The page with a configured remote that is down, beside a local shell:
@@ -36,51 +35,14 @@ const usable = await openEngine((opened) => {
 const REMOTE = "OFFLINE-1";
 const LOCAL = "LOCAL-1";
 
-const fakeRemote = (
-  port: number,
-): { readonly server: Server; readonly requests: string[]; readonly stop: () => void } => {
-  const requests: string[] = [];
-  const server = createServer((req, res: ServerResponse) => {
-    requests.push(`${req.method ?? "GET"} ${req.url ?? ""}`);
-    if (req.url?.startsWith("/api/events")) {
-      res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
-      res.write(": open\n\n");
-      const beat = setInterval(() => res.write(": ping\n\n"), 250);
-      res.on("close", () => clearInterval(beat));
-      return;
-    }
-    if (req.url?.startsWith("/api/changes")) {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(
-        JSON.stringify([
-          {
-            id: REMOTE,
-            branch: REMOTE,
-            workspace: "client",
-            title: "Remote change",
-            state: "Implementation",
-            createdAt: "2026-01-01T00:00:00.000Z",
-          },
-        ]),
-      );
-      return;
-    }
-    if (req.url?.startsWith("/api/terminals")) {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end("{}");
-      return;
-    }
-    res.writeHead(200, { "content-type": "application/json" });
-    res.end("{}");
-  });
-  return { server, requests, stop: () => server.close() };
-};
+const fakeRemote = (port: number): Promise<FakeRemote> =>
+  startFakeRemote(port, { changeId: REMOTE, title: "Remote change" });
 
 let tmp: string;
 let url: string;
 let server: ReturnType<typeof Bun.spawn>;
 let remotePort: number;
-let remote: ReturnType<typeof fakeRemote> | undefined;
+let remote: FakeRemote | undefined;
 
 beforeAll(async () => {
   if (!usable) return;
@@ -118,7 +80,7 @@ afterAll(async () => {
   if (!usable) return;
   await closePages(browser, "availability");
   await browser?.close();
-  remote?.stop();
+  remote?.close();
   await stopTestServer(server, tmp);
   await rm(tmp, { recursive: true, force: true });
 }, budget(60_000));
@@ -162,8 +124,7 @@ test.skipIf(!usable)(
       await page.waitForSelector(".terminal-screen[data-attached]", { timeout: budget(30_000) });
 
       // The remote comes up: the bounded reconnect recovers it, and only then is it requested.
-      remote = fakeRemote(remotePort);
-      await new Promise<void>((resolve) => remote!.server.listen(remotePort, "127.0.0.1", () => resolve()));
+      remote = await fakeRemote(remotePort);
       await page.goto(url, { waitUntil: "domcontentloaded" });
       await until(
         async () => (await page.locator("button.workspace").innerText()).includes("(Unavailable)"),
