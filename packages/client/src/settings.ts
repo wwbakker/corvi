@@ -2,7 +2,7 @@
 import { SettingsViewSchema, type SettingsViewDto } from "@corvi/contracts/api";
 import type { ConfigFileDto } from "@corvi/contracts/config";
 
-import { decode, type RequestOptions, type Send } from "./transport.ts";
+import { decode, type RequestOptions, type Send, request } from "./transport.ts";
 
 export interface SettingsApi {
   readonly read: (options?: RequestOptions) => Promise<SettingsViewDto>;
@@ -10,6 +10,6 @@ export interface SettingsApi {
 }
 
 export const makeSettingsApi = (send: Send): SettingsApi => ({
-  read: async (options) => decode(SettingsViewSchema, await send("GET", "/settings", options)),
-  write: async (settings) => decode(SettingsViewSchema, await send("PUT", "/settings", { body: settings })),
+  read: async (options) => request(send, "GET", "/settings", SettingsViewSchema, options),
+  write: async (settings) => request(send, "PUT", "/settings", SettingsViewSchema, { body: settings }),
 });

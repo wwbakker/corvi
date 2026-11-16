@@ -4,7 +4,7 @@ import {
   type RemoteAvailabilitySnapshotDto,
 } from "@corvi/contracts/availability";
 
-import { decode, type RequestOptions, type Send } from "./transport.ts";
+import { decode, type RequestOptions, type Send, request } from "./transport.ts";
 
 export interface RemotesApi {
   /** The local server's current availability map. A page reconciles from this after reconnecting:
@@ -17,10 +17,13 @@ export interface RemotesApi {
 
 export const makeRemotesApi = (send: Send): RemotesApi => ({
   availability: async (options) =>
-    decode(RemoteAvailabilitySnapshotSchema, await send("GET", "/remotes/availability", options)),
+    request(send, "GET", "/remotes/availability", RemoteAvailabilitySnapshotSchema, options),
   retry: async (source, options) =>
-    decode(
+    request(
+      send,
+      "POST",
+      `/remotes/${encodeURIComponent(source)}/availability/retry`,
       RemoteAvailabilitySnapshotSchema,
-      await send("POST", `/remotes/${encodeURIComponent(source)}/availability/retry`, options),
+      options,
     ),
 });

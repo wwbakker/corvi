@@ -52,6 +52,21 @@ export const mutableArray = <S extends Schema.Constraint>(
 /** A change's own path: the prefix every change-scoped operation extends. */
 export const changePath = (changeId: ChangeId): string => `/changes/${encodeURIComponent(changeId)}`;
 
+/** One namespace operation: send and decode with the operation's schema, in the one order every
+ * caller uses. `options` is the transport's `Send` options, so a body, headers and a signal all
+ * ride along unchanged. */
+export const request = async <S extends Schema.ConstraintDecoder<unknown>>(
+  send: Send,
+  method: string,
+  path: string,
+  schema: S,
+  options?: {
+    readonly body?: unknown;
+    readonly signal?: AbortSignal;
+    readonly headers?: Record<string, string>;
+  },
+): Promise<S["Type"]> => decode(schema, await send(method, path, options));
+
 /** The query a directory listing names: an explicit path wins over the context's start directory,
  * an empty path is not set, and hidden directories have to be asked for by name. Shared by the
  * browser and the settings picker so they cannot ask the same question differently. */

@@ -14,7 +14,7 @@ import {
 } from "@corvi/contracts/api";
 import type { ChangeId } from "@corvi/contracts/changes";
 
-import { changePath, decode, mutableArray, type RequestOptions, type Send } from "./transport.ts";
+import { changePath, mutableArray, type RequestOptions, type Send, request } from "./transport.ts";
 
 export interface TerminalsApi {
   readonly list: (options?: RequestOptions) => Promise<TerminalsResponseDto>;
@@ -28,15 +28,14 @@ export const makeTerminalsApi = (send: Send): TerminalsApi => {
   const change = changePath;
 
   return {
-    list: async (options) => decode(TerminalsResponseSchema, await send("GET", "/terminals", options)),
+    list: async (options) => request(send, "GET", "/terminals", TerminalsResponseSchema, options),
     url: async (changeId, options) =>
-      decode(UrlSchema, await send("GET", `${change(changeId)}/terminal`, options)),
+      request(send, "GET", `${change(changeId)}/terminal`, UrlSchema, options),
     windowAction: async (changeId, action) =>
-      decode(
-        mutableArray(TerminalWindowSchema),
-        await send("POST", `${change(changeId)}/terminal/windows`, { body: action }),
-      ),
+      request(send, "POST", `${change(changeId)}/terminal/windows`, mutableArray(TerminalWindowSchema), {
+        body: action,
+      }),
     setStatus: async (body) =>
-      decode(TerminalStatusResponseSchema, await send("POST", "/terminals/status", { body })),
+      request(send, "POST", "/terminals/status", TerminalStatusResponseSchema, { body }),
   };
 };

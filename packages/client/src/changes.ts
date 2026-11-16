@@ -41,7 +41,7 @@ import {
   type TranscriptSummaryDto,
 } from "@corvi/contracts/transcripts";
 
-import { changePath, decode, mutableArray, type RequestOptions, type Send } from "./transport.ts";
+import { changePath, mutableArray, type RequestOptions, type Send, request } from "./transport.ts";
 
 export interface ChangesApi {
   readonly list: (options?: RequestOptions) => Promise<ChangeWireDto[]>;
@@ -87,52 +87,50 @@ export const makeChangesApi = (send: Send): ChangesApi => {
   const change = changePath;
 
   return {
-    list: async (options) => decode(mutableArray(ChangeWireSchema), await send("GET", "/changes", options)),
-    read: async (changeId, options) => decode(ChangeWireSchema, await send("GET", change(changeId), options)),
+    list: async (options) => request(send, "GET", "/changes", mutableArray(ChangeWireSchema), options),
+    read: async (changeId, options) => request(send, "GET", change(changeId), ChangeWireSchema, options),
     summary: async (changeId, options) =>
-      decode(ChangeSummarySchema, await send("GET", `${change(changeId)}/summary`, options)),
+      request(send, "GET", `${change(changeId)}/summary`, ChangeSummarySchema, options),
     description: async (changeId, options) =>
-      decode(TextSchema, await send("GET", `${change(changeId)}/description`, options)),
+      request(send, "GET", `${change(changeId)}/description`, TextSchema, options),
     plan: async (changeId, options) =>
-      decode(PlanDocSchema, await send("GET", `${change(changeId)}/plan`, options)),
+      request(send, "GET", `${change(changeId)}/plan`, PlanDocSchema, options),
     writePlan: async (changeId, body, options) =>
-      decode(PlanDocSchema, await send("PUT", `${change(changeId)}/plan`, { body, ...options })),
+      request(send, "PUT", `${change(changeId)}/plan`, PlanDocSchema, { body, ...options }),
     completion: async (changeId, options) =>
-      decode(CompletionSchema, await send("GET", `${change(changeId)}/completion`, options)),
+      request(send, "GET", `${change(changeId)}/completion`, CompletionSchema, options),
     completionProgress: async (changeId, options) =>
-      decode(
+      request(
+        send,
+        "GET",
+        `${change(changeId)}/completion/progress`,
         Schema.NullOr(CompletionProgressSchema),
-        await send("GET", `${change(changeId)}/completion/progress`, options),
+        options,
       ),
-    create: async (body) => decode(ProvisionedChangeSchema, await send("POST", "/changes", { body })),
-    start: async (changeId) =>
-      decode(ProvisionedChangeSchema, await send("POST", `${change(changeId)}/start`)),
+    create: async (body) => request(send, "POST", "/changes", ProvisionedChangeSchema, { body }),
+    start: async (changeId) => request(send, "POST", `${change(changeId)}/start`, ProvisionedChangeSchema),
     complete: async (changeId, options) =>
-      decode(
-        CompletedResponseSchema,
-        await send("POST", `${change(changeId)}/complete`, { body: options ?? {} }),
-      ),
+      request(send, "POST", `${change(changeId)}/complete`, CompletedResponseSchema, { body: options ?? {} }),
     cancel: async (changeId, options) =>
-      decode(
-        CancelledResponseSchema,
-        await send("POST", `${change(changeId)}/cancel`, { body: options ?? {} }),
-      ),
-    reopen: async (changeId) =>
-      decode(ReopenedResponseSchema, await send("POST", `${change(changeId)}/reopen`)),
+      request(send, "POST", `${change(changeId)}/cancel`, CancelledResponseSchema, { body: options ?? {} }),
+    reopen: async (changeId) => request(send, "POST", `${change(changeId)}/reopen`, ReopenedResponseSchema),
     transcripts: async (changeId, options) =>
-      decode(TranscriptListSchema, await send("GET", `${change(changeId)}/transcripts`, options)),
+      request(send, "GET", `${change(changeId)}/transcripts`, TranscriptListSchema, options),
     transcript: async (changeId, id, options) =>
-      decode(
+      request(
+        send,
+        "GET",
+        `${change(changeId)}/transcript?id=${encodeURIComponent(id)}`,
         TranscriptSchema,
-        await send("GET", `${change(changeId)}/transcript?id=${encodeURIComponent(id)}`, options),
+        options,
       ),
     rename: async (changeId, patch) =>
-      decode(ChangeWireSchema, await send("PATCH", change(changeId), { body: patch })),
+      request(send, "PATCH", change(changeId), ChangeWireSchema, { body: patch }),
     repoStates: async (changeId, options) =>
-      decode(mutableArray(RepoStateSchema), await send("GET", `${change(changeId)}/repos`, options)),
+      request(send, "GET", `${change(changeId)}/repos`, mutableArray(RepoStateSchema), options),
     setRepositories: async (changeId, body) =>
-      decode(ProvisionedChangeSchema, await send("POST", `${change(changeId)}/repos`, { body })),
+      request(send, "POST", `${change(changeId)}/repos`, ProvisionedChangeSchema, { body }),
     checkouts: async (changeId) =>
-      decode(mutableArray(RepositoryViewSchema), await send("GET", `${change(changeId)}/checkouts`)),
+      request(send, "GET", `${change(changeId)}/checkouts`, mutableArray(RepositoryViewSchema)),
   };
 };

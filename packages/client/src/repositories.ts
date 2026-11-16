@@ -8,7 +8,7 @@ import {
   type DirectoryListingSpec,
 } from "@corvi/contracts/api";
 
-import { decode, directoryListingQuery, type RequestOptions, type Send } from "./transport.ts";
+import { decode, directoryListingQuery, type RequestOptions, type Send, request } from "./transport.ts";
 
 export interface RepositoriesApi {
   readonly directories: (
@@ -21,8 +21,8 @@ export interface RepositoriesApi {
 export const makeRepositoriesApi = (send: Send): RepositoriesApi => ({
   directories: async (spec, options) => {
     const query = directoryListingQuery(spec);
-    return decode(DirectoryListingSchema, await send("GET", `/repos${query ? `?${query}` : ""}`, options));
+    return request(send, "GET", `/repos${query ? `?${query}` : ""}`, DirectoryListingSchema, options);
   },
   branches: async (path, options) =>
-    decode(BranchesSchema, await send("GET", `/repos/branches?path=${encodeURIComponent(path)}`, options)),
+    request(send, "GET", `/repos/branches?path=${encodeURIComponent(path)}`, BranchesSchema, options),
 });

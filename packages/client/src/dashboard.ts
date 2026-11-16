@@ -13,7 +13,7 @@ import {
 } from "@corvi/contracts/api";
 import type { ChangeId } from "@corvi/contracts/changes";
 
-import { changePath, decode, mutableArray, type RequestOptions, type Send } from "./transport.ts";
+import { changePath, mutableArray, type RequestOptions, type Send, request } from "./transport.ts";
 
 export interface DashboardApi {
   readonly cards: (changeId: ChangeId, options?: RequestOptions) => Promise<CardInfoDto[]>;
@@ -42,31 +42,41 @@ export const makeDashboardApi = (send: Send): DashboardApi => {
 
   return {
     cards: async (changeId, options) =>
-      decode(mutableArray(CardInfoSchema), await send("GET", `${change(changeId)}/cards`, options)),
+      request(send, "GET", `${change(changeId)}/cards`, mutableArray(CardInfoSchema), options),
     tabs: async (changeId, options) =>
-      decode(ChangeTabsResponseSchema, await send("GET", `${change(changeId)}/tabs`, options)).tabs,
+      (await request(send, "GET", `${change(changeId)}/tabs`, ChangeTabsResponseSchema, options)).tabs,
     widgets: async (changeId, options) =>
-      decode(ChangeWidgetsResponseSchema, await send("GET", `${change(changeId)}/widgets`, options)).widgets,
+      (await request(send, "GET", `${change(changeId)}/widgets`, ChangeWidgetsResponseSchema, options))
+        .widgets,
     card: async (changeId, card, options) =>
-      decode(WidgetSchema, await send("GET", cardPath(changeId, card), options)),
+      request(send, "GET", cardPath(changeId, card), WidgetSchema, options),
     cardRepo: async (changeId, card, repo, options) =>
-      decode(
+      request(
+        send,
+        "GET",
+        `${cardPath(changeId, card)}/items?path=${encodeURIComponent(repo)}`,
         RepoItemsSchema,
-        await send("GET", `${cardPath(changeId, card)}/items?path=${encodeURIComponent(repo)}`, options),
+        options,
       ),
     cardAction: async (changeId, card, action, arg) =>
-      decode(
+      request(
+        send,
+        "POST",
+        `${cardPath(changeId, card)}/actions/${encodeURIComponent(action)}`,
         WidgetSchema,
-        await send("POST", `${cardPath(changeId, card)}/actions/${encodeURIComponent(action)}`, {
+        {
           body: arg === undefined ? {} : { arg },
-        }),
+        },
       ),
     cardRepoAction: async (changeId, card, action, arg) =>
-      decode(
+      request(
+        send,
+        "POST",
+        `${cardPath(changeId, card)}/actions/${encodeURIComponent(action)}`,
         RepoItemsSchema,
-        await send("POST", `${cardPath(changeId, card)}/actions/${encodeURIComponent(action)}`, {
+        {
           body: arg === undefined ? {} : { arg },
-        }),
+        },
       ),
   };
 };

@@ -10,7 +10,7 @@ import {
   type PowerStateDto,
 } from "@corvi/contracts/power";
 
-import { decode, type RequestOptions, type Send } from "./transport.ts";
+import { decode, type RequestOptions, type Send, request } from "./transport.ts";
 
 export interface PowerApi {
   /** This server's arm state plus the agents its countdown waits on. */
@@ -22,9 +22,9 @@ export interface PowerApi {
 }
 
 export const makePowerApi = (send: Send): PowerApi => ({
-  state: async (options) => decode(PowerStateSchema, await send("GET", "/power", options)),
+  state: async (options) => request(send, "GET", "/power", PowerStateSchema, options),
   arm: async (targets, options) =>
-    decode(PowerArmResponseSchema, await send("POST", "/power/arm", { body: { targets }, ...options })),
+    request(send, "POST", "/power/arm", PowerArmResponseSchema, { body: { targets }, ...options }),
   disarm: async (targets, options) =>
-    decode(PowerArmResponseSchema, await send("POST", "/power/disarm", { body: { targets }, ...options })),
+    request(send, "POST", "/power/disarm", PowerArmResponseSchema, { body: { targets }, ...options }),
 });

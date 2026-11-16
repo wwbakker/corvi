@@ -1,7 +1,7 @@
 /** The app's update: what is new, checking for it, and taking it. */
 import { AppUpdateStatusSchema, type AppUpdateStatusDto } from "@corvi/contracts/api";
 
-import { decode, type RequestOptions, type Send } from "./transport.ts";
+import { decode, type RequestOptions, type Send, request } from "./transport.ts";
 
 export interface UpdateApi {
   /** What the app knows about updating itself: eligible, what is new, and the update journal.
@@ -16,7 +16,7 @@ export interface UpdateApi {
 }
 
 export const makeUpdateApi = (send: Send): UpdateApi => ({
-  status: async (options) => decode(AppUpdateStatusSchema, await send("GET", "/app/update", options)),
-  check: async (options) => decode(AppUpdateStatusSchema, await send("POST", "/app/update/check", options)),
-  start: async (options) => decode(AppUpdateStatusSchema, await send("POST", "/app/update", options)),
+  status: async (options) => request(send, "GET", "/app/update", AppUpdateStatusSchema, options),
+  check: async (options) => request(send, "POST", "/app/update/check", AppUpdateStatusSchema, options),
+  start: async (options) => request(send, "POST", "/app/update", AppUpdateStatusSchema, options),
 });

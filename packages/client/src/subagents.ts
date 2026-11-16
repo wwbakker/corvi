@@ -28,7 +28,7 @@ import {
 } from "@corvi/contracts/subagents";
 import type { ChangeId } from "@corvi/contracts/changes";
 
-import { changePath, decode, type RequestOptions, type Send } from "./transport.ts";
+import { changePath, type RequestOptions, type Send, request } from "./transport.ts";
 
 export interface SubagentsApi {
   readonly files: () => Promise<SubagentFilesResponseDto>;
@@ -108,68 +108,59 @@ export const makeSubagentsApi = (send: Send): SubagentsApi => {
   const turnSuffix = (turn?: number): string => (turn === undefined ? "" : `?turn=${turn}`);
 
   return {
-    files: async () => decode(SubagentFilesResponseSchema, await send("GET", "/subagents/files")),
+    files: async () => request(send, "GET", "/subagents/files", SubagentFilesResponseSchema),
     writeFile: async (file) =>
-      decode(SubagentFilesResponseSchema, await send("PUT", "/subagents/files", { body: file })),
+      request(send, "PUT", "/subagents/files", SubagentFilesResponseSchema, { body: file }),
     deleteFile: async (ref) =>
-      decode(
+      request(
+        send,
+        "DELETE",
+        `/subagents/files?scope=${ref.scope}${
+          ref.workspace ? `&workspace=${encodeURIComponent(ref.workspace)}` : ""
+        }&id=${encodeURIComponent(ref.id)}`,
         SubagentFilesResponseSchema,
-        await send(
-          "DELETE",
-          `/subagents/files?scope=${ref.scope}${
-            ref.workspace ? `&workspace=${encodeURIComponent(ref.workspace)}` : ""
-          }&id=${encodeURIComponent(ref.id)}`,
-        ),
       ),
     repositoryFiles: async (changeId) =>
-      decode(SubagentRepositoryFilesResponseSchema, await send("GET", `${change(changeId)}/subagent-files`)),
+      request(send, "GET", `${change(changeId)}/subagent-files`, SubagentRepositoryFilesResponseSchema),
     writeRepositoryFile: async (changeId, file) =>
-      decode(
-        SubagentRepositoryFilesResponseSchema,
-        await send("PUT", `${change(changeId)}/subagent-files`, { body: file }),
-      ),
+      request(send, "PUT", `${change(changeId)}/subagent-files`, SubagentRepositoryFilesResponseSchema, {
+        body: file,
+      }),
     deleteRepositoryFile: async (changeId, ref) =>
-      decode(
+      request(
+        send,
+        "DELETE",
+        `${change(changeId)}/subagent-files?repository=${encodeURIComponent(ref.repository)}&id=${encodeURIComponent(ref.id)}`,
         SubagentRepositoryFilesResponseSchema,
-        await send(
-          "DELETE",
-          `${change(changeId)}/subagent-files?repository=${encodeURIComponent(ref.repository)}&id=${encodeURIComponent(ref.id)}`,
-        ),
       ),
     list: async (changeId, options) =>
-      decode(SubagentListResponseSchema, await send("GET", `${change(changeId)}/subagents`, options))
+      (await request(send, "GET", `${change(changeId)}/subagents`, SubagentListResponseSchema, options))
         .instances,
     profiles: async (changeId, options) =>
-      decode(
-        SubagentProfilesResponseSchema,
-        await send("GET", `${change(changeId)}/subagent-profiles`, options),
-      ),
+      request(send, "GET", `${change(changeId)}/subagent-profiles`, SubagentProfilesResponseSchema, options),
     read: async (changeId, id, options) =>
-      decode(SubagentInstanceSchema, await send("GET", instance(changeId, id), options)),
+      request(send, "GET", instance(changeId, id), SubagentInstanceSchema, options),
     create: async (changeId, body, idempotencyKey) =>
-      decode(
-        SubagentInstanceSchema,
-        await send("POST", `${change(changeId)}/subagents`, {
-          body,
-          ...keyed(idempotencyKey),
-        }),
-      ),
+      request(send, "POST", `${change(changeId)}/subagents`, SubagentInstanceSchema, {
+        body,
+        ...keyed(idempotencyKey),
+      }),
     open: async (changeId, id) =>
-      decode(SubagentInstanceSchema, await send("POST", `${instance(changeId, id)}/open`)),
+      request(send, "POST", `${instance(changeId, id)}/open`, SubagentInstanceSchema),
     close: async (changeId, id) =>
-      decode(SubagentInstanceSchema, await send("POST", `${instance(changeId, id)}/close`)),
+      request(send, "POST", `${instance(changeId, id)}/close`, SubagentInstanceSchema),
     send: async (changeId, id, body, idempotencyKey) =>
-      decode(
-        SubagentMessageSchema,
-        await send("POST", `${instance(changeId, id)}/messages`, {
-          body,
-          ...keyed(idempotencyKey),
-        }),
-      ),
+      request(send, "POST", `${instance(changeId, id)}/messages`, SubagentMessageSchema, {
+        body,
+        ...keyed(idempotencyKey),
+      }),
     result: async (changeId, id, query, options) =>
-      decode(
+      request(
+        send,
+        "GET",
+        `${instance(changeId, id)}/result${turnSuffix(query?.turn)}`,
         Schema.NullOr(SubagentMessageSchema),
-        await send("GET", `${instance(changeId, id)}/result${turnSuffix(query?.turn)}`, options),
+        options,
       ),
     await: async (changeId, query, options) => {
       const params = new URLSearchParams();
@@ -177,27 +168,26 @@ export const makeSubagentsApi = (send: Send): SubagentsApi => {
       if (query.all === true) params.set("all", "1");
       if (query.turn !== undefined) params.set("turn", String(query.turn));
       const suffix = params.size > 0 ? `?${params.toString()}` : "";
-      return decode(
+      return request(
+        send,
+        "GET",
+        `${change(changeId)}/subagents/await${suffix}`,
         SubagentAwaitResponseSchema,
-        await send("GET", `${change(changeId)}/subagents/await${suffix}`, options),
+        options,
       );
     },
     next: async (changeId, id, after, options) =>
-      decode(
+      request(
+        send,
+        "GET",
+        `${instance(changeId, id)}/next${after === undefined ? "" : `?after=${after}`}`,
         SubagentNextResponseSchema,
-        await send(
-          "GET",
-          `${instance(changeId, id)}/next${after === undefined ? "" : `?after=${after}`}`,
-          options,
-        ),
+        options,
       ),
     turn: async (changeId, id, body, idempotencyKey) =>
-      decode(
-        SubagentMessageSchema,
-        await send("POST", `${instance(changeId, id)}/turn`, {
-          body,
-          ...keyed(idempotencyKey),
-        }),
-      ),
+      request(send, "POST", `${instance(changeId, id)}/turn`, SubagentMessageSchema, {
+        body,
+        ...keyed(idempotencyKey),
+      }),
   };
 };

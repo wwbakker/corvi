@@ -16,7 +16,7 @@ import {
   type RevokeDeviceResponseDto,
 } from "@corvi/contracts/devices";
 
-import { decode, type RequestOptions, type Send } from "./transport.ts";
+import { decode, type RequestOptions, type Send, request } from "./transport.ts";
 
 export interface DevicesApi {
   /** The bootstrap check: whether this origin is the local listener, and which device is signed
@@ -39,18 +39,17 @@ export interface DevicesApi {
 }
 
 export const makeDevicesApi = (send: Send): DevicesApi => ({
-  session: async (options) =>
-    decode(DeviceSessionResponseSchema, await send("GET", "/devices/session", options)),
+  session: async (options) => request(send, "GET", "/devices/session", DeviceSessionResponseSchema, options),
   createPairingCode: async (options) =>
-    decode(PairingCodeResponseSchema, await send("POST", "/devices/pairing-codes", options)),
+    request(send, "POST", "/devices/pairing-codes", PairingCodeResponseSchema, options),
   pair: async (input, options) =>
-    decode(PairDeviceResponseSchema, await send("POST", "/devices/pair", { body: input, ...options })),
+    request(send, "POST", "/devices/pair", PairDeviceResponseSchema, { body: input, ...options }),
   redeem: async (input, options) =>
-    decode(
-      RedeemPairingCodeResponseSchema,
-      await send("POST", "/devices/pairing-codes/redeem", { body: input, ...options }),
-    ),
-  list: async (options) => decode(DevicesResponseSchema, await send("GET", "/devices", options)).devices,
+    request(send, "POST", "/devices/pairing-codes/redeem", RedeemPairingCodeResponseSchema, {
+      body: input,
+      ...options,
+    }),
+  list: async (options) => (await request(send, "GET", "/devices", DevicesResponseSchema, options)).devices,
   revoke: async (id, options) =>
-    decode(RevokeDeviceResponseSchema, await send("DELETE", `/devices/${encodeURIComponent(id)}`, options)),
+    request(send, "DELETE", `/devices/${encodeURIComponent(id)}`, RevokeDeviceResponseSchema, options),
 });
