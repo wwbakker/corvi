@@ -12,6 +12,7 @@ import {
   testTempDir,
   startTestServer,
   VIEWPORT,
+  withPage,
 } from "./helpers.ts";
 import { editorText, fillEditor } from "./editor.ts";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "@corvi/web/chrome";
@@ -1726,8 +1727,7 @@ test.skipIf(!usable)(
     // The memory is the page's own: remembered while it lives, and a fresh page — or a restart of
     // the app — opens the plan again (apps/web/src/app-root/remember.ts). `other`, whose name no
     // earlier test has rewritten, is the one the card can be found by.
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await page.goto(url, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".change-card");
       await page.locator(".change-card", { hasText: `${other}-x` }).click();
@@ -1743,9 +1743,7 @@ test.skipIf(!usable)(
       await page.locator(".change-card", { hasText: `${other}-x` }).click();
       await page.waitForURL(`**/changes/${other}/dashboard`);
       expect((await page.locator(".change-tabs .tab.current").innerText()).trim()).toBe("Dashboard");
-    } finally {
-      await page.close();
-    }
+    });
   },
   30_000,
 );
@@ -1762,8 +1760,7 @@ test.skipIf(!usable)(
     });
     expect(wrote.ok).toBe(true);
 
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await page.goto(`${url}/changes/${other}`, { waitUntil: "domcontentloaded" });
       // The document, not the empty editor the placeholder stands in for.
       await page.waitForSelector(".plan-page .md-editor .cm-placeholder", { state: "detached" });
@@ -1798,9 +1795,7 @@ test.skipIf(!usable)(
       await page.waitForSelector(".plan-page .md-editor .cm-placeholder", { state: "detached" });
       const restored = await rested();
       expect(Math.abs(restored - left)).toBeLessThan(60);
-    } finally {
-      await page.close();
-    }
+    });
   },
   30_000,
 );

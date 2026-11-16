@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, statSync, writeFileSync } from "n
 import { mkdir, mkdtemp, realpath } from "node:fs/promises";
 import { cpus, loadavg } from "node:os";
 import { join } from "node:path";
-import { chromium, webkit, type Browser } from "playwright";
+import { chromium, webkit, type Browser, type Page } from "playwright";
 import { claimRunPidFile, isRunToken } from "../scripts/clean-test.ts";
 import { testTempBase } from "../scripts/test-temp.ts";
 import { Effect, Layer, Result, Schema } from "effect";
@@ -432,6 +432,17 @@ export const openEngine = async (assign: (browser: Browser) => void): Promise<bo
     return true;
   } catch {
     return false;
+  }
+};
+
+/** Run `body` on a fresh page at the shared viewport, closing it whatever happens. A page that is
+ * not closed keeps its pty attached and the next test's client gates cannot be satisfied. */
+export const withPage = async <T>(browser: Browser, body: (page: Page) => Promise<T>): Promise<T> => {
+  const page = await browser.newPage({ viewport: VIEWPORT });
+  try {
+    return await body(page);
+  } finally {
+    await page.close().catch(() => undefined);
   }
 };
 

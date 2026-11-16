@@ -2,7 +2,15 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { type Browser, type Page } from "playwright";
-import { closePages, openEngine, testTempDir, startTestServer, stopTestServer, VIEWPORT } from "./helpers.ts";
+import {
+  closePages,
+  openEngine,
+  testTempDir,
+  startTestServer,
+  stopTestServer,
+  VIEWPORT,
+  withPage,
+} from "./helpers.ts";
 import { editorText, fillEditor } from "./editor.ts";
 
 /**
@@ -122,8 +130,7 @@ const mark = "rgb(86, 95, 108)"; // --md-mark
 test.skipIf(!usable)(
   "the plan tab shows the markup as source: every character visible, colored like an editor",
   async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await page.goto(`${url}/changes/PROJ-1/plan`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".md-editor .cm-line");
       await loaded(page);
@@ -218,9 +225,7 @@ test.skipIf(!usable)(
         style: "italic",
         decoration: "none",
       });
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );
@@ -228,8 +233,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "typing keeps the highlighting and saves through the debounce",
   async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await page.goto(`${url}/changes/PROJ-1/plan`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".md-editor .cm-line");
       await loaded(page);
@@ -245,9 +249,7 @@ test.skipIf(!usable)(
       expect(spans.find((s) => s.text === "more")?.weight).toBe("700");
       expect(await editorText(page.locator(".md-editor"))).toBe(source + typed);
       expect(await onDisk()).toBe(source + typed);
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );
@@ -255,8 +257,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "the editor's affordances are there: a section folds and Ctrl-F finds",
   async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await page.goto(`${url}/changes/PROJ-1/plan`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".md-editor .cm-line");
       await loaded(page);
@@ -280,9 +281,7 @@ test.skipIf(!usable)(
       await page.locator(".cm-searchMatch").first().waitFor();
       await page.keyboard.press("Escape");
       await page.waitForSelector(".cm-panel", { state: "detached" });
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );
@@ -298,8 +297,7 @@ test.skipIf(!usable)(
     });
     expect(cancelled.status).toBe(200);
 
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await page.goto(`${url}/changes/PROJ-1/plan`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".md-editor .cm-line");
       await loaded(page);
@@ -307,9 +305,7 @@ test.skipIf(!usable)(
       // The record is readable and uneditable: the markup is still all there.
       expect(await page.locator(".md-editor .cm-content").getAttribute("contenteditable")).toBe("false");
       expect(await editorText(page.locator(".md-editor"))).toBe(source + typed);
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );
@@ -317,8 +313,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "the wizard's plan is the same editor, and its heading names the change",
   async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await page.goto(`${url}/new`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".wizard-plan .md-editor");
 
@@ -345,9 +340,7 @@ test.skipIf(!usable)(
       // A bracket closes itself, and typing its end replaces the offered one.
       await page.keyboard.type(" (parens)");
       expect(await editorText(page.locator(".wizard-plan .md-editor"))).toBe("# Starting **plan** (parens)");
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );
@@ -355,8 +348,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "Tab adds a tab in the editor, and Escape-then-Tab moves on",
   async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await page.goto(`${url}/new`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".wizard-plan .md-editor");
       await page.locator(".wizard-plan .md-editor .cm-content").click();
@@ -371,9 +363,7 @@ test.skipIf(!usable)(
       await page.keyboard.press("Escape");
       await page.keyboard.press("Tab");
       expect(await page.evaluate(() => document.activeElement?.closest(".md-editor") === null)).toBe(true);
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );
@@ -429,8 +419,7 @@ test.skipIf(!usable)(
     expect(created.status).toBe(201);
     const planFile = join(tmp, "changes", "PROJ-3", "PLAN.md");
 
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await page.goto(`${url}/changes/PROJ-3/plan`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".plan-page .md-editor .cm-line");
       await loaded(page);
@@ -463,9 +452,7 @@ test.skipIf(!usable)(
       await page.getByRole("button", { name: "Reload" }).click();
       await banner.waitFor({ state: "detached" });
       expect(await editorText(page.locator(".plan-page .md-editor"))).toBe("their last word");
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );

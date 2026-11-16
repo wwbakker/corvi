@@ -11,6 +11,7 @@ import {
   startTestServer,
   stopTestServer,
   VIEWPORT,
+  withPage,
 } from "./helpers.ts";
 import { editorText, fillEditor } from "./editor.ts";
 
@@ -96,8 +97,7 @@ const litIs = async (page: Page, name: string): Promise<void> => {
 test.skipIf(!usable)(
   "an action is edited in the editor's frame, its fields documented beside it",
   async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await editReview(page);
 
       // The source is the file, every character of it — the editor, not a textarea.
@@ -143,9 +143,7 @@ test.skipIf(!usable)(
       for (const control of ["Hide docs", "Cancel", "Save", "Delete"]) {
         await page.getByRole("button", { name: control }).waitFor();
       }
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );
@@ -153,8 +151,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "the documentation opens and closes, and stays where it was left",
   async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await editReview(page);
       await page.waitForSelector(".action-docs");
 
@@ -167,9 +164,7 @@ test.skipIf(!usable)(
       await page.waitForSelector(".action-docs", { state: "detached" });
       await page.getByRole("button", { name: "Show docs" }).click();
       await page.waitForSelector(".action-docs");
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );
@@ -177,8 +172,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "the field the caret is in is lit",
   async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await editReview(page);
 
       // On a field's own line, that field.
@@ -190,9 +184,7 @@ test.skipIf(!usable)(
       // Below the frontmatter, the body.
       await page.locator(".cm-line", { hasText: "Look it over" }).click();
       await litIs(page, "body");
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );
@@ -200,8 +192,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "a write that is not an action is refused, and says why",
   async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await editReview(page);
       await fillEditor(page.locator(".md-editor"), "no frontmatter at all");
       await page.getByRole("button", { name: "Save" }).click();
@@ -211,9 +202,7 @@ test.skipIf(!usable)(
       expect((await page.locator(".actions-page header .summary").textContent()) ?? "").toContain(
         "frontmatter",
       );
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );
@@ -245,8 +234,7 @@ test.skipIf(!usable)(
     // names what is at stake (the file being edited); Stay keeps the edit, Discard leaves it
     // behind, Save and leave writes it on the way out.
     const before = await onDisk();
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       const prompt = page.locator("dialog", { hasText: "Unsaved changes to look-over.md" });
       await editReview(page);
       await fillEditor(page.locator(".md-editor"), guarded);
@@ -275,9 +263,7 @@ test.skipIf(!usable)(
       await page.getByRole("button", { name: "Save and leave", exact: true }).click();
       await page.waitForFunction(() => location.pathname === "/");
       expect(await onDisk()).toBe(guarded);
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );
@@ -285,15 +271,12 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "an editor with nothing unsaved leaves without a question",
   async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await editReview(page);
       await page.getByRole("button", { name: "Changes", exact: true }).click();
       await page.waitForFunction(() => location.pathname === "/");
       expect(await page.locator("dialog").count()).toBe(0);
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );
@@ -304,8 +287,7 @@ test.skipIf(!usable)(
     // Save and leave runs the page's own save, so its failure is the page's own: the dialog
     // closes, the notice explains, and the draft is still there to fix or to leave.
     const before = await onDisk();
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await editReview(page);
       await fillEditor(page.locator(".md-editor"), "no frontmatter at all");
       await page.getByRole("button", { name: "Changes", exact: true }).click();
@@ -319,9 +301,7 @@ test.skipIf(!usable)(
         "frontmatter",
       );
       expect(await onDisk()).toBe(before);
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );
@@ -329,8 +309,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "Save writes the file at once and returns to the list",
   async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await editReview(page);
       await fillEditor(page.locator(".md-editor"), typed);
       await page.getByRole("button", { name: "Save" }).click();
@@ -343,9 +322,7 @@ test.skipIf(!usable)(
         files: { id: string; scope: string; text: string }[];
       };
       expect(listing.files.find((f) => f.id === "look-over" && f.scope === "global")?.text).toBe(typed);
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );
@@ -353,8 +330,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "New offers the built-ins as templates, and a copy lands in the scope",
   async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await page.goto(`${url}/actions`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".actions-page");
       // The shipped actions are templates in the create flow, not rows of their own.
@@ -389,9 +365,7 @@ test.skipIf(!usable)(
       expect(listing.files.some((file) => file.id === "review" && file.scope === "global")).toBe(true);
       expect(listing.files.some((file) => file.id === "review" && file.scope === "builtin")).toBe(true);
       expect(listing.files.some((file) => file.id === "blank-action" && file.scope === "global")).toBe(true);
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );
@@ -426,8 +400,7 @@ test.skipIf(!usable)(
       "utf8",
     );
 
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await page.goto(`${url}/actions`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".actions-page");
       await page.locator('select[aria-label="change"]').selectOption({ label: "Repo page" });
@@ -470,9 +443,7 @@ test.skipIf(!usable)(
       await page.getByRole("button", { name: "Create" }).click();
       await page.waitForSelector(".actions-page.editing");
       expect(await Bun.file(join(repo, ".corvi", "actions", "repo-copy.md")).exists()).toBe(true);
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );

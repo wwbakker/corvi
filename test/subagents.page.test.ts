@@ -11,6 +11,7 @@ import {
   startTestServer,
   stopTestServer,
   VIEWPORT,
+  withPage,
 } from "./helpers.ts";
 import { editorText, fillEditor } from "./editor.ts";
 
@@ -73,8 +74,7 @@ const editMine = async (page: Page): Promise<void> => {
 test.skipIf(!usable)(
   "a profile is edited in the editor's frame, its fields documented beside it",
   async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await editMine(page);
 
       expect(await editorText(page.locator(".md-editor"))).toBe(source);
@@ -85,9 +85,7 @@ test.skipIf(!usable)(
       expect(names).toEqual(["label", "harness", "model", "effort", "phases", "body"]);
       const harness = page.locator(".action-docs .field").filter({ hasText: /^harness/ });
       expect(await harness.locator(".values code").allTextContents()).toEqual(["pi", "opencode"]);
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );
@@ -95,8 +93,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "New offers the built-ins as templates, and a copy lands in the scope",
   async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await page.goto(`${url}/subagents`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".subagents-page");
       // The shipped profile is a template in the create flow, not a row of its own.
@@ -129,9 +126,7 @@ test.skipIf(!usable)(
       expect(listing.files.some((file) => file.id === "reviewer" && file.scope === "global")).toBe(true);
       expect(listing.files.some((file) => file.id === "reviewer" && file.scope === "builtin")).toBe(true);
       expect(listing.files.some((file) => file.id === "blank-one" && file.scope === "global")).toBe(true);
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );
@@ -139,8 +134,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "a write that is not a profile is refused, and says why",
   async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await editMine(page);
       await fillEditor(page.locator(".md-editor"), "no frontmatter at all");
       await page.getByRole("button", { name: "Save" }).click();
@@ -150,9 +144,7 @@ test.skipIf(!usable)(
       expect((await page.locator(".subagents-page header .summary").textContent()) ?? "").toContain(
         "frontmatter",
       );
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );
@@ -202,8 +194,7 @@ test.skipIf(!usable)(
       "utf8",
     );
 
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
+    await withPage(browser, async (page) => {
       await page.goto(`${url}/subagents`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".subagents-page");
       await page.locator('select[aria-label="change"]').selectOption({ label: "Repo page" });
@@ -252,9 +243,7 @@ test.skipIf(!usable)(
       await page.getByRole("button", { name: "Create" }).click();
       await page.waitForSelector(".subagents-page.editing");
       expect(await Bun.file(join(repo, ".corvi", "subagents", "repo-copy.md")).exists()).toBe(true);
-    } finally {
-      await page.close();
-    }
+    });
   },
   60_000,
 );
