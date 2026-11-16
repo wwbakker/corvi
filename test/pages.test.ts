@@ -430,40 +430,44 @@ test.skipIf(!usable)(
   "the deploy dialog reads live when it opens, and watches a running build",
   async () => {
     const { page, asked, setBuilding } = await openDeployDialog({ building: true });
+    try {
+      // The open is live: the row you clicked is old, and this is the decision. One read, and it is
+      // the live one.
+      expect(asked()).toEqual(["?refresh=1"]);
+      // The running build is shown with its progress bar, and cannot be picked yet — there is no
+      // version to pick. The one that finished can be.
+      const building = page.locator("dialog[open] .versions .pick.building");
+      expect(await building.count()).toBe(1);
+      expect(await building.locator(".progress").count()).toBe(1);
+      expect(await building.locator('input[name="version"]').isDisabled()).toBe(true);
+      const finished = page.locator("dialog[open] .versions .pick").filter({ hasText: "20261109.4" });
+      expect(await finished.locator('input[name="version"]').isDisabled()).toBe(false);
+      expect(await page.locator('dialog[open] input[name="version"]:checked').count()).toBe(1);
 
-    // The open is live: the row you clicked is old, and this is the decision. One read, and it is
-    // the live one.
-    expect(asked()).toEqual(["?refresh=1"]);
-    // The running build is shown with its progress bar, and cannot be picked yet — there is no
-    // version to pick. The one that finished can be.
-    const building = page.locator("dialog[open] .versions .pick.building");
-    expect(await building.count()).toBe(1);
-    expect(await building.locator(".progress").count()).toBe(1);
-    expect(await building.locator('input[name="version"]').isDisabled()).toBe(true);
-    const finished = page.locator("dialog[open] .versions .pick").filter({ hasText: "20261109.4" });
-    expect(await finished.locator('input[name="version"]').isDisabled()).toBe(false);
-    expect(await page.locator('dialog[open] input[name="version"]:checked').count()).toBe(1);
+      // The watch is ten seconds, not sooner: nine seconds on, nothing has been asked.
+      setBuilding(false);
+      await page.clock.fastForward(9_000);
+      await noMoreReads(asked, 1);
 
-    // The watch is ten seconds, not sooner: nine seconds on, nothing has been asked.
-    setBuilding(false);
-    await page.clock.fastForward(9_000);
-    await noMoreReads(asked, 1);
+      // The tenth second asks again, live, and the build that finished gains its version.
+      await page.clock.fastForward(1_000);
+      await page.getByText("20261109.5").waitFor();
+      expect(asked()).toEqual(["?refresh=1", "?refresh=1"]);
+      // A tick replaces the rows and nothing else: what was picked is still picked.
+      const picked = page.locator('dialog[open] input[name="version"]:checked');
+      expect(await picked.count()).toBe(1);
+      expect(await picked.evaluate((input) => input.parentElement?.textContent ?? "")).toContain(
+        "20261109.4",
+      );
 
-    // The tenth second asks again, live, and the build that finished gains its version.
-    await page.clock.fastForward(1_000);
-    await page.getByText("20261109.5").waitFor();
-    expect(asked()).toEqual(["?refresh=1", "?refresh=1"]);
-    // A tick replaces the rows and nothing else: what was picked is still picked.
-    const picked = page.locator('dialog[open] input[name="version"]:checked');
-    expect(await picked.count()).toBe(1);
-    expect(await picked.evaluate((input) => input.parentElement?.textContent ?? "")).toContain("20261109.4");
-
-    // Nothing is running any more, so the watch has stopped: closing and waiting changes nothing.
-    await page.getByRole("button", { name: "Cancel" }).click();
-    await page.waitForSelector("dialog[open]", { state: "hidden" });
-    await page.clock.fastForward(30_000);
-    await noMoreReads(asked, 2);
-    await page.close();
+      // Nothing is running any more, so the watch has stopped: closing and waiting changes nothing.
+      await page.getByRole("button", { name: "Cancel" }).click();
+      await page.waitForSelector("dialog[open]", { state: "hidden" });
+      await page.clock.fastForward(30_000);
+      await noMoreReads(asked, 2);
+    } finally {
+      await page.close();
+    }
   },
   60_000,
 );
@@ -472,14 +476,17 @@ test.skipIf(!usable)(
   "closing the dialog while a build is running stops the watching",
   async () => {
     const { page, asked } = await openDeployDialog({ building: true });
-    expect(asked()).toEqual(["?refresh=1"]);
+    try {
+      expect(asked()).toEqual(["?refresh=1"]);
 
-    // Cancel before any tick: the watch must go with the dialog, not keep reading behind it.
-    await page.getByRole("button", { name: "Cancel" }).click();
-    await page.waitForSelector("dialog[open]", { state: "hidden" });
-    await page.clock.fastForward(30_000);
-    await noMoreReads(asked, 1);
-    await page.close();
+      // Cancel before any tick: the watch must go with the dialog, not keep reading behind it.
+      await page.getByRole("button", { name: "Cancel" }).click();
+      await page.waitForSelector("dialog[open]", { state: "hidden" });
+      await page.clock.fastForward(30_000);
+      await noMoreReads(asked, 1);
+    } finally {
+      await page.close();
+    }
   },
   60_000,
 );
@@ -488,25 +495,28 @@ test.skipIf(!usable)(
   "a read in flight when the dialog closes is dropped, and reopening reads again",
   async () => {
     const { page, asked, holdNext } = await openDeployDialog({ building: true });
-    expect(asked()).toEqual(["?refresh=1"]);
+    try {
+      expect(asked()).toEqual(["?refresh=1"]);
 
-    // A tick, caught in the route before it answers, and the dialog closed while it is out.
-    const release = holdNext();
-    await page.clock.fastForward(10_000);
-    await untilReads(asked, 2);
-    await page.getByRole("button", { name: "Cancel" }).click();
-    await page.waitForSelector("dialog[open]", { state: "hidden" });
-    release();
-    await page.clock.fastForward(30_000);
-    // The abandoned answer lands on nothing, and the stopped watch asks nothing more.
-    await noMoreReads(asked, 2);
+      // A tick, caught in the route before it answers, and the dialog closed while it is out.
+      const release = holdNext();
+      await page.clock.fastForward(10_000);
+      await untilReads(asked, 2);
+      await page.getByRole("button", { name: "Cancel" }).click();
+      await page.waitForSelector("dialog[open]", { state: "hidden" });
+      release();
+      await page.clock.fastForward(30_000);
+      // The abandoned answer lands on nothing, and the stopped watch asks nothing more.
+      await noMoreReads(asked, 2);
 
-    // Reopening is a fresh decision, so it reads again — live.
-    await page.getByRole("button", { name: "Deploy…" }).click();
-    await page.waitForSelector("dialog[open] .versions");
-    await untilReads(asked, 3);
-    expect(asked()[2]).toBe("?refresh=1");
-    await page.close();
+      // Reopening is a fresh decision, so it reads again — live.
+      await page.getByRole("button", { name: "Deploy…" }).click();
+      await page.waitForSelector("dialog[open] .versions");
+      await untilReads(asked, 3);
+      expect(asked()[2]).toBe("?refresh=1");
+    } finally {
+      await page.close();
+    }
   },
   60_000,
 );
@@ -515,19 +525,21 @@ test.skipIf(!usable)(
   "a failed tick says so, and the next good one takes it back",
   async () => {
     const { page, asked, setFailing } = await openDeployDialog({ building: true });
+    try {
+      setFailing(true);
+      await page.clock.fastForward(10_000);
+      await untilReads(asked, 2);
+      await page.getByText("azure is down").waitFor();
 
-    setFailing(true);
-    await page.clock.fastForward(10_000);
-    await untilReads(asked, 2);
-    await page.getByText("azure is down").waitFor();
-
-    // The list recovers, and the banner belongs to the read that failed: it goes with it, or the
-    // dialog keeps accusing a list that is fine.
-    setFailing(false);
-    await page.clock.fastForward(10_000);
-    await untilReads(asked, 3);
-    await page.locator("dialog[open] .error-banner").waitFor({ state: "hidden" });
-    await page.close();
+      // The list recovers, and the banner belongs to the read that failed: it goes with it, or the
+      // dialog keeps accusing a list that is fine.
+      setFailing(false);
+      await page.clock.fastForward(10_000);
+      await untilReads(asked, 3);
+      await page.locator("dialog[open] .error-banner").waitFor({ state: "hidden" });
+    } finally {
+      await page.close();
+    }
   },
   60_000,
 );
@@ -536,13 +548,16 @@ test.skipIf(!usable)(
   "a deploy dialog with nothing running reads once",
   async () => {
     const { page, asked } = await openDeployDialog({ building: false });
-    expect(asked()).toEqual(["?refresh=1"]);
+    try {
+      expect(asked()).toEqual(["?refresh=1"]);
 
-    // The open is the only read: a list of finished builds cannot change while you look at it.
-    await page.clock.fastForward(10_000);
-    await page.clock.fastForward(10_000);
-    await noMoreReads(asked, 1);
-    await page.close();
+      // The open is the only read: a list of finished builds cannot change while you look at it.
+      await page.clock.fastForward(10_000);
+      await page.clock.fastForward(10_000);
+      await noMoreReads(asked, 1);
+    } finally {
+      await page.close();
+    }
   },
   60_000,
 );
@@ -551,20 +566,23 @@ test.skipIf(!usable)(
   "the cards offer their editors, and a finished change offers none",
   async () => {
     const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector(".widget");
+    try {
+      await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector(".widget");
 
-    // The three cards that own something editable: the repository list and the two ticket links.
-    await page.waitForSelector('button[title="Edit Local changes"]');
-    expect(await page.locator('button[title="Edit Jira"]').count()).toBe(1);
-    expect(await page.locator('button[title="Edit GitHub issues"]').count()).toBe(1);
+      // The three cards that own something editable: the repository list and the two ticket links.
+      await page.waitForSelector('button[title="Edit Local changes"]');
+      expect(await page.locator('button[title="Edit Jira"]').count()).toBe(1);
+      expect(await page.locator('button[title="Edit GitHub issues"]').count()).toBe(1);
 
-    // The editor opens over its picker, and Escape closes it again.
-    await page.locator('button[title="Edit Jira"]').click();
-    await page.waitForSelector("dialog[open] .issues");
-    await page.keyboard.press("Escape");
-    await page.waitForSelector("dialog[open]", { state: "hidden" });
-    await page.close();
+      // The editor opens over its picker, and Escape closes it again.
+      await page.locator('button[title="Edit Jira"]').click();
+      await page.waitForSelector("dialog[open] .issues");
+      await page.keyboard.press("Escape");
+      await page.waitForSelector("dialog[open]", { state: "hidden" });
+    } finally {
+      await page.close();
+    }
 
     // A finished change is a record: nothing on its page offers an edit.
     const done = "PROJ-PAGES-DONE";
@@ -593,39 +611,42 @@ test.skipIf(!usable)(
     // The page whose failure mode is a sentence about nothing: /api/settings answering with the
     // app's own HTML, parsed as JSON.
     const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("nav.tabs");
-    expect(await page.locator(".error-banner").count()).toBe(0);
+    try {
+      await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector("nav.tabs");
+      expect(await page.locator(".error-banner").count()).toBe(0);
 
-    // One section at a time: the page opens on the first tab, and the Jira field is not there
-    // until its tab is chosen. The scope bar (Global and the workspaces) is its own tab row above.
-    expect((await page.locator(".tabs.sections .tab.current").innerText()).trim()).toBe("Locations");
-    expect(await page.getByLabel("Transition on completing one").count()).toBe(0);
+      // One section at a time: the page opens on the first tab, and the Jira field is not there
+      // until its tab is chosen. The scope bar (Global and the workspaces) is its own tab row above.
+      expect((await page.locator(".tabs.sections .tab.current").innerText()).trim()).toBe("Locations");
+      expect(await page.getByLabel("Transition on completing one").count()).toBe(0);
 
-    // The extension's settings are on its own tab now, so the page has to be asked for it.
-    await page.locator(".tabs.sections .tab", { hasText: "Jira" }).click();
-    await page.getByLabel("Transition on completing one").fill("Ready for release");
-    await page.getByRole("button", { name: "Save" }).click();
-    await page.waitForSelector(".hint.saved", { timeout: 10_000 });
+      // The extension's settings are on its own tab now, so the page has to be asked for it.
+      await page.locator(".tabs.sections .tab", { hasText: "Jira" }).click();
+      await page.getByLabel("Transition on completing one").fill("Ready for release");
+      await page.getByRole("button", { name: "Save" }).click();
+      await page.waitForSelector(".hint.saved", { timeout: 10_000 });
 
-    // The window's own section, whose one setting so far is the right-click menu: taking it away is
-    // the decision that gets written down, since a menu is the default.
-    const box = page.getByLabel("Right-click menu");
-    await page.locator(".tabs.sections .tab", { hasText: "Window" }).click();
-    await box.uncheck();
-    await page.getByRole("button", { name: "Save" }).click();
-    await page.waitForSelector(".hint.saved", { timeout: 10_000 });
-    expect(await box.isChecked()).toBe(false);
+      // The window's own section, whose one setting so far is the right-click menu: taking it away is
+      // the decision that gets written down, since a menu is the default.
+      const box = page.getByLabel("Right-click menu");
+      await page.locator(".tabs.sections .tab", { hasText: "Window" }).click();
+      await box.uncheck();
+      await page.getByRole("button", { name: "Save" }).click();
+      await page.waitForSelector(".hint.saved", { timeout: 10_000 });
+      expect(await box.isChecked()).toBe(false);
 
-    // And putting it back clears the decision, so the default applies again. The box reads the
-    // decision or the default — never the effective value, which *is* the file's value, and which
-    // made "off" the only state you could reach.
-    await box.check();
-    expect(await box.isChecked()).toBe(true);
-    await page.getByRole("button", { name: "Save" }).click();
-    await page.waitForSelector(".hint.saved", { timeout: 10_000 });
-    expect(await box.isChecked()).toBe(true);
-    await page.close();
+      // And putting it back clears the decision, so the default applies again. The box reads the
+      // decision or the default — never the effective value, which *is* the file's value, and which
+      // made "off" the only state you could reach.
+      await box.check();
+      expect(await box.isChecked()).toBe(true);
+      await page.getByRole("button", { name: "Save" }).click();
+      await page.waitForSelector(".hint.saved", { timeout: 10_000 });
+      expect(await box.isChecked()).toBe(true);
+    } finally {
+      await page.close();
+    }
 
     const written = (await fetch(`${url}/api/settings`).then((r) => r.json())) as {
       file: { extensionSettings?: { jira?: { doneTransition?: string } }; contextMenu?: boolean };

@@ -176,20 +176,20 @@ test.skipIf(!usable)(
 );
 
 test.skipIf(!usable)("a non-401 session failure leaves the app rendering", async () => {
-  const page = await browser.newPage({ viewport: VIEWPORT });
-  await page.route("**/api/devices/session", (route) =>
-    route.fulfill({
-      status: 500,
-      contentType: "application/json",
-      body: JSON.stringify({ error: "boom" }),
-    }),
-  );
-  await page.goto(url, { waitUntil: "domcontentloaded" });
-  // A 5xx is the pages' own to show; the app is not replaced by the pairing or error screen.
-  await page.locator(".sidebar").waitFor();
-  expect(await page.getByRole("heading", { name: "Pair this device" }).count()).toBe(0);
-  expect(await page.getByRole("button", { name: "Retry" }).count()).toBe(0);
-  await page.context().close();
+  await withPage(browser, async (page) => {
+    await page.route("**/api/devices/session", (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "boom" }),
+      }),
+    );
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+    // A 5xx is the pages' own to show; the app is not replaced by the pairing or error screen.
+    await page.locator(".sidebar").waitFor();
+    expect(await page.getByRole("heading", { name: "Pair this device" }).count()).toBe(0);
+    expect(await page.getByRole("button", { name: "Retry" }).count()).toBe(0);
+  });
 });
 
 test.skipIf(!usable)("the local origin renders the app, never the pairing screen", async () => {

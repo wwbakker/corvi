@@ -124,32 +124,33 @@ async function waitForRemote(dialog: Locator): Promise<Locator> {
 }
 
 test.skipIf(!usable)("the dialog names this machine, arms it, and cancels", async () => {
-  const page = await browser.newPage({ viewport: VIEWPORT });
-  await page.goto(url, { waitUntil: "domcontentloaded" });
+  await withPage(browser, async (page) => {
+    await page.goto(url, { waitUntil: "domcontentloaded" });
 
-  await page.locator(".sidebar .icon-entry[aria-label='Power']").click();
-  const dialog = page.locator("dialog.power-dialog");
-  await dialog.waitFor();
-  expect(await dialog.locator("h3").textContent()).toBe("Power down when done");
+    await page.locator(".sidebar .icon-entry[aria-label='Power']").click();
+    const dialog = page.locator("dialog.power-dialog");
+    await dialog.waitFor();
+    expect(await dialog.locator("h3").textContent()).toBe("Power down when done");
 
-  // This machine is listed and ticked; the remote is listed but not ticked.
-  const machine = dialog.locator(".power-machine", { hasText: "This machine" });
-  await machine.waitFor();
-  expect(await machine.locator("input").isChecked()).toBe(true);
-  const remoteRow = await waitForRemote(dialog);
-  expect(await remoteRow.locator("input").isChecked()).toBe(false);
+    // This machine is listed and ticked; the remote is listed but not ticked.
+    const machine = dialog.locator(".power-machine", { hasText: "This machine" });
+    await machine.waitFor();
+    expect(await machine.locator("input").isChecked()).toBe(true);
+    const remoteRow = await waitForRemote(dialog);
+    expect(await remoteRow.locator("input").isChecked()).toBe(false);
 
-  // Arm: the per-target result names this machine armed.
-  await dialog.getByRole("button", { name: "Arm shutdown" }).click();
-  await dialog.locator(".power-results", { hasText: "This machine" }).waitFor();
-  expect(await dialog.locator(".power-results").textContent()).toContain("Armed");
+    // Arm: the per-target result names this machine armed.
+    await dialog.getByRole("button", { name: "Arm shutdown" }).click();
+    await dialog.locator(".power-results", { hasText: "This machine" }).waitFor();
+    expect(await dialog.locator(".power-results").textContent()).toContain("Armed");
 
-  // Cancel: the result becomes disarmed.
-  await dialog.getByRole("button", { name: "Disarm" }).click();
-  await dialog.locator(".power-results", { hasText: "Disarmed" }).waitFor();
+    // Cancel: the result becomes disarmed.
+    await dialog.getByRole("button", { name: "Disarm" }).click();
+    await dialog.locator(".power-results", { hasText: "Disarmed" }).waitFor();
 
-  await dialog.getByRole("button", { name: "Close" }).click();
-  await dialog.waitFor({ state: "detached" });
+    await dialog.getByRole("button", { name: "Close" }).click();
+    await dialog.waitFor({ state: "detached" });
+  });
 });
 
 test.skipIf(!usable)(
