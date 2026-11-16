@@ -1,32 +1,26 @@
+import { testTempDir } from "@corvi/test-support/temp";
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect, Layer, Result } from "effect";
-
 import { ChangeId, DirectoryName } from "@corvi/contracts/changes";
 import { ShelfId, type ShelfDto } from "@corvi/contracts/shelves";
 import { ChangeService } from "../src/changes.ts";
 import { ShelfStore } from "../src/shelves.ts";
 import type { ChangeRepositories } from "../src/change-repositories.ts";
 import { layer as servicesLayer, shelvesLayer, storeLayer } from "../src/node/index.ts";
-
 let base: string;
-
 beforeAll(async () => {
-  base = await mkdtemp(join(tmpdir(), `corvi-${process.env.CORVI_TEST_RUN ?? "local"}-reopen-`));
+  base = await testTempDir("reopen");
 });
-
 afterAll(async () => {
   await rm(base, { recursive: true, force: true });
 });
-
 /** One test's own roots, so no test sees another's changes. */
 const rootsFor = (name: string): { readonly root: string; readonly archiveRoot: string } => ({
   root: join(base, name, "changes"),
   archiveRoot: join(base, name, "archive"),
 });
-
 const services = (roots: {
   readonly root: string;
   readonly archiveRoot: string;
@@ -35,19 +29,16 @@ const services = (roots: {
     servicesLayer.pipe(Layer.provide(storeLayer({ roots: [roots] }))),
     shelvesLayer({ roots: [roots] }),
   );
-
 const run = <A, E>(
   roots: { readonly root: string; readonly archiveRoot: string },
   program: Effect.Effect<A, E, ChangeService | ChangeRepositories | ShelfStore>,
 ): Promise<Result.Result<A, E>> =>
   Effect.runPromise(program.pipe(Effect.result, Effect.provide(services(roots))));
-
 const make = (id: string): Effect.Effect<void, unknown, ChangeService> =>
   Effect.gen(function* () {
     const changes = yield* ChangeService;
     yield* changes.createChange({ changeId: ChangeId.make(id), title: id, workspaceLocation: "" });
   });
-
 test("a cancelled change remembers its phase, and reopening brings the directory back in it", async () => {
   const roots = rootsFor("reopen");
   const id = ChangeId.make("parked");
@@ -80,7 +71,6 @@ test("a cancelled change remembers its phase, and reopening brings the directory
   expect("completedAt" in record).toBe(false);
   expect("cancelledFrom" in record).toBe(false);
 });
-
 test("a cancelled idea reopens as an idea; a record cancelled without its phase reopens in Implementation", async () => {
   const roots = rootsFor("phases");
   const result = await run(
@@ -93,7 +83,6 @@ test("a cancelled idea reopens as an idea; a record cancelled without its phase 
     }),
   );
   expect(Result.isSuccess(result) && result.success.phase).toBe("Ideation");
-
   // Archived by an older Corvi: no `cancelledFrom`.
   await mkdir(join(roots.archiveRoot, "older"), { recursive: true });
   await writeFile(
@@ -115,7 +104,6 @@ test("a cancelled idea reopens as an idea; a record cancelled without its phase 
   );
   expect(Result.isSuccess(older) && older.success.phase).toBe("Implementation");
 });
-
 test("a completed change, or one that is not over, does not reopen", async () => {
   const roots = rootsFor("refused");
   const result = await run(
@@ -138,7 +126,6 @@ test("a completed change, or one that is not over, does not reopen", async () =>
   expect(Result.isFailure(completed) && completed.failure.message).toContain("only a cancelled change");
   expect(Result.isFailure(active) && active.failure._tag).toBe("InvalidTransition");
 });
-
 test("reopening never overwrites a directory left behind in the changes root", async () => {
   const roots = rootsFor("leftover");
   const id = ChangeId.make("blocked");
@@ -161,7 +148,6 @@ test("reopening never overwrites a directory left behind in the changes root", a
   expect(await readFile(join(roots.root, "blocked", "target", "out.class"), "utf8")).toBe("build output");
   expect(await Bun.file(join(roots.archiveRoot, "blocked", "change.json")).exists()).toBe(true);
 });
-
 const shelfOf = (id: ShelfId, overrides: Partial<ShelfDto> = {}): ShelfDto => ({
   id,
   repository: DirectoryName.make("api"),
@@ -174,7 +160,6 @@ const shelfOf = (id: ShelfId, overrides: Partial<ShelfDto> = {}): ShelfDto => ({
   patchBytes: 10,
   ...overrides,
 });
-
 test("a shelf is listed once recorded, travels into the archive and back, and is removed with its patch", async () => {
   const roots = rootsFor("shelves");
   const id = ChangeId.make("shelving");
@@ -218,7 +203,6 @@ test("a shelf is listed once recorded, travels into the archive and back, and is
   expect(after).toEqual([]);
   expect(await Bun.file(back.patchFile).exists()).toBe(false);
 });
-
 test("a shelf id that escapes the change's shelves names nothing", async () => {
   const roots = rootsFor("escape");
   const id = ChangeId.make("confined");

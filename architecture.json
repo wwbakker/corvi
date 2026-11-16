@@ -96,6 +96,10 @@
     "@corvi/markdown": {
       "dependsOn": [],
       "external": ["yaml"]
+    },
+    "@corvi/test-support": {
+      "dependsOn": [],
+      "external": ["node:fs/promises", "node:os", "node:path"]
     }
   }
 }

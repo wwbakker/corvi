@@ -1,12 +1,11 @@
+import { testTempDir } from "@corvi/test-support/temp";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect, Layer } from "effect";
-
 import { ChangeRepositories } from "@corvi/changes/repositories";
 import { ChangeService } from "@corvi/changes/changes";
 import { layer as changesNodeLayer, shelvesLayer, storeLayer } from "@corvi/changes/node";
@@ -14,19 +13,13 @@ import { ChangeId, DirectoryName } from "@corvi/contracts/changes";
 import { SHELF_WARNING_BYTES } from "@corvi/contracts/shelves";
 import { layer as repositoriesNodeLayer } from "@corvi/repositories/node";
 import { ChangeShelves, layer as shelvesWorkflowLayer } from "../src/shelves.ts";
-
 let base: string;
-
 beforeAll(async () => {
-  base = await mkdtemp(
-    join(await realpath(tmpdir()), `corvi-${process.env.CORVI_TEST_RUN ?? "local"}-shelves-`),
-  );
+  base = await realpath(await testTempDir("shelves"));
 });
-
 afterAll(async () => {
   await rm(base, { recursive: true, force: true });
 });
-
 const git = (cwd: string, ...args: string[]): string =>
   execFileSync("git", ["-C", cwd, ...args], {
     encoding: "utf8",
@@ -38,7 +31,6 @@ const git = (cwd: string, ...args: string[]): string =>
       GIT_COMMITTER_EMAIL: "t@t",
     },
   }).trim();
-
 /** A change with one repository used in place, so its checkout is a plain repository. */
 const world = async (
   name: string,
@@ -77,7 +69,6 @@ const world = async (
   );
   return { layer, repo };
 };
-
 test("shelving puts the work aside and leaves the checkout clean; applying puts it back and removes the shelf", async () => {
   const { layer, repo } = await world("roundtrip");
   const changeId = ChangeId.make("roundtrip");
@@ -114,7 +105,6 @@ test("shelving puts the work aside and leaves the checkout clean; applying puts 
   expect(await readFile(join(repo, "a.txt"), "utf8")).toBe("edited\n");
   expect(await readFile(join(repo, "new.txt"), "utf8")).toBe("new\n");
 });
-
 test("a clean checkout leaves no shelf behind, and a cancel shelf is the one restored", async () => {
   const { layer, repo } = await world("restore");
   const changeId = ChangeId.make("restore");
@@ -146,7 +136,6 @@ test("a clean checkout leaves no shelf behind, and a cancel shelf is the one res
   expect(outcome.left.map((shelf) => shelf.name)).toEqual(["mine"]);
   expect(await readFile(join(repo, "a.txt"), "utf8")).toBe("at cancel\n");
 });
-
 test("a shelf above the warning size is only made when asked again, and nothing changes before", async () => {
   const { layer, repo } = await world("large");
   const changeId = ChangeId.make("large");

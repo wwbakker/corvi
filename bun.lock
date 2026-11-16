@@ -19,6 +19,7 @@
         "@corvi/repositories": "workspace:*",
         "@corvi/shell": "workspace:*",
         "@corvi/terminals": "workspace:*",
+        "@corvi/test-support": "workspace:*",
         "@corvi/web": "workspace:*",
       },
       "devDependencies": {
@@ -185,6 +186,9 @@
         "@corvi/markdown": "workspace:*",
         "effect": "catalog:",
       },
+      "devDependencies": {
+        "@corvi/test-support": "workspace:*",
+      },
     },
     "packages/changes": {
       "name": "@corvi/changes",
@@ -192,6 +196,9 @@
       "dependencies": {
         "@corvi/contracts": "workspace:*",
         "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@corvi/test-support": "workspace:*",
       },
     },
     "packages/client": {
@@ -230,6 +237,9 @@
         "@corvi/contracts": "workspace:*",
         "effect": "catalog:",
       },
+      "devDependencies": {
+        "@corvi/test-support": "workspace:*",
+      },
     },
     "packages/shell": {
       "name": "@corvi/shell",
@@ -246,6 +256,10 @@
         "@corvi/contracts": "workspace:*",
       },
     },
+    "packages/test-support": {
+      "name": "@corvi/test-support",
+      "version": "0.0.0",
+    },
     "packages/workflows": {
       "name": "@corvi/workflows",
       "version": "0.0.0",
@@ -255,6 +269,9 @@
         "@corvi/contracts": "workspace:*",
         "@corvi/repositories": "workspace:*",
         "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@corvi/test-support": "workspace:*",
       },
     },
   },
@@ -385,6 +402,8 @@
     "@corvi/shell": ["@corvi/shell@workspace:packages/shell"],
 
     "@corvi/terminals": ["@corvi/terminals@workspace:packages/terminals"],
+
+    "@corvi/test-support": ["@corvi/test-support@workspace:packages/test-support"],
 
     "@corvi/web": ["@corvi/web@workspace:apps/web"],
 

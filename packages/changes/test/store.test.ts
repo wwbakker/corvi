@@ -1,9 +1,8 @@
+import { testTempDir } from "@corvi/test-support/temp";
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect, Result, Layer } from "effect";
-
 import {
   ChangeId,
   DirectoryName,
@@ -22,25 +21,19 @@ import type {
   RepositoryStoreError,
 } from "../src/errors.ts";
 import { layer as servicesLayer, storeLayer } from "../src/node/index.ts";
-
 let root: string;
-
 beforeAll(async () => {
-  root = await mkdtemp(join(tmpdir(), `corvi-${process.env.CORVI_TEST_RUN ?? "local"}-changes-`));
+  root = await testTempDir("changes");
 });
-
 afterAll(async () => {
   await rm(root, { recursive: true, force: true });
 });
-
 const services = (at: string): Layer.Layer<ChangeService | ChangeRepositories> =>
   servicesLayer.pipe(Layer.provide(storeLayer({ roots: [{ root: at, archiveRoot: `${at}-archive` }] })));
-
 const runEither = <A, E>(
   program: Effect.Effect<A, E, ChangeService | ChangeRepositories>,
 ): Promise<Result.Result<A, E>> =>
   Effect.runPromise(program.pipe(Effect.result, Effect.provide(services(root))));
-
 const create = (id: string): Effect.Effect<Change, ChangeIdTaken | ChangeStoreError, ChangeService> =>
   Effect.gen(function* () {
     const changes = yield* ChangeService;
@@ -50,7 +43,6 @@ const create = (id: string): Effect.Effect<Change, ChangeIdTaken | ChangeStoreEr
       workspaceLocation: `/workspace/${id}`,
     });
   });
-
 const addRepository = (
   id: string,
   directoryName: string,
@@ -76,7 +68,6 @@ const addRepository = (
       ...(input.target !== undefined ? { target: input.target } : {}),
     });
   });
-
 test("a created change round-trips and lists as active", async () => {
   const result = await Effect.runPromise(
     Effect.gen(function* () {
@@ -96,7 +87,6 @@ test("a created change round-trips and lists as active", async () => {
   expect(result.read).toEqual(result.created);
   expect(result.active.map((change) => change.changeId)).toContain(ChangeId.make("roundtrip"));
 });
-
 test("a change.json carrying prototype-named keys survives a transition write", async () => {
   const id = "prototype-keys";
   const dir = join(root, id);
@@ -107,14 +97,12 @@ test("a change.json carrying prototype-named keys survives a transition write", 
     `{"id":${JSON.stringify(id)},"state":"Ideation","constructor":{"a":1},` +
       `"toString":"keep-me","__proto__":{"polluted":"yes"},"extra":1}`,
   );
-
   await Effect.runPromise(
     Effect.gen(function* () {
       const changes = yield* ChangeService;
       return yield* changes.transitionTo(ChangeId.make(id), "Implementation");
     }).pipe(Effect.provide(services(root))),
   );
-
   const at = (value: Record<string, unknown>, key: string): unknown => value[key];
   const written = JSON.parse(await readFile(join(dir, "change.json"), "utf8")) as Record<string, unknown>;
   expect(Object.hasOwn(written, "constructor")).toBe(true);
@@ -126,17 +114,14 @@ test("a change.json carrying prototype-named keys survives a transition write", 
   expect(Object.getPrototypeOf(written)).toBe(Object.prototype);
   expect(written.state).toBe("Implementation");
 });
-
 test("a duplicate change id is refused", async () => {
   await Effect.runPromise(create("duplicate").pipe(Effect.provide(services(root))));
   const result = await runEither(create("duplicate"));
   expect(Result.isFailure(result)).toBe(true);
   if (Result.isFailure(result)) expect(result.failure._tag).toBe("ChangeIdTaken");
 });
-
 test("transitions follow the rules and terminal phases set completedAt", async () => {
   await Effect.runPromise(create("lifecycle").pipe(Effect.provide(services(root))));
-
   const invalid = await runEither(
     Effect.gen(function* () {
       const changes = yield* ChangeService;
@@ -145,7 +130,6 @@ test("transitions follow the rules and terminal phases set completedAt", async (
   );
   expect(Result.isFailure(invalid)).toBe(true);
   if (Result.isFailure(invalid)) expect(invalid.failure._tag).toBe("InvalidTransition");
-
   const result = await Effect.runPromise(
     Effect.gen(function* () {
       const changes = yield* ChangeService;
@@ -162,12 +146,10 @@ test("transitions follow the rules and terminal phases set completedAt", async (
   expect(result.active.map((change) => change.changeId)).not.toContain(ChangeId.make("lifecycle"));
   expect(result.archived.map((change) => change.changeId)).toContain(ChangeId.make("lifecycle"));
 });
-
 test("links add, list and remove without touching the change's phase", async () => {
   await Effect.runPromise(create("links").pipe(Effect.provide(services(root))));
   await Effect.runPromise(addRepository("links", "first").pipe(Effect.provide(services(root))));
   await Effect.runPromise(addRepository("links", "second").pipe(Effect.provide(services(root))));
-
   const listed = await Effect.runPromise(
     Effect.gen(function* () {
       const links = yield* ChangeRepositories;
@@ -178,7 +160,6 @@ test("links add, list and remove without touching the change's phase", async () 
     DirectoryName.make("first"),
     DirectoryName.make("second"),
   ]);
-
   const removed = await Effect.runPromise(
     Effect.gen(function* () {
       const links = yield* ChangeRepositories;
@@ -191,7 +172,6 @@ test("links add, list and remove without touching the change's phase", async () 
   );
   expect(removed.map((repository) => repository.directoryName)).toEqual([DirectoryName.make("second")]);
 });
-
 test("a duplicate directory name is refused", async () => {
   await Effect.runPromise(create("duplicate-name").pipe(Effect.provide(services(root))));
   await Effect.runPromise(addRepository("duplicate-name", "repo").pipe(Effect.provide(services(root))));
@@ -199,7 +179,6 @@ test("a duplicate directory name is refused", async () => {
   expect(Result.isFailure(result)).toBe(true);
   if (Result.isFailure(result)) expect(result.failure._tag).toBe("DuplicateDirectoryName");
 });
-
 test("removing an unknown link is refused", async () => {
   await Effect.runPromise(create("unknown-link").pipe(Effect.provide(services(root))));
   const result = await runEither(
@@ -214,13 +193,11 @@ test("removing an unknown link is refused", async () => {
   expect(Result.isFailure(result)).toBe(true);
   if (Result.isFailure(result)) expect(result.failure._tag).toBe("RepositoryNotFound");
 });
-
 test("adding a link to an unknown change is a store error", async () => {
   const result = await runEither(addRepository("no-such-change", "repo"));
   expect(Result.isFailure(result)).toBe(true);
   if (Result.isFailure(result)) expect(result.failure._tag).toBe("RepositoryStoreError");
 });
-
 test("links survive a phase transition and a fresh store layer", async () => {
   await Effect.runPromise(create("survives").pipe(Effect.provide(services(root))));
   await Effect.runPromise(addRepository("survives", "kept").pipe(Effect.provide(services(root))));
@@ -238,7 +215,6 @@ test("links survive a phase transition and a fresh store layer", async () => {
   );
   expect(links.map((repository) => repository.directoryName)).toEqual([DirectoryName.make("kept")]);
 });
-
 test("a malformed record is a typed store error, not absence", async () => {
   const id = ChangeId.make("malformed");
   const brokenRoot = join(root, "broken-store");
@@ -252,7 +228,6 @@ test("a malformed record is a typed store error, not absence", async () => {
   expect(Result.isFailure(result)).toBe(true);
   if (Result.isFailure(result)) expect(result.failure._tag).toBe("ChangeStoreError");
 });
-
 test("a transition to an unknown change is ChangeNotFound", async () => {
   const result = await runEither(
     Effect.gen(function* () {
@@ -263,7 +238,6 @@ test("a transition to an unknown change is ChangeNotFound", async () => {
   expect(Result.isFailure(result)).toBe(true);
   if (Result.isFailure(result)) expect(result.failure._tag).toBe("ChangeNotFound");
 });
-
 test("links persist as checkout specs with the record format stamped", async () => {
   await Effect.runPromise(create("materialize").pipe(Effect.provide(services(root))));
   await Effect.runPromise(addRepository("materialize", "one").pipe(Effect.provide(services(root))));
@@ -292,7 +266,6 @@ test("links persist as checkout specs with the record format stamped", async () 
   });
   expect(record.state).toBe("Ideation");
 });
-
 test("a terminal transition archives the record and it still reads", async () => {
   await Effect.runPromise(create("archived").pipe(Effect.provide(services(root))));
   const { read, archived } = await Effect.runPromise(
@@ -311,7 +284,6 @@ test("a terminal transition archives the record and it still reads", async () =>
   expect(await Bun.file(join(root, "archived", "change.json")).exists()).toBe(false);
   expect(await Bun.file(join(`${root}-archive`, "archived", "change.json")).exists()).toBe(true);
 });
-
 test("an unstamped record reads as the current shape and is not rewritten", async () => {
   const unstampedRoot = join(root, "unstamped");
   const path = join(unstampedRoot, "plain", "change.json");
@@ -325,7 +297,6 @@ test("an unstamped record reads as the current shape and is not rewritten", asyn
       checkouts: [{ path: "/sources/one", location: "new", branch: { kind: "change" } }],
     }) + "\n";
   await Bun.write(path, stored);
-
   const read = await Effect.runPromise(
     Effect.gen(function* () {
       const changes = yield* ChangeService;
@@ -339,7 +310,6 @@ test("an unstamped record reads as the current shape and is not rewritten", asyn
   // Nothing was written back, so the record on disk is exactly as it was left.
   expect(await Bun.file(path).text()).toBe(stored);
 });
-
 test("a record from a newer Corvi reads best-effort and refuses every write", async () => {
   const fencedRoot = join(root, "fenced");
   const path = join(fencedRoot, "newer", "change.json");
@@ -362,7 +332,6 @@ test("a record from a newer Corvi reads best-effort and refuses every write", as
     }).pipe(Effect.provide(services(fencedRoot))),
   );
   expect(read.title).toBe("Newer");
-
   const refused = await Effect.runPromise(
     Effect.gen(function* () {
       const changes = yield* ChangeService;
@@ -371,7 +340,6 @@ test("a record from a newer Corvi reads best-effort and refuses every write", as
   );
   expect(Result.isFailure(refused)).toBe(true);
   if (Result.isFailure(refused)) expect(refused.failure._tag).toBe("ChangeFormatTooNew");
-
   const linkRefused = await Effect.runPromise(
     addRepository("newer", "more").pipe(Effect.result, Effect.provide(services(fencedRoot))),
   );
@@ -383,7 +351,6 @@ test("a record from a newer Corvi reads best-effort and refuses every write", as
   // Nothing was written: the record a newer Corvi left is exactly as it was.
   expect(JSON.parse(await Bun.file(path).text()).formatVersion).toBe(3);
 });
-
 const runStore = <A, E>(program: Effect.Effect<A, E, ChangeStore>): Promise<Result.Result<A, E>> =>
   Effect.runPromise(
     program.pipe(
@@ -391,11 +358,9 @@ const runStore = <A, E>(program: Effect.Effect<A, E, ChangeStore>): Promise<Resu
       Effect.provide(storeLayer({ roots: [{ root, archiveRoot: `${root}-archive` }] })),
     ),
   );
-
 test("a write moves the revision, and a stale writer is refused", async () => {
   const created = await Effect.runPromise(create("revisioned").pipe(Effect.provide(services(root))));
   expect(created.revision).toBe(1);
-
   const first = await Effect.runPromise(
     Effect.gen(function* () {
       const changes = yield* ChangeService;
@@ -403,7 +368,6 @@ test("a write moves the revision, and a stale writer is refused", async () => {
     }).pipe(Effect.provide(services(root))),
   );
   expect(first.revision).toBe(2);
-
   // A writer that read revision 1 is refused once revision 2 exists: the record it decided on
   // is not the record on disk.
   const stale = await runStore(
@@ -423,7 +387,6 @@ test("a write moves the revision, and a stale writer is refused", async () => {
     expect(stale.failure.message).toContain("revision");
   }
 });
-
 test("concurrent transitions cannot both win", async () => {
   await Effect.runPromise(create("racy").pipe(Effect.provide(services(root))));
   const outcomes = await Effect.runPromise(

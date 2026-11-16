@@ -1,23 +1,18 @@
+import { testTempDir } from "@corvi/test-support/temp";
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect, Result } from "effect";
-
 import { ChangeId } from "@corvi/contracts/changes";
 import { OperationProgress } from "../src/progress.ts";
 import { progressLayer } from "../src/node/index.ts";
-
 let root: string;
-
 beforeAll(async () => {
-  root = await mkdtemp(join(tmpdir(), `corvi-${process.env.CORVI_TEST_RUN ?? "local"}-progress-`));
+  root = await testTempDir("progress");
 });
-
 afterAll(async () => {
   await rm(root, { recursive: true, force: true });
 });
-
 const run = <A, E>(program: Effect.Effect<A, E, OperationProgress>): Promise<Result.Result<A, E>> =>
   Effect.runPromise(
     program.pipe(
@@ -25,7 +20,6 @@ const run = <A, E>(program: Effect.Effect<A, E, OperationProgress>): Promise<Res
       Effect.provide(progressLayer({ roots: [{ root, archiveRoot: `${root}-archive` }] })),
     ),
   );
-
 test("the operation journal appends steps and survives a reload", async () => {
   const result = await run(
     Effect.gen(function* () {
@@ -49,7 +43,6 @@ test("the operation journal appends steps and survives a reload", async () => {
     ]);
   }
 });
-
 test("a malformed journal is a typed error", async () => {
   await Bun.write(join(root, "broken", "operations.json"), "{ nope }\n");
   const result = await run(

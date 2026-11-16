@@ -78,6 +78,7 @@
     "@corvi/repositories": "workspace:*",
     "@corvi/shell": "workspace:*",
     "@corvi/terminals": "workspace:*",
+    "@corvi/test-support": "workspace:*",
     "@corvi/web": "workspace:*"
   },
   "devDependencies": {

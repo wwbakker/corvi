@@ -1,9 +1,8 @@
+import { testTempDir } from "@corvi/test-support/temp";
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect } from "effect";
-
 import { AbsolutePath } from "@corvi/contracts/paths";
 import {
   AgentTranscripts,
@@ -13,16 +12,14 @@ import {
   piSessionDirectoryName,
 } from "../src/transcripts.ts";
 import { piSessionRoots, transcriptsLayer, type OpencodeCli } from "../src/node/transcripts.ts";
-
 const inTemp = async (body: (root: string) => Promise<void>): Promise<void> => {
-  const root = await mkdtemp(join(tmpdir(), `corvi-${process.env.CORVI_TEST_RUN ?? "local"}-transcripts-`));
+  const root = await testTempDir("transcripts");
   try {
     await body(root);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 };
-
 const piSession = (cwd: string, id: string, said: string): string =>
   [
     { type: "session", version: 3, id, timestamp: "2026-11-01T10:00:00.000Z", cwd },
@@ -80,14 +77,12 @@ const piSession = (cwd: string, id: string, said: string): string =>
   ]
     .map((entry) => JSON.stringify(entry))
     .join("\n") + "\n";
-
 test("pi's session directory is the path with its separators turned into dashes", () => {
   expect(piSessionDirectoryName("/home/me/corvi/changes/fix-it")).toBe("--home-me-corvi-changes-fix-it--");
   expect(isWithin("/a/b", "/a/b")).toBe(true);
   expect(isWithin("/a/b", "/a/b/c")).toBe(true);
   expect(isWithin("/a/b", "/a/bc")).toBe(false);
 });
-
 test("a pi session reads as a conversation: what was said, thought, called and answered", () => {
   const transcript = parsePiSession(piSession("/changes/x", "s-1", "Please refine the plan"), {
     id: "pi/a.jsonl",
@@ -111,7 +106,6 @@ test("a pi session reads as a conversation: what was said, thought, called and a
   expect(transcript.entries[4]).toMatchObject({ _tag: "ToolCall", name: "read" });
   expect(transcript.entries[5]).toMatchObject({ _tag: "ToolResult", output: "# Plan", error: false });
 });
-
 test("an opencode export reads as a conversation", () => {
   const exported = JSON.stringify({
     info: {
@@ -142,7 +136,6 @@ test("an opencode export reads as a conversation", () => {
     { _tag: "Message", role: "assistant", text: "Hello!" },
   ]);
 });
-
 test("collecting copies the sessions that ran in the change and below it — and not a change whose name only starts the same", () =>
   inTemp(async (root) => {
     const sessions = join(root, "pi-sessions");
@@ -159,7 +152,6 @@ test("collecting copies the sessions that ran in the change and below it — and
     // `fix-more` shares the prefix `--…-fix-`: its header says it is somebody else's.
     await write(`${change}-more`, "4_other.jsonl", "another change");
     await mkdir(change, { recursive: true });
-
     const opencode: OpencodeCli = {
       listSessions: (cwd) =>
         Effect.succeed(cwd === change ? JSON.stringify([{ id: "ses_a" }, { id: "ses_elsewhere" }]) : "[]"),
@@ -202,7 +194,6 @@ test("collecting copies the sessions that ran in the change and below it — and
     // The harness's own file is only read.
     expect(await readFile(own, "utf8")).toContain("the change's own");
   }));
-
 test("collecting for a change directory that is gone still finds pi's sessions by their header", () =>
   inTemp(async (root) => {
     const sessions = join(root, "pi-sessions");
@@ -219,7 +210,6 @@ test("collecting for a change directory that is gone still finds pi's sessions b
     expect(collected.copied).toBe(1);
     expect(await readFile(join(to, "pi", "1.jsonl"), "utf8")).toContain("long ago");
   }));
-
 test("pi's session roots follow its environment and settings", () =>
   inTemp(async (root) => {
     const agent = join(root, "agent");
