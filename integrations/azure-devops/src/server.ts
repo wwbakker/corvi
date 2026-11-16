@@ -146,7 +146,7 @@ export const serviceName = (deployPipeline: string, settings: DeploySettings): s
   return deployPipeline.startsWith(deploy) ? deployPipeline.slice(deploy.length) : deployPipeline;
 };
 
-export const buildPipelineName = (service: string, settings: DeploySettings): string =>
+const buildPipelineName = (service: string, settings: DeploySettings): string =>
   `${settings.pipeline[0]}${service}`;
 
 /**

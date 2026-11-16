@@ -35,7 +35,7 @@ export type RepositoryView = {
   readonly checkout: CheckoutInspection;
 };
 
-export type ProvisionFailure = {
+type ProvisionFailure = {
   readonly repositoryId: RepositoryId;
   readonly error: NotARepository | CheckoutError;
 };
@@ -122,7 +122,7 @@ export const describeProvisionError = (error: NotARepository | CheckoutError): s
   error._tag === "NotARepository" ? `${error.directory} is not a repository` : error.message;
 
 /** What the refresh did, in the words the journal shows. */
-export const describeRefresh = (refresh: RefreshReport): string => {
+const describeRefresh = (refresh: RefreshReport): string => {
   switch (refresh._tag) {
     case "Advanced":
       return `advanced to ${refresh.to}`;

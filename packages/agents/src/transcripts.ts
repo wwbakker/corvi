@@ -58,7 +58,7 @@ export class AgentTranscripts extends Context.Service<AgentTranscripts, AgentTra
 export const TRANSCRIPTS_DIRECTORY = "transcripts";
 
 /** Tool output longer than this is shortened for reading; the copy keeps all of it. */
-export const OUTPUT_LIMIT = 20_000;
+const OUTPUT_LIMIT = 20_000;
 
 /** pi's directory for the sessions of one working directory: the leading separator dropped, `/`,
  * `\` and `:` turned into `-`, wrapped in `--` (docs/session-format.md of pi). */

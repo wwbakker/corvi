@@ -47,10 +47,10 @@ type Pr = {
  * null when no review is required at all — so the absence of a decision is the signal that
  * nothing is waiting on one. `CHANGES_REQUESTED` is a decision too: a reviewer asked for
  * changes, and that blocks whether or not the repository requires an approval. */
-export type ReviewState = "approved" | "changes-requested" | "required" | "none";
+type ReviewState = "approved" | "changes-requested" | "required" | "none";
 
 // Pure and synchronous: nothing for an Effect to wrap.
-export function reviewState(pr: { reviewDecision?: string | null }): ReviewState {
+function reviewState(pr: { reviewDecision?: string | null }): ReviewState {
   switch (pr.reviewDecision) {
     case "APPROVED":
       return "approved";

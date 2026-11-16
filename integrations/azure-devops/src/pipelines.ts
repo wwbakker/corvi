@@ -50,8 +50,8 @@ const runsPerPipeline = (): number => Number(process.env[env("AZURE_RUNS")] ?? 3
 
 /** The environment variables the extension's declared settings name, so the settings page's
  * lock and the settings read cannot drift apart. */
-export const AZURE_HISTORY_ENV = env("AZURE_HISTORY");
-export const AZURE_RUNS_ENV = env("AZURE_RUNS");
+const AZURE_HISTORY_ENV = env("AZURE_HISTORY");
+const AZURE_RUNS_ENV = env("AZURE_RUNS");
 
 /** A queued or running build is pending; anything but success is a problem worth a red dot. */
 // Pure and synchronous: nothing for an Effect to wrap.

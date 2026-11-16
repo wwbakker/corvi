@@ -26,7 +26,7 @@ import { sh, type ShellResult } from "./shell.ts";
  * answer, said sooner and without a process. */
 const resources = ["graphql", "core", "secondary"] as const;
 
-export type RateLimitResource = (typeof resources)[number];
+type RateLimitResource = (typeof resources)[number];
 
 /** GitHub will not answer until `resetsAt`; waiting is the only fix. */
 export class GitHubRateLimited extends Schema.TaggedError<GitHubRateLimited>()("GitHubRateLimited", {
