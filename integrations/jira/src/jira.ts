@@ -214,14 +214,14 @@ const search = (jql: string, site: Site, limit = 100): Effect.Effect<Issue[], Ba
 
 /** A board as Jira's board list answers it. `location` is where the board lives: a project
  * (`projectKey`, `projectId`), a user (a personal board, no project), or absent. */
-export type BoardJson = {
+type BoardJson = {
   id: number;
   name: string;
   location?: { projectKey?: string; projectId?: number };
 };
 
 /** Which board, or why none: a chosen id, or the message that asks the person to set Board. */
-export type BoardChoice = { readonly id: string } | { readonly problem: string };
+type BoardChoice = { readonly id: string } | { readonly problem: string };
 
 const named = (boards: readonly BoardJson[]): string =>
   boards.map((board) => `${board.name} (${board.id})`).join(", ");

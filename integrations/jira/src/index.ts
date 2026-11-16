@@ -171,7 +171,7 @@ export const assignIssue = (
   });
 
 /** What starting work did to the ticket, for the report the page shows. */
-export type IssueStartResult = { readonly detail?: string };
+type IssueStartResult = { readonly detail?: string };
 
 /** Starting the work: the ticket is (still) mine and moves to the start status; a ticket waiting
  * in the backlog also comes onto the board's active sprint. Exported so the start workflow's

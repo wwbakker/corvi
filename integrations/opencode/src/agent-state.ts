@@ -45,7 +45,7 @@ export const firstSentence = (text: string, cap = 180): string => {
 /** The one answer being written, as opencode writes it: text arrives as `message.part.updated`
  * events per part, a resent part replaces itself, and the answer is the parts joined in the order
  * they first appeared. Pure state, so the shape of an answer is testable without opencode. */
-export type AnswerTracker = {
+type AnswerTracker = {
   /** A new answer begins for this message; parts of any earlier message are forgotten. */
   begin(messageID: string): void;
   /** One text part of the current answer, as it accumulates. Parts of other messages and parts

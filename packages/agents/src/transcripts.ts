@@ -79,7 +79,7 @@ export const isWithin = (dir: string, path: string): boolean => {
 export const relativeWithin = (dir: string, path: string): string =>
   path === dir ? "" : path.slice(trimTrailingSeparators(dir).length + 1).replaceAll("\\", "/");
 
-export type PiSessionHeader = {
+type PiSessionHeader = {
   readonly id: string;
   readonly cwd: string;
   readonly timestamp?: string;
