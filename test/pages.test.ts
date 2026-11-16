@@ -87,16 +87,20 @@ afterAll(async () => {
 
 /** Open a page and hand back whatever the engine objected to. */
 async function open(path: string, ready: string): Promise<string[]> {
-  const page = await browser.newPage({ viewport: VIEWPORT });
-  const complaints: string[] = [];
-  page.on("pageerror", (e) => complaints.push(`${path}: ${e.message}`));
-  page.on("console", (m) => m.type() === "error" && complaints.push(`${path}: ${m.text()}`));
-  // Not networkidle: the pages poll, so there is no idle moment to wait for.
-  await page.goto(`${url}${path}`, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector(ready, { timeout: 15_000 });
-  await page.waitForTimeout(500); // long enough for the first round of requests to come back
-  await page.close();
-  return complaints;
+  return withPage(
+    browser,
+    async (page) => {
+      const complaints: string[] = [];
+      page.on("pageerror", (e) => complaints.push(`${path}: ${e.message}`));
+      page.on("console", (m) => m.type() === "error" && complaints.push(`${path}: ${m.text()}`));
+      // Not networkidle: the pages poll, so there is no idle moment to wait for.
+      await page.goto(`${url}${path}`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector(ready, { timeout: 15_000 });
+      await page.waitForTimeout(500); // long enough for the first round of requests to come back
+      return complaints;
+    },
+    VIEWPORT,
+  );
 }
 
 /** Write one change's notes through the extension's own route, the way the card does. */
@@ -650,40 +654,46 @@ test.skipIf(!usable)(
       ).file;
     const before = await file();
 
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    // The prompt by its own words: the directory fields keep their pickers in the DOM, closed.
-    const prompt = page.locator("dialog", { hasText: "Unsaved settings" });
-    await editSettings(page, "typed and left behind");
+    return withPage(
+      browser,
+      async (page) => {
+        // The prompt by its own words: the directory fields keep their pickers in the DOM, closed.
+        const prompt = page.locator("dialog", { hasText: "Unsaved settings" });
+        await editSettings(page, "typed and left behind");
 
-    // Stay: asked, and nothing else happens.
-    await page.getByRole("button", { name: "Changes", exact: true }).click();
-    await prompt.waitFor();
-    expect(new URL(page.url()).pathname).toBe("/settings");
-    await page.getByRole("button", { name: "Stay", exact: true }).click();
-    await prompt.waitFor({ state: "detached" });
-    expect(new URL(page.url()).pathname).toBe("/settings");
-    expect(await page.getByLabel("Transition on completing one").inputValue()).toBe("typed and left behind");
+        // Stay: asked, and nothing else happens.
+        await page.getByRole("button", { name: "Changes", exact: true }).click();
+        await prompt.waitFor();
+        expect(new URL(page.url()).pathname).toBe("/settings");
+        await page.getByRole("button", { name: "Stay", exact: true }).click();
+        await prompt.waitFor({ state: "detached" });
+        expect(new URL(page.url()).pathname).toBe("/settings");
+        expect(await page.getByLabel("Transition on completing one").inputValue()).toBe(
+          "typed and left behind",
+        );
 
-    // Discard and leave: the overview shows, and the file never saw the edit.
-    await page.getByRole("button", { name: "Changes", exact: true }).click();
-    await prompt.waitFor();
-    await page.getByRole("button", { name: "Discard and leave", exact: true }).click();
-    await page.waitForFunction(() => location.pathname === "/");
-    await page.locator(".change-card").first().waitFor();
-    expect(await file()).toEqual(before);
+        // Discard and leave: the overview shows, and the file never saw the edit.
+        await page.getByRole("button", { name: "Changes", exact: true }).click();
+        await prompt.waitFor();
+        await page.getByRole("button", { name: "Discard and leave", exact: true }).click();
+        await page.waitForFunction(() => location.pathname === "/");
+        await page.locator(".change-card").first().waitFor();
+        expect(await file()).toEqual(before);
 
-    // Save and leave: the same question, and the edit is written on the way out.
-    await editSettings(page, "saved past the guard");
-    await page.getByRole("button", { name: "Changes", exact: true }).click();
-    await prompt.waitFor();
-    await page.getByRole("button", { name: "Save and leave", exact: true }).click();
-    await page.waitForFunction(() => location.pathname === "/");
-    await page.locator(".change-card").first().waitFor();
-    const written = (await fetch(`${url}/api/settings`).then((r) => r.json())) as {
-      file: { extensionSettings?: { jira?: { doneTransition?: string } } };
-    };
-    expect(written.file.extensionSettings?.jira?.doneTransition).toBe("saved past the guard");
-    await page.close();
+        // Save and leave: the same question, and the edit is written on the way out.
+        await editSettings(page, "saved past the guard");
+        await page.getByRole("button", { name: "Changes", exact: true }).click();
+        await prompt.waitFor();
+        await page.getByRole("button", { name: "Save and leave", exact: true }).click();
+        await page.waitForFunction(() => location.pathname === "/");
+        await page.locator(".change-card").first().waitFor();
+        const written = (await fetch(`${url}/api/settings`).then((r) => r.json())) as {
+          file: { extensionSettings?: { jira?: { doneTransition?: string } } };
+        };
+        expect(written.file.extensionSettings?.jira?.doneTransition).toBe("saved past the guard");
+      },
+      VIEWPORT,
+    );
   },
   30_000,
 );
@@ -900,125 +910,132 @@ test.skipIf(!usable)(
       readonly layoutWidth: number;
     };
 
-    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-    // The listed cards gain one the page draws like any other; its widget is the stub below. Every
-    // other card answers empty, so the page's width is decided by the rows under test and not by an
-    // unrelated card's prose (the fixture's checkout path, for one).
-    await page.route("**/api/changes/*/cards", async (route) => {
-      const response = await route.fetch();
-      const cards = (await response.json()) as Record<string, unknown>[];
-      await route.fulfill({
-        response,
-        json: [...cards, { name: "long-ticket", title: cardTitle, perRepo: false, column: "right" }],
-      });
-    });
-    await page.route("**/api/changes/*/cards/*", (route) =>
-      route.fulfill({
-        json: { integration: "stub", title: "Stubbed", state: "none", summary: "", items: [] },
-      }),
-    );
-    // The per-repository cards load their rows separately; without this the fixture's own checkout
-    // path — much longer than a real change directory — would decide the page's width.
-    await page.route("**/api/changes/*/cards/*/items*", (route) => route.fulfill({ json: { items: [] } }));
-    await page.route("**/api/changes/*/cards/long-ticket", (route) =>
-      route.fulfill({
-        json: {
-          integration: "jira",
-          title: cardTitle,
-          state: "ok",
-          summary: "",
-          items: [
-            { label: longLabel, detail: "Open" },
-            { label: identityLabel, detail: identityDetail },
-          ],
-        },
-      }),
-    );
+    return withPage(
+      browser,
+      async (page) => {
+        // The listed cards gain one the page draws like any other; its widget is the stub below. Every
+        // other card answers empty, so the page's width is decided by the rows under test and not by an
+        // unrelated card's prose (the fixture's checkout path, for one).
+        await page.route("**/api/changes/*/cards", async (route) => {
+          const response = await route.fetch();
+          const cards = (await response.json()) as Record<string, unknown>[];
+          await route.fulfill({
+            response,
+            json: [...cards, { name: "long-ticket", title: cardTitle, perRepo: false, column: "right" }],
+          });
+        });
+        await page.route("**/api/changes/*/cards/*", (route) =>
+          route.fulfill({
+            json: { integration: "stub", title: "Stubbed", state: "none", summary: "", items: [] },
+          }),
+        );
+        // The per-repository cards load their rows separately; without this the fixture's own checkout
+        // path — much longer than a real change directory — would decide the page's width.
+        await page.route("**/api/changes/*/cards/*/items*", (route) =>
+          route.fulfill({ json: { items: [] } }),
+        );
+        await page.route("**/api/changes/*/cards/long-ticket", (route) =>
+          route.fulfill({
+            json: {
+              integration: "jira",
+              title: cardTitle,
+              state: "ok",
+              summary: "",
+              items: [
+                { label: longLabel, detail: "Open" },
+                { label: identityLabel, detail: identityDetail },
+              ],
+            },
+          }),
+        );
 
-    const measure = (): Promise<Layout | null> =>
-      page.evaluate(
-        ({ title, identity }: { title: string; identity: string }) => {
-          const card = [...document.querySelectorAll<HTMLElement>(".widget")].find((widget) =>
-            (widget.querySelector("h3")?.textContent ?? "").includes(title),
+        const measure = (): Promise<Layout | null> =>
+          page.evaluate(
+            ({ title, identity }: { title: string; identity: string }) => {
+              const card = [...document.querySelectorAll<HTMLElement>(".widget")].find((widget) =>
+                (widget.querySelector("h3")?.textContent ?? "").includes(title),
+              );
+              const rowOf = (prefix: string): HTMLElement | null =>
+                [...(card?.querySelectorAll<HTMLElement>(".item .label") ?? [])].find((label) =>
+                  (label.textContent ?? "").startsWith(prefix),
+                ) ?? null;
+              const prose = rowOf("PROJ-123");
+              const identityLabel = rowOf(identity);
+              if (!card || !prose || !identityLabel) return null;
+              const layout = (label: HTMLElement): LabelLayout => {
+                const box = label.getBoundingClientRect();
+                const style = getComputedStyle(label);
+                // A range over the label's own contents reports one rect per line box, which a block's
+                // own rect cannot.
+                const range = document.createRange();
+                range.selectNodeContents(label);
+                const lines = new Set([...range.getClientRects()].map((rect) => Math.round(rect.top)));
+                return {
+                  scrollWidth: label.scrollWidth,
+                  clientWidth: label.clientWidth,
+                  height: box.height,
+                  lineHeight: Number.parseFloat(style.lineHeight),
+                  lines: lines.size,
+                  text: label.textContent ?? "",
+                  textOverflow: style.textOverflow,
+                };
+              };
+              return {
+                prose: layout(prose),
+                identity: layout(identityLabel),
+                cardStaysInPage: card.getBoundingClientRect().right <= document.documentElement.clientWidth,
+                pageScrollWidth: document.documentElement.scrollWidth,
+                layoutWidth: document.documentElement.clientWidth,
+              };
+            },
+            { title: cardTitle, identity: identityLabel },
           );
-          const rowOf = (prefix: string): HTMLElement | null =>
-            [...(card?.querySelectorAll<HTMLElement>(".item .label") ?? [])].find((label) =>
-              (label.textContent ?? "").startsWith(prefix),
-            ) ?? null;
-          const prose = rowOf("PROJ-123");
-          const identityLabel = rowOf(identity);
-          if (!card || !prose || !identityLabel) return null;
-          const layout = (label: HTMLElement): LabelLayout => {
-            const box = label.getBoundingClientRect();
-            const style = getComputedStyle(label);
-            // A range over the label's own contents reports one rect per line box, which a block's
-            // own rect cannot.
-            const range = document.createRange();
-            range.selectNodeContents(label);
-            const lines = new Set([...range.getClientRects()].map((rect) => Math.round(rect.top)));
-            return {
-              scrollWidth: label.scrollWidth,
-              clientWidth: label.clientWidth,
-              height: box.height,
-              lineHeight: Number.parseFloat(style.lineHeight),
-              lines: lines.size,
-              text: label.textContent ?? "",
-              textOverflow: style.textOverflow,
-            };
-          };
-          return {
-            prose: layout(prose),
-            identity: layout(identityLabel),
-            cardStaysInPage: card.getBoundingClientRect().right <= document.documentElement.clientWidth,
-            pageScrollWidth: document.documentElement.scrollWidth,
-            layoutWidth: document.documentElement.clientWidth,
-          };
-        },
-        { title: cardTitle, identity: identityLabel },
-      );
 
-    /** The two-column grid starts when both sides have content and the window is at least 1280px
-     * wide. Waited for rather than slept through: the reflow is what the measurement depends on. */
-    const waitForColumns = (columns: "two" | "one"): Promise<unknown> =>
-      page.waitForFunction((want: boolean) => {
-        const documents = document.querySelector(".column.documents");
-        const status = document.querySelector(".column.status");
-        if (!documents || !status) return false;
-        const sideBySide = status.getBoundingClientRect().left >= documents.getBoundingClientRect().right - 1;
-        return sideBySide === want;
-      }, columns === "two");
+        /** The two-column grid starts when both sides have content and the window is at least 1280px
+         * wide. Waited for rather than slept through: the reflow is what the measurement depends on. */
+        const waitForColumns = (columns: "two" | "one"): Promise<unknown> =>
+          page.waitForFunction((want: boolean) => {
+            const documents = document.querySelector(".column.documents");
+            const status = document.querySelector(".column.status");
+            if (!documents || !status) return false;
+            const sideBySide =
+              status.getBoundingClientRect().left >= documents.getBoundingClientRect().right - 1;
+            return sideBySide === want;
+          }, columns === "two");
 
-    const check = async (width: number, columns: "two" | "one"): Promise<void> => {
-      await page.setViewportSize({ width, height: 900 });
-      await waitForColumns(columns);
-      const layout = await measure();
-      if (!layout) throw new Error(`the stubbed ticket card did not render at ${width}px`);
-      // The prose label wraps: it fits its own box, is all there, and is more than one line.
-      expect(layout.prose.scrollWidth).toBeLessThanOrEqual(layout.prose.clientWidth);
-      expect(layout.prose.text).toBe(longLabel);
-      expect(layout.prose.textOverflow).not.toBe("ellipsis");
-      expect(layout.prose.lines).toBeGreaterThan(1);
-      expect(layout.prose.height).toBeGreaterThan(layout.prose.lineHeight);
+        const check = async (width: number, columns: "two" | "one"): Promise<void> => {
+          await page.setViewportSize({ width, height: 900 });
+          await waitForColumns(columns);
+          const layout = await measure();
+          if (!layout) throw new Error(`the stubbed ticket card did not render at ${width}px`);
+          // The prose label wraps: it fits its own box, is all there, and is more than one line.
+          expect(layout.prose.scrollWidth).toBeLessThanOrEqual(layout.prose.clientWidth);
+          expect(layout.prose.text).toBe(longLabel);
+          expect(layout.prose.textOverflow).not.toBe("ellipsis");
+          expect(layout.prose.lines).toBeGreaterThan(1);
+          expect(layout.prose.height).toBeGreaterThan(layout.prose.lineHeight);
 
-      // The identity label is whole: one line, its own height, not squeezed into the detail.
-      expect(layout.identity.text).toBe(identityLabel);
-      expect(layout.identity.lines).toBe(1);
-      expect(layout.identity.height).toBeLessThanOrEqual(layout.identity.lineHeight + 0.5);
-      expect(layout.identity.scrollWidth).toBeLessThanOrEqual(layout.identity.clientWidth);
+          // The identity label is whole: one line, its own height, not squeezed into the detail.
+          expect(layout.identity.text).toBe(identityLabel);
+          expect(layout.identity.lines).toBe(1);
+          expect(layout.identity.height).toBeLessThanOrEqual(layout.identity.lineHeight + 0.5);
+          expect(layout.identity.scrollWidth).toBeLessThanOrEqual(layout.identity.clientWidth);
 
-      // Neither the card nor the page reaches past the layout viewport.
-      expect(layout.cardStaysInPage).toBe(true);
-      expect(layout.pageScrollWidth).toBeLessThanOrEqual(layout.layoutWidth);
-    };
+          // Neither the card nor the page reaches past the layout viewport.
+          expect(layout.cardStaysInPage).toBe(true);
+          expect(layout.pageScrollWidth).toBeLessThanOrEqual(layout.layoutWidth);
+        };
 
-    await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
-    await page.locator(".widget", { hasText: cardTitle }).first().waitFor({ timeout: 15_000 });
-    await page.locator(".column.documents .md-editor").waitFor({ timeout: 15_000 });
-    await check(1440, "two");
-    // 1280 is the narrowest two-column width: the squeeze on each column is at its worst there.
-    await check(1280, "two");
-    await check(1100, "one");
-    await page.close();
+        await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
+        await page.locator(".widget", { hasText: cardTitle }).first().waitFor({ timeout: 15_000 });
+        await page.locator(".column.documents .md-editor").waitFor({ timeout: 15_000 });
+        await check(1440, "two");
+        // 1280 is the narrowest two-column width: the squeeze on each column is at its worst there.
+        await check(1280, "two");
+        await check(1100, "one");
+      },
+      { width: 1440, height: 900 },
+    );
   },
   60_000,
 );
@@ -1055,50 +1072,54 @@ test.skipIf(!usable)(
     await writeNotes(id, left);
     await writeNotes(other, opened);
 
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
-    const notes = page.locator(".md-editor");
-    await notes.waitFor();
-    /** The notes card's text, once it is what it should be; the load is asynchronous like every
-     * other, so this is the page's own answer after a bounded wait rather than immediately. */
-    const notesAre = async (want: string): Promise<string> => {
-      let shown = "";
-      for (let i = 0; i < 25; i++) {
-        shown = await editorText(notes);
-        if (shown === want) break;
-        await Bun.sleep(200);
-      }
-      return shown;
-    };
-    expect(await notesAre(left)).toBe(left);
-
-    // Type into it, then switch before the debounced save has landed: the in-flight text must not
-    // be inherited by the change you open.
-    await fillEditor(notes, "typed into the change you leave");
-    await page.locator(".sidebar .entry.change", { hasText: `${other}-x` }).click();
-    await page.waitForFunction((want) => location.pathname === `/changes/${want}`, other);
-    // A change opens on its plan now; its notes are on the dashboard beside it.
-    await page.locator(".change-tabs .tab", { hasText: "Dashboard" }).click();
-    await page.waitForURL(`**/changes/${other}/dashboard`);
-    expect(await notesAre(opened)).toBe(opened);
-
-    // Leaving flushed: the card going away wrote what was typed into the change you left, without
-    // waiting for the debounce. The read is polled like the ones above — the flush is
-    // fire-and-forget — so this waits for what lands rather than for a tick.
-    const leftOnDisk = async (): Promise<string> => {
-      let text = "";
-      for (let i = 0; i < 25; i++) {
-        const read = (await fetch(`${url}/api/ext/notes/changes/${id}/notes`).then((r) => r.json())) as {
-          text: string | null;
+    return withPage(
+      browser,
+      async (page) => {
+        await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
+        const notes = page.locator(".md-editor");
+        await notes.waitFor();
+        /** The notes card's text, once it is what it should be; the load is asynchronous like every
+         * other, so this is the page's own answer after a bounded wait rather than immediately. */
+        const notesAre = async (want: string): Promise<string> => {
+          let shown = "";
+          for (let i = 0; i < 25; i++) {
+            shown = await editorText(notes);
+            if (shown === want) break;
+            await Bun.sleep(200);
+          }
+          return shown;
         };
-        text = read.text ?? "";
-        if (text === "typed into the change you leave") break;
-        await Bun.sleep(200);
-      }
-      return text;
-    };
-    expect(await leftOnDisk()).toBe("typed into the change you leave");
-    await page.close();
+        expect(await notesAre(left)).toBe(left);
+
+        // Type into it, then switch before the debounced save has landed: the in-flight text must not
+        // be inherited by the change you open.
+        await fillEditor(notes, "typed into the change you leave");
+        await page.locator(".sidebar .entry.change", { hasText: `${other}-x` }).click();
+        await page.waitForFunction((want) => location.pathname === `/changes/${want}`, other);
+        // A change opens on its plan now; its notes are on the dashboard beside it.
+        await page.locator(".change-tabs .tab", { hasText: "Dashboard" }).click();
+        await page.waitForURL(`**/changes/${other}/dashboard`);
+        expect(await notesAre(opened)).toBe(opened);
+
+        // Leaving flushed: the card going away wrote what was typed into the change you left, without
+        // waiting for the debounce. The read is polled like the ones above — the flush is
+        // fire-and-forget — so this waits for what lands rather than for a tick.
+        const leftOnDisk = async (): Promise<string> => {
+          let text = "";
+          for (let i = 0; i < 25; i++) {
+            const read = (await fetch(`${url}/api/ext/notes/changes/${id}/notes`).then((r) => r.json())) as {
+              text: string | null;
+            };
+            text = read.text ?? "";
+            if (text === "typed into the change you leave") break;
+            await Bun.sleep(200);
+          }
+          return text;
+        };
+        expect(await leftOnDisk()).toBe("typed into the change you leave");
+      },
+      VIEWPORT,
+    );
   },
   30_000,
 );
@@ -1113,36 +1134,40 @@ test.skipIf(!usable)(
     await writeNotes(id, "notes of the change you leave");
     await writeNotes(other, "notes of the change you open");
 
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    // Held back long enough that the switch happens while this read is in flight, which is the
-    // race: a slow read, not a wrong one.
-    await page.route(
-      (url) => url.pathname === `/api/ext/notes/changes/${id}/notes`,
-      async (route) => {
-        await Bun.sleep(1500);
-        await route.continue();
-      },
-    );
-    await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
-    await page.locator(".md-editor").waitFor();
-    await page.locator(".sidebar .entry.change", { hasText: `${other}-x` }).click();
-    await page.waitForFunction((want) => location.pathname === `/changes/${want}`, other);
-    // A change opens on its plan now; its notes are on the dashboard beside it.
-    await page.locator(".change-tabs .tab", { hasText: "Dashboard" }).click();
-    await page.waitForURL(`**/changes/${other}/dashboard`);
+    return withPage(
+      browser,
+      async (page) => {
+        // Held back long enough that the switch happens while this read is in flight, which is the
+        // race: a slow read, not a wrong one.
+        await page.route(
+          (url) => url.pathname === `/api/ext/notes/changes/${id}/notes`,
+          async (route) => {
+            await Bun.sleep(1500);
+            await route.continue();
+          },
+        );
+        await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
+        await page.locator(".md-editor").waitFor();
+        await page.locator(".sidebar .entry.change", { hasText: `${other}-x` }).click();
+        await page.waitForFunction((want) => location.pathname === `/changes/${want}`, other);
+        // A change opens on its plan now; its notes are on the dashboard beside it.
+        await page.locator(".change-tabs .tab", { hasText: "Dashboard" }).click();
+        await page.waitForURL(`**/changes/${other}/dashboard`);
 
-    // The change you opened answered first, and stays: the late answer is for a page that is gone.
-    const notes = page.locator(".md-editor");
-    let shown = "";
-    for (let i = 0; i < 25; i++) {
-      shown = await editorText(notes);
-      if (shown === "notes of the change you open") break;
-      await Bun.sleep(200);
-    }
-    expect(shown).toBe("notes of the change you open");
-    await Bun.sleep(2000); // past the held response
-    expect(await editorText(notes)).toBe("notes of the change you open");
-    await page.close();
+        // The change you opened answered first, and stays: the late answer is for a page that is gone.
+        const notes = page.locator(".md-editor");
+        let shown = "";
+        for (let i = 0; i < 25; i++) {
+          shown = await editorText(notes);
+          if (shown === "notes of the change you open") break;
+          await Bun.sleep(200);
+        }
+        expect(shown).toBe("notes of the change you open");
+        await Bun.sleep(2000); // past the held response
+        expect(await editorText(notes)).toBe("notes of the change you open");
+      },
+      VIEWPORT,
+    );
   },
   30_000,
 );
@@ -1158,57 +1183,60 @@ test.skipIf(!usable)(
       method: "PATCH",
       body: JSON.stringify({ title: "Anonymise customer names" }),
     });
-    const page = await browser.newPage({ viewport: { width: 1000, height: 600 } });
-    await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
-    const strip = page.locator(".change-bar");
-    await strip.locator(".window-tab.overview").waitFor();
+    return withPage(
+      browser,
+      async (page) => {
+        await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
+        const strip = page.locator(".change-bar");
+        await strip.locator(".window-tab.overview").waitFor();
 
-    expect(await strip.locator(".subject").count()).toBe(0);
-    // The name went to the window's title (apps/web/src/app-root/app.tsx), which the OS window switcher reads:
-    // it arrives with the change's record rather than with the page, so it is waited for.
-    await page.waitForFunction(() => document.title === "Anonymise customer names");
-    expect(await page.title()).toBe("Anonymise customer names");
-    // The terminals are tabs in that same row, not a row of their own.
-    expect(await strip.locator(".window-tab.overview").count()).toBe(1);
+        expect(await strip.locator(".subject").count()).toBe(0);
+        // The name went to the window's title (apps/web/src/app-root/app.tsx), which the OS window switcher reads:
+        // it arrives with the change's record rather than with the page, so it is waited for.
+        await page.waitForFunction(() => document.title === "Anonymise customer names");
+        expect(await page.title()).toBe("Anonymise customer names");
+        // The terminals are tabs in that same row, not a row of their own.
+        expect(await strip.locator(".window-tab.overview").count()).toBe(1);
 
-    // Edge to edge: the row is as wide as the column it is in, because the page's padding is given
-    // back on it.
-    const stripBox = await strip.boundingBox();
-    const columnBox = await page.locator(".content").boundingBox();
-    if (!stripBox || !columnBox) throw new Error("the change's row did not lay out");
-    expect(Math.abs(stripBox.width - columnBox.width)).toBeLessThanOrEqual(1);
-    expect(Math.round(stripBox.height)).toBe(TITLE_BAR_HEIGHT);
+        // Edge to edge: the row is as wide as the column it is in, because the page's padding is given
+        // back on it.
+        const stripBox = await strip.boundingBox();
+        const columnBox = await page.locator(".content").boundingBox();
+        if (!stripBox || !columnBox) throw new Error("the change's row did not lay out");
+        expect(Math.abs(stripBox.width - columnBox.width)).toBeLessThanOrEqual(1);
+        expect(Math.round(stripBox.height)).toBe(TITLE_BAR_HEIGHT);
 
-    // The change's own row — its views, its state and its actions — is the one under it.
-    const tabsRow = page.locator(".change-tabs");
-    await tabsRow.locator("select").waitFor();
-    expect(await tabsRow.locator(".tab").count()).toBeGreaterThan(0);
+        // The change's own row — its views, its state and its actions — is the one under it.
+        const tabsRow = page.locator(".change-tabs");
+        await tabsRow.locator("select").waitFor();
+        expect(await tabsRow.locator(".tab").count()).toBeGreaterThan(0);
 
-    // The two rows are one sticky block: the wrapper carries the stickiness, so the change's row has
-    // no offset of its own that would have to track the window's row's height (and would overlap it
-    // once that row wraps).
-    const chrome = page.locator(".change-chrome");
-    expect(await chrome.evaluate((el) => getComputedStyle(el).position)).toBe("sticky");
-    expect(await tabsRow.evaluate((el) => getComputedStyle(el).position)).toBe("static");
-    expect(await tabsRow.evaluate((el) => getComputedStyle(el).top)).toBe("auto");
+        // The two rows are one sticky block: the wrapper carries the stickiness, so the change's row has
+        // no offset of its own that would have to track the window's row's height (and would overlap it
+        // once that row wraps).
+        const chrome = page.locator(".change-chrome");
+        expect(await chrome.evaluate((el) => getComputedStyle(el).position)).toBe("sticky");
+        expect(await tabsRow.evaluate((el) => getComputedStyle(el).position)).toBe("static");
+        expect(await tabsRow.evaluate((el) => getComputedStyle(el).top)).toBe("auto");
 
-    // Both stay put while the page scrolls: they are the window's chrome, not part of what you read.
-    await page.evaluate(() => window.scrollTo(0, 400));
-    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
-    const [stoppedStrip, stoppedTabs] = await Promise.all([strip.boundingBox(), tabsRow.boundingBox()]);
-    expect(stoppedStrip!.y).toBe(0);
-    expect(Math.abs(stoppedTabs!.y - TITLE_BAR_HEIGHT)).toBeLessThanOrEqual(1);
+        // Both stay put while the page scrolls: they are the window's chrome, not part of what you read.
+        await page.evaluate(() => window.scrollTo(0, 400));
+        expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+        const [stoppedStrip, stoppedTabs] = await Promise.all([strip.boundingBox(), tabsRow.boundingBox()]);
+        expect(stoppedStrip!.y).toBe(0);
+        expect(Math.abs(stoppedTabs!.y - TITLE_BAR_HEIGHT)).toBeLessThanOrEqual(1);
 
-    // The navigation column: one line per change, its name, and no id of its own. The branch — the id
-    // with a slug after it — is the entry's tooltip. Scoped to this change's own entry, since the
-    // column holds every change in the workspace (test/pages.test.ts's second one included).
-    const entry = page.locator(".sidebar .entry.change", { hasText: "Anonymise customer names" });
-    await entry.locator(".subject").waitFor();
-    expect(await entry.locator(".id").count()).toBe(0);
-    expect((await entry.locator(".subject").innerText()).trim()).toBe("Anonymise customer names");
-    expect(await entry.getAttribute("title")).toContain(id);
-
-    await page.close();
+        // The navigation column: one line per change, its name, and no id of its own. The branch — the id
+        // with a slug after it — is the entry's tooltip. Scoped to this change's own entry, since the
+        // column holds every change in the workspace (test/pages.test.ts's second one included).
+        const entry = page.locator(".sidebar .entry.change", { hasText: "Anonymise customer names" });
+        await entry.locator(".subject").waitFor();
+        expect(await entry.locator(".id").count()).toBe(0);
+        expect((await entry.locator(".subject").innerText()).trim()).toBe("Anonymise customer names");
+        expect(await entry.getAttribute("title")).toContain(id);
+      },
+      { width: 1000, height: 600 },
+    );
   },
   30_000,
 );
@@ -1242,96 +1270,104 @@ test.skipIf(!usable)(
       expect(opened.ok).toBe(true);
     }
 
-    const page = await browser.newPage({ viewport: { width: 900, height: 420 } });
-    await page.goto(`${url}/changes/${wrap}/dashboard`, { waitUntil: "domcontentloaded" });
-    const strip = page.locator(".change-bar");
-    const tabs = page.locator(".window-tabs .window-tab");
-    // Overview, four windows and "new": six tabs, once the app's window list has loaded.
-    await page.waitForFunction(() => document.querySelectorAll(".window-tab").length >= 6);
+    return withPage(
+      browser,
+      async (page) => {
+        await page.goto(`${url}/changes/${wrap}/dashboard`, { waitUntil: "domcontentloaded" });
+        const strip = page.locator(".change-bar");
+        const tabs = page.locator(".window-tabs .window-tab");
+        // Overview, four windows and "new": six tabs, once the app's window list has loaded.
+        await page.waitForFunction(() => document.querySelectorAll(".window-tab").length >= 6);
 
-    // Wrapped: the tabs sit on exactly two rows, so the bar is taller than one title bar.
-    const tops = await tabs.evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)));
-    expect(new Set(tops).size).toBe(2);
-    const bar = await strip.boundingBox();
-    if (!bar) throw new Error("the change bar did not lay out");
-    expect(bar.height).toBeGreaterThan(TITLE_BAR_HEIGHT);
-    // No horizontal scrollbar: the rows wrap instead of hiding tabs past the edge.
-    const horizontally = await page.locator(".window-tabs").evaluate((el) => ({
-      scrollWidth: el.scrollWidth,
-      clientWidth: el.clientWidth,
-    }));
-    expect(horizontally.scrollWidth).toBeLessThanOrEqual(horizontally.clientWidth);
+        // Wrapped: the tabs sit on exactly two rows, so the bar is taller than one title bar.
+        const tops = await tabs.evaluateAll((els) =>
+          els.map((el) => Math.round(el.getBoundingClientRect().top)),
+        );
+        expect(new Set(tops).size).toBe(2);
+        const bar = await strip.boundingBox();
+        if (!bar) throw new Error("the change bar did not lay out");
+        expect(bar.height).toBeGreaterThan(TITLE_BAR_HEIGHT);
+        // No horizontal scrollbar: the rows wrap instead of hiding tabs past the edge.
+        const horizontally = await page.locator(".window-tabs").evaluate((el) => ({
+          scrollWidth: el.scrollWidth,
+          clientWidth: el.clientWidth,
+        }));
+        expect(horizontally.scrollWidth).toBeLessThanOrEqual(horizontally.clientWidth);
 
-    // Capped at two rows with a scroll fallback, so a third row would scroll rather than grow the bar.
-    const cap = await page.locator(".window-tabs").evaluate((el) => {
-      const style = getComputedStyle(el);
-      return { overflowY: style.overflowY, maxHeight: style.maxHeight, rowGap: style.rowGap };
-    });
-    expect(cap.overflowY).toBe("auto");
-    // Two rows plus the gap between them: the value the strip scrolls past, not the bar's height.
-    const rowHeight = (await tabs.first().boundingBox())!.height;
-    expect(cap.maxHeight).toBe(`${2 * rowHeight + Number.parseFloat(cap.rowGap)}px`);
+        // Capped at two rows with a scroll fallback, so a third row would scroll rather than grow the bar.
+        const cap = await page.locator(".window-tabs").evaluate((el) => {
+          const style = getComputedStyle(el);
+          return { overflowY: style.overflowY, maxHeight: style.maxHeight, rowGap: style.rowGap };
+        });
+        expect(cap.overflowY).toBe("auto");
+        // Two rows plus the gap between them: the value the strip scrolls past, not the bar's height.
+        const rowHeight = (await tabs.first().boundingBox())!.height;
+        expect(cap.maxHeight).toBe(`${2 * rowHeight + Number.parseFloat(cap.rowGap)}px`);
 
-    // The cap, exercised: at a width where the six tabs need a third row, the strip stays the cap's
-    // height and scrolls, so the bar does not grow with the session.
-    await page.setViewportSize({ width: 360, height: 420 });
-    await page.waitForFunction(() => {
-      const strip = document.querySelector(".window-tabs");
-      return strip !== null && strip.scrollHeight > strip.clientHeight;
-    });
-    const capped = await page.locator(".window-tabs").evaluate((el) => ({
-      clientHeight: el.clientHeight,
-      scrollHeight: el.scrollHeight,
-    }));
-    expect(capped.clientHeight).toBe(Number.parseFloat(cap.maxHeight));
-    expect(capped.scrollHeight).toBeGreaterThan(capped.clientHeight);
-    await page.setViewportSize({ width: 900, height: 420 });
+        // The cap, exercised: at a width where the six tabs need a third row, the strip stays the cap's
+        // height and scrolls, so the bar does not grow with the session.
+        await page.setViewportSize({ width: 360, height: 420 });
+        await page.waitForFunction(() => {
+          const strip = document.querySelector(".window-tabs");
+          return strip !== null && strip.scrollHeight > strip.clientHeight;
+        });
+        const capped = await page.locator(".window-tabs").evaluate((el) => ({
+          clientHeight: el.clientHeight,
+          scrollHeight: el.scrollHeight,
+        }));
+        expect(capped.clientHeight).toBe(Number.parseFloat(cap.maxHeight));
+        expect(capped.scrollHeight).toBeGreaterThan(capped.clientHeight);
+        await page.setViewportSize({ width: 900, height: 420 });
 
-    // The regression the shared sticky wrapper exists to prevent: with two rows, a hard-coded
-    // second offset would leave the change's row at one title bar instead of under the taller
-    // window's row.
-    await page.evaluate(() => window.scrollTo(0, 400));
-    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
-    const stoppedBar = await strip.boundingBox();
-    const stoppedTabs = await page.locator(".change-tabs").boundingBox();
-    if (!stoppedBar || !stoppedTabs) throw new Error("the chrome did not lay out");
-    expect(stoppedBar.y).toBe(0);
-    expect(Math.abs(stoppedTabs.y - (stoppedBar.y + stoppedBar.height))).toBeLessThanOrEqual(1);
+        // The regression the shared sticky wrapper exists to prevent: with two rows, a hard-coded
+        // second offset would leave the change's row at one title bar instead of under the taller
+        // window's row.
+        await page.evaluate(() => window.scrollTo(0, 400));
+        expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+        const stoppedBar = await strip.boundingBox();
+        const stoppedTabs = await page.locator(".change-tabs").boundingBox();
+        if (!stoppedBar || !stoppedTabs) throw new Error("the chrome did not lay out");
+        expect(stoppedBar.y).toBe(0);
+        expect(Math.abs(stoppedTabs.y - (stoppedBar.y + stoppedBar.height))).toBeLessThanOrEqual(1);
 
-    // The terminal's Actions button sits on the bar's centre line, like the Overview row's controls:
-    // the bar centres its non-tab children while the tabs still stretch to the row.
-    await page.goto(`${url}/changes/${wrap}/terminals`, { waitUntil: "domcontentloaded" });
-    const actions = page.locator(".change-bar .menu button.primary");
-    await actions.waitFor();
-    const [terminalBar, actionsBox] = await Promise.all([
-      page.locator(".change-bar").boundingBox(),
-      actions.boundingBox(),
-    ]);
-    if (!terminalBar || !actionsBox) throw new Error("the terminal bar did not lay out");
-    expect(
-      Math.abs(terminalBar.y + terminalBar.height / 2 - (actionsBox.y + actionsBox.height / 2)),
-    ).toBeLessThanOrEqual(1);
+        // The terminal's Actions button sits on the bar's centre line, like the Overview row's controls:
+        // the bar centres its non-tab children while the tabs still stretch to the row.
+        await page.goto(`${url}/changes/${wrap}/terminals`, { waitUntil: "domcontentloaded" });
+        const actions = page.locator(".change-bar .menu button.primary");
+        await actions.waitFor();
+        const [terminalBar, actionsBox] = await Promise.all([
+          page.locator(".change-bar").boundingBox(),
+          actions.boundingBox(),
+        ]);
+        if (!terminalBar || !actionsBox) throw new Error("the terminal bar did not lay out");
+        expect(
+          Math.abs(terminalBar.y + terminalBar.height / 2 - (actionsBox.y + actionsBox.height / 2)),
+        ).toBeLessThanOrEqual(1);
 
-    // The dropdown anchors at the bar's bottom edge, not the centred button's: with a wrapped strip
-    // a menu hung off the button would open over its second row.
-    const menuGapBelowBar = async (): Promise<number> => {
-      await actions.click();
-      const items = page.locator(".change-bar .menu-items");
-      await items.waitFor();
-      const [bar, menu] = await Promise.all([page.locator(".change-bar").boundingBox(), items.boundingBox()]);
-      if (!bar || !menu) throw new Error("the actions menu did not lay out");
-      const gap = menu.y - (bar.y + bar.height);
-      await page.keyboard.press("Escape");
-      await items.waitFor({ state: "hidden" });
-      return gap;
-    };
-    expect(Math.abs((await menuGapBelowBar()) - 4)).toBeLessThanOrEqual(1);
+        // The dropdown anchors at the bar's bottom edge, not the centred button's: with a wrapped strip
+        // a menu hung off the button would open over its second row.
+        const menuGapBelowBar = async (): Promise<number> => {
+          await actions.click();
+          const items = page.locator(".change-bar .menu-items");
+          await items.waitFor();
+          const [bar, menu] = await Promise.all([
+            page.locator(".change-bar").boundingBox(),
+            items.boundingBox(),
+          ]);
+          if (!bar || !menu) throw new Error("the actions menu did not lay out");
+          const gap = menu.y - (bar.y + bar.height);
+          await page.keyboard.press("Escape");
+          await items.waitFor({ state: "hidden" });
+          return gap;
+        };
+        expect(Math.abs((await menuGapBelowBar()) - 4)).toBeLessThanOrEqual(1);
 
-    // The same anchor when the strip is a single row.
-    await page.setViewportSize({ width: 1400, height: 420 });
-    expect(Math.abs((await menuGapBelowBar()) - 4)).toBeLessThanOrEqual(1);
-
-    await page.close();
+        // The same anchor when the strip is a single row.
+        await page.setViewportSize({ width: 1400, height: 420 });
+        expect(Math.abs((await menuGapBelowBar()) - 4)).toBeLessThanOrEqual(1);
+      },
+      { width: 900, height: 420 },
+    );
   },
   60_000,
 );
@@ -1891,32 +1927,36 @@ test.skipIf(!usable)(
         body: JSON.stringify({ ...current.file, contextMenu }),
       });
 
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    const rightClick = (): Promise<boolean> =>
-      page.evaluate(() => {
-        const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
-        document.body.dispatchEvent(event);
-        return event.defaultPrevented;
-      });
+    return withPage(
+      browser,
+      async (page) => {
+        const rightClick = (): Promise<boolean> =>
+          page.evaluate(() => {
+            const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+            document.body.dispatchEvent(event);
+            return event.defaultPrevented;
+          });
 
-    // Shown is the default: the page leaves the menu to the browser.
-    await write(true);
-    await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector(".change-bar");
-    expect(await rightClick()).toBe(false);
+        // Shown is the default: the page leaves the menu to the browser.
+        await write(true);
+        await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+        await page.waitForSelector(".change-bar");
+        expect(await rightClick()).toBe(false);
 
-    // Turned off, the page cancels it — after the setting has arrived, which is a fetch behind the
-    // first paint.
-    await write(false);
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await page.waitForSelector(".change-bar");
-    let cancelled = false;
-    for (let i = 0; i < 40 && !cancelled; i++) {
-      cancelled = await rightClick();
-      if (!cancelled) await page.waitForTimeout(50);
-    }
-    expect(cancelled).toBe(true);
-    await page.close();
+        // Turned off, the page cancels it — after the setting has arrived, which is a fetch behind the
+        // first paint.
+        await write(false);
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await page.waitForSelector(".change-bar");
+        let cancelled = false;
+        for (let i = 0; i < 40 && !cancelled; i++) {
+          cancelled = await rightClick();
+          if (!cancelled) await page.waitForTimeout(50);
+        }
+        expect(cancelled).toBe(true);
+      },
+      VIEWPORT,
+    );
   },
   30_000,
 );

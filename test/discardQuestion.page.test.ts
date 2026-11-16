@@ -10,6 +10,7 @@ import {
   stopTestServer,
   testTempDir,
   VIEWPORT,
+  withPage,
 } from "./helpers.ts";
 
 /**
@@ -81,24 +82,28 @@ test.skipIf(!usable)(
       await gitRepo(tmp, "app", { remote: true, configure: false }),
     );
 
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
-    await page.locator('button[title="Edit Local changes"]').click();
-    await page.locator("dialog[open]").getByRole("button", { name: "Remove" }).click();
-    await confirm(page, "OK").click();
+    return withPage(
+      browser,
+      async (page) => {
+        await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
+        await page.locator('button[title="Edit Local changes"]').click();
+        await page.locator("dialog[open]").getByRole("button", { name: "Remove" }).click();
+        await confirm(page, "OK").click();
 
-    // Asked in the dialog, naming the files; nothing is removed until it is acknowledged.
-    const question = page.locator("dialog[open] li", { hasText: "untracked files" });
-    await question.waitFor();
-    expect(await question.innerText()).toBe("app: untracked files: __pycache__/");
-    expect(await confirm(page, "OK").isDisabled()).toBe(true);
-    expect(await exists(worktree)).toBe(true);
+        // Asked in the dialog, naming the files; nothing is removed until it is acknowledged.
+        const question = page.locator("dialog[open] li", { hasText: "untracked files" });
+        await question.waitFor();
+        expect(await question.innerText()).toBe("app: untracked files: __pycache__/");
+        expect(await confirm(page, "OK").isDisabled()).toBe(true);
+        expect(await exists(worktree)).toBe(true);
 
-    await page.locator("dialog[open] label.ack input").check();
-    await confirm(page, "OK").click();
-    await page.waitForSelector("dialog[open]", { state: "detached" });
-    expect(await exists(worktree)).toBe(false);
-    await page.close();
+        await page.locator("dialog[open] label.ack input").check();
+        await confirm(page, "OK").click();
+        await page.waitForSelector("dialog[open]", { state: "detached" });
+        expect(await exists(worktree)).toBe(false);
+      },
+      VIEWPORT,
+    );
   },
   60_000,
 );
@@ -109,29 +114,33 @@ test.skipIf(!usable)(
     const id = "DISCARD-CANCEL";
     const worktree = await changeWithLeftovers(id, join(tmp, "app"));
 
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(`${url}/changes/${id}/plan`, { waitUntil: "domcontentloaded" });
-    await page.locator(".change-tabs .menu > button").click();
-    await page.getByRole("button", { name: "Cancel change" }).click();
-    await confirm(page, "Cancel change").click();
+    return withPage(
+      browser,
+      async (page) => {
+        await page.goto(`${url}/changes/${id}/plan`, { waitUntil: "domcontentloaded" });
+        await page.locator(".change-tabs .menu > button").click();
+        await page.getByRole("button", { name: "Cancel change" }).click();
+        await confirm(page, "Cancel change").click();
 
-    // Nothing is lost, so nothing is asked: the files go onto a shelf with the change.
-    await page.waitForSelector("dialog[open]", { state: "detached" });
-    await page.locator(".notice", { hasText: "is shelved" }).waitFor();
-    const after = (await (await fetch(`${url}/api/changes/${id}`)).json()) as { state?: string };
-    expect(after.state).toBe("Cancelled");
-    expect(await exists(worktree)).toBe(false);
-    // A finished change offers its kept agent sessions.
-    expect(await page.locator(".change-tabs .tab", { hasText: "Transcripts" }).count()).toBe(1);
+        // Nothing is lost, so nothing is asked: the files go onto a shelf with the change.
+        await page.waitForSelector("dialog[open]", { state: "detached" });
+        await page.locator(".notice", { hasText: "is shelved" }).waitFor();
+        const after = (await (await fetch(`${url}/api/changes/${id}`)).json()) as { state?: string };
+        expect(after.state).toBe("Cancelled");
+        expect(await exists(worktree)).toBe(false);
+        // A finished change offers its kept agent sessions.
+        expect(await page.locator(".change-tabs .tab", { hasText: "Transcripts" }).count()).toBe(1);
 
-    // Reopening: the worktree comes back, and so does the shelved file.
-    await page.getByRole("button", { name: "Reopen", exact: true }).click();
-    await page.locator(".notice", { hasText: "the shelved work is back" }).waitFor();
-    const reopened = (await (await fetch(`${url}/api/changes/${id}`)).json()) as { state?: string };
-    expect(reopened.state).toBe("Implementation");
-    expect(await exists(worktree)).toBe(true);
-    expect(await Bun.file(join(worktree, "__pycache__", "test.pyc")).text()).toBe("x");
-    await page.close();
+        // Reopening: the worktree comes back, and so does the shelved file.
+        await page.getByRole("button", { name: "Reopen", exact: true }).click();
+        await page.locator(".notice", { hasText: "the shelved work is back" }).waitFor();
+        const reopened = (await (await fetch(`${url}/api/changes/${id}`)).json()) as { state?: string };
+        expect(reopened.state).toBe("Implementation");
+        expect(await exists(worktree)).toBe(true);
+        expect(await Bun.file(join(worktree, "__pycache__", "test.pyc")).text()).toBe("x");
+      },
+      VIEWPORT,
+    );
   },
   60_000,
 );

@@ -257,22 +257,26 @@ test.skipIf(!usable)(
     });
     expect(paired.status).toBe(201);
 
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("nav.tabs");
-    await page.getByRole("button", { name: "Devices" }).click();
-    const row = page.locator("tr", { hasText: "Seed device" });
-    await row.waitFor();
+    return withPage(
+      browser,
+      async (page) => {
+        await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
+        await page.waitForSelector("nav.tabs");
+        await page.getByRole("button", { name: "Devices" }).click();
+        const row = page.locator("tr", { hasText: "Seed device" });
+        await row.waitFor();
 
-    // A code is on display when the device is revoked: revoking invalidates it, so it must not
-    // keep counting down to a refusal on the remote machine.
-    await page.getByRole("button", { name: "Create a pairing code" }).click();
-    await page.locator(".pairing-code").waitFor();
-    await row.getByRole("button", { name: "Revoke" }).click();
-    await row.getByText("revoked").waitFor();
-    expect(await page.locator(".pairing-code").count()).toBe(0);
-    await page.getByText("Revoking a device invalidates outstanding pairing codes").waitFor();
-    await page.close();
+        // A code is on display when the device is revoked: revoking invalidates it, so it must not
+        // keep counting down to a refusal on the remote machine.
+        await page.getByRole("button", { name: "Create a pairing code" }).click();
+        await page.locator(".pairing-code").waitFor();
+        await row.getByRole("button", { name: "Revoke" }).click();
+        await row.getByText("revoked").waitFor();
+        expect(await page.locator(".pairing-code").count()).toBe(0);
+        await page.getByText("Revoking a device invalidates outstanding pairing codes").waitFor();
+      },
+      VIEWPORT,
+    );
   },
   60_000,
 );
