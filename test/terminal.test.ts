@@ -14,6 +14,7 @@ import {
   until,
   waitFor,
   startTestServer,
+  stopTestServer,
 } from "./helpers.ts";
 import { csiuFor } from "@corvi/terminals/model";
 import { ensureHost } from "../apps/server/src/terminals/host/client.ts";
@@ -411,17 +412,7 @@ afterEach(async () => {
 afterAll(async () => {
   if (!usable) return;
   await browser?.close();
-  server?.kill();
-  await server?.exited;
-  // The host outlives the server by design; the test still leaves none behind.
-  await ensureHost({
-    socket: join(tmp, "state", "corvi", "host.sock"),
-    checkout: process.cwd(),
-    buildId: process.env.CORVI_BUILD ?? "dev",
-    runtime: "node",
-  })
-    .then((result) => result.client.shutdown())
-    .catch(() => undefined);
+  await stopTestServer(server, tmp);
   await rm(tmp, { recursive: true, force: true });
 }, budget(60_000));
 

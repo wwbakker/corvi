@@ -10,6 +10,7 @@ import {
   testTempDir,
   startTestServer,
   stopTestServer,
+  VIEWPORT,
 } from "./helpers.ts";
 import { editorText, fillEditor } from "./editor.ts";
 
@@ -72,7 +73,7 @@ const editMine = async (page: Page): Promise<void> => {
 test.skipIf(!usable)(
   "a profile is edited in the editor's frame, its fields documented beside it",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await editMine(page);
 
@@ -94,7 +95,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "New offers the built-ins as templates, and a copy lands in the scope",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await page.goto(`${url}/subagents`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".subagents-page");
@@ -138,7 +139,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "a write that is not a profile is refused, and says why",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await editMine(page);
       await fillEditor(page.locator(".md-editor"), "no frontmatter at all");
@@ -201,7 +202,7 @@ test.skipIf(!usable)(
       "utf8",
     );
 
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await page.goto(`${url}/subagents`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".subagents-page");

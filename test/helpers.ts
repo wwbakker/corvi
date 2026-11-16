@@ -413,6 +413,9 @@ export const requireFreshWebBundle = (webDir: string = join(import.meta.dir, "..
   }
 };
 
+/** The viewport the page tests drive, and the numbers a layout assertion reads. */
+export const VIEWPORT = { width: 1280, height: 900 } as const;
+
 /** The engine the page tests drive. Chromium is the app's own engine (Electron); `CORVI_ENGINE`
  * runs the same file in WebKit where Playwright's bundle supports it. A missing engine is a skip,
  * not a failure, and a bundle older than the web sources is refused before the browser starts —

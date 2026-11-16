@@ -3,7 +3,15 @@ import { rm, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type Browser } from "playwright";
 import { MASK } from "../apps/server/src/settings/server/secrets.ts";
-import { closePages, openEngine, stopRunHost, testTempDir, until, startTestServer } from "./helpers.ts";
+import {
+  closePages,
+  openEngine,
+  stopRunHost,
+  testTempDir,
+  until,
+  startTestServer,
+  VIEWPORT,
+} from "./helpers.ts";
 
 /**
  * The settings page's remote-workspace editor, in the engine the app renders in: add a context,
@@ -90,7 +98,7 @@ const storedTokenInFile = async (): Promise<string | undefined> => {
 test.skipIf(!usable)(
   "a remote workspace is added, paired, saved masked, edited and removed",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("nav.tabs");
 

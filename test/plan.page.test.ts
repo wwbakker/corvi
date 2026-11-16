@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { type Browser, type Page } from "playwright";
-import { closePages, openEngine, testTempDir, startTestServer, stopTestServer } from "./helpers.ts";
+import { closePages, openEngine, testTempDir, startTestServer, stopTestServer, VIEWPORT } from "./helpers.ts";
 import { editorText, fillEditor } from "./editor.ts";
 
 /**
@@ -122,7 +122,7 @@ const mark = "rgb(86, 95, 108)"; // --md-mark
 test.skipIf(!usable)(
   "the plan tab shows the markup as source: every character visible, colored like an editor",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await page.goto(`${url}/changes/PROJ-1/plan`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".md-editor .cm-line");
@@ -228,7 +228,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "typing keeps the highlighting and saves through the debounce",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await page.goto(`${url}/changes/PROJ-1/plan`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".md-editor .cm-line");
@@ -255,7 +255,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "the editor's affordances are there: a section folds and Ctrl-F finds",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await page.goto(`${url}/changes/PROJ-1/plan`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".md-editor .cm-line");
@@ -298,7 +298,7 @@ test.skipIf(!usable)(
     });
     expect(cancelled.status).toBe(200);
 
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await page.goto(`${url}/changes/PROJ-1/plan`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".md-editor .cm-line");
@@ -317,7 +317,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "the wizard's plan is the same editor, and its heading names the change",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await page.goto(`${url}/new`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".wizard-plan .md-editor");
@@ -355,7 +355,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "Tab adds a tab in the editor, and Escape-then-Tab moves on",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await page.goto(`${url}/new`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".wizard-plan .md-editor");
@@ -429,7 +429,7 @@ test.skipIf(!usable)(
     expect(created.status).toBe(201);
     const planFile = join(tmp, "changes", "PROJ-3", "PLAN.md");
 
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await page.goto(`${url}/changes/PROJ-3/plan`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".plan-page .md-editor .cm-line");

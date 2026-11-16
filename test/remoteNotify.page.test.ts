@@ -6,7 +6,15 @@ import { type Browser } from "playwright";
 
 import { serve, type Serving } from "../apps/server/src/capabilities/serve.ts";
 import { guard, json } from "../apps/server/src/capabilities/web.ts";
-import { closePages, openEngine, stopRunHost, testTempDir, until, startTestServer } from "./helpers.ts";
+import {
+  closePages,
+  openEngine,
+  stopRunHost,
+  testTempDir,
+  until,
+  startTestServer,
+  VIEWPORT,
+} from "./helpers.ts";
 
 /**
  * A remote workspace's notification, end to end: the fake remote's `notify` event is fanned in on
@@ -103,7 +111,7 @@ afterAll(async () => {
 test.skipIf(!usable)(
   "a remote notify shows a notification and its click opens the remote change",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(url, { waitUntil: "domcontentloaded" });
     // The page is up: the remote change, read through the gateway, is in the sidebar.
     await page.getByRole("button", { name: "Remote notice" }).waitFor();

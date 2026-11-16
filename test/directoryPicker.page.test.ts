@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type Browser } from "playwright";
-import { closePages, openEngine, testTempDir, startTestServer, stopTestServer } from "./helpers.ts";
+import { closePages, openEngine, testTempDir, startTestServer, stopTestServer, VIEWPORT } from "./helpers.ts";
 import type { Listing } from "../apps/web/src/app-root/api.ts";
 
 /**
@@ -93,7 +93,7 @@ test("an explicit path is listed, and a relative one is refused", async () => {
 test.skipIf(!usable)(
   "the settings picker walks, reveals hidden directories and writes the choice",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector("nav.tabs");

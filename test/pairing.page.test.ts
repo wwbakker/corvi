@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { type Browser, type Page } from "playwright";
 import { instanceRecords } from "../apps/cli/src/discovery.ts";
 import { DEVICE_COOKIE } from "../apps/server/src/devices/server/index.ts";
-import { closePages, openEngine, testTempDir, startTestServer, stopTestServer } from "./helpers.ts";
+import { closePages, openEngine, testTempDir, startTestServer, stopTestServer, VIEWPORT } from "./helpers.ts";
 
 /**
  * Pairing and device management through the page.
@@ -28,7 +28,7 @@ let server: ReturnType<typeof Bun.spawn>;
 
 /** A page in a fresh context, with no device cookie: the remote origin treats it as unpaired. */
 const unpairedPage = async (): Promise<Page> => {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const context = await browser.newContext({ viewport: VIEWPORT });
   return context.newPage();
 };
 
@@ -71,7 +71,7 @@ afterAll(async () => {
 test.skipIf(!usable)(
   "a remote page without a device shows the pairing screen, refuses a bad code, and pairs",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(remoteUrl, { waitUntil: "domcontentloaded" });
 
     // The unauthenticated session check is a 401, so the pairing screen is what renders.
@@ -161,7 +161,7 @@ test.skipIf(!usable)(
 );
 
 test.skipIf(!usable)("a non-401 session failure leaves the app rendering", async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ viewport: VIEWPORT });
   await page.route("**/api/devices/session", (route) =>
     route.fulfill({
       status: 500,
@@ -178,7 +178,7 @@ test.skipIf(!usable)("a non-401 session failure leaves the app rendering", async
 });
 
 test.skipIf(!usable)("the local origin renders the app, never the pairing screen", async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ viewport: VIEWPORT });
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await page.locator(".sidebar").waitFor();
   expect(await page.getByRole("heading", { name: "Pair this device" }).count()).toBe(0);
@@ -188,7 +188,7 @@ test.skipIf(!usable)("the local origin renders the app, never the pairing screen
 test.skipIf(!usable)(
   "the Devices section mines a code, lists a paired device, and revokes it",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("nav.tabs");
     await page.getByRole("button", { name: "Devices" }).click();
@@ -234,7 +234,7 @@ test.skipIf(!usable)(
     });
     expect(paired.status).toBe(201);
 
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("nav.tabs");
     await page.getByRole("button", { name: "Devices" }).click();

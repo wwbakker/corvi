@@ -17,6 +17,7 @@ import {
   until,
   waitFor,
   startTestServer,
+  VIEWPORT,
 } from "./helpers.ts";
 
 /**
@@ -248,7 +249,7 @@ afterAll(async () => {
 test.skipIf(!usable)(
   "a remote change is listed, filtered, opened and routed through the gateway",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     const sockets: string[] = [];
     page.on("websocket", (socket) => sockets.push(socket.url()));
     await page.goto(url, { waitUntil: "domcontentloaded" });
@@ -300,7 +301,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "switching the workspace keeps the open remote change and its source",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     // The one read that says the page settled on the wrong server: the local twin shares the
     // remote change's id, so a source dropped by the page list arriving reads it instead.
     let localReads = 0;
@@ -349,7 +350,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "a remote workspace's extension page fetches through the gateway with the remote workspace id",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(url, { waitUntil: "domcontentloaded" });
 
     // The switcher on the remote workspace: its page list comes from the remote too.
@@ -371,7 +372,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "a local workspace's extension page still fetches from the local origin",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(url, { waitUntil: "domcontentloaded" });
     await page.locator("button.workspace").click();
     await page.getByText("Local", { exact: true }).click();
@@ -392,7 +393,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "the remote deploy and leftovers pages carry the remote workspace id",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(url, { waitUntil: "domcontentloaded" });
     await page.locator("button.workspace").click();
     await page.getByText("Remote client", { exact: true }).click();
@@ -417,7 +418,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "a workspace whose pages cannot be read shows none, not the previous workspace's",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(url, { waitUntil: "domcontentloaded" });
 
     // A workspace whose remote offers pages: its links are in the sidebar.
@@ -439,7 +440,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "creating a change in a remote workspace posts to the remote and lands on it there",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     const posts: string[] = [];
     page.on("request", (request) => {
       if (request.method() === "POST") posts.push(request.url());
@@ -470,7 +471,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "creating a change in a local workspace still posts locally and lands on it",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     const posts: string[] = [];
     page.on("request", (request) => {
       if (request.method() === "POST") posts.push(request.url());
@@ -498,7 +499,7 @@ test.skipIf(!usable)(
   "a late terminal URL from a change you left cannot take over the current one",
   async () => {
     remoteTerminalDelayMs = 4000;
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     const sockets: string[] = [];
     page.on("websocket", (socket) => sockets.push(socket.url()));
     try {

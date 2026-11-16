@@ -17,6 +17,7 @@ import {
   testTempDir,
   until,
   waitForUrl,
+  startTestServer,
 } from "./helpers.ts";
 
 /**
@@ -64,14 +65,11 @@ const writeConfig = (tmp: string, remotePort: number, remoteWorkspace: string): 
 const startServer = async (
   tmp: string,
   port = 0,
-): Promise<{ proc: ReturnType<typeof Bun.spawn>; url: string }> => {
-  const proc = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp, { CORVI_PORT: String(port) }),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-  return { proc, url: await waitForUrl(proc) };
-};
+): Promise<{ proc: ReturnType<typeof Bun.spawn>; url: string }> =>
+  startTestServer(tmp, { env: { CORVI_PORT: String(port) } }).then(({ server, url }) => ({
+    proc: server,
+    url,
+  }));
 
 type FakeRemote = {
   readonly port: number;

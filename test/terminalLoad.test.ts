@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import { ensureHost } from "../apps/server/src/terminals/host/client.ts";
-import { checkoutsOf, runSh, testTempDir, startTestServer } from "./helpers.ts";
+import { checkoutsOf, runSh, testTempDir, startTestServer, stopTestServer } from "./helpers.ts";
 
 /**
  * What a flood costs the rest of the server. A terminal screen is parsed and serialized on the
@@ -63,16 +63,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
-  server?.kill();
-  await server?.exited;
-  await ensureHost({
-    socket: join(tmp, "state", "corvi", "host.sock"),
-    checkout: process.cwd(),
-    buildId: process.env.CORVI_BUILD ?? "dev",
-    runtime: "node",
-  })
-    .then((result) => result.client.shutdown())
-    .catch(() => undefined);
+  await stopTestServer(server, tmp);
   if (savedStateHome === undefined) delete process.env.XDG_STATE_HOME;
   else process.env.XDG_STATE_HOME = savedStateHome;
   await rm(tmp, { recursive: true, force: true });

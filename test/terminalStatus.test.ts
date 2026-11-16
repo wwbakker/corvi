@@ -3,7 +3,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { ensureHost, type HostClient } from "../apps/server/src/terminals/host/client.ts";
 import { isStale, presentStatus, type AgentStatus } from "../apps/server/src/terminals/server/status.ts";
-import { checkoutsOf, runSh, testTempDir, waitFor, startTestServer } from "./helpers.ts";
+import { checkoutsOf, runSh, testTempDir, waitFor, startTestServer, stopTestServer } from "./helpers.ts";
 
 /**
  * The agent-status channel end to end: the endpoint, its validation, the presenter that reads the
@@ -64,11 +64,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
-  server?.kill();
-  await server?.exited;
-  await ensureHost({ socket: hostSocket(), checkout: process.cwd(), buildId: "dev", runtime: "node" })
-    .then((result) => result.client.shutdown())
-    .catch(() => undefined);
+  await stopTestServer(server, tmp);
   await rm(tmp, { recursive: true, force: true });
 }, 60_000);
 

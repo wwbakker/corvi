@@ -11,6 +11,7 @@ import {
   stopRunHost,
   testTempDir,
   startTestServer,
+  VIEWPORT,
 } from "./helpers.ts";
 import { editorText, fillEditor } from "./editor.ts";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "@corvi/web/chrome";
@@ -85,7 +86,7 @@ afterAll(async () => {
 
 /** Open a page and hand back whatever the engine objected to. */
 async function open(path: string, ready: string): Promise<string[]> {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ viewport: VIEWPORT });
   const complaints: string[] = [];
   page.on("pageerror", (e) => complaints.push(`${path}: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && complaints.push(`${path}: ${m.text()}`));
@@ -142,7 +143,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "the azure-devops page reads live on arrival, and a deploying cell shows its progress",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     const started = new Date(Date.now() - 3 * 60_000).toISOString();
     // One service deploying on accept with a known typical duration, one settled: the two cells the
     // page has to tell apart. Answered here rather than by the server, so the test needs no Azure
@@ -336,7 +337,7 @@ async function openDeployDialog(options: { building: boolean }): Promise<{
    * in flight. */
   holdNext: () => () => void;
 }> {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ viewport: VIEWPORT });
   await page.clock.install();
   let building = options.building;
   let failing = false;
@@ -532,7 +533,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "the cards offer their editors, and a finished change offers none",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector(".widget");
 
@@ -560,7 +561,7 @@ test.skipIf(!usable)(
       body: JSON.stringify({ force: true }),
     });
     expect(cancelled.ok).toBe(true);
-    const closed = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const closed = await browser.newPage({ viewport: VIEWPORT });
     await closed.goto(`${url}/changes/${done}/dashboard`, { waitUntil: "domcontentloaded" });
     await closed.waitForSelector(".widget");
     expect(await closed.locator('button[title^="Edit "]').count()).toBe(0);
@@ -574,7 +575,7 @@ test.skipIf(!usable)(
   async () => {
     // The page whose failure mode is a sentence about nothing: /api/settings answering with the
     // app's own HTML, parsed as JSON.
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("nav.tabs");
     expect(await page.locator(".error-banner").count()).toBe(0);
@@ -636,7 +637,7 @@ test.skipIf(!usable)(
       ).file;
     const before = await file();
 
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     // The prompt by its own words: the directory fields keep their pickers in the DOM, closed.
     const prompt = page.locator("dialog", { hasText: "Unsaved settings" });
     await editSettings(page, "typed and left behind");
@@ -681,7 +682,7 @@ test.skipIf(!usable)(
     // put back while the answer is pending, so the address bar and the page never disagree. After
     // answering, Back and Forward still walk the history in both directions: the guard's restore
     // strands no entry.
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("nav.tabs");
     // A clean visit away and back first, so Back has somewhere to go.
@@ -719,7 +720,7 @@ test.skipIf(!usable)(
   async () => {
     // Save and leave runs the page's own save, so its failure is the page's own: the dialog
     // closes, the error banner explains, and the draft is still there to retry or to leave.
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.route(
       (u) => u.pathname === "/api/settings",
       async (route) => {
@@ -757,7 +758,7 @@ test.skipIf(!usable)(
     // The marker sits in the heading's flex line and comes and goes as you type, so any size or
     // margin it contributes changes the height of the heading — and the whole card — on every
     // keystroke. It must be smaller than the title and take no space of its own.
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
     const card = page.locator(".widget:has(.md-editor)");
     await card.waitFor();
@@ -787,7 +788,7 @@ test.skipIf(!usable)(
   async () => {
     // The textarea it replaced had a resize grip, and a long note deserves more than one fixed
     // window: the corner drags the box taller and the text scrolls inside it.
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
     const editor = page.locator(".widget:has(.md-editor) .md-editor");
     await editor.waitFor();
@@ -1017,7 +1018,7 @@ test.skipIf(!usable)(
     await writeNotes(id, left);
     await writeNotes(other, opened);
 
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
     const notes = page.locator(".md-editor");
     await notes.waitFor();
@@ -1075,7 +1076,7 @@ test.skipIf(!usable)(
     await writeNotes(id, "notes of the change you leave");
     await writeNotes(other, "notes of the change you open");
 
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     // Held back long enough that the switch happens while this read is in flight, which is the
     // race: a slow read, not a wrong one.
     await page.route(
@@ -1407,7 +1408,7 @@ test.skipIf(!usable)(
     // lights the main process placed in it (docs/manual/interface.md). Injected rather than
     // driven through Electron, because the page's half of the contract is what is being checked — the
     // lights' pixels are the main process's, and only a real window has those.
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     // The bridge's whole contract, or the page is right to complain: a host missing a method makes a
     // React tree that throws on mount, which shows up as a test that waits for a selector forever.
     const complaints: string[] = [];
@@ -1479,7 +1480,7 @@ test.skipIf(!usable)(
     // Renaming is an action in the change's own row (docs/manual/interface.md): the menu's
     // Rename change opens a field beside the state and the actions, and what it is given is what the
     // column's entry and the window's title say afterwards.
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
     await page.locator(".change-bar .window-tab.overview").waitFor();
 
@@ -1502,7 +1503,7 @@ test.skipIf(!usable)(
   async () => {
     // One control in two places: the overview's header has it, and so does the column beside the
     // Ideas heading — the entries it adds to. Both say the same word and open the same wizard.
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(url, { waitUntil: "domcontentloaded" });
     await page.waitForSelector(".change-card");
 
@@ -1522,7 +1523,7 @@ test.skipIf(!usable)(
   async () => {
     // The promise this change is about: leaving /new loses nothing. The form lives in the App
     // (apps/web/src/wizard/draft.ts), and the column's row under Ideas is the way back to it.
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(url, { waitUntil: "domcontentloaded" });
     await page.waitForSelector(".change-card");
 
@@ -1586,7 +1587,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "the repository browser asks where the checkout lives and which branch it uses",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(url, { waitUntil: "domcontentloaded" });
     await page.waitForSelector(".change-card");
 
@@ -1669,7 +1670,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "the state selector speaks the record's vocabulary",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector(".change-tabs select");
     const options = (await page.locator(".change-tabs select option").allInnerTexts()).map((s) => s.trim());
@@ -1689,7 +1690,7 @@ test.skipIf(!usable)(
     // Two levels, two rows: the window's row says which surface — the change's own views or one of its
     // terminals — and the row under it says which of those views. Plan is the first of them (where a
     // change opens), and the Overview tab is current for every one of them.
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
     expect(await page.locator(".change-bar .window-tab.overview.current").count()).toBe(1);
 
@@ -1725,7 +1726,7 @@ test.skipIf(!usable)(
     // The memory is the page's own: remembered while it lives, and a fresh page — or a restart of
     // the app — opens the plan again (apps/web/src/app-root/remember.ts). `other`, whose name no
     // earlier test has rewritten, is the one the card can be found by.
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await page.goto(url, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".change-card");
@@ -1761,7 +1762,7 @@ test.skipIf(!usable)(
     });
     expect(wrote.ok).toBe(true);
 
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await page.goto(`${url}/changes/${other}`, { waitUntil: "domcontentloaded" });
       // The document, not the empty editor the placeholder stands in for.
@@ -1820,7 +1821,7 @@ test.skipIf(!usable)(
         body: JSON.stringify({ ...current.file, contextMenu }),
       });
 
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     const rightClick = (): Promise<boolean> =>
       page.evaluate(() => {
         const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });

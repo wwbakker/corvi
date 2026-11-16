@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type Browser } from "playwright";
-import { closePages, openEngine, testTempDir, startTestServer, stopTestServer } from "./helpers.ts";
+import { closePages, openEngine, testTempDir, startTestServer, stopTestServer, VIEWPORT } from "./helpers.ts";
 
 /**
  * The Remote access settings section in the engine the app renders in: the enable toggle and
@@ -46,7 +46,7 @@ afterAll(async () => {
 test.skipIf(!usable)(
   "the section shows the bind status and writes the toggle and port",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     // The Tailscale read is stubbed: this machine's real answer would make the test flaky.
     await page.route(
       (u) => u.pathname === "/api/tailscale",
@@ -93,7 +93,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "a shared or foreign 443 is shown plainly, with the manual escape and a disabled Publish",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     // The Tailscale read is stubbed per state; only its body changes between the two.
     let status: Record<string, unknown> = {
       available: true,

@@ -1,7 +1,7 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { type Browser, type Page } from "playwright";
-import { closePages, openEngine, testTempDir, startTestServer, stopTestServer } from "./helpers.ts";
+import { closePages, openEngine, testTempDir, startTestServer, stopTestServer, VIEWPORT } from "./helpers.ts";
 
 /**
  * The auto-update surface in the engine the app renders in: the notice, the icon, and the
@@ -160,7 +160,7 @@ test.skipIf(!usable)(
     status = available();
     starts = 0;
     checks = 0;
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await serve(page);
     await page.goto(url, { waitUntil: "domcontentloaded" });
 
@@ -214,7 +214,7 @@ test.skipIf(!usable)(
       commits: [commits[0]],
       refusal: "uncommitted changes in the checkout",
     };
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await serve(page);
     await page.goto(url, { waitUntil: "domcontentloaded" });
     await page.locator(".sidebar .icon-entry.update.available").click();
@@ -232,7 +232,7 @@ test.skipIf(!usable)(
   async () => {
     status = { eligible: true, behind: 0, commits: [], progress: null, restartPending: false };
     checks = 0;
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await serve(page);
     await page.goto(url, { waitUntil: "domcontentloaded" });
     // Gray, not yellow: no update is waiting.

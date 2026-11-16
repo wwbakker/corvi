@@ -2,7 +2,15 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { type Browser, type Locator, type Page } from "playwright";
-import { closePages, gitRepo, openEngine, startTestServer, stopTestServer, testTempDir } from "./helpers.ts";
+import {
+  closePages,
+  gitRepo,
+  openEngine,
+  startTestServer,
+  stopTestServer,
+  testTempDir,
+  VIEWPORT,
+} from "./helpers.ts";
 
 /**
  * What happens to untracked files when a worktree goes, through the page: removing a repository
@@ -73,7 +81,7 @@ test.skipIf(!usable)(
       await gitRepo(tmp, "app", { remote: true, configure: false }),
     );
 
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
     await page.locator('button[title="Edit Local changes"]').click();
     await page.locator("dialog[open]").getByRole("button", { name: "Remove" }).click();
@@ -101,7 +109,7 @@ test.skipIf(!usable)(
     const id = "DISCARD-CANCEL";
     const worktree = await changeWithLeftovers(id, join(tmp, "app"));
 
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(`${url}/changes/${id}/plan`, { waitUntil: "domcontentloaded" });
     await page.locator(".change-tabs .menu > button").click();
     await page.getByRole("button", { name: "Cancel change" }).click();

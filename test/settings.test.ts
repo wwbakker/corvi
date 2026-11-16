@@ -1,6 +1,5 @@
 import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
-import { mkdtemp, rm, readFile, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { rm, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
   MASK,
@@ -10,8 +9,7 @@ import {
   type Settings,
 } from "../apps/server/src/settings/server/index.ts";
 import { runtimeConfig, reloadConfigSync, type Config } from "../apps/server/src/workspace/server/index.ts";
-import { runEffect } from "./helpers.ts";
-
+import { runEffect, testTempDir } from "./helpers.ts";
 /**
  * The settings page writes the file the whole program reads, so the two things worth testing are
  * that a bad value never reaches it and that a good one takes effect without a restart. The
@@ -25,15 +23,13 @@ const originalConfig = process.env.CORVI_CONFIG;
 // the file by design — with it set, a written changesRoot would correctly have no effect and
 // this file would be testing the override instead.
 const originalRoot = process.env.CORVI_ROOT;
-
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "corvi-settings-"));
+  tmp = await testTempDir("settings");
   file = join(tmp, "runtimeConfig().json");
   process.env.CORVI_CONFIG = file;
   delete process.env.CORVI_ROOT;
   reloadConfigSync();
 });
-
 afterAll(async () => {
   await rm(tmp, { recursive: true, force: true });
   if (originalConfig === undefined) delete process.env.CORVI_CONFIG;
@@ -43,11 +39,9 @@ afterAll(async () => {
   // fails somewhere else for a reason nobody can see.
   reloadConfigSync();
 });
-
 afterEach(() => {
   delete process.env.CORVI_WORKTREE_COPY;
 });
-
 test("what cannot be written", () => {
   expect(problems({ changesRoot: "changes" })).toEqual(["changesRoot must be an absolute path"]);
   // `~` is a path the program can resolve, so it is one the page may offer.
@@ -58,7 +52,6 @@ test("what cannot be written", () => {
     "repositoriesDirectory must be an absolute path",
   ]);
   expect(problems({ repositoriesDirectory: "~/Repos" })).toEqual([]);
-
   expect(problems({ workspaces: [{ id: "a b", name: "Spaces" }] })).toEqual([
     'workspace id "a b" must be a word',
   ]);
@@ -71,13 +64,11 @@ test("what cannot be written", () => {
     }),
   ).toEqual(['two workspaces share the id "client"']);
   expect(problems({ workspaces: [{ id: "client", name: "" }] })).toEqual(['workspace "client" has no name']);
-
   // A directory copied into a worktree is a name next to the code, never a way out of it.
   expect(problems({ worktreeCopy: ["../.ssh"] })).toEqual([
     '"../.ssh" is not a directory name next to the code',
   ]);
   expect(problems({ worktreeCopy: [".idea", ".bsp"] })).toEqual([]);
-
   expect(
     problems({ workspaces: [{ id: "c", name: "C", settings: { env: { "not a name": "x" } } }] }),
   ).toEqual(['C: "not a name" is not an environment variable name']);
@@ -85,7 +76,6 @@ test("what cannot be written", () => {
   expect(problems({ env: { "not a name": "x" } })).toEqual([
     '"not a name" is not an environment variable name',
   ]);
-
   // A context's own repositories directory follows the same rule as the global one.
   expect(
     problems({ workspaces: [{ id: "c", name: "C", settings: { repositoriesDirectory: "relative" } }] }),
@@ -94,7 +84,6 @@ test("what cannot be written", () => {
     problems({ workspaces: [{ id: "c", name: "C", settings: { repositoriesDirectory: "~/Repos/acme" } }] }),
   ).toEqual([]);
 });
-
 test("writing takes effect without a restart, and refuses what is wrong", async () => {
   const next: Settings = {
     changesRoot: join(tmp, "changes"),
@@ -105,7 +94,6 @@ test("writing takes effect without a restart, and refuses what is wrong", async 
     ],
   };
   await runEffect(writeSettings(next));
-
   // The object every module imported, not a copy of it: that is what "no restart" means.
   expect(runtimeConfig().changesRoot).toBe(join(tmp, "changes"));
   expect(runtimeConfig().worktreeCopy).toEqual([".idea"]);
@@ -113,24 +101,20 @@ test("writing takes effect without a restart, and refuses what is wrong", async 
   // The shapes the page wrote land on the object every module reads, untouched.
   expect(runtimeConfig().workspaces[0]!.settings?.extensionSettings).toEqual({ jira: { project: "PROJ" } });
   expect(runtimeConfig().workspaces[1]!.settings?.extensions).toEqual(["github", "git"]);
-
   await expect(runEffect(writeSettings({ workspaces: [{ id: "", name: "Nameless" }] }))).rejects.toThrow(
     /no id/,
   );
   // Refused means unchanged, not half written.
   expect(reloadConfigSync().workspaces.map((w) => w.id)).toEqual(["client", "own"]);
 });
-
 test("silencing notifications is a decision the file keeps; absent means sound", async () => {
   // The default is on, and only the decision to silence is written down, so an untouched file
   // stays a page of decisions rather than a dump of defaults.
   expect(reloadConfigSync().notificationSound).toBe(true);
-
   await runEffect(writeSettings({ notificationSound: false }));
   expect(runtimeConfig().notificationSound).toBe(false);
   const written = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   expect(written.notificationSound).toBe(false);
-
   // Handing it back to the default is writing nothing, which is what the page sends when the
   // box is ticked again.
   await runEffect(writeSettings({ notificationSound: undefined }));
@@ -138,7 +122,6 @@ test("silencing notifications is a decision the file keeps; absent means sound",
   const cleared = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   expect("notificationSound" in cleared).toBe(false);
 });
-
 test("each save keeps the file it replaces as config.json.bak", async () => {
   await runEffect(writeSettings({ notificationSound: true }));
   await runEffect(writeSettings({ notificationSound: false }));
@@ -147,7 +130,6 @@ test("each save keeps the file it replaces as config.json.bak", async () => {
   expect(backup.notificationSound).toBe(true);
   expect((await stat(`${file}.bak`)).mode & 0o777).toBe(0o600);
 });
-
 test("the file keeps what it had, including fields the core no longer names", async () => {
   // A legacy-only config file: the flat jira fields left the schema when the extension took them
   // over, so a settings-page write must carry them through the preserve decode rather than drop
@@ -162,7 +144,6 @@ test("the file keeps what it had, including fields the core no longer names", as
     }),
   );
   await runEffect(writeSettings({ notificationSound: false }));
-
   const written = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   // A key we do not know about was put there by hand, for a version of Corvi that does.
   expect(written.somethingNewer).toBe(1);
@@ -172,7 +153,6 @@ test("the file keeps what it had, including fields the core no longer names", as
   expect(written.jiraDoneTransition).toBe("Ready for release");
   expect(written.notificationSound).toBe(false);
 });
-
 test("a key the file no longer has does not survive a reload", async () => {
   // The one config object is refilled with Object.assign, so a key the new file does not mention
   // would stay readable from the previous file — a legacy field the page emptied, say. The
@@ -180,12 +160,10 @@ test("a key the file no longer has does not survive a reload", async () => {
   await Bun.write(file, JSON.stringify({ jiraDoneTransition: "Ready for release" }));
   reloadConfigSync();
   expect((runtimeConfig() as { jiraDoneTransition?: string }).jiraDoneTransition).toBe("Ready for release");
-
   await Bun.write(file, JSON.stringify({}));
   reloadConfigSync();
   expect("jiraDoneTransition" in runtimeConfig()).toBe(false);
 });
-
 test("a workspace key the core no longer names survives a settings save", async () => {
   // The loader passes an unknown workspace key through untouched, and the page writes the
   // workspace back as it read it.
@@ -198,9 +176,7 @@ test("a workspace key the core no longer names survives a settings save", async 
   reloadConfigSync();
   const readBack = (): unknown => (runtimeConfig().workspaces[0] as { jira?: unknown }).jira;
   expect(readBack()).toEqual({ project: "LEGACY", board: "B" });
-
   await runEffect(writeSettings({ workspaces: [runtimeConfig().workspaces[0]!] }));
-
   const written = JSON.parse(await readFile(file, "utf8")) as {
     workspaces: Record<string, unknown>[];
   };
@@ -208,7 +184,6 @@ test("a workspace key the core no longer names survives a settings save", async 
   expect(written.workspaces[0]!.jira).toEqual({ project: "LEGACY", board: "B" });
   expect(readBack()).toEqual({ project: "LEGACY", board: "B" });
 });
-
 test("the config file keeps prototype-named keys across a save", async () => {
   // Written as text so `__proto__` is an own key, as JSON.parse gives it; a JSON-literal test
   // helper would set the prototype instead and hide the bug.
@@ -219,7 +194,6 @@ test("the config file keeps prototype-named keys across a save", async () => {
   );
   reloadConfigSync();
   await runEffect(writeSettings({ notificationSound: false }));
-
   const at = (value: Record<string, unknown>, key: string): unknown => value[key];
   const written = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   expect(Object.hasOwn(written, "constructor")).toBe(true);
@@ -231,11 +205,9 @@ test("the config file keeps prototype-named keys across a save", async () => {
   expect(Object.getPrototypeOf(written)).toBe(Object.prototype);
   expect(written.notificationSound).toBe(false);
 });
-
 test("a setting the environment overrides is reported as locked", async () => {
   process.env.CORVI_WORKTREE_COPY = ".idea";
   reloadConfigSync();
-
   const view = settingsViewSync();
   expect(view.overridden.worktreeCopy).toBe("CORVI_WORKTREE_COPY");
   expect(view.effective.worktreeCopy).toEqual([".idea"]);
@@ -243,7 +215,6 @@ test("a setting the environment overrides is reported as locked", async () => {
   // The default is offered back, so a page can undo a change to the list.
   expect(view.toolingDefault).toContain(".bsp");
 });
-
 test("the repositories directory's environment override wins, and the page is told", () => {
   const original = process.env.CORVI_REPOSITORIES_DIRECTORY;
   process.env.CORVI_REPOSITORIES_DIRECTORY = "/tmp/env-repos";
@@ -259,7 +230,6 @@ test("the repositories directory's environment override wins, and the page is to
     reloadConfigSync();
   }
 });
-
 test("an extension setting the environment overrides is reported as locked too", () => {
   process.env.CORVI_JIRA_ASSIGNEE = "me@example.com";
   try {
@@ -287,7 +257,6 @@ test("an extension setting the environment overrides is reported as locked too",
     delete process.env.CORVI_JIRA_ASSIGNEE;
   }
 });
-
 test("the extensions' own settings round-trip, strings and string lists", async () => {
   await runEffect(
     writeSettings({
@@ -297,7 +266,6 @@ test("the extensions' own settings round-trip, strings and string lists", async 
       },
     }),
   );
-
   const written = JSON.parse(await readFile(file, "utf8")) as {
     extensionSettings?: Config["extensionSettings"];
   };
@@ -308,7 +276,6 @@ test("the extensions' own settings round-trip, strings and string lists", async 
   // The core carries the bag without looking inside: the object every module holds by
   // reference has it, untouched.
   expect(runtimeConfig().extensionSettings).toEqual(written.extensionSettings);
-
   // A later save keeps what the extensions wrote, and clearing a field means unset: the empty
   // string goes, the list stays.
   await runEffect(
@@ -324,7 +291,6 @@ test("the extensions' own settings round-trip, strings and string lists", async 
     "azure-devops": { environments: ["dev", "accept"] },
   });
 });
-
 test("a declared secret never reaches the page, and not retyping it keeps it", async () => {
   await runEffect(
     writeSettings({
@@ -338,7 +304,6 @@ test("a declared secret never reaches the page, and not retyping it keeps it", a
       ],
     }),
   );
-
   const view = settingsViewSync();
   // The mask where a secret is stored, at both levels, in the file and in what is in effect.
   expect(view.file.extensionSettings?.["jira"]?.["token"]).toBe(MASK);
@@ -351,7 +316,6 @@ test("a declared secret never reaches the page, and not retyping it keeps it", a
   expect(runtimeConfig().workspaces[0]?.settings?.extensionSettings?.["jira"]?.["token"]).toBe(
     "client-secret",
   );
-
   // A save that sends the mask back — a page that edited anything else — keeps what is stored.
   await runEffect(writeSettings(view.file));
   expect(runtimeConfig().extensionSettings?.["jira"]?.["token"]).toBe("root-secret");
@@ -361,14 +325,12 @@ test("a declared secret never reaches the page, and not retyping it keeps it", a
   const kept = await readFile(file, "utf8");
   expect(kept).toContain("root-secret");
   expect(kept).not.toContain(MASK);
-
   // A retyped token replaces it, and an emptied field falls back to the environment.
   await runEffect(writeSettings({ extensionSettings: { jira: { token: "new-secret" } } }));
   expect(runtimeConfig().extensionSettings?.["jira"]?.["token"]).toBe("new-secret");
   await runEffect(writeSettings({ extensionSettings: { jira: { token: "" } } }));
   expect(runtimeConfig().extensionSettings?.["jira"]?.["token"]).toBeUndefined();
 });
-
 test("a mask for a secret nothing is stored in is not written as one", async () => {
   // A page open before the token existed sends the mask for a field the file does not have; what
   // it must not do is make the mask the token.
@@ -376,11 +338,9 @@ test("a mask for a secret nothing is stored in is not written as one", async () 
   await runEffect(
     writeSettings({ extensionSettings: { jira: { server: "https://x.example", token: MASK } } }),
   );
-
   expect(runtimeConfig().extensionSettings?.["jira"]?.["token"]).toBeUndefined();
   expect(await readFile(file, "utf8")).not.toContain(MASK);
 });
-
 test("the settings file is written for its owner alone", async () => {
   await runEffect(writeSettings({ extensionSettings: { jira: { token: "hunter2" } } }));
   // It may hold a token, and a mode that depended on whether it happened to would flap.

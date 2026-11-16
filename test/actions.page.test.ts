@@ -10,6 +10,7 @@ import {
   testTempDir,
   startTestServer,
   stopTestServer,
+  VIEWPORT,
 } from "./helpers.ts";
 import { editorText, fillEditor } from "./editor.ts";
 
@@ -95,7 +96,7 @@ const litIs = async (page: Page, name: string): Promise<void> => {
 test.skipIf(!usable)(
   "an action is edited in the editor's frame, its fields documented beside it",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await editReview(page);
 
@@ -111,8 +112,8 @@ test.skipIf(!usable)(
       if (!editor || !docs) throw new Error("the editor and its documentation did not lay out");
       expect(Math.abs(editor.y - docs.y)).toBeLessThan(2);
       expect(Math.abs(editor.height - docs.height)).toBeLessThan(2);
-      expect(Math.abs(docs.x + docs.width - (1280 - 24))).toBeLessThan(5);
-      expect(Math.abs(editor.y + editor.height - (900 - 48))).toBeLessThan(8);
+      expect(Math.abs(docs.x + docs.width - (VIEWPORT.width - 24))).toBeLessThan(5);
+      expect(Math.abs(editor.y + editor.height - (VIEWPORT.height - 48))).toBeLessThan(8);
       expect(Math.abs(docs.width - 320)).toBeLessThan(5);
 
       // Every field the vocabulary has is documented, named as the file names it.
@@ -152,7 +153,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "the documentation opens and closes, and stays where it was left",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await editReview(page);
       await page.waitForSelector(".action-docs");
@@ -176,7 +177,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "the field the caret is in is lit",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await editReview(page);
 
@@ -199,7 +200,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "a write that is not an action is refused, and says why",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await editReview(page);
       await fillEditor(page.locator(".md-editor"), "no frontmatter at all");
@@ -244,7 +245,7 @@ test.skipIf(!usable)(
     // names what is at stake (the file being edited); Stay keeps the edit, Discard leaves it
     // behind, Save and leave writes it on the way out.
     const before = await onDisk();
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       const prompt = page.locator("dialog", { hasText: "Unsaved changes to look-over.md" });
       await editReview(page);
@@ -284,7 +285,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "an editor with nothing unsaved leaves without a question",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await editReview(page);
       await page.getByRole("button", { name: "Changes", exact: true }).click();
@@ -303,7 +304,7 @@ test.skipIf(!usable)(
     // Save and leave runs the page's own save, so its failure is the page's own: the dialog
     // closes, the notice explains, and the draft is still there to fix or to leave.
     const before = await onDisk();
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await editReview(page);
       await fillEditor(page.locator(".md-editor"), "no frontmatter at all");
@@ -328,7 +329,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "Save writes the file at once and returns to the list",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await editReview(page);
       await fillEditor(page.locator(".md-editor"), typed);
@@ -352,7 +353,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "New offers the built-ins as templates, and a copy lands in the scope",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await page.goto(`${url}/actions`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".actions-page");
@@ -425,7 +426,7 @@ test.skipIf(!usable)(
       "utf8",
     );
 
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await page.goto(`${url}/actions`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".actions-page");

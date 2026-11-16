@@ -6,7 +6,15 @@ import { type Browser, type Locator } from "playwright";
 
 import { serve, type Serving } from "../apps/server/src/capabilities/serve.ts";
 import { guard, json } from "../apps/server/src/capabilities/web.ts";
-import { closePages, openEngine, stopRunHost, testTempDir, until, startTestServer } from "./helpers.ts";
+import {
+  closePages,
+  openEngine,
+  stopRunHost,
+  testTempDir,
+  until,
+  startTestServer,
+  VIEWPORT,
+} from "./helpers.ts";
 
 /**
  * The power control in the page: the sidebar's power icon opens a dialog that names the machines,
@@ -115,7 +123,7 @@ async function waitForRemote(dialog: Locator): Promise<Locator> {
 }
 
 test.skipIf(!usable)("the dialog names this machine, arms it, and cancels", async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ viewport: VIEWPORT });
   await page.goto(url, { waitUntil: "domcontentloaded" });
 
   await page.locator(".sidebar .icon-entry[aria-label='Power']").click();
@@ -146,7 +154,7 @@ test.skipIf(!usable)("the dialog names this machine, arms it, and cancels", asyn
 test.skipIf(!usable)(
   "a machine whose read fails drops out of the selection and the rest still arm",
   async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: VIEWPORT });
     await page.goto(url, { waitUntil: "domcontentloaded" });
     await page.locator(".sidebar .icon-entry[aria-label='Power']").click();
     const dialog = page.locator("dialog.power-dialog");
@@ -176,7 +184,7 @@ test.skipIf(!usable)(
 );
 
 test.skipIf(!usable)("a local power event and a remote source power event each refetch", async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ viewport: VIEWPORT });
   let localReads = 0;
   await page.route(
     (u) => u.pathname === "/api/power",

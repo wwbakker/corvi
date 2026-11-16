@@ -20,7 +20,16 @@ import {
 } from "../apps/server/src/devices/server/index.ts";
 import { problems } from "../apps/server/src/settings/server/index.ts";
 import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
-import { runEffect, serverEnv, testRun, testTempDir, waitForUrl, writeTestConfig } from "./helpers.ts";
+import {
+  runEffect,
+  serverEnv,
+  testRun,
+  testTempDir,
+  waitForUrl,
+  writeTestConfig,
+  startTestServer,
+  stopTestServer,
+} from "./helpers.ts";
 
 /**
  * The external listener and its token enforcement.
@@ -403,13 +412,8 @@ test("a failed external bind leaves the local server serving", async () => {
     JSON.stringify({ remoteAccess: { enabled: true, port: blockedPort } }),
   );
 
-  const proc = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
+  const { server: proc, url: localUrl } = await startTestServer(tmp);
   try {
-    const localUrl = await waitForUrl(proc);
     // The local listener answers though the external bind failed.
     expect((await fetch(`${localUrl}/api/devices`)).status).toBe(200);
 
@@ -420,8 +424,7 @@ test("a failed external bind leaves the local server serving", async () => {
     expect(settings.remoteAccessStatus.listening).toBe(false);
     expect(settings.remoteAccessStatus.error).toBeDefined();
   } finally {
-    proc.kill();
-    await proc.exited;
+    await stopTestServer(proc, tmp);
     blocker.close();
     await rm(tmp, { recursive: true, force: true });
   }

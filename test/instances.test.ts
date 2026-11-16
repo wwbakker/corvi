@@ -1,6 +1,6 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
-import { serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
+import { serverEnv, testRun, testTempDir, waitForUrl, startTestServer, stopTestServer } from "./helpers.ts";
 
 /**
  * Two application instances share nothing: each has its own changes root, config, built page,
@@ -15,25 +15,18 @@ let second: ReturnType<typeof Bun.spawn>;
 let firstUrl: string;
 let secondUrl: string;
 
-const boot = (tmp: string): ReturnType<typeof Bun.spawn> =>
-  Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp),
-    stdout: "pipe",
-    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
-  });
-
 beforeAll(async () => {
   firstTmp = await testTempDir("instances-a");
   secondTmp = await testTempDir("instances-b");
-  first = boot(firstTmp);
-  second = boot(secondTmp);
-  [firstUrl, secondUrl] = await Promise.all([waitForUrl(first), waitForUrl(second)]);
+  const [a, b] = await Promise.all([startTestServer(firstTmp), startTestServer(secondTmp)]);
+  first = a.server;
+  second = b.server;
+  firstUrl = a.url;
+  secondUrl = b.url;
 });
 
 afterAll(async () => {
-  first?.kill();
-  second?.kill();
-  await Promise.all([first?.exited, second?.exited]);
+  await Promise.all([stopTestServer(first, firstTmp), stopTestServer(second, secondTmp)]);
   await rm(firstTmp, { recursive: true, force: true });
   await rm(secondTmp, { recursive: true, force: true });
 });

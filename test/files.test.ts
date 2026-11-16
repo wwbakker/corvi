@@ -1,24 +1,20 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { writeAtomic } from "../apps/server/src/capabilities/files.ts";
-
+import { testTempDir } from "./helpers.ts";
 /**
  * The write every durable file goes through (change.json, sidecars, settings). A reader must see
  * the old content or the new one, never a mixture, and a writer that fails must not leave its
  * temp file behind.
  */
 let tmp: string;
-
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "corvi-files-"));
+  tmp = await testTempDir("files");
 });
-
 afterAll(async () => {
   await rm(tmp, { recursive: true, force: true });
 });
-
 test("writeAtomic replaces a file with one whole version under concurrency", async () => {
   const path = join(tmp, "concurrent");
   await writeAtomic(path, "start");
@@ -29,7 +25,6 @@ test("writeAtomic replaces a file with one whole version under concurrency", asy
   // No temp files survive a successful write.
   expect((await readdir(tmp)).filter((name) => name.includes(".tmp"))).toEqual([]);
 });
-
 test("writeAtomic rejects and leaves no temp behind when the rename cannot finish", async () => {
   const directory = join(tmp, "a-directory");
   await mkdir(directory, { recursive: true });
