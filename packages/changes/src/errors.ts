@@ -4,6 +4,7 @@
 import { Schema } from "effect";
 
 import { ChangeId, ChangePhase, DirectoryName, RepositoryId } from "@corvi/contracts/changes";
+import { FORMAT_VERSION } from "./record.ts";
 import { ShelfId } from "@corvi/contracts/shelves";
 
 export class ChangeNotFound extends Schema.TaggedError<ChangeNotFound>()("ChangeNotFound", {
@@ -48,6 +49,17 @@ export class ChangeFormatTooNew extends Schema.TaggedError<ChangeFormatTooNew>()
   appFormat: Schema.Number,
   message: Schema.String,
 }) {}
+
+/** The one sentence a record from a newer Corvi gets: it is read best-effort and never written. */
+export const formatTooNew = (changeId: ChangeId, recordFormat: number): ChangeFormatTooNew =>
+  new ChangeFormatTooNew({
+    changeId,
+    recordFormat,
+    appFormat: FORMAT_VERSION,
+    message:
+      `change ${changeId} was written by a newer version of Corvi ` +
+      `(record format ${recordFormat}, this one writes ${FORMAT_VERSION}); upgrade to edit it`,
+  });
 
 export class RepositoryNotFound extends Schema.TaggedError<RepositoryNotFound>()("RepositoryNotFound", {
   changeId: ChangeId,

@@ -6,7 +6,7 @@ import { isNotFound } from "@corvi/changes/node";
 import type { Change } from "@corvi/changes/record";
 import { FORMAT_VERSION, PLAN_FILE } from "@corvi/changes/record";
 import { ChangeId } from "@corvi/contracts/changes";
-import { ChangeFormatTooNew } from "@corvi/changes/errors";
+import { ChangeFormatTooNew, formatTooNew } from "@corvi/changes/errors";
 import { Change as ChangeSchema } from "./schema.ts";
 import { BadRequestError, DecodeError, InternalError, NotFoundError } from "@corvi/contracts/errors";
 import { decodePreserving, formatIssues } from "@corvi/contracts/body";
@@ -107,15 +107,7 @@ const guardFormat = (id: string): Effect.Effect<void, ChangeFormatTooNew> =>
       Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
     )(text).pipe(Effect.orElseSucceed(() => ({}) as Record<string, unknown>));
     const recordFormat = typeof raw.formatVersion === "number" ? raw.formatVersion : 1;
-    if (recordFormat > FORMAT_VERSION)
-      return yield* new ChangeFormatTooNew({
-        changeId: ChangeId.make(id),
-        recordFormat,
-        appFormat: FORMAT_VERSION,
-        message:
-          `change ${id} was written by a newer version of Corvi ` +
-          `(record format ${recordFormat}, this one writes ${FORMAT_VERSION}); upgrade to edit it`,
-      });
+    if (recordFormat > FORMAT_VERSION) return yield* formatTooNew(ChangeId.make(id), recordFormat);
   });
 
 // Decode with unknown keys preserved: a change.json carries whatever the code that wrote it
@@ -154,15 +146,7 @@ export const readChange = (id: string): Effect.Effect<Change | null, DecodeError
 export const writeChange = (change: Change): Effect.Effect<void, ChangeFormatTooNew> =>
   Effect.gen(function* () {
     const recordFormat = change.formatVersion ?? FORMAT_VERSION;
-    if (recordFormat > FORMAT_VERSION)
-      return yield* new ChangeFormatTooNew({
-        changeId: ChangeId.make(change.id),
-        recordFormat,
-        appFormat: FORMAT_VERSION,
-        message:
-          `change ${change.id} was written by a newer version of Corvi ` +
-          `(record format ${recordFormat}, this one writes ${FORMAT_VERSION}); upgrade to edit it`,
-      });
+    if (recordFormat > FORMAT_VERSION) return yield* formatTooNew(ChangeId.make(change.id), recordFormat);
     const dir = (yield* existingDir(change.id)) ?? changeDir(change);
     yield* fs(() => mkdir(dir, { recursive: true }));
     // The record's revision moves on every write, whichever store writes it: the lifecycle's

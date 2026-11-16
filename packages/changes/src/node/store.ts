@@ -20,7 +20,7 @@ import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect, Layer, Schema, Semaphore } from "effect";
 
-import { CheckoutSpecSchema } from "@corvi/contracts/api";
+import { ChangeWireSchema } from "@corvi/contracts/api";
 import { decodePreserving, formatIssues } from "@corvi/contracts/body";
 import {
   Change,
@@ -30,6 +30,7 @@ import {
   RepositoryId,
   type AddRepositoryInput,
 } from "@corvi/contracts/changes";
+import { formatTooNew } from "../errors.ts";
 import {
   ChangeConflict,
   ChangeFormatTooNew,
@@ -40,25 +41,18 @@ import {
 import { FORMAT_VERSION } from "../record.ts";
 import { repositoryFromSpec, specFromInput, specFromRepository } from "../rules.ts";
 import { ChangeStore } from "../store.ts";
+import { changeDirs, type RootPair } from "./paths.ts";
 
+/** The contract's record, with the two fields older records may lack made optional for reading:
+ * the store defaults them when it builds the domain value. */
 const StoredRecord = Schema.Struct({
-  id: Schema.String,
-  title: Schema.optional(Schema.String),
+  ...ChangeWireSchema.fields,
   branch: Schema.optional(Schema.String),
-  state: Schema.optional(ChangePhase),
-  workspace: Schema.optional(Schema.String),
   createdAt: Schema.optional(Schema.String),
-  completedAt: Schema.optional(Schema.String),
-  cancelledFrom: Schema.optional(ChangePhase),
-  revision: Schema.optional(Schema.Number),
-  formatVersion: Schema.optional(Schema.Number),
-  checkouts: Schema.optional(Schema.Array(CheckoutSpecSchema)),
 });
 type StoredRecord = typeof StoredRecord.Type;
 
-/** One settings scope's changes root and archive root. A change lives under one pair and
- * travels to that pair's archive when it is done. */
-export type RootPair = { readonly root: string; readonly archiveRoot: string };
+export type { RootPair } from "./paths.ts";
 
 export const isNotFound = (cause: unknown): boolean =>
   typeof cause === "object" &&
@@ -119,16 +113,7 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
       const writable = (record: StoredRecord): Effect.Effect<void, ChangeFormatTooNew> => {
         const recordFormat = record.formatVersion ?? 1;
         return recordFormat > FORMAT_VERSION
-          ? Effect.fail(
-              new ChangeFormatTooNew({
-                changeId: ChangeId.make(record.id),
-                recordFormat,
-                appFormat: FORMAT_VERSION,
-                message:
-                  `change ${record.id} was written by a newer version of Corvi ` +
-                  `(record format ${recordFormat}, this one writes ${FORMAT_VERSION}); upgrade to edit it`,
-              }),
-            )
+          ? Effect.fail(formatTooNew(ChangeId.make(record.id), recordFormat))
           : Effect.void;
       };
 
@@ -153,10 +138,7 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
        * copy wins — then each pair's archive. */
       const locate = (changeId: ChangeId): Effect.Effect<Located | undefined, ChangeStoreError> =>
         Effect.gen(function* () {
-          const candidates = [
-            ...options.roots.map(({ root }) => join(root, changeId)),
-            ...options.roots.map(({ archiveRoot }) => join(archiveRoot, changeId)),
-          ];
+          const candidates = changeDirs(options.roots, changeId);
           for (const dir of candidates) {
             const record = yield* readAt(dir);
             if (record) return { record, dir };
@@ -319,20 +301,11 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
                 catch: (cause: unknown) => storeError("write", `could not archive ${changeId}`, cause),
               });
             }
-            return new Change({
-              changeId,
-              title: next.title ?? changeId,
-              workspaceLocation:
-                patch.phase === "Completed" || patch.phase === "Cancelled"
-                  ? join(pair?.archiveRoot ?? options.roots[0]!.archiveRoot, changeId)
-                  : located.dir,
-              branch: next.branch ?? changeId,
-              phase: patch.phase,
-              createdAt: next.createdAt ?? "",
-              ...(next.completedAt ? { completedAt: next.completedAt } : {}),
-              ...(next.cancelledFrom ? { cancelledFrom: next.cancelledFrom } : {}),
-              revision: next.revision ?? actual + 1,
-            });
+            const destination =
+              patch.phase === "Completed" || patch.phase === "Cancelled"
+                ? join(pair?.archiveRoot ?? options.roots[0]!.archiveRoot, changeId)
+                : located.dir;
+            return changeOf(next, destination);
           }),
         );
       });

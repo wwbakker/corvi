@@ -8,7 +8,13 @@ import { Effect, Layer, Schema } from "effect";
 import type { ChangeId, DirectoryName } from "@corvi/contracts/changes";
 import { AbsolutePath } from "@corvi/contracts/paths";
 import { ShelfId, ShelfSchema, type ShelfDto } from "@corvi/contracts/shelves";
-import { ChangeFormatTooNew, ChangeNotFound, ChangeStoreError, ShelfNotFound } from "../errors.ts";
+import {
+  ChangeFormatTooNew,
+  ChangeNotFound,
+  ChangeStoreError,
+  ShelfNotFound,
+  formatTooNew,
+} from "../errors.ts";
 import { FORMAT_VERSION } from "../record.ts";
 import { ShelfStore } from "../shelves.ts";
 import { isNotFound, type RootPair } from "./store.ts";
@@ -86,15 +92,7 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
           const found = yield* locate(changeId);
           if (!found)
             return yield* new ChangeNotFound({ changeId, message: `change ${changeId} was not found` });
-          if (found.format > FORMAT_VERSION)
-            return yield* new ChangeFormatTooNew({
-              changeId,
-              recordFormat: found.format,
-              appFormat: FORMAT_VERSION,
-              message:
-                `change ${changeId} was written by a newer version of Corvi ` +
-                `(record format ${found.format}, this one writes ${FORMAT_VERSION}); upgrade to edit it`,
-            });
+          if (found.format > FORMAT_VERSION) return yield* formatTooNew(changeId, found.format);
           return found.dir;
         });
 
@@ -249,15 +247,7 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
       const remove = Effect.fn("ShelfStore.remove")(function* (changeId: ChangeId, shelfId: ShelfId) {
         const found = yield* locate(changeId);
         if (!found) return;
-        if (found.format > FORMAT_VERSION)
-          return yield* new ChangeFormatTooNew({
-            changeId,
-            recordFormat: found.format,
-            appFormat: FORMAT_VERSION,
-            message:
-              `change ${changeId} was written by a newer version of Corvi ` +
-              `(record format ${found.format}, this one writes ${FORMAT_VERSION}); upgrade to edit it`,
-          });
+        if (found.format > FORMAT_VERSION) return yield* formatTooNew(changeId, found.format);
         const target = shelfDir(found.dir, shelfId);
         if (!target) return;
         yield* fs(changeId, "write", `could not remove ${target}`, () =>

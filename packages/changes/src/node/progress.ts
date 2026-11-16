@@ -8,10 +8,11 @@ import { Effect, Layer, Schema, Semaphore } from "effect";
 
 import type { ChangeId } from "@corvi/contracts/changes";
 import { OperationStepSchema } from "@corvi/contracts/api";
-import { ChangeFormatTooNew, ChangeStoreError } from "../errors.ts";
+import { ChangeStoreError, formatTooNew } from "../errors.ts";
 import { FORMAT_VERSION } from "../record.ts";
 import { OperationProgress, type OperationStep } from "../progress.ts";
-import { isNotFound, type RootPair } from "./store.ts";
+import { isNotFound } from "./store.ts";
+import { changeDirs, type RootPair } from "./paths.ts";
 
 const Steps = Schema.Array(OperationStepSchema);
 
@@ -20,12 +21,8 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
     OperationProgress,
     Effect.gen(function* () {
       const lock = yield* Semaphore.make(1);
-      /** Every directory this change may live in: each pair's active root first, then each
-       * pair's archive. The journal goes beside the record it fences on. */
-      const dirsFor = (changeId: ChangeId): string[] => [
-        ...options.roots.map(({ root }) => join(root, changeId)),
-        ...options.roots.map(({ archiveRoot }) => join(archiveRoot, changeId)),
-      ];
+      /** The journal goes beside the record it fences on. */
+      const dirsFor = (changeId: ChangeId): string[] => changeDirs(options.roots, changeId);
       const dirOf = (changeId: ChangeId): Effect.Effect<string> =>
         Effect.gen(function* () {
           for (const dir of dirsFor(changeId)) {
@@ -75,15 +72,7 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
                 Effect.map((raw) => (typeof raw.formatVersion === "number" ? raw.formatVersion : 1)),
                 Effect.orElseSucceed(() => 1),
               );
-        if (recordFormat > FORMAT_VERSION)
-          return yield* new ChangeFormatTooNew({
-            changeId: input.changeId,
-            recordFormat,
-            appFormat: FORMAT_VERSION,
-            message:
-              `change ${input.changeId} was written by a newer version of Corvi ` +
-              `(record format ${recordFormat}, this one writes ${FORMAT_VERSION}); upgrade to edit it`,
-          });
+        if (recordFormat > FORMAT_VERSION) return yield* formatTooNew(input.changeId, recordFormat);
         yield* lock.withPermits(1)(
           Effect.gen(function* () {
             const existing = yield* Effect.tryPromise({
