@@ -8,6 +8,7 @@
 import { Result } from "effect";
 
 import type { ActionSource } from "@corvi/contracts/actions";
+import { keyOf, mergeScopedFiles } from "@corvi/markdown/scoped";
 import { parseActionFile, type Action, type InvalidActionFile } from "./model.ts";
 
 /** One file as discovery reads it: its id is the filename without `.md`. */
@@ -44,63 +45,24 @@ export type Discovery = {
   readonly skipped: readonly SkippedActionFile[];
 };
 
-/** The scope ranks, most specific first. Two repositories are equal — both are listed. */
-const rank: Record<ActionSource, number> = {
-  repository: 3,
-  workspace: 2,
-  global: 1,
-  builtin: 0,
-};
-
-/** `repository:orders-api:test`, `workspace:personal:test`, `global:test`, `builtin:brief`. */
-export const keyOf = (source: ActionSource, origin: string | undefined, id: string): string =>
-  source === "global" || source === "builtin" ? `${source}:${id}` : `${source}:${origin ?? ""}:${id}`;
+export { keyOf };
 
 /** Parse every file and apply the precedence rules. Order survives: files come in scope order
  * (built-in, global, workspace, repositories) and the menu lists them that way. */
 export const mergeActionFiles = (files: readonly ActionFileInput[]): Discovery => {
-  const actions: DiscoveredAction[] = [];
-  const skipped: SkippedActionFile[] = [];
-  for (const file of files) {
-    const key = keyOf(file.source, file.origin, file.id);
+  const merged = mergeScopedFiles<ActionFileInput, Action>(files, (file) => {
     const parsed = parseActionFile(file.text);
-    if (Result.isFailure(parsed)) {
-      skipped.push({ key, reasons: parsed.failure.reasons });
-      continue;
-    }
-    actions.push({
+    return Result.isSuccess(parsed) ? { value: parsed.success } : { reasons: parsed.failure.reasons };
+  });
+  return {
+    actions: merged.entries.map(({ key, file, value }) => ({
       key,
       id: file.id,
       source: file.source,
       sourceLabel: file.originLabel ?? file.origin,
-      action: parsed.success,
-    });
-  }
-
-  // Collision by id. A repository action is a different story from the other scopes: the same
-  // id in two checkouts is not a collision at all (both are listed, each qualified by its
-  // repository), while a repository file hides every less specific one. Outside repository
-  // scope the most specific file wins outright.
-  const byId = new Map<string, DiscoveredAction[]>();
-  for (const found of actions) {
-    const same = byId.get(found.id) ?? [];
-    same.push(found);
-    byId.set(found.id, same);
-  }
-  const winners = new Set<DiscoveredAction>();
-  for (const same of byId.values()) {
-    const repositories = same.filter((a) => a.source === "repository");
-    if (repositories.length > 0) {
-      for (const a of repositories) winners.add(a);
-      continue;
-    }
-    // No repository file: the most specific scope wins outright.
-    winners.add(same.reduce((best, a) => (rank[a.source] > rank[best.source] ? a : best)));
-  }
-
-  return {
-    actions: actions.filter((a) => winners.has(a)),
-    skipped,
+      action: value,
+    })),
+    skipped: merged.skipped,
   };
 };
 
