@@ -4,7 +4,6 @@
  * Discovery is per request — a small directory read — so an edit or a new file needs no restart.
  * The client names an action by key and never sends text; the file is resolved again at run
  * time, so the click always runs what is on disk now. */
-import { basename, dirname, join } from "node:path";
 import { Effect } from "effect";
 
 import { builtinActionBody, discoverActions, type ActionRoots } from "@corvi/actions/node";
@@ -15,37 +14,13 @@ import type { ActionSummaryDto, RunActionResultDto } from "@corvi/contracts/acti
 import { BadRequestError } from "@corvi/contracts/errors";
 import type { Change } from "@corvi/changes/record";
 import { changeDir, factsFor } from "../../change/server/index.ts";
-import { checkoutFor } from "../../vendors/git.ts";
-import { configPath, settingsOf, workspaceOf } from "../../workspace/server/index.ts";
+import { settingsOf, workspaceOf } from "../../workspace/server/index.ts";
+import { fileRootsFor } from "../../capabilities/fileRoots.ts";
 import { ensureActiveHostWindow, listWindows } from "../../terminals/server/index.ts";
 import { actionSessions } from "../../terminals/server/action-sessions.ts";
 
-/** Where one change's action files live: the global and workspace scopes beside the config file
- * (so `CORVI_CONFIG` moves both), the repository scope inside each of its checkouts. Shared with
- * the page's file operations (`./files.ts`), so the menu and the page name the same roots. */
-export const actionRootsFor = (change: Change): Effect.Effect<ActionRoots> =>
-  Effect.gen(function* () {
-    const base = dirname(configPath());
-    const workspace = workspaceOf(change);
-    const repositories: { name: string; dir: string }[] = [];
-    for (const spec of change.checkouts ?? []) {
-      const checkout = yield* checkoutFor(change, spec.path);
-      if (checkout) {
-        repositories.push({ name: basename(spec.path), dir: join(checkout, ".corvi", "actions") });
-      }
-    }
-    return {
-      global: join(base, "actions"),
-      workspaces: [
-        {
-          id: workspace.id,
-          label: workspace.name,
-          dir: join(base, "workspaces", workspace.id, "actions"),
-        },
-      ],
-      repositories,
-    };
-  });
+/** Where one change's action files live. */
+export const actionRootsFor = (change: Change): Effect.Effect<ActionRoots> => fileRootsFor(change, "actions");
 
 const summaryOf = (found: DiscoveredAction): ActionSummaryDto => ({
   key: found.key,
