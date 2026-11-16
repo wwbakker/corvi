@@ -35,6 +35,7 @@
  * labels, the agent-status registry, and re-association after a restart.
  */
 import { randomBytes } from "node:crypto";
+import { envNumber } from "../../capabilities/effect/support.ts";
 import { chmodSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { spawn, type IPty } from "node-pty";
@@ -53,10 +54,8 @@ const DEFAULT_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
 
 /** The replay bound, read once when the host process starts. A non-numeric, non-positive or
  * non-finite override falls back to the default rather than disabling the bound. */
-const replayBufferBytes = (): number => {
-  const value = Number(process.env.CORVI_HOST_REPLAY_BYTES);
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : DEFAULT_MAX_BUFFER_BYTES;
-};
+const replayBufferBytes = (): number =>
+  Math.floor(envNumber("CORVI_HOST_REPLAY_BYTES", DEFAULT_MAX_BUFFER_BYTES));
 
 const MAX_BUFFER_BYTES = replayBufferBytes();
 const MAX_DEAD_SESSIONS = 64;

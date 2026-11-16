@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { randomUUID } from "node:crypto";
+import { envNumber } from "./capabilities/effect/support.ts";
 import { resolve } from "node:path";
 import { createCache } from "./capabilities/cache.ts";
 import { runtimeRemoteAccessStatus, setRuntime, setTailscalePublishedPort } from "./capabilities/runtime.ts";
@@ -65,10 +66,7 @@ setRuntime({ cache });
  * environment themselves. A bound must be positive — an invalid or non-positive value falls back
  * to the named default. There is deliberately no "unbounded" spelling: an unbounded health check
  * could never classify, and an unbounded read bound is what hangs the page. */
-const envMs = (name: string, fallback: number): number => {
-  const value = Number(process.env[env(name)]);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-};
+const envMs = (name: string, fallback: number): number => envNumber(env(name), fallback);
 
 // The port a previous run published through `tailscale serve`, read before the external listener
 // reconciles: a restart that follows a configured-port change while published still recognizes

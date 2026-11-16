@@ -29,3 +29,11 @@ export const errorDetail = (error: unknown, fallback: string): string => {
       : "";
   return own || String(error) || fallback;
 };
+
+/** A number from the environment, or the fallback: finite and at least `min`. The one reader for
+ * every bounded wait and size, so an invalid or empty value falls back instead of disabling the
+ * bound. */
+export const envNumber = (name: string, fallback: number, min = 1): number => {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value >= min ? value : fallback;
+};

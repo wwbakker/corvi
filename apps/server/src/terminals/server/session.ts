@@ -34,6 +34,7 @@
  *     page must stop streaming until it takes the terminal back).
  */
 import type { HostClient } from "../host/client.ts";
+import { envNumber } from "../../capabilities/effect/support.ts";
 import { appendFileSync } from "node:fs";
 import { hostClient } from "./host.ts";
 import { makeScreen, type Screen, type ScreenSnapshot } from "./screen.ts";
@@ -92,10 +93,7 @@ const trace = (message: string, startedAt: number): void => {
 
 /** A millisecond override from the environment, or the fallback. `Number(x) || fallback` cannot
  * express `0`, which a test may want. */
-const envMs = (name: string, fallback: number): number => {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value >= 0 ? value : fallback;
-};
+const envMs = (name: string, fallback: number): number => envNumber(name, fallback, 0);
 
 const onBun = (process.versions as Record<string, string | undefined>).bun !== undefined;
 
