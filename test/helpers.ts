@@ -1,4 +1,6 @@
 import { existsSync, mkdtempSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
+import type { AddressInfo } from "node:net";
 import { mkdir, mkdtemp, realpath } from "node:fs/promises";
 import { cpus, loadavg } from "node:os";
 import { join } from "node:path";
@@ -411,6 +413,15 @@ export const requireFreshWebBundle = (webDir: string = join(import.meta.dir, "..
         "Run `bun run build:web` first (or `bun run test`, which builds).",
     );
   }
+};
+
+/** A port nothing listens on yet: bind port 0, take the number, close the probe. */
+export const reservePort = async (): Promise<number> => {
+  const probe = createServer();
+  await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", () => resolve()));
+  const port = (probe.address() as AddressInfo).port;
+  await new Promise<void>((resolve) => probe.close(() => resolve()));
+  return port;
 };
 
 /** The viewport the page tests drive, and the numbers a layout assertion reads. */

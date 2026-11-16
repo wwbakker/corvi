@@ -18,6 +18,7 @@ import {
   until,
   waitForUrl,
   startTestServer,
+  reservePort,
 } from "./helpers.ts";
 
 /**
@@ -33,14 +34,6 @@ const usable = await openEngine((opened) => {
 });
 
 const REMOTE = "REMOTE-1";
-
-const reservePort = async (): Promise<number> => {
-  const probe = createServer();
-  await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", () => resolve()));
-  const port = (probe.address() as AddressInfo).port;
-  await new Promise<void>((resolve) => probe.close(() => resolve()));
-  return port;
-};
 
 const writeConfig = (tmp: string, remotePort: number, remoteWorkspace: string): void => {
   writeFileSync(

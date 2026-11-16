@@ -14,6 +14,7 @@ import {
   until,
   startTestServer,
   stopTestServer,
+  reservePort,
 } from "./helpers.ts";
 
 /**
@@ -34,14 +35,6 @@ const CHANGE = {
   title: "Remote change",
   state: "Implementation",
   createdAt: "2026-01-01T00:00:00.000Z",
-};
-
-const reservePort = async (): Promise<number> => {
-  const probe = createServer();
-  await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", () => resolve()));
-  const port = (probe.address() as AddressInfo).port;
-  await new Promise<void>((resolve) => probe.close(() => resolve()));
-  return port;
 };
 
 /** The remote's server, only once it "comes up". */
