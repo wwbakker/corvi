@@ -229,7 +229,7 @@ export const listWindowsAsync = (changeId: string): Promise<PresentedWindow[]> =
 
 /** Every change's windows, in the one call the navigation column asks for. Registry entries for
  * changes that no longer exist are pruned, so the file does not grow forever. */
-export const allWindowsAsync = async (): Promise<Record<string, PresentedWindow[]>> => {
+const allWindowsAsync = async (): Promise<Record<string, PresentedWindow[]>> => {
   const changeList = await Effect.runPromise(Effect.catch(listChanges(), () => Effect.succeed([])));
   const existing = new Set(changeList.map((change) => change.id));
   pruneRegistry(existing);
@@ -472,7 +472,7 @@ export const newSubagentWindow = (
   Effect.tryPromise({ try: () => newSubagentWindowAsync(changeId, args), catch: asFailure });
 
 /** Kill a subagent's host session and drop its pane, or the window if it was the last pane. */
-export const killHostWindowAsync = async (changeId: string, sessionId: string): Promise<void> =>
+const killHostWindowAsync = async (changeId: string, sessionId: string): Promise<void> =>
   withRegistryLock(async () => {
     const records = await listRecords(changeId);
     const record = records.find((r) => r.panes.includes(sessionId));
@@ -504,7 +504,7 @@ export type LiveSubagent = {
 /** The live subagent host sessions of a change, keyed by subagent id. A host that is not running
  * has none; presence is best-effort, never a request failure. Status comes from the CLI/HTTP
  * store first, then the host's own OSC parse. */
-export const liveSubagentsAsync = async (changeId: string): Promise<Map<string, LiveSubagent>> => {
+const liveSubagentsAsync = async (changeId: string): Promise<Map<string, LiveSubagent>> => {
   const map = new Map<string, LiveSubagent>();
   if (!hostRunning()) return map;
   const sessions = await (await hostClient()).list();
