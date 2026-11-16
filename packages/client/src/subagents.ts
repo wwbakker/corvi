@@ -12,38 +12,25 @@ import {
   SubagentRepositoryFilesResponseSchema,
   SubagentAwaitResponseSchema,
   type SubagentCreateRequestDto,
-  type SubagentFileRefDto,
-  type SubagentFileWriteDto,
   type SubagentFilesResponseDto,
   type SubagentInstanceDto,
   type SubagentMessageDto,
   type SubagentNextResponseDto,
   type SubagentAwaitResponseDto,
   type SubagentProfilesResponseDto,
-  type SubagentRepositoryFileRefDto,
-  type SubagentRepositoryFileWriteDto,
   type SubagentRepositoryFilesResponseDto,
   type SubagentSendRequestDto,
   type SubagentTurnRequestDto,
 } from "@corvi/contracts/subagents";
 import type { ChangeId } from "@corvi/contracts/changes";
 
+import { makeFileOperations, type FileOperations } from "./files.ts";
 import { changePath, type RequestOptions, type Send, request } from "./transport.ts";
 
-export interface SubagentsApi {
-  readonly files: () => Promise<SubagentFilesResponseDto>;
-  readonly writeFile: (file: SubagentFileWriteDto) => Promise<SubagentFilesResponseDto>;
-  readonly deleteFile: (ref: SubagentFileRefDto) => Promise<SubagentFilesResponseDto>;
-  /** The repository-scope files of one change's checkouts — the Repositories view. */
-  readonly repositoryFiles: (changeId: ChangeId) => Promise<SubagentRepositoryFilesResponseDto>;
-  readonly writeRepositoryFile: (
-    changeId: ChangeId,
-    file: SubagentRepositoryFileWriteDto,
-  ) => Promise<SubagentRepositoryFilesResponseDto>;
-  readonly deleteRepositoryFile: (
-    changeId: ChangeId,
-    ref: SubagentRepositoryFileRefDto,
-  ) => Promise<SubagentRepositoryFilesResponseDto>;
+export interface SubagentsApi extends FileOperations<
+  SubagentFilesResponseDto,
+  SubagentRepositoryFilesResponseDto
+> {
   /** The profiles this change can run — discovery's resolved keys, the ones `create` takes. */
   readonly profiles: (changeId: ChangeId, options?: RequestOptions) => Promise<SubagentProfilesResponseDto>;
   /** The persistent subagent instances of a change. */
@@ -108,31 +95,12 @@ export const makeSubagentsApi = (send: Send): SubagentsApi => {
   const turnSuffix = (turn?: number): string => (turn === undefined ? "" : `?turn=${turn}`);
 
   return {
-    files: async () => request(send, "GET", "/subagents/files", SubagentFilesResponseSchema),
-    writeFile: async (file) =>
-      request(send, "PUT", "/subagents/files", SubagentFilesResponseSchema, { body: file }),
-    deleteFile: async (ref) =>
-      request(
-        send,
-        "DELETE",
-        `/subagents/files?scope=${ref.scope}${
-          ref.workspace ? `&workspace=${encodeURIComponent(ref.workspace)}` : ""
-        }&id=${encodeURIComponent(ref.id)}`,
-        SubagentFilesResponseSchema,
-      ),
-    repositoryFiles: async (changeId) =>
-      request(send, "GET", `${change(changeId)}/subagent-files`, SubagentRepositoryFilesResponseSchema),
-    writeRepositoryFile: async (changeId, file) =>
-      request(send, "PUT", `${change(changeId)}/subagent-files`, SubagentRepositoryFilesResponseSchema, {
-        body: file,
-      }),
-    deleteRepositoryFile: async (changeId, ref) =>
-      request(
-        send,
-        "DELETE",
-        `${change(changeId)}/subagent-files?repository=${encodeURIComponent(ref.repository)}&id=${encodeURIComponent(ref.id)}`,
-        SubagentRepositoryFilesResponseSchema,
-      ),
+    ...makeFileOperations(send, {
+      filesPath: "/subagents/files",
+      repositoryPath: (changeId) => `${change(changeId)}/subagent-files`,
+      filesSchema: SubagentFilesResponseSchema,
+      repositoriesSchema: SubagentRepositoryFilesResponseSchema,
+    }),
     list: async (changeId, options) =>
       (await request(send, "GET", `${change(changeId)}/subagents`, SubagentListResponseSchema, options))
         .instances,
