@@ -16,7 +16,8 @@ import {
   type ChangeConflict,
   type ChangeFormatTooNew,
 } from "./errors.ts";
-import { allowedTransition, isFinished, isTerminal, reopenPhaseOf } from "./rules.ts";
+import { isFinished } from "./record.ts";
+import { allowedTransition, isTerminal, reopenPhaseOf } from "./rules.ts";
 import { ChangeStore } from "./store.ts";
 
 export interface Interface {
@@ -60,7 +61,9 @@ export const layer = Layer.effect(
 
     const listChanges = Effect.fn("Change.listChanges")(function* (filter: ChangeFilter) {
       const changes = yield* store.list();
-      return changes.filter((change) => (filter === "Archived" ? isFinished(change) : !isFinished(change)));
+      const finished = (change: Change): boolean =>
+        isFinished({ state: change.phase, completedAt: change.completedAt });
+      return changes.filter((change) => (filter === "Archived" ? finished(change) : !finished(change)));
     });
 
     const createChange = Effect.fn("Change.createChange")(function* (input: CreateChangeInput) {

@@ -12,8 +12,6 @@ import type {
 
 export const isTerminal = (phase: ChangePhase): boolean => phase === "Completed" || phase === "Cancelled";
 
-export const isFinished = (change: Pick<Change, "phase">): boolean => isTerminal(change.phase);
-
 /** `Ideation` leaves for `Implementation` (starting the work) or `Cancelled` (abandoning the
  * idea); the manual phases move among themselves, and the complete/cancel workflows enter the
  * terminal phases. */

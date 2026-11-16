@@ -2,11 +2,10 @@ import { expect, test } from "bun:test";
 
 import { Change, ChangeId, DirectoryName, Repository, RepositoryId } from "@corvi/contracts/changes";
 import { effectiveBranchOf } from "@corvi/contracts/changes";
-import { branchFor, checkoutSpecProblem, targetOf } from "../src/record.ts";
+import { branchFor, checkoutSpecProblem, isFinished, targetOf } from "../src/record.ts";
 import {
   allowedTransition,
   checkoutLocationOf,
-  isFinished,
   repositoryFromSpec,
   specFromRepository,
   stateOf,
@@ -49,10 +48,12 @@ test("only Ideation leaves for Implementation or Cancelled, and terminal phases 
 });
 
 test("finished means done in either direction", () => {
-  expect(isFinished(change("Completed"))).toBe(true);
-  expect(isFinished(change("Cancelled"))).toBe(true);
-  expect(isFinished(change("Implementation"))).toBe(false);
-  expect(isFinished(change("Ideation"))).toBe(false);
+  expect(isFinished({ state: "Completed" })).toBe(true);
+  expect(isFinished({ state: "Cancelled" })).toBe(true);
+  expect(isFinished({ state: "Implementation" })).toBe(false);
+  expect(isFinished({ state: "Ideation" })).toBe(false);
+  // completedAt is the fact: a record whose state lags still reads as finished.
+  expect(isFinished({ state: "Implementation", completedAt: "2026-01-01T00:00:00.000Z" })).toBe(true);
 });
 
 test("the row state projects the change phase", () => {
