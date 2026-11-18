@@ -79,9 +79,17 @@ export type OscParse = {
  * prompt sets 1 and 2, an application often only 0 or 2. */
 const TITLE_CODES: ReadonlySet<string> = new Set(["0", "1", "2"]);
 
+/** OSC 7, which is not a name: the shell announces the directory it is in, so a terminal can put
+ * it in the tab. Prompts that set titles usually set this too (oh-my-zsh does both at each
+ * prompt), and it is the one fact that does not move when a command takes the title over. */
+const CWD_CODE = "7";
+
 /** A title is one line in a label, not a document: a prompt may pour a whole command line or a
  * deep path into it. */
 export const TITLE_CAP = 200;
+
+/** A cwd is a path, not a document either. A longer one is not a path we would name a window by. */
+const CWD_CAP = 1024;
 
 /** How much of an unterminated sequence the scanner holds for the next chunk. A title longer than
  * this is not one the pane would show. */
@@ -93,9 +101,11 @@ const SEMICOLON_BYTE = 0x3b;
 const ESC_BYTE = 0x1b;
 const BACKSLASH_BYTE = 0x5c;
 
-export type TitleScan = {
+export type TerminalScan = {
   /** The newest title this chunk completed, if any. */
   readonly title?: string;
+  /** The directory the shell announced in this chunk, if it announced one. */
+  readonly directory?: string;
   /** Bytes to prepend to the next chunk: a sequence that had not finished at the end of this
    * one. Nothing is removed from the stream — the display bytes are the caller's own. */
   readonly carry: Buffer;
@@ -127,43 +137,66 @@ const findTerminator = (buffer: Buffer, from: number): Terminator => {
   return "incomplete";
 };
 
+/** The path in an OSC 7 `file://host/path` announcement, percent-decoded, or nothing when it is not
+ * an absolute file URI. The host part is ignored: the shell runs on this machine, and a remote
+ * workspace's server does the reading where it runs. */
+export const cwdFromOsc7 = (payload: string): string | undefined => {
+  const prefix = "file://";
+  if (!payload.toLowerCase().startsWith(prefix)) return undefined;
+  const rest = payload.slice(prefix.length);
+  const slash = rest.indexOf("/");
+  if (slash === -1) return undefined;
+  let path: string;
+  try {
+    path = decodeURIComponent(rest.slice(slash));
+  } catch {
+    // A malformed escape is not a path; the last good one stands.
+    return undefined;
+  }
+  return path.startsWith("/") && path.length <= CWD_CAP ? path : undefined;
+};
+
 /**
- * Read the titles a pty chunk carries (`OSC 0`, `1`, `2`) without touching a byte of it: the
- * scanner only observes, so the display keeps every sequence it would have had. The newest title
- * in the chunk wins, as in xterm: a program that sets only the window title takes over from the
- * prompt's tab title, and the prompt takes it back at the next prompt.
+ * Read what a terminal says about itself in a pty chunk — its title (`OSC 0`, `1`, `2`) and the
+ * directory its shell announces (`OSC 7`) — without touching a byte of it: the scanner only
+ * observes, so the display keeps every sequence it would have had. The newest of each in the chunk
+ * wins, as in xterm: a program that sets only the window title takes over from the prompt's tab
+ * title, and the prompt takes it back at the next prompt.
  *
- * Everything else in the OSC namespace is left alone — the reporter's `1337`, the shell's cwd
- * (`7`), links, clipboard, and a program's own status channel — so a title never comes from a
- * sequence meant for something else.
+ * Everything else in the OSC namespace is left alone — the reporter's `1337`, links, colours,
+ * clipboard, and a program's own status channel — so a name never comes from a sequence meant for
+ * something else.
  */
-export const scanTitle = (input: Buffer, carry: Buffer): TitleScan => {
+export const scanTerminal = (input: Buffer, carry: Buffer): TerminalScan => {
   const buf = carry.length > 0 ? Buffer.concat([carry, input]) : input;
   const held = (from: number): Buffer => Buffer.from(buf.subarray(from));
-  const found = (title: string | undefined, next: Buffer): TitleScan => ({
+  const found = (title: string | undefined, directory: string | undefined, next: Buffer): TerminalScan => ({
     ...(title !== undefined ? { title } : {}),
+    ...(directory !== undefined ? { directory } : {}),
     carry: next,
   });
   let title: string | undefined;
+  let directory: string | undefined;
   let at = 0;
   for (;;) {
     const start = buf.indexOf(OSC_PREFIX, at);
     if (start === -1) {
       // A trailing lone ESC may be the first half of an introducer split across chunks.
       const keep = buf.length > 0 && buf[buf.length - 1] === ESC_BYTE ? 1 : 0;
-      return found(title, Buffer.from(buf.subarray(buf.length - keep)));
+      return found(title, directory, Buffer.from(buf.subarray(buf.length - keep)));
     }
     const codeStart = start + OSC_PREFIX.length;
     const semicolon = buf.indexOf(SEMICOLON_BYTE, codeStart);
     if (semicolon === -1) {
       // No code yet: either it is still arriving, or this is not a control string at all.
-      if (buf.length - codeStart <= 3) return found(title, held(start));
+      if (buf.length - codeStart <= 3) return found(title, directory, held(start));
       at = codeStart;
       continue;
     }
     const code = buf.subarray(codeStart, semicolon).toString("ascii");
-    if (code.length !== 1 || !TITLE_CODES.has(code)) {
-      // A cwd, a link, a colour, a status: not this scanner's, and the bytes stay untouched.
+    const kind = code === CWD_CODE ? "cwd" : TITLE_CODES.has(code) ? "title" : undefined;
+    if (kind === undefined || code.length !== 1) {
+      // A link, a colour, a status: not this scanner's, and the bytes stay untouched.
       at = semicolon + 1;
       continue;
     }
@@ -180,7 +213,7 @@ export const scanTitle = (input: Buffer, carry: Buffer): TitleScan => {
         at = bodyStart;
         continue;
       }
-      return found(title, held(start));
+      return found(title, directory, held(start));
     }
     const nested = buf.indexOf(OSC_PREFIX, bodyStart);
     if (nested !== -1 && nested < terminator.end) {
@@ -188,10 +221,16 @@ export const scanTitle = (input: Buffer, carry: Buffer): TitleScan => {
       at = bodyStart;
       continue;
     }
-    const text = cleanTitle(buf.subarray(bodyStart, terminator.end));
-    // An empty title is how a program clears one; keeping the last real name is friendlier than
-    // falling back to the window's directory mid-run.
-    if (text !== "") title = text;
+    const body = buf.subarray(bodyStart, terminator.end);
+    if (kind === "cwd") {
+      const cwd = cwdFromOsc7(body.toString("utf8"));
+      if (cwd !== undefined) directory = cwd;
+    } else {
+      const text = cleanTitle(body);
+      // An empty title is how a program clears one; keeping the last real name is friendlier than
+      // falling back to the window's directory mid-run.
+      if (text !== "") title = text;
+    }
     at = terminator.end + terminator.length;
   }
 };

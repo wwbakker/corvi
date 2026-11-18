@@ -670,35 +670,27 @@ test.skipIf(!usable)(
 );
 
 test.skipIf(!usable)(
-  "a title the terminal sets names the window in the strip and the column",
+  "a window is named where its shell is, with what runs there in brackets",
   async () => {
     const { page } = await openTerminal(id);
     const tab = page.locator(".window-tab:not(.new):not(.overview)").first();
     await tab.waitFor({ timeout: 20_000 });
     const windowId = await tab.getAttribute("data-window-id");
     expect(windowId).toBeTruthy();
-    const defaultLabel = (await tab.locator(".label").innerText()).trim();
     await awaitAttached(page);
-    // A title is the terminal's own name for itself: a prompt sets it to a directory, a program to
-    // its own name, and the registry shows it as the window's label. This shell's prompt sets none,
-    // so the title a command sets is the one that stays — and it outlives the command.
-    await page.keyboard.type("printf '\\033]1;title-check\\007'\n");
-    expect(
-      await until(
-        async () => (await tab.locator(".label").innerText()).trim(),
-        "title-check",
-        budget(30_000),
-      ),
-    ).toBe("title-check");
-    // The navigation column says the same thing, because one server answer names both.
+    const label = async (): Promise<string> => (await tab.locator(".label").innerText()).trim();
+    // The place is the directory the shell announces (OSC 7), not the change the window was
+    // opened in; the process in front of it follows in brackets, as a terminal shows it. This
+    // shell's prompt announces nothing of its own, so the test announces a place for it.
+    await page.keyboard.type("printf '\\033]7;file://host/tmp\\007'\n");
+    expect(await until(async () => /^tmp \(\w+\)$/.test(await label()), true, budget(30_000))).toBe(true);
+    // A command holds the brackets while it runs and gives them back to the shell afterwards; the
+    // place is what stays put. The navigation column says the same thing, from one server answer.
+    await page.keyboard.type("sleep 8\n");
+    expect(await until(label, "tmp (sleep)", budget(30_000))).toBe("tmp (sleep)");
     const sidebar = page.locator(`.sidebar .entry.window[data-window-id="${windowId}"] .label`);
-    expect((await sidebar.innerText()).trim()).toBe("title-check");
-    // Put the shared window back the way this test found it: the suite reuses this change, and the
-    // title the command set does not go away on its own here.
-    await page.keyboard.type(`printf '\\033]1;${defaultLabel}\\007'\n`);
-    expect(
-      await until(async () => (await tab.locator(".label").innerText()).trim(), defaultLabel, budget(30_000)),
-    ).toBe(defaultLabel);
+    expect((await sidebar.innerText()).trim()).toBe("tmp (sleep)");
+    expect(await until(async () => /^tmp \(\w+\)$/.test(await label()), true, budget(30_000))).toBe(true);
     await page.close();
   },
   budget(60_000),

@@ -10,7 +10,7 @@
  * nothing.
  */
 import { randomBytes } from "node:crypto";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 
@@ -185,35 +185,52 @@ const commandOptions = (record: WindowRecord, session: SessionInfo | undefined):
   };
 };
 
+/** Where a session is now, as a window may be named by it: its announced cwd relative to the
+ * change (`corvi`, `corvi/packages/terminals`). The change's own root is its directory name, and a
+ * cwd outside the change (or reached through another path to the same place) is its last segment —
+ * a window never carries a path that says nothing, and the relative form is what makes it short. */
+export const placeOf = (changeDir: string, cwd: string | undefined): string | undefined => {
+  if (cwd === undefined || cwd === "") return undefined;
+  const rel = relative(changeDir, cwd);
+  if (rel === "") return basename(changeDir);
+  if (rel.startsWith("..") || isAbsolute(rel)) return basename(cwd);
+  return rel;
+};
+
 /** The raw window a host session presents as. A labelled one (an action run) uses the label as
  * its name and lets the presenter speak; a plain shell uses its directory. `title` is the name the
- * user gave it, which the presenter shows in place of either, and `terminalTitle` is what the
- * terminal in the pane calls itself, which the presenter uses before the directory. */
+ * user gave it, which the presenter shows in place of either; `place` is where the shell is now
+ * and `terminalTitle` what the terminal calls itself, which the presenter prefers in that order;
+ * `command` is what is running in front of it. */
 const hostRaw = (
   record: WindowRecord,
   dir: string,
   session: SessionInfo | undefined,
   status: AgentStatus | undefined,
-): RawWindow => ({
-  index: 0,
-  id: record.id,
-  name: record.label ?? basename(dir),
-  ...(record.title !== undefined ? { title: record.title } : {}),
-  ...(session?.title !== undefined ? { terminalTitle: session.title } : {}),
-  // What the pane is running now, which is what `running`-style presentation wants: a shell at a
-  // prompt names itself, a job names itself, and neither is the directory the window was opened
-  // in. A labelled window keeps the label's own "sh": its action says what it is, and the
-  // command string it runs is already the better answer for its detail.
-  command: record.label !== undefined ? "sh" : (session?.job ?? record.command ?? "sh"),
-  active: record.active,
-  activity: record.activity,
-  directory: basename(dir),
-  named: true,
-  options: { ...agentOptions(status), ...commandOptions(record, session) },
-  panes: [...record.panes],
-  activePane: record.activePane,
-  subagent: (session?.metadata?.subagentId?.trim() ?? "") !== "",
-});
+): RawWindow => {
+  const place = placeOf(dir, session?.workingDirectory);
+  return {
+    index: 0,
+    id: record.id,
+    name: record.label ?? basename(dir),
+    ...(record.title !== undefined ? { title: record.title } : {}),
+    ...(place !== undefined ? { place } : {}),
+    ...(session?.title !== undefined ? { terminalTitle: session.title } : {}),
+    // What the pane is running now, which is what `running`-style presentation wants: a shell at a
+    // prompt names itself, a job names itself, and neither is the directory the window was opened
+    // in. A labelled window keeps the label's own "sh": its action says what it is, and the
+    // command string it runs is already the better answer for its detail.
+    command: record.label !== undefined ? "sh" : (session?.job ?? record.command ?? "sh"),
+    active: record.active,
+    activity: record.activity,
+    directory: basename(dir),
+    named: true,
+    options: { ...agentOptions(status), ...commandOptions(record, session) },
+    panes: [...record.panes],
+    activePane: record.activePane,
+    subagent: (session?.metadata?.subagentId?.trim() ?? "") !== "",
+  };
+};
 
 /** The change's windows, presented. Rebuilds and persists the registry from the live host
  * sessions. */
@@ -620,7 +637,9 @@ export const splitPaneAsync = (
     if (record === undefined || record.activePane === "") return;
     const sessions = hostRunning() ? await (await hostClient()).list() : [];
     const active = sessions.find((session) => session.id === record.activePane);
-    const cwd = active?.cwd ?? (await dirOf(changeId));
+    // A split opens where the shell is now, as the manual says: the announced cwd when it has one,
+    // the directory the pane was opened in otherwise.
+    const cwd = active?.workingDirectory ?? active?.cwd ?? (await dirOf(changeId));
     const paneId = freshId();
     // The pane's metadata names the window, so a rebuild adopts it the moment its session exists:
     // a crash between opening it and the focus save cannot orphan it.

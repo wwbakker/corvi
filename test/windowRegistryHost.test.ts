@@ -13,6 +13,7 @@ import {
   listWindowsAsync,
   moveWindowAsync,
   newWindowAsync,
+  placeOf,
   newWindowRunningAsync,
   renameWindowAsync,
   selectWindowAsync,
@@ -53,6 +54,20 @@ afterAll(async () => {
   await closeHostClient();
   await rm(dir, { recursive: true, force: true });
   restoreEnv();
+});
+
+test("where a session is, named relative to its change", () => {
+  // The change's own root is its directory name; below it, the path relative to the change, which
+  // is what a window needs (the change is already the row it sits under).
+  expect(placeOf("/c/ID", "/c/ID")).toBe("ID");
+  expect(placeOf("/c/ID", "/c/ID/corvi")).toBe("corvi");
+  expect(placeOf("/c/ID", "/c/ID/corvi/packages/terminals")).toBe("corvi/packages/terminals");
+  // Outside the change, or the same place reached by another path: the last segment, never a path
+  // that says nothing.
+  expect(placeOf("/c/ID", "/Users/me/corvi")).toBe("corvi");
+  expect(placeOf("/private/tmp/c/ID", "/tmp/c/ID/corvi")).toBe("corvi");
+  expect(placeOf("/c/ID", undefined)).toBeUndefined();
+  expect(placeOf("/c/ID", "")).toBeUndefined();
 });
 
 test("new windows persist in order with one active; select and move mutate them", async () => {

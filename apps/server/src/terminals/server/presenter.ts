@@ -52,13 +52,14 @@ const merged = (raw: RawWindow): WindowPresentation =>
  * The first presenter that answers a field wins (registration order within an extension, load
  * order across them); what nobody answered, the core says:
  *
- * - the base name is the terminal's own title when it has one, else where the window is, or the
- *   label an action gave it; a prompt names the directory it is in, and a program names itself,
- *   which says more than where the window was opened;
- * - a name you gave replaces both and is not extended with what is running; a split window's pane
- *   count still follows it;
- * - the composed name appends what is running, unless it is a plain shell or already says it —
- *   so a prompt reads as a place, not a program;
+ * - the base name is where the window is now (`place`, the directory its shell announced), then
+ *   the terminal's own title, then the directory it was opened in, or the label an action gave
+ *   it; a prompt that announces its cwd is what keeps a window named while a command takes the
+ *   title over;
+ * - a name you gave replaces all of that and is not extended with what is running; a split
+ *   window's pane count still follows it;
+ * - the composed name appends what is running in the foreground, without repeating a name that
+ *   already says it — `corvi (gradle)`, `corvi (zsh)` at a prompt;
  * - busy is "not a shell" — the heuristic the overview's terminals fact uses, with an agent
  *   believed over its process name (an agent at its prompt is `node`).
  *
@@ -66,15 +67,12 @@ const merged = (raw: RawWindow): WindowPresentation =>
  */
 export const presentWindow = (raw: RawWindow): PresentedWindow => {
   const said = merged(raw);
-  // The terminal's own title is the base when it has one: a prompt names the directory it is in,
-  // a running program names itself, and either is a better answer than the directory the window
-  // was opened in. It is a base, not a label, so what a presenter adds still attaches to it.
-  const base = raw.terminalTitle ?? (raw.named ? raw.name : raw.directory || raw.name);
+  // Where the window is beats what the terminal calls itself: a prompt may rewrite its title to
+  // the command it is running, and the place is the part worth keeping then. Both are bases, not
+  // labels, so what a presenter adds still attaches to them.
+  const base = raw.place ?? raw.terminalTitle ?? (raw.named ? raw.name : raw.directory || raw.name);
   const what = said.running ?? raw.command;
-  const composed =
-    raw.title ??
-    said.label ??
-    (what && !SHELLS.includes(what) && what !== base ? `${base} - (${what})` : base);
+  const composed = raw.title ?? said.label ?? (what && what !== base ? `${base} (${what})` : base);
   return {
     index: raw.index,
     id: raw.id,
@@ -83,7 +81,7 @@ export const presentWindow = (raw: RawWindow): PresentedWindow => {
     // where, and the presenters still answer the icon, state and note.
     label: raw.panes.length > 1 ? `${composed} (${raw.panes.length} panes)` : composed,
     ...(raw.title !== undefined ? { title: raw.title } : {}),
-    detail: said.detail ?? `${raw.name} (${raw.command}) in ${raw.directory}`,
+    detail: said.detail ?? `${raw.name} (${raw.command}) in ${raw.place ?? raw.directory}`,
     icon: said.icon ?? "terminal",
     state: said.state ?? "idle",
     active: raw.active,

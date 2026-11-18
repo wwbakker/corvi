@@ -49,6 +49,9 @@ export type SessionInfo = {
    * sets it to the directory it is in; a program sets it to its own name. It outlives a client
    * detach, like `status`, because the host owns the pty. */
   readonly title?: string;
+  /** The directory the shell last announced with `OSC 7`, which moves as it `cd`s; `cwd` is where
+   * the session was opened. A shell that announces none leaves this out. */
+  readonly workingDirectory?: string;
   /** The process in the foreground of the session's terminal: a running command (`gradle`, `nvim`,
    * `pi`) or the shell's own name while it waits at a prompt. Sampled from `ps`, so it is as fresh
    * as the last read; absent while the session lives but nothing could be read. */

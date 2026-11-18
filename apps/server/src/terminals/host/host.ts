@@ -31,6 +31,9 @@
  *     `2`. The host reads the newest one without removing it from the stream (a terminal shows
  *     its title too) and records it on the session, so the server can name the window the way
  *     the thing inside it names itself;
+ *   - **the directory the shell is in**: `OSC 7` (`file://host/path`), which a prompt announces
+ *     as you `cd`. It is the one fact a command cannot take over, so a window can keep saying
+ *     where it is while it also says what runs there;
  *   - **what is in the foreground**: the pty's foreground process group, sampled from `ps` and
  *     cached for a second, so a window can say what is running in it (`gradle`, `nvim`, `pi`)
  *     rather than only the shell it was opened with;
@@ -55,7 +58,7 @@ import {
   type Owner,
   type SessionInfo,
 } from "./protocol.ts";
-import { parseOsc, scanTitle } from "./osc.ts";
+import { parseOsc, scanTerminal } from "./osc.ts";
 import { makeJobSampler, type JobSample } from "./jobs.ts";
 
 const DEFAULT_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
@@ -123,6 +126,9 @@ type Session = {
   /** The newest title the terminal in this pty was given (`OSC 0`/`1`/`2`): the directory a
    * prompt is in, or the name of the program running in it. Absent until something sets one. */
   title?: string;
+  /** The directory the shell last announced (`OSC 7`), which moves as it `cd`s. Absent until a
+   * prompt announces one; `cwd` remains where the session was opened. */
+  workingDirectory?: string;
   /** Bytes held because they might be the start of a split OSC sequence. */
   oscCarry: Buffer;
   /** Bytes held because a title sequence might have been split across chunks. Only the scanner
@@ -296,9 +302,10 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
       const chunk = asBuffer(data);
       const parsed = parseOsc(chunk, session.oscCarry);
       session.oscCarry = parsed.carry;
-      const scanned = scanTitle(chunk, session.titleCarry);
+      const scanned = scanTerminal(chunk, session.titleCarry);
       session.titleCarry = scanned.carry;
       if (scanned.title !== undefined) session.title = scanned.title;
+      if (scanned.directory !== undefined) session.workingDirectory = scanned.directory;
       for (const status of parsed.statuses) {
         session.status =
           status.status === "clear"
@@ -416,6 +423,7 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
         ...(session.exitedAt !== undefined ? { exitedAt: session.exitedAt } : {}),
         ...(session.status !== undefined ? { status: session.status } : {}),
         ...(session.title !== undefined ? { title: session.title } : {}),
+        ...(session.workingDirectory !== undefined ? { workingDirectory: session.workingDirectory } : {}),
         ...(job !== undefined ? { job } : {}),
         ...(session.metadata !== undefined ? { metadata: session.metadata } : {}),
       };

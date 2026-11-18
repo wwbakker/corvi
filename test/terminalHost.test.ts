@@ -19,7 +19,7 @@ import {
   MAX_TITLE_CARRY,
   parseOsc,
   sanitizeStatus,
-  scanTitle,
+  scanTerminal,
   TITLE_CAP,
 } from "../apps/server/src/terminals/host/osc.ts";
 import { parseJobs } from "../apps/server/src/terminals/host/jobs.ts";
@@ -239,39 +239,39 @@ describe("terminal host foreground jobs", () => {
   });
 });
 
-describe("terminal host OSC titles", () => {
+describe("terminal host OSC titles and cwd", () => {
   const none = Buffer.alloc(0);
   /** One OSC sequence as a terminal receives it: `ESC ] code ; payload BEL`. */
   const osc = (code: string, payload: string, terminator = "\x07"): Buffer =>
     Buffer.from(`\x1b]${code};${payload}${terminator}`, "utf8");
 
   test("reads the tab title and the window title", () => {
-    expect(scanTitle(osc("1", "/tmp"), none).title).toBe("/tmp");
-    expect(scanTitle(osc("2", "vim - file.ts"), none).title).toBe("vim - file.ts");
-    expect(scanTitle(osc("0", "pi - corvi"), none).title).toBe("pi - corvi");
+    expect(scanTerminal(osc("1", "/tmp"), none).title).toBe("/tmp");
+    expect(scanTerminal(osc("2", "vim - file.ts"), none).title).toBe("vim - file.ts");
+    expect(scanTerminal(osc("0", "pi - corvi"), none).title).toBe("pi - corvi");
   });
 
   test("the newest title in a chunk wins, as it does in a terminal", () => {
     // A prompt sets the window title and then the tab title; the short one is the one to show.
     const chunk = Buffer.concat([osc("2", "wessel@host:~/corvi"), osc("1", "corvi")]);
-    expect(scanTitle(chunk, none).title).toBe("corvi");
+    expect(scanTerminal(chunk, none).title).toBe("corvi");
   });
 
   test("a string-terminated title parses", () => {
-    expect(scanTitle(osc("1", "corvi", "\x1b\\"), none).title).toBe("corvi");
+    expect(scanTerminal(osc("1", "corvi", "\x1b\\"), none).title).toBe("corvi");
   });
 
   test("a title split across chunks is carried", () => {
-    const head = scanTitle(Buffer.from("\x1b]1;co"), none);
+    const head = scanTerminal(Buffer.from("\x1b]1;co"), none);
     expect(head.title).toBeUndefined();
     expect(head.carry.toString("utf8")).toBe("\x1b]1;co");
-    expect(scanTitle(Buffer.from("rvi\x07"), head.carry).title).toBe("corvi");
+    expect(scanTerminal(Buffer.from("rvi\x07"), head.carry).title).toBe("corvi");
   });
 
   test("an introducer split after its escape is carried too", () => {
-    const head = scanTitle(Buffer.from("\x1b"), none);
+    const head = scanTerminal(Buffer.from("\x1b"), none);
     expect(head.carry.length).toBe(1);
-    expect(scanTitle(Buffer.from("]1;x\x07"), head.carry).title).toBe("x");
+    expect(scanTerminal(Buffer.from("]1;x\x07"), head.carry).title).toBe("x");
   });
 
   test("other OSC numbers are not titles", () => {
@@ -284,26 +284,59 @@ describe("terminal host OSC titles", () => {
       Buffer.from("\x1b]1337;corvi=eyJzdGF0dXMiOiJ3b3JraW5nIn0=\x07", "ascii"),
       osc("7501", "state=done:app=pi"),
     ]);
-    expect(scanTitle(chunk, none).title).toBeUndefined();
+    expect(scanTerminal(chunk, none).title).toBeUndefined();
   });
 
   test("a title is one line, and capped", () => {
-    expect(scanTitle(osc("1", "  one\n\ttwo  "), none).title).toBe("one two");
-    expect(scanTitle(osc("1", "x".repeat(TITLE_CAP + 50)), none).title?.length).toBe(TITLE_CAP);
+    expect(scanTerminal(osc("1", "  one\n\ttwo  "), none).title).toBe("one two");
+    expect(scanTerminal(osc("1", "x".repeat(TITLE_CAP + 50)), none).title?.length).toBe(TITLE_CAP);
   });
 
   test("an empty title leaves the last real one in place", () => {
     const chunk = Buffer.concat([osc("1", "corvi"), osc("1", "")]);
-    expect(scanTitle(chunk, none).title).toBe("corvi");
+    expect(scanTerminal(chunk, none).title).toBe("corvi");
   });
 
   test("a malformed sequence does not swallow the next one", () => {
     // A raw ESC inside the payload: the sequence is abandoned and a later one still reads.
     const stray = Buffer.concat([Buffer.from("\x1b]1;bad\x1bX", "binary"), osc("2", "good")]);
-    expect(scanTitle(stray, none).title).toBe("good");
+    expect(scanTerminal(stray, none).title).toBe("good");
     // An introducer that starts again before a terminator means the first never ended.
     const nested = Buffer.concat([Buffer.from("\x1b]1;never ends", "utf8"), osc("2", "good")]);
-    expect(scanTitle(nested, none).title).toBe("good");
+    expect(scanTerminal(nested, none).title).toBe("good");
+  });
+
+  test("reads the directory a shell announces, percent-decoded", () => {
+    // OSC 7 is a cwd, not a title, even though it arrives the same way.
+    const result = scanTerminal(osc("7", "file://host/Users/me/corvi%20app"), none);
+    expect(result.directory).toBe("/Users/me/corvi app");
+    expect(result.title).toBeUndefined();
+    // An empty host part and an ST terminator are the other common spelling.
+    expect(scanTerminal(osc("7", "file:///tmp", "\x1b\\"), none).directory).toBe("/tmp");
+  });
+
+  test("a cwd and a title in one chunk are both read, each last-one-wins", () => {
+    // The order oh-my-zsh sends at each prompt: the window title, the tab title, then the cwd.
+    const chunk = Buffer.concat([
+      osc("2", "wessel@host:~/corvi"),
+      osc("1", "corvi"),
+      osc("7", "file://host/Users/me/corvi"),
+    ]);
+    const result = scanTerminal(chunk, none);
+    expect(result.directory).toBe("/Users/me/corvi");
+    expect(result.title).toBe("corvi");
+  });
+
+  test("a cwd that is not an absolute file URI is ignored", () => {
+    expect(scanTerminal(osc("7", "https://example.com/x"), none).directory).toBeUndefined();
+    expect(scanTerminal(osc("7", "file://host"), none).directory).toBeUndefined();
+    expect(scanTerminal(osc("7", "file://host/%zz"), none).directory).toBeUndefined();
+  });
+
+  test("a cwd split across chunks is carried", () => {
+    const head = scanTerminal(Buffer.from("\x1b]7;file://host/Us"), none);
+    expect(head.directory).toBeUndefined();
+    expect(scanTerminal(Buffer.from("ers/me\x07"), head.carry).directory).toBe("/Users/me");
   });
 
   test("an absurd unterminated sequence is not carried", () => {
@@ -311,7 +344,7 @@ describe("terminal host OSC titles", () => {
       Buffer.from("\x1b]2;", "ascii"),
       Buffer.from("A".repeat(MAX_TITLE_CARRY + 1)),
     ]);
-    const result = scanTitle(body, none);
+    const result = scanTerminal(body, none);
     expect(result.title).toBeUndefined();
     expect(result.carry.length).toBe(0);
   });
@@ -820,6 +853,28 @@ describe.skipIf(!usable)("terminal host under Node", () => {
       await fixture.client.attach("title", 0);
       expect(seen.join("").includes("\x1b]1;Window name\x07")).toBe(true);
       await fixture.client.kill("title");
+    } finally {
+      await closeHost(fixture);
+    }
+  }, 30_000);
+
+  test("reports the directory the shell announces, and keeps the one it was opened in", async () => {
+    const fixture = await openHost();
+    try {
+      // A prompt announces its cwd with OSC 7; the opening directory stays the session's own.
+      const script = `process.stdout.write("\\x1b]7;file://host/tmp\\x07");setTimeout(()=>{},3000)`;
+      await fixture.client.open("cwd", {
+        cwd: fixture.dir,
+        command: ["node", "-e", script],
+        cols: 80,
+        rows: 24,
+      });
+      await waitFor(
+        "the announced directory",
+        async () => session(await fixture.client.list(), "cwd")?.workingDirectory === "/tmp",
+      );
+      expect(session(await fixture.client.list(), "cwd")?.cwd).toBe(fixture.dir);
+      await fixture.client.kill("cwd");
     } finally {
       await closeHost(fixture);
     }

@@ -452,6 +452,7 @@ test.skipIf(!usable)(
     // The kept-open window stays in the strip, labelled from the action.
     const frozen = tabs.filter({ hasText: "Freeze Me" });
     await frozen.first().waitFor({ timeout: 20_000 });
+    const frozenWindow = await frozen.first().getAttribute("data-window-id");
     // Its output is still there: the window did not vanish with the command.
     await frozen.first().click();
     expect(
@@ -465,7 +466,9 @@ test.skipIf(!usable)(
       id: string;
       label: string;
     }[];
-    const live = listing.find((entry) => entry.label === id);
+    // The shell the change opened with: the window the action did not run in. It is found by id,
+    // not by name — a window is named where its shell is, which says nothing about the action.
+    const live = listing.find((entry) => entry.id !== frozenWindow);
     expect(live).toBeDefined();
     const { client } = await ensureHost({
       socket: join(tmp, "state", "corvi", "host.sock"),

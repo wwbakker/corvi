@@ -12,9 +12,14 @@ export type RawWindow = {
    * it. */
   title?: string;
   /** What the terminal in the window calls itself: the pty's newest `OSC 0`/`1`/`2` title, which a
-   * shell's prompt sets to the directory it is in and a running program sets to its own name. The
-   * composed label's base, until a presenter or a name of yours answers. */
+   * shell's prompt sets to the directory it is in and a running program sets to its own name. A
+   * fallback for the base, after `place`: a prompt that sets a title usually announces its cwd too,
+   * and the cwd is what stays put while a command takes the title over. */
   terminalTitle?: string;
+  /** Where the window is now, named relative to its change (`corvi`, `corvi/packages/terminals`):
+   * the directory the shell announced with `OSC 7`, which moves as you `cd`. The base of the
+   * label, before the title and `directory`, which is where the window was opened. */
+  place?: string;
   /** What is running in the active pane: zsh, nvim, gradle, ... */
   command: string;
   active: boolean;
