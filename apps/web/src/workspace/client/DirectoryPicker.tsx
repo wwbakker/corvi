@@ -27,6 +27,10 @@ export function DirectoryPicker({
   workspace?: string;
 }): JSX.Element {
   const ref = useRef<HTMLDialogElement>(null);
+  const filter = useRef<HTMLInputElement>(null);
+  // Whether this opening has already given the keyboard to the filter: the listing arrives once
+  // per opening, and only the first arrival is the moment to move it.
+  const focused = useRef(false);
   const [listing, setListing] = useState<Listing>();
   const [error, setError] = useState<string>();
   // The server withholds dot-directories, so this is part of the request, not a filter.
@@ -38,6 +42,18 @@ export function DirectoryPicker({
     if (open && !dialog.open) dialog.showModal();
     if (!open && dialog.open) dialog.close();
   }, [open]);
+
+  // showModal() puts the keyboard on the dialog itself, and the filter is not on screen until the
+  // first listing lands, so the keyboard gets its place when that listing does.
+  useEffect(() => {
+    if (!open) {
+      focused.current = false;
+      return;
+    }
+    if (focused.current || listing === undefined) return;
+    focused.current = true;
+    filter.current?.focus();
+  }, [open, listing]);
 
   const list = (dir: string | undefined, hidden: boolean): void => {
     setError(undefined);
@@ -64,6 +80,7 @@ export function DirectoryPicker({
       {listing ? (
         <>
           <DirectoryListing
+            filterRef={filter}
             listing={listing}
             onOpen={(dir) => list(dir, showHidden)}
             showHidden={showHidden}

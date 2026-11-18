@@ -152,3 +152,76 @@ test.skipIf(!usable)(
   },
   60_000,
 );
+
+test.skipIf(!usable)(
+  "the picker is driven from the keyboard too",
+  async () => {
+    await withPage(browser, async (page) => {
+      await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector("nav.tabs");
+
+      const field = page
+        .locator(".settings .field")
+        .filter({ has: page.getByLabel("Repositories directory") });
+      await field.getByRole("button", { name: "Browse" }).click();
+      const dialog = page.locator("dialog[open]");
+      await dialog.locator(".entries button.dir").first().waitFor();
+
+      // The same pane as the repository browser, and the same start: the filter has the keyboard
+      // and the first row is the selection, so a keypress has somewhere to land.
+      expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe(
+        "Filter directories",
+      );
+      const chosen = async (): Promise<string> =>
+        (await dialog.locator(".entries button.dir.selected").innerText()).trim();
+      expect(await chosen()).toBe("alpha/");
+
+      // One row only, so both arrows land back on it; the dot-directories add the second, and the
+      // selection starts over at the top of the list the toggle asked for.
+      await page.keyboard.press("ArrowDown");
+      expect(await chosen()).toBe("alpha/");
+      await dialog.locator('input[type="checkbox"]').check();
+      await dialog.locator(".entries button.dir", { hasText: ".secret" }).first().waitFor();
+      expect(await chosen()).toBe(".secret/");
+      await page.keyboard.press("ArrowUp");
+      expect(await chosen()).toBe("alpha/");
+      await page.keyboard.press("ArrowDown");
+      expect(await chosen()).toBe(".secret/");
+      await page.keyboard.press("ArrowDown");
+      expect(await chosen()).toBe("alpha/");
+
+      // Enter walks in and Alt+↑ comes back out; the filter keeps the keyboard throughout.
+      await page.keyboard.press("Enter");
+      await dialog.locator(".entries button.dir", { hasText: "inner" }).first().waitFor();
+      expect(await dialog.locator(".breadcrumb").innerText()).toContain("alpha");
+      // Hidden directories are still shown, so `.git` is the first row of the new listing.
+      expect(await chosen()).toBe(".git/");
+      await page.keyboard.press("Alt+ArrowUp");
+      await dialog.locator(".entries button.dir", { hasText: ".secret" }).first().waitFor();
+      expect(await chosen()).toBe(".secret/");
+
+      // The picker has no row action, so its keymap lists three chords and not a fourth. The
+      // mouseover says the same thing without the click.
+      await dialog.locator("button.keys").click();
+      const keymap = dialog.locator(".keymap");
+      await keymap.waitFor();
+      expect(await keymap.locator("li").count()).toBe(3);
+      expect(await keymap.innerText()).not.toContain("Alt+Enter");
+      const title = await dialog.locator("button.keys").getAttribute("title");
+      expect(title).toContain("Alt+\u2191 up");
+      expect(title).not.toContain("Alt+Enter");
+
+      // Leaving the map open is remembered, so it is still open the next time the picker opens.
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await page.waitForSelector("nav.tabs");
+      const again = page
+        .locator(".settings .field")
+        .filter({ has: page.getByLabel("Repositories directory") });
+      await again.getByRole("button", { name: "Browse" }).click();
+      await page.locator("dialog[open] .keymap").waitFor();
+      await page.locator("dialog[open]").getByRole("button", { name: "Cancel" }).click();
+      await page.waitForSelector("dialog[open]", { state: "hidden" });
+    });
+  },
+  60_000,
+);

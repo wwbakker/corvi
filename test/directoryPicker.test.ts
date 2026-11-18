@@ -92,10 +92,42 @@ test("the listing's row action and repo tag are up to its caller", () => {
 
   const withAction = renderListing({
     showRepoTag: true,
-    action: () => createElement("button", { type: "button" }, "Add"),
+    action: {
+      label: () => "Add",
+      hint: "add the repository",
+      disabled: (entry) => !entry.isRepo,
+      run: () => {},
+    },
   });
   expect(withAction).toContain(">Add<");
   expect(withAction).toContain(">repo<");
+  // The row that is not a repository draws the same button, disabled.
+  expect(withAction.match(/disabled/g)?.length).toBe(1);
+});
+
+test("the first row is the keyboard's row", () => {
+  const html = renderListing();
+  // Marked for the eye and for a screen reader, on the first row and nowhere else.
+  expect(html.match(/class="dir selected"/g)?.length).toBe(1);
+  expect(html.match(/aria-current="true"/g)?.length).toBe(1);
+  // The filter is a field with a name, because its placeholder is not one.
+  expect(html).toContain('aria-label="Filter directories"');
+});
+
+test("the keymap's tooltip lists what this pane can do", () => {
+  // The mouseover alone answers the question: the chords are in the button's own title.
+  const bare = renderListing();
+  expect(bare).toContain('aria-label="Keyboard shortcuts"');
+  expect(bare).toContain("↑ ↓ choose");
+  expect(bare).toContain("Enter open");
+  expect(bare).toContain("Alt+↑ up");
+  // No row action here, so no Alt+Enter chord to list.
+  expect(bare).not.toContain("Alt+Enter");
+
+  const withAction = renderListing({
+    action: { label: () => "Add", hint: "add the repository", run: () => {} },
+  });
+  expect(withAction).toContain("Alt+Enter add");
 });
 
 test("the listing query is the one request both callers make", () => {

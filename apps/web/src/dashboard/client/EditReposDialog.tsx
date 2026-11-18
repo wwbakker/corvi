@@ -32,6 +32,7 @@ export function EditReposDialog({
 }): JSX.Element {
   const client = useChangeClient();
   const ref = useRef<HTMLDialogElement>(null);
+  const filter = useRef<HTMLInputElement>(null);
   const [current, setCurrent] = useState<RepoState[]>([]);
   const [draft, setDraft] = useState<Selection[]>([]);
   const [busy, setBusy] = useState(false);
@@ -44,7 +45,11 @@ export function EditReposDialog({
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
+    if (open && !dialog.open) {
+      dialog.showModal();
+      // showModal() puts the keyboard on the dialog itself. Browsing starts in the filter.
+      filter.current?.focus();
+    }
     if (!open && dialog.open) dialog.close();
     if (!open) return;
     // Start from what the change has now, every time the dialog is opened.
@@ -103,16 +108,21 @@ export function EditReposDialog({
     <dialog ref={ref} className="wide" onCancel={onClose} onClose={onClose}>
       <h3>Repositories</h3>
       {error && <div className="error-banner">{error}</div>}
-      <RepoBrowser
-        workspace={workspace}
-        client={client}
-        selected={draft}
-        onAdd={(path) =>
-          edit(has(path) ? draft : [...draft, { path, location: "new", branch: { kind: "change" } }])
-        }
-        onRemove={(path) => edit(draft.filter((d) => d.path !== path))}
-        onChange={(path, patch) => edit(draft.map((d) => (d.path === path ? { ...d, ...patch } : d)))}
-      />
+      {/* Mounted only while the dialog is open: every opening browses from the start directory with
+          the filter empty and the first row selected, rather than from wherever it was left. */}
+      {open && (
+        <RepoBrowser
+          filterRef={filter}
+          workspace={workspace}
+          client={client}
+          selected={draft}
+          onAdd={(path) =>
+            edit(has(path) ? draft : [...draft, { path, location: "new", branch: { kind: "change" } }])
+          }
+          onRemove={(path) => edit(draft.filter((d) => d.path !== path))}
+          onChange={(path, patch) => edit(draft.map((d) => (d.path === path ? { ...d, ...patch } : d)))}
+        />
+      )}
       <p className="hint">
         {added.length || dropped.length
           ? `${added.length} to add, ${dropped.length} to remove` +

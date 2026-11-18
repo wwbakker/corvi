@@ -22,7 +22,11 @@ plan's heading — while that heading is still the template's; your own words ar
 Both issue integrations can be used together. Below them: the workspace, the change id and
 branch, and the repositories as a small list of what is picked, with the same kind of edit
 button over the directory browser. Repositories are optional for an idea; the browser starts at
-`repositoriesDirectory` and can navigate up to `/`.
+`repositoriesDirectory` and can navigate up to `/`. It is driven from the keyboard as well: it
+opens with the cursor in the filter and the first row selected, `↑`/`↓` move the selection (round
+the ends), `Enter` walks into it, `Alt+↑` goes up a directory, and `Alt+Enter` presses the row's
+button. The keyboard mark beside the hidden-directories switch lists the same chords, and the settings'
+directory picker behaves the same way.
 
 Leaving the wizard preserves one draft in the page. It appears under **Ideas** as *New idea* or
 its title. Reopening restores the fields and selections. **Discard** removes it; closing/reloading

@@ -238,15 +238,23 @@ export function Wizard({
 }
 
 /** A modal dialog closed by its button, Escape or the × — the platform's own behavior. The
- * effect is what opens and closes it from this component's state. */
-function useDialog(open: boolean): RefObject<HTMLDialogElement | null> {
+ * effect is what opens and closes it from this component's state. `focus` is the field the dialog
+ * should open on, where it has one: showModal focuses the dialog itself, which leaves the first
+ * keystroke with nowhere to go. */
+function useDialog(
+  open: boolean,
+  focus?: RefObject<HTMLElement | null>,
+): RefObject<HTMLDialogElement | null> {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
+    if (open && !dialog.open) {
+      dialog.showModal();
+      focus?.current?.focus();
+    }
     if (!open && dialog.open) dialog.close();
-  }, [open]);
+  }, [open, focus]);
   return ref;
 }
 
@@ -325,7 +333,8 @@ function ReposField({
   onChange: (path: string, patch: Partial<Selection>) => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
-  const ref = useDialog(open);
+  const filter = useRef<HTMLInputElement>(null);
+  const ref = useDialog(open, filter);
 
   return (
     <div className="field repos-field">
@@ -370,14 +379,19 @@ function ReposField({
           <b>existing branch</b>, or the checkout&apos;s <b>current branch</b>. A new branch starts where{" "}
           <i>starts from</i> says, and a pull request merges into <i>merges into</i>.
         </p>
-        <RepoBrowser
-          workspace={workspace}
-          client={client}
-          selected={repos}
-          onAdd={onAdd}
-          onRemove={onRemove}
-          onChange={onChange}
-        />
+        {/* Mounted only while the dialog is open, so every opening starts the browser over: the
+            start directory, an empty filter, the first row selected. */}
+        {open && (
+          <RepoBrowser
+            filterRef={filter}
+            workspace={workspace}
+            client={client}
+            selected={repos}
+            onAdd={onAdd}
+            onRemove={onRemove}
+            onChange={onChange}
+          />
+        )}
         <div className="dialog-actions">
           <button type="button" onClick={() => setOpen(false)}>
             Close

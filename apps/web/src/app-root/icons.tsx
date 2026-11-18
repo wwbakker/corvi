@@ -151,6 +151,27 @@ export function UpdateIcon({ title }: { title: string }): JSX.Element {
   );
 }
 
+/** A pane that can be driven from the keyboard: a keyboard, because that is what it opens. */
+export function KeysIcon({ title }: { title: string }): JSX.Element {
+  return (
+    <svg
+      {...size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role="img"
+      aria-label={title}
+    >
+      <title>{title}</title>
+      <rect x="1.5" y="4" width="13" height="8" rx="1.5" />
+      <path d="M4.6 7h.01M8 7h.01M11.4 7h.01" />
+      <path d="M5.5 9.8h5" />
+    </svg>
+  );
+}
+
 /** Refreshing a page's own data: a full circle closing on its arrowhead, which is the same idea as
  * the update arrow and has to read differently — this one re-reads what the page already shows,
  * it does not fetch a new version of the app. Two arcs with their own heads, drawn as one turn. */
