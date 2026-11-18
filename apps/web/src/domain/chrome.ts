@@ -12,8 +12,9 @@
  */
 
 /** How tall the page's first row is: a page header everywhere, the window's title bar in the app.
- * Tall enough for a control beside the change's name, and for the traffic lights macOS keeps. */
-export const TITLE_BAR_HEIGHT = 38;
+ * Tall enough for the change's name, its state and its actions with room above and below them,
+ * and for the traffic lights macOS keeps. */
+export const TITLE_BAR_HEIGHT = 48;
 
 /**
  * macOS' traffic lights in the app's window: 12px circles 20px apart, and how much of the row they

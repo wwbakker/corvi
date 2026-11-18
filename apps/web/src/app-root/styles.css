@@ -58,6 +58,9 @@
   --change-a: var(--corvi-a);
   --change-b: var(--corvi-b);
   --change-mark: none; /* whether the column draws a change's pair beside its name */
+  /* The line under the tab you are on. The brand's orange by default — it is the app saying where
+     you are, not the change's own colour — and a theme may say it differently. */
+  --tab-on: var(--corvi-b);
 
   /* How far the backdrop follows the cursor (Dusk's sky): written by app-root/theme.ts. */
   --sky-x: 0px;
@@ -260,6 +263,8 @@
   --nav-hover: #111114;
   --nav-current: #0019fc;
   --nav-current-text: #ffffff;
+  /* Selection is the theme's solid ultramarine, so the tab's line is too. */
+  --tab-on: var(--accent);
 }
 
 /* Spaces: every change has its own colour pair, and the page is lit by it; switching changes
@@ -493,8 +498,9 @@ a {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 16px 8px 24px;
+  gap: 1px;
+  padding: 12px 10px 10px;
+  font-size: 13.5px;
   /* The column's own material: a theme may make it solid (Ultramarine), pure black (Raven), glass
      over the sky (Dusk) or tinted by the change's colour (Spaces). */
   background: var(--nav);
@@ -511,14 +517,13 @@ a {
   overflow-y: auto;
 }
 
-/* The column's line — and the window's own row has none: the navigation column and that row are one
-   surface, so a line between them would draw the very seam the palette is there to avoid. Below
-   that row the column meets the page, or the terminal, and the line is what makes the boundary
-   read. Drawn rather than a border, because a border cannot start partway down its own edge. */
+/* The column's line: one edge from the top of the window to the bottom of it, the window's own
+   row included — the column and the page beside it are two surfaces, and the line is what says
+   where one ends. Drawn rather than a border, because the resize handle shares the edge. */
 .sidebar::after {
   content: "";
   position: absolute;
-  top: var(--titlebar-height);
+  top: 0;
   right: 0;
   bottom: 0;
   width: 1px;
@@ -530,65 +535,110 @@ a {
 .sidebar .entry {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
   background: transparent;
   border: 0;
-  border-radius: 6px;
-  padding: 6px 10px;
+  border-radius: 8px;
+  padding: 6px 9px;
   color: var(--nav-text);
   text-align: left;
+}
+
+/* An entry's glyph sits before its name and takes the column's quiet tone: the name is what you
+   read, the glyph is what you aim at. */
+.sidebar .entry .ic {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--nav-muted);
+}
+
+.sidebar .entry .ic svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.sidebar .entry.current .ic {
+  color: inherit;
+}
+
+/* How much is in the list, at its right: a number, not a badge — it is a size, not an alarm. */
+.sidebar .entry .count {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--nav-muted);
 }
 
 .sidebar .entry:hover {
   background: var(--nav-hover);
 }
 
-.sidebar .entry.current {
+/* The row you are on is a chip: lifted by a light top edge and a hairline around it, so it reads
+   as sitting on the column rather than as a flat band of colour. */
+.sidebar .entry.current,
+.sidebar .entry.current:hover {
   background: var(--nav-current);
   color: var(--nav-current-text);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.18),
+    inset 0 0 0 1px rgb(255 255 255 / 0.1);
 }
 
 /* The changes, and the terminals: children of the entry above them. */
 .sidebar .entry.sub {
-  padding: 4px 10px 4px 18px;
-  font-size: 13px;
+  padding: 4px 9px 4px 30px;
+  font-size: 12.5px;
   color: var(--nav-muted);
 }
 
 /* A change and its terminals: one group, with a little air between groups. */
 .sidebar .change-entry {
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
-/* A change is one line: its name, and how the tools are doing. The bar down the left is its
-   state — a colour along the whole row reads from further away than a dot, and leaves the icons to
-   say what the tools are doing. */
+/* A change is one line: its name, and how the tools are doing. Its state is a short bar inside the
+   row's left edge — a colour along the whole row reads from further away than a dot, and a bar the
+   row can round into a chip is what the current row needs. */
 .sidebar .entry.change {
+  position: relative;
   display: block;
-  padding: 6px 10px 6px 12px;
-  border-left: 3px solid var(--nav-faint);
-  border-radius: 0 6px 6px 0;
+  padding: 6px 9px 6px 18px;
+  border-radius: 8px;
+}
+
+.sidebar .entry.change::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--state-colour, var(--nav-faint));
 }
 
 .sidebar .entry.change.state-implementation {
-  border-left-color: var(--warn);
+  --state-colour: var(--warn);
 }
 
 .sidebar .entry.change.state-blocked {
-  border-left-color: var(--purple);
+  --state-colour: var(--purple);
 }
 
 .sidebar .entry.change.state-ideation {
-  border-left-color: var(--ideation);
+  --state-colour: var(--ideation);
 }
 
 .sidebar .entry.change.state-verification {
-  border-left-color: var(--info);
+  --state-colour: var(--info);
 }
 
 .sidebar .entry.change.state-cancelled {
-  border-left-color: var(--nav-faint);
+  --state-colour: var(--nav-faint);
 }
 
 .state-completed {
@@ -702,17 +752,17 @@ body.resizing {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 6px 4px;
+  padding: 8px 0 0;
   border-top: 1px solid var(--nav-line);
 }
 
 .sidebar .bottom-row .icon-entry {
   display: flex;
   align-items: center;
-  padding: 6px;
+  padding: 7px;
   background: transparent;
   border: 0;
-  border-radius: 6px;
+  border-radius: 7px;
   color: var(--nav-muted);
   cursor: pointer;
 }
@@ -720,8 +770,8 @@ body.resizing {
 /* Furniture rather than row icons: a size up from the status glyphs, so the gear reads as a
    gear at the column's width. */
 .sidebar .bottom-row .icon-entry svg {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
 }
 
 .sidebar .bottom-row .icon-entry:hover {
@@ -769,21 +819,29 @@ body.resizing {
   display: flex;
   align-items: center;
   gap: 6px;
-  /* The heading's own air, now that the heading is a row: the label keeps the left inset it had. */
-  margin: 10px 0 2px;
-  padding-right: 10px;
+  margin: 14px 9px 5px;
 }
 
 .sidebar .ideas-row .group-label {
   flex: 1;
   min-width: 0;
-  margin: 0 0 0 12px;
+  margin: 0;
 }
 
+/* The heading's plus: the glyph, in the button the heading has always had. */
 .sidebar .ideas-row .create {
   flex: none;
-  padding: 3px 8px;
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 5px;
+  border-radius: 7px;
+}
+
+.sidebar .ideas-row .create svg {
+  display: block;
+  width: 14px;
+  height: 14px;
 }
 
 .sidebar .list {
@@ -1044,19 +1102,77 @@ body.drawer-open {
 
 /* The change's title row: the name, id and branch on the left; the state and the actions on the
    right. It is the window's title bar in the app (apps/web/src/domain/chrome.ts), so it is exactly
-   one row tall: a long name truncates rather than making the bar taller than the column's band. */
+   one row tall: a long name truncates rather than making the bar taller than the column's band.
+   It carries no line of its own: the title row and the tab row are one block, and the line under
+   the tabs is what separates the chrome from the page. */
 .change-chrome > header.change-bar {
   height: var(--titlebar-height);
   margin: 0;
-  padding-inline: 24px;
-  gap: 10px;
+  padding-inline: 20px;
+  gap: 12px;
   background: var(--surface);
-  border-bottom: 1px solid var(--line);
   /* The row's own layer, above the tab row under it: the actions menu opens from here and hangs
      over that row, and both rows are materials (a backdrop filter makes a stacking context), so
      the order has to be stated rather than left to the DOM. */
   position: relative;
   z-index: 3;
+}
+
+/* The row's two triggers — the state and the actions — are one control in two colours: one height,
+   one padding, one radius, one chevron. The state's colour is the change's state; the actions
+   menu keeps the quiet face. */
+.change-bar select,
+.change-bar .menu > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px 0 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+/* The actions menu is the state picker's twin: the same neutral face, since the state is the
+   thing that carries a colour in this row. */
+.change-bar .menu > button {
+  background: var(--raise);
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+
+/* The state is a native select with its arrow hidden, because only the native control keeps the
+   state's keyboard behaviour; the chevron is the page's, in the row's shared position. */
+.change-bar .state-pick {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.change-bar .state-pick select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 27px;
+}
+
+.change-bar .state-pick .caret {
+  position: absolute;
+  right: 8px;
+  display: flex;
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+.change-bar .menu > button .caret {
+  display: flex;
+  margin-left: 2px;
+  opacity: 0.7;
+}
+
+.change-bar .caret svg {
+  display: block;
+  width: 13px;
+  height: 13px;
 }
 
 /* What the change is: its name first, then the id and the branch that identify it. All three
@@ -1067,7 +1183,7 @@ body.drawer-open {
   flex: 1 1 auto;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
 }
 
@@ -1077,8 +1193,9 @@ body.drawer-open {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
   color: var(--text);
 }
 
@@ -2008,23 +2125,28 @@ dialog.wide {
 }
 
 select.state-blocked {
-  border-color: var(--purple);
+  border-color: color-mix(in srgb, var(--purple) 45%, transparent);
+  background: color-mix(in srgb, var(--purple) 12%, transparent);
 }
 
 select.state-ideation {
-  border-color: var(--ideation);
+  border-color: color-mix(in srgb, var(--ideation) 45%, transparent);
+  background: color-mix(in srgb, var(--ideation) 12%, transparent);
 }
 
 select.state-implementation {
-  border-color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
 }
 
 select.state-verification {
-  border-color: var(--info);
+  border-color: color-mix(in srgb, var(--info) 45%, transparent);
+  background: color-mix(in srgb, var(--info) 12%, transparent);
 }
 
 select.state-cancelled {
-  border-color: var(--faint);
+  border-color: color-mix(in srgb, var(--faint) 45%, transparent);
+  background: color-mix(in srgb, var(--faint) 12%, transparent);
 }
 
 .state-completed {
@@ -2150,11 +2272,18 @@ button.create:hover:not(:disabled) {
 /* A block's heading inside the navigation column: Ideas, then the active changes. Quieter than
    the entries, because it says which kind of thing follows rather than being one. */
 .sidebar .group-label {
-  margin: 10px 0 2px 12px;
+  margin: 14px 9px 5px;
   font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--nav-muted);
+  letter-spacing: 0.07em;
+  color: var(--nav-faint);
+}
+
+/* The Workspace heading closes the list of changes and opens the column's furniture: the same
+   heading as Ideas, with a little more air above it. */
+.sidebar .workspace-label {
+  margin-top: 16px;
 }
 
 /* The one tab row: the change's views, a line, then its terminal windows and "+". A view and a
@@ -2163,17 +2292,26 @@ button.create:hover:not(:disabled) {
    neither its own full-bleed margins nor an offset. Its `--tab-row-height` is what a window strip
    wraps against. */
 .change-tabs {
-  --tab-row-height: 36px;
+  --tab-row-height: 40px;
   position: relative;
   z-index: 1;
   display: flex;
-  align-items: center;
-  gap: 4px;
+  flex-wrap: nowrap;
+  /* The first line is the row: a strip that wraps puts its extra windows below the views,
+     never above them. */
+  align-items: flex-start;
+  gap: 2px;
   min-height: var(--tab-row-height);
   margin: 0;
   padding-inline: 14px;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
+}
+
+/* The change's views keep their own width: a narrow window shortens the window strip (which
+   wraps), never a view's name. */
+.change-tabs .views {
+  flex: none;
 }
 
 .change-tabs .tabs {
@@ -2182,18 +2320,64 @@ button.create:hover:not(:disabled) {
 }
 
 .change-tabs .tab {
-  padding: 7px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px 9px;
   font-size: 13px;
+}
+
+.change-tabs .tab .ic {
+  display: flex;
+}
+
+.change-tabs .tab .ic svg {
+  display: block;
+  width: 14px;
+  height: 14px;
 }
 
 /* What separates the change's views from its windows: the two are both tabs, and the line is what
    says they are not the same list. */
 .tab-separator {
   flex: none;
+  align-self: center;
   width: 1px;
   height: 18px;
   margin: 0 8px;
   background: var(--line);
+}
+
+/* The terminal's own menu, at the row's right: dressed as a tab, because it belongs to the row
+   rather than sitting on top of it. */
+.change-tabs .menu {
+  flex: none;
+  align-self: center;
+}
+
+.change-tabs .menu > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.change-tabs .menu > button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.change-tabs .menu .caret svg {
+  display: block;
+  width: 13px;
+  height: 13px;
 }
 
 /* Two views of one change, under its header. */
@@ -2205,17 +2389,29 @@ button.create:hover:not(:disabled) {
 }
 
 .tabs .tab {
+  flex: none;
+  min-height: var(--tab-row-height, 40px);
+  white-space: nowrap;
   background: transparent;
   border: 0;
   border-bottom: 2px solid transparent;
   border-radius: 0;
   color: var(--muted);
-  padding: 8px 14px;
+  padding: 8px 11px 9px;
 }
 
-.tabs .tab.current {
+/* What says which tab you are on is the text's colour and the line under it, not a lit face: a
+   row of chips is a row of buttons, and these are places. */
+.tabs .tab:hover:not(.current) {
+  background: transparent;
   color: var(--text);
-  border-bottom-color: var(--accent);
+}
+
+.tabs .tab.current,
+.tabs .tab.current:hover {
+  background: transparent;
+  color: var(--text);
+  border-bottom-color: var(--tab-on);
 }
 
 /* The terminal page: this change's windows where its title bar would be, and the terminal
@@ -2270,9 +2466,10 @@ button.create:hover:not(:disabled) {
    past that, so the row can never become the whole window; the row gap is the only slack. */
 .window-tabs {
   --window-tab-row-gap: 2px;
-  --window-tab-height: calc(var(--tab-row-height, 36px) - 8px);
+  --window-tab-height: var(--tab-row-height, 40px);
+  flex: 1 1 auto;
   display: flex;
-  align-items: stretch;
+  align-items: flex-end;
   flex-wrap: wrap;
   row-gap: var(--window-tab-row-gap);
   min-width: 0;
@@ -2284,17 +2481,21 @@ button.create:hover:not(:disabled) {
 }
 
 .window-tab {
+  /* Long names shorten rather than pushing the strip onto a second line: the mockup's strip is
+     one row, and a name is only a way to tell two windows apart. */
+  flex: 0 1 auto;
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   min-height: var(--window-tab-height);
   max-width: 220px;
-  padding: 3px 10px;
+  padding: 8px 11px 9px;
   background: transparent;
   border: 0;
   border-bottom: 2px solid transparent;
-  border-radius: 6px;
-  font-size: 12px;
+  border-radius: 0;
+  font-size: 12.5px;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -2318,19 +2519,28 @@ button.create:hover:not(:disabled) {
 }
 
 .window-tab:hover:not(.current) {
-  background: var(--hover);
+  background: transparent;
   color: var(--text);
 }
 
 /* The current window wears the view tab's dress — full-strength text and an accent underline —
    and its state icon keeps its colour, exactly as it does on the column's selected window. */
-.window-tab.current {
+.window-tab.current,
+.window-tab.current:hover {
+  background: transparent;
   color: var(--text);
-  border-bottom-color: var(--accent);
+  border-bottom-color: var(--tab-on);
 }
 
 .window-tab.current .label {
   color: inherit;
+}
+
+/* The strip's fixed end: "+" is a control, not a window, and never shrinks away. */
+.window-tab.new {
+  flex: none;
+  justify-content: center;
+  padding-inline: 9px;
 }
 
 /* Output arrived in a window you were not looking at. */
@@ -3511,21 +3721,20 @@ button.danger:disabled {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 8px;
-  padding: 2px 4px 10px;
+  gap: 9px;
+  padding: 2px 6px 12px;
 }
 
 .sidebar > .band .brand-logo {
   flex: none;
   display: block;
-  width: 22px;
-  height: 22px;
-  border-radius: 5px;
+  width: 26px;
+  height: 26px;
 }
 
 .sidebar > .band .brand-name {
   flex: none;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--nav-text);
@@ -3540,12 +3749,21 @@ button.danger:disabled {
   margin-bottom: 0;
 }
 
+/* The switcher is a chip in the row's right: the column's quiet tone on its own background, one
+   size smaller than the entries — a context, not a destination. */
 .sidebar > .band button.workspace {
   width: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
   border-bottom: 0;
-  border-radius: 6px;
-  padding: 2px 6px;
+  border-radius: 7px;
+  padding: 3px 6px 3px 9px;
   font-size: 12px;
+  font-weight: 400;
+  color: var(--nav-muted);
+  background: color-mix(in srgb, var(--nav-text) 8%, transparent);
 }
 
 .sidebar button.workspace:hover {

@@ -1344,7 +1344,10 @@ test.skipIf(!usable)(
         const tops = await tabs.evaluateAll((els) =>
           els.map((el) => Math.round(el.getBoundingClientRect().top)),
         );
-        expect(new Set(tops).size).toBe(2);
+        // More windows than fit: the strip wraps, and the cap below is what keeps it from growing
+        // the row with the session. How many rows the tabs *want* depends on their names; the
+        // contract is that they wrap at all and that the row is taller than the title bar.
+        expect(new Set(tops).size).toBeGreaterThanOrEqual(2);
         const row = await tabsRow.boundingBox();
         if (!row) throw new Error("the tab row did not lay out");
         expect(row.height).toBeGreaterThan(TITLE_BAR_HEIGHT);
@@ -1635,14 +1638,12 @@ test.skipIf(!usable)(
         expect(sidebar.width).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset + 160);
         expect(await region(".sidebar > .band")).toBe("drag");
 
-        // The column's line begins below that row rather than beside it: the band and the column are one
-        // surface, and a line between them would draw the seam the palette is there to avoid. It is drawn
-        // (a pseudo-element) rather than a border, because a border cannot start partway down its edge.
+        // The column's line runs the whole edge, the brand row included: the column and the page
+        // beside it are two surfaces, and the line is what says where one ends. It is drawn (a
+        // pseudo-element) rather than a border, because the resize handle shares that edge.
         const column = page.locator(".sidebar");
         expect(await column.evaluate((el) => getComputedStyle(el).borderRightWidth)).toBe("0px");
-        expect(await column.evaluate((el) => getComputedStyle(el, "::after").top)).toBe(
-          `${TITLE_BAR_HEIGHT}px`,
-        );
+        expect(await column.evaluate((el) => getComputedStyle(el, "::after").top)).toBe("0px");
         expect(await column.evaluate((el) => getComputedStyle(el, "::after").backgroundColor)).not.toBe(
           "rgba(0, 0, 0, 0)",
         );
@@ -1702,7 +1703,8 @@ test.skipIf(!usable)(
         await page.waitForSelector(".change-card");
 
         expect((await page.locator(".page > header .create").innerText()).trim()).toBe("New");
-        expect((await page.locator(".sidebar .ideas-row .create").innerText()).trim()).toBe("New");
+        // The column's is the glyph, with the word as its label (docs/manual/interface.md).
+        expect(await page.locator(".sidebar .ideas-row .create").getAttribute("aria-label")).toBe("new idea");
 
         await page.locator(".sidebar .ideas-row .create").click();
         await page.waitForSelector(".wizard");

@@ -1,5 +1,7 @@
 import { type JSX, useEffect, useRef, useState } from "react";
 
+import { ChevronDownIcon } from "./icons.tsx";
+
 export type Action = {
   label: string;
   disabled?: boolean;
@@ -62,7 +64,12 @@ export function ActionsMenu({
           setOpen(!open);
         }}
       >
-        {label}
+        {/* The chevron is the button's, not part of the label: a trigger is a name and the shape
+            that says it opens. Callers that still spell the arrow in the label keep working. */}
+        {label.replace(/\s*▾\s*$/, "")}
+        <span className="caret" aria-hidden="true">
+          <ChevronDownIcon title="opens a menu" />
+        </span>
       </button>
       {open && (
         <div className="menu-items">

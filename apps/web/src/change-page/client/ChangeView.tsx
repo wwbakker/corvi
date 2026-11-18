@@ -32,6 +32,7 @@ import { PlanPage } from "./PlanPage.tsx";
 import { TranscriptsPage } from "./TranscriptsPage.tsx";
 import { RunMenu } from "../../actions/RunMenu.tsx";
 import { TabHost, type WidgetInfo } from "../../integrations/client.tsx";
+import { DashboardIcon, PageIcon, PlanIcon, ReviewIcon } from "../../app-root/icons.tsx";
 
 /** The message to show for whatever a request threw: typed client errors and plain errors both
  * carry one. */
@@ -411,6 +412,17 @@ export function ChangeView({
             className={activeId === tab.id ? "tab current" : "tab"}
             onClick={() => onOpenPage(tab.id)}
           >
+            <span className="ic" aria-hidden="true">
+              {tab.id === "plan" ? (
+                <PlanIcon title={tab.title} />
+              ) : tab.id === "dashboard" ? (
+                <DashboardIcon title={tab.title} />
+              ) : tab.id === "review" ? (
+                <ReviewIcon title={tab.title} />
+              ) : (
+                <PageIcon title={tab.title} />
+              )}
+            </span>
             {tab.title}
           </button>
         ))}

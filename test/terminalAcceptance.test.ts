@@ -446,7 +446,7 @@ test.skipIf(!usable)(
     const page = await openTerminal(id);
     const tabs = page.locator(".window-tab:not(.new)");
     // Run it from the page's own menu, the path a person takes.
-    await page.getByRole("button", { name: "Terminal ▾" }).click();
+    await page.getByRole("button", { name: "Terminal", exact: true }).click();
     await page.locator(".menu-items button", { hasText: "Freeze Me" }).click();
 
     // The kept-open window stays in the strip, labelled from the action.

@@ -1,7 +1,7 @@
 import { type JSX } from "react";
 import { CHANGE_STATES, IDEATION, type Change, type ChangeState } from "../../app-root/api.ts";
 import { ActionsMenu, type Action } from "../../app-root/ActionsMenu.tsx";
-import { BranchIcon } from "../../app-root/icons.tsx";
+import { BranchIcon, ChevronDownIcon } from "../../app-root/icons.tsx";
 import { StaleMarker } from "../../app-root/RemoteAvailability.tsx";
 import { stateClass } from "../../app-root/stateClass.ts";
 import { isFinished } from "../../domain/change.ts";
@@ -82,36 +82,44 @@ export function ChangeControls({
       {blocked && <StaleMarker>unavailable</StaleMarker>}
       {change && (
         <>
-          <select
-            className={stateClass(change.state)}
-            value={change.state ?? "Implementation"}
-            // An idea's state is not yours to pick: starting the work is what leaves it, and
-            // that does more than a word (see the actions). An unavailable workspace cannot
-            // write the state either, so the select is disabled rather than refused on click.
-            disabled={idea || blocked === true}
-            // Your own view of where the change stands; completing it sets "Completed".
-            onChange={(e) => onState(e.target.value as ChangeState)}
-          >
-            {/* An idea shows its one state. A started change offers the states you are in, not
+          {/* The state is picked from a list, so it wears the same dress as the Actions menu
+              beside it: one height, one padding, one chevron. The select itself keeps its native
+              behaviour, and the icon is drawn because a select's own arrow cannot be styled. */}
+          <span className="state-pick">
+            <select
+              className={stateClass(change.state)}
+              value={change.state ?? "Implementation"}
+              // An idea's state is not yours to pick: starting the work is what leaves it, and
+              // that does more than a word (see the actions). An unavailable workspace cannot
+              // write the state either, so the select is disabled rather than refused on click.
+              disabled={idea || blocked === true}
+              // Your own view of where the change stands; completing it sets "Completed".
+              onChange={(e) => onState(e.target.value as ChangeState)}
+            >
+              {/* An idea shows its one state. A started change offers the states you are in, not
                 the ones a change ends in, and not `Ideation` — there is no going back over a
                 branch that now exists. Picking "Completed" from a list would set the word
                 without merging anything, removing a worktree or archiving the change — a label
                 that lies. Ending a change is Complete or Cancel, which do the work. A change
                 that has already ended still shows its own state, because a select cannot
                 display what it does not offer. */}
-            {idea ? (
-              <option>{IDEATION}</option>
-            ) : (
-              <>
-                {CHANGE_STATES.filter((s) => !isFinished({ ...change, state: s }) && s !== IDEATION).map(
-                  (s) => (
-                    <option key={s}>{s}</option>
-                  ),
-                )}
-                {isFinished(change) && <option>{change.state}</option>}
-              </>
-            )}
-          </select>
+              {idea ? (
+                <option>{IDEATION}</option>
+              ) : (
+                <>
+                  {CHANGE_STATES.filter((s) => !isFinished({ ...change, state: s }) && s !== IDEATION).map(
+                    (s) => (
+                      <option key={s}>{s}</option>
+                    ),
+                  )}
+                  {isFinished(change) && <option>{change.state}</option>}
+                </>
+              )}
+            </select>
+            <span className="caret" aria-hidden="true">
+              <ChevronDownIcon title="pick a state" />
+            </span>
+          </span>
           {isFinished(change) ? (
             <>
               {/* How it ended, not only that it did: a change that was abandoned is not one that
@@ -133,7 +141,7 @@ export function ChangeControls({
               )}
             </>
           ) : (
-            <ActionsMenu actions={actions} />
+            <ActionsMenu actions={actions} className="actions" />
           )}
         </>
       )}

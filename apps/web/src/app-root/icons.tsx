@@ -237,3 +237,190 @@ export function RefreshIcon({ title }: { title: string }): JSX.Element {
     </svg>
   );
 }
+
+/* The column's and the tab row's glyphs. Same sixteen-unit frame and `currentColor` as the status
+ * icons, at the size the rule that places them sets: an entry says what it is before its name,
+ * and a view says which view it is. */
+
+/** A menu that opens below its button: the chevron every menu trigger wears. */
+export function ChevronDownIcon({ title }: { title: string }): JSX.Element {
+  return (
+    <svg
+      {...size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role="img"
+      aria-label={title}
+    >
+      <title>{title}</title>
+      <path d="M4.5 6.5 8 10l3.5-3.5" />
+    </svg>
+  );
+}
+
+/** The overview: the list of changes, drawn as a page split by a heading line. */
+export function ChangesIcon({ title }: { title: string }): JSX.Element {
+  return (
+    <svg
+      {...size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role="img"
+      aria-label={title}
+    >
+      <title>{title}</title>
+      <rect x="2" y="3" width="12" height="10" rx="2" />
+      <path d="M2 6.5h12" />
+    </svg>
+  );
+}
+
+/** Actions: something run, not something read. */
+export function BoltIcon({ title }: { title: string }): JSX.Element {
+  return (
+    <svg
+      {...size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role="img"
+      aria-label={title}
+    >
+      <title>{title}</title>
+      <path d="M9 2 4 9h3.4L7 14l5-7H8.6z" />
+    </svg>
+  );
+}
+
+/** Subagents: one conversation opening two, the second still going. */
+export function SubagentsIcon({ title }: { title: string }): JSX.Element {
+  return (
+    <svg
+      {...size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role="img"
+      aria-label={title}
+    >
+      <title>{title}</title>
+      <circle cx="4" cy="4" r="1.7" />
+      <circle cx="12" cy="12" r="1.7" />
+      <circle cx="12" cy="5.5" r="1.7" />
+      <path d="M4 5.7V9a3 3 0 0 0 3 3h3.3" />
+      <path d="M5.7 4h3.8a2.5 2.5 0 0 1 2.5 2.5V4.5" />
+    </svg>
+  );
+}
+
+/** Leftovers: work that stayed behind when something else moved on. */
+export function LeftoversIcon({ title }: { title: string }): JSX.Element {
+  return (
+    <svg
+      {...size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role="img"
+      aria-label={title}
+    >
+      <title>{title}</title>
+      <path d="M2.5 4.5h11l-1 9h-9z" />
+      <path d="M6 4.5V2.5h4v2" />
+    </svg>
+  );
+}
+
+/** Any other page an extension contributes. */
+export function PageIcon({ title }: { title: string }): JSX.Element {
+  return (
+    <svg
+      {...size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role="img"
+      aria-label={title}
+    >
+      <title>{title}</title>
+      <path d="M3.5 2.5h6l3 3v8h-9z" />
+      <path d="M9 2.5v3.5h3.5" />
+    </svg>
+  );
+}
+
+/** The plan: a page of writing. */
+export function PlanIcon({ title }: { title: string }): JSX.Element {
+  return (
+    <svg
+      {...size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role="img"
+      aria-label={title}
+    >
+      <title>{title}</title>
+      <path d="M3.5 2.5h6l3 3v8h-9z" />
+      <path d="M6 8h4M6 10.5h4M6 5.5h2" />
+    </svg>
+  );
+}
+
+/** The dashboard: cards of different heights, laid out beside each other. */
+export function DashboardIcon({ title }: { title: string }): JSX.Element {
+  return (
+    <svg
+      {...size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinejoin="round"
+      role="img"
+      aria-label={title}
+    >
+      <title>{title}</title>
+      <rect x="2" y="2" width="5.2" height="6.5" rx="1.2" />
+      <rect x="8.8" y="2" width="5.2" height="4" rx="1.2" />
+      <rect x="8.8" y="7.5" width="5.2" height="6.5" rx="1.2" />
+      <rect x="2" y="10" width="5.2" height="4" rx="1.2" />
+    </svg>
+  );
+}
+
+/** Reviewing the change's work: a pane with a tick on it. */
+export function ReviewIcon({ title }: { title: string }): JSX.Element {
+  return (
+    <svg
+      {...size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role="img"
+      aria-label={title}
+    >
+      <title>{title}</title>
+      <rect x="2" y="3" width="12" height="10" rx="2" />
+      <path d="M4.5 6.5h4M4.5 9h3" />
+      <path d="m9.5 9.6 1.6 1.6 2.4-3" />
+    </svg>
+  );
+}
