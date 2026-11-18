@@ -13,6 +13,7 @@ import {
   listWindows,
   moveWindow,
   newWindow,
+  newWindowHere,
   renameWindow,
   selectWindow,
   selectWindowById,
@@ -188,7 +189,9 @@ export const terminalsRoutes = guard({
         Effect.gen(function* () {
           const body = yield* bodyAs(req, WindowBody);
           const windowId = body.window;
-          if (body.action === "new") yield* newWindow(c.id, changeDir(c));
+          // "New terminal here": where the active shell is now, or the change's own directory
+          // when the change has no window yet.
+          if (body.action === "new") yield* newWindowHere(c.id, changeDir(c));
           else if (body.action === "select") {
             // A caller that names a window id selects by stable identity under the registry lock;
             // the strip's ordinary select keeps its index. A named window that is gone is

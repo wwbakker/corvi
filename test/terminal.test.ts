@@ -672,7 +672,7 @@ test.skipIf(!usable)(
 test.skipIf(!usable)(
   "a window is named where its shell is, with what runs there in brackets",
   async () => {
-    const { page } = await openTerminal(id);
+    const { page, dir } = await openTerminal(id);
     const tab = page.locator(".window-tab:not(.new):not(.overview)").first();
     await tab.waitFor({ timeout: 20_000 });
     const windowId = await tab.getAttribute("data-window-id");
@@ -691,6 +691,12 @@ test.skipIf(!usable)(
     const sidebar = page.locator(`.sidebar .entry.window[data-window-id="${windowId}"] .label`);
     expect((await sidebar.innerText()).trim()).toBe("tmp (sleep)");
     expect(await until(async () => /^tmp \(\w+\)$/.test(await label()), true, budget(30_000))).toBe(true);
+    // Put the shared window back where it was found: the suite reuses this change, and the later
+    // tests open windows "here", which is the change's own directory for them.
+    await page.keyboard.type(`printf '\\033]7;file://host${dir}\\007'\n`);
+    expect(await until(async () => /^PROJ-TERM \(\w+\)$/.test(await label()), true, budget(30_000))).toBe(
+      true,
+    );
     await page.close();
   },
   budget(60_000),
