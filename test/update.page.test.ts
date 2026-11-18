@@ -180,7 +180,7 @@ test.skipIf(!usable)(
         expect(await toast.locator(".toast-body").textContent()).toContain("2 new commits");
         const icon = page.locator(".sidebar .icon-entry.update.available");
         await icon.waitFor();
-        expect(await icon.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(210, 153, 34)");
+        expect(await icon.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(255, 207, 90)");
         await page.locator(".toast-close").click();
         await toast.waitFor({ state: "detached" });
         await icon.waitFor();
@@ -256,7 +256,7 @@ test.skipIf(!usable)(
         // Gray, not yellow: no update is waiting.
         const icon = page.locator(".sidebar .icon-entry.update");
         await icon.waitFor();
-        expect(await icon.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(139, 147, 161)");
+        expect(await icon.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(184, 189, 240)");
         await icon.click();
         const dialog = page.locator("dialog");
         await dialog.waitFor();

@@ -121,11 +121,12 @@ const painted = (page: Page): Promise<Painted[]> =>
     }),
   );
 
-const heading = "rgb(108, 182, 255)"; // --md-heading
-const code = "rgb(126, 231, 135)"; // --md-code
-const link = "rgb(163, 113, 247)"; // --md-link
-const quote = "rgb(139, 147, 161)"; // --md-quote
-const mark = "rgb(86, 95, 108)"; // --md-mark
+// Dusk's tokens, the default theme: the editor reads them, so a change of look is a change here.
+const heading = "rgb(143, 160, 255)"; // --md-heading
+const code = "rgb(126, 240, 176)"; // --md-code
+const link = "rgb(201, 166, 255)"; // --md-link
+const quote = "rgb(183, 180, 228)"; // --md-quote
+const mark = "rgb(142, 139, 192)"; // --md-mark
 
 test.skipIf(!usable)(
   "the plan tab shows the markup as source: every character visible, colored like an editor",
@@ -175,19 +176,19 @@ test.skipIf(!usable)(
         decoration: "none",
       });
       expect(look("bold")).toEqual({
-        color: "rgb(223, 227, 234)",
+        color: "rgb(236, 234, 255)",
         weight: "700",
         style: "normal",
         decoration: "none",
       });
       expect(look("italic")).toEqual({
-        color: "rgb(223, 227, 234)",
+        color: "rgb(236, 234, 255)",
         weight: "400",
         style: "italic",
         decoration: "none",
       });
       expect(look("struck")).toEqual({
-        color: "rgb(223, 227, 234)",
+        color: "rgb(236, 234, 255)",
         weight: "400",
         style: "normal",
         decoration: "line-through",

@@ -1,55 +1,56 @@
 @import "@xterm/xterm/css/xterm.css";
 
+/* Registered so that switching changes in Spaces glides from one pair to the next. Without
+   @property the colours still change; only the glide is missing. */
+@property --hue-a {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #2b1bd6;
+}
+
+@property --hue-b {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #fd6701;
+}
+
 /* The page's colours, and the only place a colour is written down: a rule that wants something
-   between two of these mixes here (see docs/guides/style.md). */
+   between two of these mixes here (see docs/guides/style.md).
+
+   A theme is one set of these tokens, picked by `data-theme` on <html>; Dusk is the default and
+   `index.html` starts there. Components use tokens only — a theme adds no rules of its own. */
 :root {
   /* The page is dark, and says so: without this, WebKitGTK paints native control faces —
      the select's button, checkboxes, the option list — in the light appearance, a white box,
      even where the rules below set a dark background. Chromium happens to follow the author
      background there; WebKit follows the scheme. */
   color-scheme: dark;
-
-  /* Three surfaces, and only three: the window, what sits on it, and what is cut into it. The
-     navigation column and the window's own rows are the same level — one surface across the top
-     of the window, down to where the content begins. */
-  --bg: #14161a; /* level 0: the window and the page */
-  --surface: #1c1f25; /* level 1: cards, the chrome rows, menus, dialogs, the navigation column */
-  --well: #0d1117; /* level -1: what you type into or read raw — fields, the terminal */
-
-  /* What is written on them. */
-  --text: #dfe3ea;
-  --muted: #8b93a1;
-  --faint: #565f6c; /* nothing there: a disabled control, "no builds", a cancelled change */
   --on-accent: #ffffff;
 
-  /* The accents: the app's own, and the states a change reports. */
-  --accent: #316dca;
-  --info: #6cb6ff;
-  --ok: #3fb950;
-  --warn: #d29922;
-  --error: #f85149;
-  --purple: #a371f7; /* Blocked: apart from the amber of a change in progress and the blue of one
-                         awaiting review. */
-  --ideation: #4cc2c4; /* Ideation: a question, not a job, and it should not read as one of the
-                         attention colours. */
-  /* A diff is read at a glance, so its two directions are their own lighter pair rather than
-     --ok and --error at a size that turns them grey. */
-  --diff-add: #7ee787;
-  --diff-del: #ffa198;
+  /* The colours a change lights the page with, and Corvi's own pair for the overview and ideas: a
+     theme may read them, and only Spaces fills them per change (app-root/theme.ts). */
+  --hue-a: #2b1bd6;
+  --hue-b: #fd6701;
+  --change-a: #2b1bd6;
+  --change-b: #fd6701;
+  --change-mark: none; /* whether the column draws a change's pair beside its name */
 
-  /* The Markdown editor's syntax: the plan, the notes and the wizard's description read as
-     source. Seeded from the palette above — the info blue, the diff green, the purple, the two
-     greys — so these are the theme's own colors until someone deliberately retunes them. */
-  --md-heading: #6cb6ff; /* headings, and keywords in code */
-  --md-code: #7ee787; /* code as written: inline code, a fence without a language */
-  --md-link: #a371f7; /* links and labels, strings and entities */
-  --md-quote: #8b93a1; /* quotes and comments */
-  --md-mark: #565f6c; /* the marks: # ** []() fence lines, punctuation */
+  /* How far the backdrop follows the cursor (Dusk's sky): written by app-root/theme.ts. */
+  --sky-x: 0px;
+  --sky-y: 0px;
+
+  /* A material's blur. A theme that frosted its surfaces sets this; the terminal's screen is
+     never in the list, because it stays opaque in every theme. */
+  --surface-blur: none;
+
+  transition:
+    --hue-a 0.7s cubic-bezier(0.4, 0, 0.2, 1),
+    --hue-b 0.7s cubic-bezier(0.4, 0, 0.2, 1);
 
   /* Edges, and the tones derived rather than named: a rule that wants something between two
      surfaces mixes here instead of choosing a hex of its own. The percentages are what put each
-     one where it was — a control's face has to be visible on a card. */
-  --line: #2b3038;
+     one where it was — a control's face has to be visible on a card. Each theme states its own
+     `--surface`, `--text` and `--line`; these derive from them. */
   --raise: color-mix(in srgb, var(--surface) 94%, var(--text)); /* a control's face, a hovered row */
   --hover: color-mix(in srgb, var(--surface) 89%, var(--text)); /* and that control hovered */
   --selection: color-mix(in srgb, var(--accent) 35%, transparent); /* the row or tab you are on */
@@ -65,6 +66,233 @@
   --shadow: 0 8px 24px rgb(0 0 0 / 0.4);
 }
 
+/* Dusk, the default: the dusk sky behind dark frosted glass. The glass is darker than the
+   mockup's, so text keeps its contrast over the sun's end of the sky as well. */
+:root,
+[data-theme="dusk"] {
+  --bg: #07062a; /* level 0: the window's base colour, under the sky */
+  /* The sky, as fixed layers: stars, the sun low on the right, and the gradient below them
+     (app-root/theme.ts moves this layer with the cursor). */
+  --backdrop:
+    radial-gradient(1px 1px at 20% 30%, rgb(255 255 255 / 0.55), transparent),
+    radial-gradient(1.2px 1.2px at 45% 12%, rgb(255 255 255 / 0.65), transparent),
+    radial-gradient(1px 1px at 70% 20%, rgb(255 255 255 / 0.5), transparent),
+    radial-gradient(1px 1px at 85% 40%, rgb(255 255 255 / 0.4), transparent),
+    radial-gradient(1px 1px at 10% 8%, rgb(255 255 255 / 0.5), transparent),
+    radial-gradient(1px 1px at 60% 45%, rgb(255 255 255 / 0.35), transparent),
+    radial-gradient(
+      900px 900px at 92% 118%,
+      #ffb04d 0%,
+      #fd6701 22%,
+      rgb(253 103 1 / 0.25) 45%,
+      transparent 70%
+    ),
+    linear-gradient(180deg, #030522 0%, #0a1499 34%, #3d1b9a 60%, #a8360f 86%, #fd7b14 100%);
+  --hills: #13063a; /* the silhouette along the bottom of the sky */
+  /* The picker's small swatch of this theme: the sky's own colours, at a size that reads. */
+  --preview: linear-gradient(160deg, #030522 0%, #0a1499 35%, #3d1b9a 62%, #a8360f 84%, #fd7b14 100%);
+
+  --surface: rgb(9 10 44 / 0.78); /* level 1: dark glass over the sky */
+  --surface-blur: blur(22px) saturate(1.35);
+  --well: #04041a; /* level -1: opaque, the terminal included */
+
+  --text: #eceaff;
+  --muted: #b7b4e4;
+  --faint: #8e8bc0;
+
+  --accent: #6b7bff;
+  --info: #8fa0ff;
+  --ok: #4ef0a0;
+  --warn: #ffcf5a;
+  --error: #ff6b8a;
+  --purple: #b48cff;
+  --ideation: #55f0dc;
+  --diff-add: #7ef0b0;
+  --diff-del: #ffa3b5;
+
+  --md-heading: #8fa0ff;
+  --md-code: #7ef0b0;
+  --md-link: #c9a6ff;
+  --md-quote: #b7b4e4;
+  --md-mark: #8e8bc0;
+
+  --line: rgb(255 255 255 / 0.14);
+  --selection: color-mix(in srgb, var(--accent) 40%, transparent);
+
+  /* The column is glass too, so the sky shows through it. */
+  --nav: rgb(8 10 48 / 0.5);
+  --nav-blur: blur(26px) saturate(1.4);
+  --nav-text: #e8e9ff;
+  --nav-muted: #b8bdf0;
+  --nav-faint: #959bdc;
+  --nav-line: rgb(255 255 255 / 0.12);
+  --nav-hover: rgb(255 255 255 / 0.08);
+  --nav-current: rgb(255 255 255 / 0.16);
+  --nav-current-text: #ffffff;
+}
+
+/* Ultramarine: the solid ultramarine column, a deep-navy page and translucent blue cards;
+   orange only for what wants you. */
+[data-theme="ultramarine"] {
+  --bg: #060a3f;
+  --backdrop:
+    radial-gradient(1200px 600px at 85% -10%, #1a2391 0%, transparent 60%),
+    linear-gradient(180deg, #080d4d 0%, #050833 100%);
+  --hills: none;
+  --preview: linear-gradient(105deg, #0b17c4 0 40%, #060a3f 40% 100%);
+
+  --surface: rgb(17 26 120 / 0.62);
+  --surface-blur: none;
+  --well: #03051f;
+
+  --text: #e6e8ff;
+  --muted: #a3abec;
+  --faint: #7c85d4;
+
+  --accent: #4a5bff;
+  --info: #8b98ff;
+  --ok: #3ee08f;
+  --warn: #ffc24d;
+  --error: #ff6b86;
+  --purple: #b08cff;
+  --ideation: #3fe0d0;
+  --diff-add: #7ef0b0;
+  --diff-del: #ffa3b5;
+
+  --md-heading: #8b98ff;
+  --md-code: #7ef0b0;
+  --md-link: #c9a6ff;
+  --md-quote: #a3abec;
+  --md-mark: #7c85d4;
+
+  --line: rgb(140 150 255 / 0.22);
+  --selection: color-mix(in srgb, var(--accent) 45%, transparent);
+
+  --nav: linear-gradient(180deg, #0b17c4 0%, #0a14a6 55%, #08108a 100%);
+  --nav-blur: none;
+  --nav-text: #e3e6ff;
+  --nav-muted: #c0c5ff;
+  --nav-faint: #a9b0ff;
+  --nav-line: rgb(255 255 255 / 0.18);
+  --nav-hover: rgb(255 255 255 / 0.1);
+  --nav-current: rgb(255 255 255 / 0.18);
+  --nav-current-text: #ffffff;
+}
+
+/* Raven Black: the icon's palette taken literally. Pure black, and colour as solid blocks — the
+   selection is ultramarine, whatever wants you is orange. */
+[data-theme="raven"] {
+  --bg: #000000;
+  --backdrop: #000000;
+  --hills: none;
+  --preview: #000000;
+
+  --surface: #0a0a0c;
+  --surface-blur: none;
+  --well: #050506;
+
+  --text: #ececf1;
+  --muted: #8e8e9a;
+  --faint: #6b6b76;
+
+  --accent: #0019fc;
+  --selection: #0019fc;
+  /* A state is a solid block here, and its ink is black so the colour stays the information. */
+  --badge-fill: 100%;
+  --badge-ink: #000000;
+  --info: #6f83ff;
+  --ok: #2ee68a;
+  --warn: #ffbf3c;
+  --error: #ff4d6d;
+  --purple: #a98cff;
+  --ideation: #22e1d0;
+  --diff-add: #7ef0b0;
+  --diff-del: #ff9aae;
+
+  --md-heading: #6f83ff;
+  --md-code: #6ef0b0;
+  --md-link: #b48cff;
+  --md-quote: #8e8e9a;
+  --md-mark: #6b6b76;
+
+  --line: #1c1c20;
+
+  --nav: #000000;
+  --nav-blur: none;
+  --nav-text: #d9d9de;
+  --nav-muted: #8e8e9a;
+  --nav-faint: #6b6b76;
+  --nav-line: #161616;
+  --nav-hover: #111114;
+  --nav-current: #0019fc;
+  --nav-current-text: #ffffff;
+}
+
+/* Spaces: every change has its own colour pair, and the page is lit by it; switching changes
+   glides from one pair to the next. The pairs are filled in by app-root/theme.ts. */
+[data-theme="spaces"] {
+  --bg: #06061a;
+  --backdrop:
+    radial-gradient(
+      900px 620px at 88% -8%,
+      color-mix(in srgb, var(--hue-a) 85%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      800px 520px at 8% 110%,
+      color-mix(in srgb, var(--hue-b) 55%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      600px 400px at 55% 60%,
+      color-mix(in srgb, var(--hue-a) 22%, transparent),
+      transparent 75%
+    ),
+    #06061a;
+  --hills: none;
+  --preview: linear-gradient(135deg, var(--hue-a), var(--hue-b));
+
+  --surface: color-mix(in srgb, var(--hue-a) 10%, rgb(10 10 30 / 0.68));
+  --surface-blur: blur(20px) saturate(1.25);
+  --well: #03030e;
+
+  --text: #ecebf7;
+  --muted: #a9a7c8;
+  --faint: #8482a0;
+
+  --accent: color-mix(in srgb, var(--hue-a) 55%, #ffffff);
+  --info: #8d9bff;
+  --ok: #3ee39a;
+  --warn: #ffc44f;
+  --error: #ff6283;
+  --purple: #b48cff;
+  --ideation: #45e6d6;
+  --diff-add: #86efb4;
+  --diff-del: #ffa0b4;
+
+  --md-heading: #9aa6ff;
+  --md-code: #86efb4;
+  --md-link: #c9a6ff;
+  --md-quote: #a9a7c8;
+  --md-mark: #8482a0;
+
+  --line: rgb(255 255 255 / 0.12);
+  --selection: color-mix(in srgb, var(--hue-a) 45%, transparent);
+
+  /* The column takes a tint of the change's colour, and the change's pair is drawn beside its
+     name in the list. */
+  --nav: color-mix(in srgb, var(--hue-a) 22%, rgb(6 6 26 / 0.72));
+  --nav-blur: blur(24px) saturate(1.2);
+  --nav-text: #e9e8f7;
+  --nav-muted: #b3b1d2;
+  --nav-faint: #8e8cae;
+  --nav-line: rgb(255 255 255 / 0.12);
+  --nav-hover: rgb(255 255 255 / 0.07);
+  --nav-current: color-mix(in srgb, var(--hue-a) 55%, rgb(255 255 255 / 0.1));
+  --nav-current-text: #ffffff;
+  --change-mark: inline-block;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -78,6 +306,77 @@ body {
     system-ui,
     -apple-system,
     sans-serif;
+}
+
+/* The backdrop, and the hills sitting on it. Both are fixed, so the sky does not scroll with the
+   page, and behind the content, so every translucent surface has something to be translucent
+   over. The layer is a little larger than the window: the sky's own shift must never show an
+   edge. */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  pointer-events: none;
+}
+
+body::before {
+  inset: -40px;
+  background: var(--backdrop);
+  transform: translate(var(--sky-x, 0px), var(--sky-y, 0px));
+  transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+body::after {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 180px;
+  background: var(--hills, none);
+  clip-path: polygon(
+    0 60%,
+    10% 35%,
+    22% 52%,
+    35% 20%,
+    48% 45%,
+    60% 30%,
+    72% 50%,
+    85% 25%,
+    100% 45%,
+    100% 100%,
+    0 100%
+  );
+  opacity: 0.85;
+}
+
+/* The materials: a surface takes its translucency from `--surface` and its blur from
+   `--surface-blur`. The navigation column is its own material (`--nav`), because a theme may
+   make it a solid block. The terminal's screen is deliberately absent: its well is opaque in
+   every theme, and a full-window blur does not belong behind it. */
+.page > header,
+.wizard > header,
+.change-tabs,
+.page.terminal-page .change-bar,
+.widget,
+.change-card,
+.table,
+.browser,
+dialog,
+.local .files,
+.local .diff-pane,
+.transcripts .sessions,
+.transcripts .conversation,
+.settings .workspace-card,
+.action-docs,
+.menu-items,
+.terminal-menu,
+.window-menu,
+.terminal-find,
+.terminal-link-tooltip,
+.toast,
+.theme-choice {
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
 }
 
 button,
@@ -166,9 +465,11 @@ a {
   flex-direction: column;
   gap: 2px;
   padding: 16px 8px 24px;
-  /* The same surface as the window's own rows, which is why the line down its edge starts below
-     them rather than beside them (the rule after this one, and docs/guides/style.md). */
-  background: var(--surface);
+  /* The column's own material: a theme may make it solid (Ultramarine), pure black (Raven), glass
+     over the sky (Dusk) or tinted by the change's colour (Spaces). */
+  background: var(--nav);
+  -webkit-backdrop-filter: var(--nav-blur);
+  backdrop-filter: var(--nav-blur);
   /* Stays put while the page scrolls: it is where you are, not part of what you are reading. */
   position: sticky;
   top: 0;
@@ -191,7 +492,7 @@ a {
   right: 0;
   bottom: 0;
   width: 1px;
-  background: var(--line);
+  background: var(--nav-line);
   /* The resize handle is on the same edge: the line is not something to aim at. */
   pointer-events: none;
 }
@@ -205,23 +506,24 @@ a {
   border: 0;
   border-radius: 6px;
   padding: 6px 10px;
-  color: var(--text);
+  color: var(--nav-text);
   text-align: left;
 }
 
 .sidebar .entry:hover {
-  background: var(--raise);
+  background: var(--nav-hover);
 }
 
 .sidebar .entry.current {
-  background: var(--selection);
+  background: var(--nav-current);
+  color: var(--nav-current-text);
 }
 
 /* The changes, and the terminals: children of the entry above them. */
 .sidebar .entry.sub {
   padding: 4px 10px 4px 18px;
   font-size: 13px;
-  color: var(--muted);
+  color: var(--nav-muted);
 }
 
 /* A change and its terminals: one group, with a little air between groups. */
@@ -235,7 +537,7 @@ a {
 .sidebar .entry.change {
   display: block;
   padding: 6px 10px 6px 12px;
-  border-left: 3px solid var(--faint);
+  border-left: 3px solid var(--nav-faint);
   border-radius: 0 6px 6px 0;
 }
 
@@ -256,7 +558,7 @@ a {
 }
 
 .sidebar .entry.change.state-cancelled {
-  border-left-color: var(--faint);
+  border-left-color: var(--nav-faint);
 }
 
 .state-completed {
@@ -278,7 +580,18 @@ a {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text);
+  color: var(--nav-text);
+}
+
+/* A change's own colour pair, beside its name: drawn only in Spaces, where the pair is the
+   change's. In the other themes `--change-mark` is `none` and the row keeps its line. */
+.sidebar .entry.change .swatch {
+  display: var(--change-mark, none);
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: linear-gradient(135deg, var(--change-a), var(--change-b));
 }
 
 /* The state icons: the shape says which thing, the colour says how it is doing. */
@@ -296,6 +609,13 @@ a {
 
 .state-idle {
   color: var(--faint);
+}
+
+/* In the column, the quiet states take the column's own faint tone: a solid nav surface may need
+   a lighter one than the page's. */
+.sidebar .state-idle,
+.sidebar .state-none {
+  color: var(--nav-faint);
 }
 
 .state-ok {
@@ -341,7 +661,7 @@ body.resizing {
 }
 
 .sidebar .entry.sub.current {
-  color: var(--text);
+  color: var(--nav-current-text);
 }
 
 /* Pinned to the bottom of the column: in the same place whether you have two changes or nine.
@@ -353,7 +673,7 @@ body.resizing {
   align-items: center;
   gap: 4px;
   padding: 6px 4px;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--nav-line);
 }
 
 .sidebar .bottom-row .icon-entry {
@@ -363,7 +683,7 @@ body.resizing {
   background: transparent;
   border: 0;
   border-radius: 6px;
-  color: var(--muted);
+  color: var(--nav-muted);
   cursor: pointer;
 }
 
@@ -375,13 +695,13 @@ body.resizing {
 }
 
 .sidebar .bottom-row .icon-entry:hover {
-  color: var(--text);
-  background: var(--hover);
+  color: var(--nav-text);
+  background: var(--nav-hover);
 }
 
 .sidebar .bottom-row .icon-entry.current {
-  color: var(--text);
-  background: var(--raise);
+  color: var(--nav-text);
+  background: var(--nav-current);
 }
 
 /* Yellow when a new version is waiting; its resting grey when there is none. */
@@ -410,7 +730,7 @@ body.resizing {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--muted);
+  color: var(--nav-muted);
 }
 
 /* The Ideas heading and the way to start one, side by side: the heading's green button sits with
@@ -446,6 +766,7 @@ body.resizing {
 .sidebar .list .hint {
   margin: 2px 10px 0 18px;
   font-size: 12px;
+  color: var(--nav-muted);
 }
 
 /* Output arrived in a window you were not looking at. */
@@ -1529,21 +1850,26 @@ dialog textarea.message {
   font-variant-numeric: tabular-nums;
 }
 
+/* A state chip. `--badge-fill` is how solid it is: no theme fills one by default, and Raven Black
+   fills it and turns the ink black, so a state reads as a block of its colour. */
 .badge {
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 3px 8px;
   color: var(--muted);
+  background: color-mix(in srgb, var(--badge-colour, var(--line)) var(--badge-fill, 0%), transparent);
 }
 
 .badge.ok {
-  border-color: var(--ok);
-  color: var(--ok);
+  --badge-colour: var(--ok);
+  border-color: var(--badge-colour);
+  color: var(--badge-ink, var(--badge-colour));
 }
 
 .badge.warn {
-  border-color: var(--warn, #d08b2c);
-  color: var(--warn, #d08b2c);
+  --badge-colour: var(--warn);
+  border-color: var(--badge-colour);
+  color: var(--badge-ink, var(--badge-colour));
 }
 
 button.icon {
@@ -1733,7 +2059,7 @@ button.create:hover:not(:disabled) {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--muted);
+  color: var(--nav-muted);
 }
 
 /* The change's own row: its views as tabs, and its state and actions at their height, right under
@@ -2540,23 +2866,39 @@ dialog .hint.error {
 }
 
 .badge.state-blocked {
-  border-color: var(--purple);
+  --badge-colour: var(--purple);
+  border-color: var(--badge-colour);
+  color: var(--badge-ink, var(--badge-colour));
 }
 
 .badge.state-ideation {
-  border-color: var(--ideation);
+  --badge-colour: var(--ideation);
+  border-color: var(--badge-colour);
+  color: var(--badge-ink, var(--badge-colour));
 }
 
 .badge.state-implementation {
-  border-color: var(--warn);
+  --badge-colour: var(--warn);
+  border-color: var(--badge-colour);
+  color: var(--badge-ink, var(--badge-colour));
 }
 
 .badge.state-verification {
-  border-color: var(--info);
+  --badge-colour: var(--info);
+  border-color: var(--badge-colour);
+  color: var(--badge-ink, var(--badge-colour));
 }
 
 .badge.state-cancelled {
-  border-color: var(--faint);
+  --badge-colour: var(--faint);
+  border-color: var(--badge-colour);
+  color: var(--badge-ink, var(--badge-colour));
+}
+
+.badge.state-completed {
+  --badge-colour: var(--ok);
+  border-color: var(--badge-colour);
+  color: var(--badge-ink, var(--badge-colour));
 }
 
 .state-completed {
@@ -3084,9 +3426,10 @@ button.danger:disabled {
   width: 100%;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--nav-line);
   border-radius: 0;
   padding: 6px 10px 10px;
+  color: var(--nav-text);
   text-align: left;
   font-weight: 600;
 }
@@ -3116,8 +3459,8 @@ button.danger:disabled {
 }
 
 .sidebar button.workspace:hover {
-  color: var(--text);
-  background: var(--raise);
+  color: var(--nav-text);
+  background: var(--nav-hover);
 }
 
 /* The window's own row in the column, where macOS keeps its traffic lights: the switcher sits to
@@ -3282,6 +3625,82 @@ button.danger:disabled {
 
 .settings .saved {
   margin-right: 10px;
+}
+
+/* The theme picker: one row per look, each with a swatch of the backdrop it puts behind the
+   page. Every swatch carries its own `data-theme`, so it is painted from that theme's tokens
+   rather than from a second copy of its colours. */
+.theme-choices {
+  display: grid;
+  gap: 8px;
+}
+
+.theme-choice {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  grid-template-areas:
+    "preview name"
+    "preview blurb";
+  gap: 2px 14px;
+  align-items: start;
+  padding: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.theme-choice:hover {
+  background: var(--raise);
+}
+
+.theme-choice.current {
+  border-color: var(--accent);
+}
+
+/* The radio is the choice, but the whole row is its label: it stays focusable and is drawn by
+   the row's border instead. */
+.theme-choice input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.theme-choice:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.theme-choice .preview {
+  grid-area: preview;
+  width: 120px;
+  height: 56px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--preview);
+}
+
+.theme-choice .name {
+  grid-area: name;
+  font-weight: 600;
+}
+
+.theme-choice .blurb {
+  grid-area: blurb;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.theme-choice .name .badge {
+  margin-left: 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
 }
 
 /* Several controls under one heading. A <label> would name only the first of them — and would

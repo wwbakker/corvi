@@ -1,4 +1,4 @@
-import { type JSX, useEffect, useRef, useState } from "react";
+import { type CSSProperties, type JSX, useEffect, useRef, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
 import type { Change } from "./api.ts";
 import { stateClass } from "./stateClass.ts";
@@ -14,6 +14,7 @@ import { ALL, type Workspace } from "../workspace/client/workspaces.ts";
 import { ActionsMenu } from "./ActionsMenu.tsx";
 import { hostOf } from "./host.ts";
 import type { AppUpdateStatus } from "../app-update/model.ts";
+import { coloursOf } from "../domain/theme.ts";
 import { PowerDialog } from "../power/PowerDialog.tsx";
 import { usePower } from "../power/state.ts";
 
@@ -244,18 +245,22 @@ export function Sidebar({
     // One thing is highlighted at a time. On a terminal that thing is the window, not the
     // change it belongs to: two highlights would be two answers to "where am I".
     const here = selected && page !== "terminals";
+    // The pair Spaces draws beside the name; the other themes never show it (`--change-mark`).
+    const colours = coloursOf(c.id, isIdeation(c));
     return (
       <div key={changeKey(c.source ?? "", c.id)} className="change-entry">
         <button
           // The bar down the left is the change's own state, in the usual colours.
           className={`entry sub change ${stateClass(c.state)}${here ? " current" : ""}`}
           title={c.branch}
+          style={{ "--change-a": colours.from, "--change-b": colours.to } as CSSProperties}
           onClick={() => onOpenChange(c)}
         >
           {/* One line: the change's name, and how it is doing. The branch is the tooltip above,
               which is where the id has gone — it is what the branch starts with, and the row has
               room for one of the two. */}
           <span className="top">
+            <span className="swatch" aria-hidden="true" />
             <span className="subject">{c.title ?? c.branch}</span>
             <Icons
               summary={summaries[`${changeKey(c.source ?? "", c.id)}@${generationOf(c.source ?? "")}`]}
@@ -356,6 +361,7 @@ export function Sidebar({
               onClick={onNew}
             >
               <span className="top">
+                <span className="swatch" aria-hidden="true" />
                 <span className="subject">{draftLabel(draft)}</span>
               </span>
             </button>

@@ -38,6 +38,8 @@ import { MenuIcon } from "./icons.tsx";
 import { useContextMenu } from "./contextMenu.ts";
 import { SessionGate } from "./SessionGate.tsx";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../domain/chrome.ts";
+import { coloursOf, CORVI_COLOURS } from "../domain/theme.ts";
+import { applyChangeColours, applyStoredTheme } from "./theme.ts";
 import type { SettingsView } from "../settings/model.ts";
 import { ActionsPage } from "../actions/ActionsPage.tsx";
 import { SubagentsPage } from "../subagents/SubagentsPage.tsx";
@@ -308,6 +310,14 @@ function App(): JSX.Element {
     Boolean(change?.completedAt),
     onTerminal || wantsTerminal,
   );
+
+  // Spaces lights the page with the open change's own colour pair; the overview, the wizard and
+  // the pages that belong to no change keep Corvi's own pair. The values are what the theme's sky
+  // reads, and it glides from one pair to the next (`--hue-a`/`--hue-b` in styles.css).
+  const changeColours = change === undefined ? CORVI_COLOURS : coloursOf(change.id, isIdeation(change));
+  useEffect(() => {
+    applyChangeColours(changeColours);
+  }, [changeColours.from, changeColours.to]);
 
   // Navigating pushes a history entry; Back and a reload both land on the same page. A page
   // with unsaved edits publishes a leave guard (app-root/navigation.ts); while it is dirty, the
@@ -700,6 +710,10 @@ function App(): JSX.Element {
     </div>
   );
 }
+
+// The theme this device chose, before the first render: the attribute is what every token and
+// rule below it follows, so nothing is painted in one theme and then switched to another.
+applyStoredTheme();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

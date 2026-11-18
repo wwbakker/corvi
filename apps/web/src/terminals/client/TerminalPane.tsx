@@ -7,7 +7,7 @@ import {
   type JSX,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { Terminal } from "@xterm/xterm";
+import { Terminal, type ITheme } from "@xterm/xterm";
 import {
   BrowserClipboardProvider,
   ClipboardAddon,
@@ -19,6 +19,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { csiuFor, isNewWindowKey, type Platform } from "@corvi/terminals/model";
 import type { RemoteAvailabilityReasonDto } from "@corvi/contracts/availability";
 import { shouldKeepSocket } from "./socketTarget.ts";
+import { subscribeTheme } from "../../app-root/theme.ts";
 
 /** How much scrollback the page keeps: as much as the server serializes, so a resume is whole. */
 const SCROLLBACK = 5000;
@@ -66,6 +67,16 @@ const clampSelectionEnd = (
  * must read as the app's, and a second copy of the palette here is a copy that drifts. */
 const themeColor = (name: string): string =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+/** xterm holds the colours it is given rather than reading the tokens itself, so it is the reader
+ * that has to be told when the theme changes (`subscribeTheme`). The background is the sheet's
+ * well, which is opaque in every theme: no backdrop blur sits behind a terminal. */
+const terminalTheme = (): ITheme => ({
+  background: themeColor("--well"),
+  foreground: themeColor("--text"),
+  cursor: themeColor("--text"),
+  cursorAccent: themeColor("--well"),
+});
 
 /** Show the cursor after an empty reset: `term.reset()` does not clear DECTCEM, so a cursor a
  * full-screen program hid would otherwise stick. The server's snapshots carry it themselves. */
@@ -268,12 +279,7 @@ export function TerminalPane({
       // The terminal is the deepest surface the app has, and the sheet owns it: xterm takes the
       // background from the same `--well` token (apps/web/src/app-root/styles.css) rather than a
       // second copy of the colour here, which is the kind of pair that drifts.
-      theme: {
-        background: themeColor("--well"),
-        foreground: "#e6edf3",
-        cursor: themeColor("--text"),
-        cursorAccent: themeColor("--well"),
-      },
+      theme: terminalTheme(),
       // Option-drag forces xterm's own selection where a full-screen program has enabled mouse
       // reporting and would otherwise swallow the drag; a program inside the shell can turn
       // reporting on itself.
@@ -298,6 +304,9 @@ export function TerminalPane({
       ),
     );
     term.open(element);
+    const followTheme = subscribeTheme(() => {
+      term.options.theme = terminalTheme();
+    });
     try {
       // Chromium composites hardware-accelerated (the reason for the Electron host); where it
       // cannot, xterm's own renderer takes over rather than leaving a dead canvas.
@@ -348,6 +357,7 @@ export function TerminalPane({
     (element as HTMLElement & { corviTerminal?: Terminal }).corviTerminal = term;
     setGeneration((n) => n + 1);
     return () => {
+      followTheme();
       input.dispose();
       binary.dispose();
       selection.dispose();

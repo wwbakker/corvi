@@ -24,6 +24,7 @@ import {
 import { RemoteAccessSection } from "./RemoteAccessSection.tsx";
 import { DevicesSection } from "./DevicesSection.tsx";
 import { RemoteWorkspaceSection } from "./RemoteWorkspaceSection.tsx";
+import { AppearanceSection } from "./AppearanceSection.tsx";
 
 /**
  * Everything that lives in the config file, edited here rather than in an editor.
@@ -234,9 +235,11 @@ export function SettingsPage({
     { id: "window", label: "Window" },
     { id: "ideation", label: "Ideation" },
     { id: "environment", label: "Environment" },
-    // Devices and remote access are machine-level, not a workspace's: global scope only.
+    // Devices and remote access are machine-level, not a workspace's: global scope only. The
+    // theme is per device, and applies without a save.
     ...(scope === "global"
       ? [
+          { id: "appearance", label: "Appearance" },
           { id: "devices", label: "Devices" },
           { id: "remoteAccess", label: "Remote access" },
         ]
@@ -583,6 +586,10 @@ export function SettingsPage({
           }
         />
       )}
+
+      {/* The theme is a per-device browser preference, not part of this file: it applies as it is
+          picked, outside the draft and the save below. */}
+      {active === "appearance" && <AppearanceSection />}
 
       {active === "extensions" && (
         <div className="form">

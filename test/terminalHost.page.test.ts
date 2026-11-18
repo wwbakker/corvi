@@ -102,7 +102,7 @@ test.skipIf(!usable)(
       expect(await restart.getAttribute("title")).toBe(
         "Terminal host started from another checkout — restart it",
       );
-      expect(await restart.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(210, 153, 34)");
+      expect(await restart.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(255, 207, 90)");
 
       // The click asks, with the reason and what it would end.
       await restart.click();
