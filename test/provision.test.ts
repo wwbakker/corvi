@@ -147,29 +147,29 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
       activePane: "w-1",
       ...over,
     });
-  // A window named after its command says less than the directory does.
-  expect(w({}).label).toBe("example-api");
-  // Any plain shell, not only zsh: a prompt is a place, not a program — bash and sh included,
-  // which is what a machine whose shell is not zsh used to get wrong.
-  expect(w({ command: "bash" }).label).toBe("example-api");
-  expect(w({ command: "sh" }).label).toBe("example-api");
+  // The place, then what runs in it: a window says where its shell is, and names the process in
+  // front of it. Any shell, not only zsh — bash and sh included, which is what a machine whose
+  // shell is not zsh used to get wrong.
+  expect(w({})).toMatchObject({ label: "example-api (zsh)", busy: false });
+  expect(w({ command: "bash" }).label).toBe("example-api (bash)");
+  expect(w({ command: "sh" }).label).toBe("example-api (sh)");
   expect(w({}).attention).toBe(false);
   expect(w({}).id).toBe("w-1");
-  expect(w({ command: "vim" }).label).toBe("example-api - (vim)");
+  expect(w({ command: "vim" })).toMatchObject({ label: "example-api (vim)", busy: true });
   // A window you named yourself keeps its name, wherever it wandered off to.
-  expect(w({ name: "deploy", command: "gradle", named: true }).label).toBe("deploy - (gradle)");
+  expect(w({ name: "deploy", command: "gradle", named: true }).label).toBe("deploy (gradle)");
   // An agent is `node` to the process table, which says nothing; what it says about itself
   // replaces that, read from the `@agent_status` fact the reporters publish. A reporter that names itself
   // (`@agent_name`) is called by its name — "pi working", "opencode waiting" — otherwise "agent".
   const working = w({ command: "node", options: { "@agent_status": "working" } });
-  expect(working.label).toBe("example-api - (agent working)");
+  expect(working.label).toBe("example-api (agent working)");
   expect(working.icon).toBe("agent");
   expect(working.state).toBe("ok");
   expect(working.busy).toBe(true);
   // Working is not wanting: nothing to notify about until it stops.
   expect(working.attention).toBe(false);
   const waiting = w({ command: "node", options: { "@agent_status": "waiting" } });
-  expect(waiting.label).toBe("example-api - (agent waiting)");
+  expect(waiting.label).toBe("example-api (agent waiting)");
   expect(waiting.state).toBe("idle");
   expect(waiting.busy).toBe(false);
   // Waiting is what notifications are for, and the agent's own words ride along beside it.
@@ -187,7 +187,7 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
   });
   expect(said.attention).toBe(true);
   expect(said.note).toBe("I fixed the layout.");
-  // A session the agent has named is called that, not "example-api - (agent working)": the state is left to
+  // A session the agent has named is called that, not "example-api (agent working)": the state is left to
   // the icon's colour, so the label does not have to repeat it.
   const named = w({
     command: "node",

@@ -10,12 +10,14 @@
  * already look — so moving the repository is a reinstall, not a rebuild.
  *
  * Each window owns a server on a fresh port. Quitting stops that server, and reinstalling leaves
- * the app running on the installed build. See docs/manual/install.md.
+ * the app running on the installed build. The terminal host is not the app: it outlives both, and
+ * an install leaves it alone, so the shells survive a reinstall. See docs/manual/install.md.
  */
 import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { packager } from "@electron/packager";
+import { isAppProcess } from "./app-process.ts";
 import { sh } from "./exec.ts";
 import { buildApp } from "./electron/build.ts";
 import { installedElectron } from "./electron/binary.ts";
@@ -73,23 +75,47 @@ async function icon(into: string): Promise<string | null> {
   return made.code === 0 ? icns : null;
 }
 
-/** Whether the app is running, without asking macOS for permission to look. */
+/** The bundle's executable. The app's server and terminal host run on it as well, so it identifies
+ * a family of processes rather than the app (see `app-process.ts`). */
+const executable = (): string => join(bundle(), "Contents", "MacOS", NAME);
+
+/** The app's own processes, by pid: the bundle's executable, and flags at most. */
+async function appPids(): Promise<number[]> {
+  const listed = await sh(["ps", "-axo", "pid=,command="]);
+  if (listed.code !== 0) return [];
+  return listed.stdout.split("\n").flatMap((line) => {
+    const found = /^\s*(\d+)\s+(.*)$/.exec(line);
+    if (found === null) return [];
+    const pid = Number(found[1]);
+    return Number.isInteger(pid) && isAppProcess(found[2] ?? "", executable()) ? [pid] : [];
+  });
+}
+
+/** Whether the app is running, without asking macOS for permission to look. A server or a terminal
+ * host that outlived the last window shares the executable but is not a running app, and must not
+ * make one look running. */
 async function running(): Promise<boolean> {
-  return (await sh(["pgrep", "-f", `${bundle()}/Contents/MacOS/`])).code === 0;
+  return (await appPids()).length > 0;
 }
 
 /**
  * Quit it, the way the Dock would: an Apple Event, so the app stops the server it started rather
  * than leaving it orphaned. Addressed by path, not by bundle identifier — a sandbox copy carries
  * another identifier, and `tell application id` goes to whichever bundle the system resolves.
+ *
+ * The fallback signals the app's own pids only. Its server and the terminal host share the bundle's
+ * executable, and the host is meant to outlive the app: matching that path killed every terminal
+ * the user had on each reinstall.
  */
 async function quit(): Promise<void> {
   await sh(["osascript", "-e", `tell application ${JSON.stringify(bundle())} to quit`]);
   for (let i = 0; i < 30 && (await running()); i++) await Bun.sleep(100);
-  if (await running()) {
-    await sh(["pkill", "-f", `${bundle()}/Contents/MacOS/`]);
-    await Bun.sleep(300);
-  }
+  const left = await appPids();
+  if (left.length === 0) return;
+  await sh(["kill", "-TERM", ...left.map(String)]);
+  for (let i = 0; i < 10 && (await running()); i++) await Bun.sleep(100);
+  const stubborn = await appPids();
+  if (stubborn.length > 0) await sh(["kill", "-KILL", ...stubborn.map(String)]);
 }
 
 async function install(root: string): Promise<void> {

@@ -13,6 +13,8 @@ import {
   listWindowsAsync,
   moveWindowAsync,
   newWindowAsync,
+  newWindowHereAsync,
+  placeOf,
   newWindowRunningAsync,
   renameWindowAsync,
   selectWindowAsync,
@@ -53,6 +55,44 @@ afterAll(async () => {
   await closeHostClient();
   await rm(dir, { recursive: true, force: true });
   restoreEnv();
+});
+
+test("a new window opens where the active shell is, not where it was opened", async () => {
+  const here = "REG-HERE";
+  const first = await newWindowAsync(here, dir);
+  const client = await hostClient();
+  // As a prompt does after a cd. The sleep keeps the terminal busy, so no prompt comes back to
+  // announce the opening directory over the new one.
+  await client.write(first.activePane, "printf '\\033]7;file://host/tmp\\007'; sleep 30\n");
+  await waitFor(
+    "the announced directory",
+    async () =>
+      (await client.list()).find((entry) => entry.id === first.activePane)?.workingDirectory === "/tmp",
+  );
+  const second = await newWindowHereAsync(here, dir);
+  expect((await client.list()).find((entry) => entry.id === second.activePane)?.cwd).toBe("/tmp");
+  // The change env is seeded from the change's own directory whatever directory the shell is in:
+  // the CLI finds its change by it.
+  const seen: string[] = [];
+  client.onData(second.activePane, (data) => seen.push(data.toString()));
+  await client.attach(second.activePane, 0);
+  await client.write(second.activePane, `echo "ENV-DIR=$CORVI_CHANGE_DIR"\n`);
+  await waitFor("the change env", async () => seen.join("").includes(`ENV-DIR=${dir}`));
+  await stopHostTerminals(here);
+}, 60_000);
+
+test("where a session is, named relative to its change", () => {
+  // The change's own root is its directory name; below it, the path relative to the change, which
+  // is what a window needs (the change is already the row it sits under).
+  expect(placeOf("/c/ID", "/c/ID")).toBe("ID");
+  expect(placeOf("/c/ID", "/c/ID/corvi")).toBe("corvi");
+  expect(placeOf("/c/ID", "/c/ID/corvi/packages/terminals")).toBe("corvi/packages/terminals");
+  // Outside the change, or the same place reached by another path: the last segment, never a path
+  // that says nothing.
+  expect(placeOf("/c/ID", "/Users/me/corvi")).toBe("corvi");
+  expect(placeOf("/private/tmp/c/ID", "/tmp/c/ID/corvi")).toBe("corvi");
+  expect(placeOf("/c/ID", undefined)).toBeUndefined();
+  expect(placeOf("/c/ID", "")).toBeUndefined();
 });
 
 test("new windows persist in order with one active; select and move mutate them", async () => {

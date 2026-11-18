@@ -14,6 +14,7 @@ export {
   listWindows,
   allWindows,
   newWindow,
+  newWindowHere,
   selectWindow,
   selectWindowById,
   moveWindow,

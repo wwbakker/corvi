@@ -60,8 +60,13 @@ window strip, the status channel, and attaching all work the same way wherever t
 ## Windows and navigation
 
 Windows appear under their change in the navigation column and in the strip above the terminal. A
-default label uses the window's directory, or the name an action or agent reported; an agent
-window takes its own session name once it has one. There is no session manager underneath — a window
+default label is where the shell is, named relative to the change — `corvi`,
+`corvi/packages/terminals` — with the process in its foreground in brackets: `corvi (gradle)` while
+a build runs, `corvi (zsh)` at a prompt. The place is the directory the shell announces as you
+`cd`, so it stays put while a command takes the terminal's own title over. A shell that announces
+no directory is named by its terminal title instead, and then by the window's directory. An
+action's label or an agent's own session name wins over both, and a name you gave wins over
+everything. There is no session manager underneath — a window
 *is* a host session, and the strip switches between them. When more windows exist than fit, the
 strip wraps to a second row instead of showing a horizontal scrollbar. The strip is capped at two
 rows and scrolls once there are more; the **Actions** menu sits vertically centred in the strip.

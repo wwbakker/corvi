@@ -385,12 +385,12 @@ test("an agent's own account of itself is read from the @agent_status pane optio
     });
   // What an agent's reporter publishes as the `@agent_status` fact.
   expect(presented({ "@agent_status": "working" })).toMatchObject({
-    label: "example-api - (agent working)",
+    label: "example-api (agent working)",
     icon: "agent",
     state: "ok",
   });
   expect(presented({ "@agent_status": "waiting" })).toMatchObject({
-    label: "example-api - (agent waiting)",
+    label: "example-api (agent waiting)",
     icon: "agent",
     state: "idle",
   });
@@ -402,19 +402,19 @@ test("an agent's own account of itself is read from the @agent_status pane optio
   expect(presented({ "@agent_status": "working" }, true)).toMatchObject({ agent: false, working: false });
   // The reporter also says who it is, and the name goes in the label.
   expect(presented({ "@agent_status": "working", "@agent_name": "pi" })).toMatchObject({
-    label: "example-api - (pi working)",
+    label: "example-api (pi working)",
   });
   expect(presented({ "@agent_status": "waiting", "@agent_name": "opencode" })).toMatchObject({
-    label: "example-api - (opencode waiting)",
+    label: "example-api (opencode waiting)",
   });
   // Unset, or set to something else by something else: no claim is made about the window.
   expect(presented({ "@agent_status": "" })).toMatchObject({
-    label: "example-api - (node)",
+    label: "example-api (node)",
     icon: "terminal",
     state: "idle",
   });
   expect(presented({ "@agent_status": "busy" })).toMatchObject({
-    label: "example-api - (node)",
+    label: "example-api (node)",
     icon: "terminal",
     state: "idle",
   });
@@ -465,6 +465,57 @@ test("a name you gave replaces every label the presenters compose, and the prese
   expect(
     presentWindow(raw({ options: { "@agent_status": "waiting", "@agent_last_message": "All green." } })).note,
   ).toBe("All green.");
+});
+test("a window is named where its shell is, with what runs there in brackets", async () => {
+  const { presentWindow } = await import("../apps/server/src/terminals/server/index.ts");
+  const raw = (over: Partial<RawWindow>): RawWindow => ({
+    index: 0,
+    id: "@1",
+    name: "PROJ-TITLE",
+    command: "zsh",
+    active: true,
+    activity: false,
+    directory: "PROJ-TITLE",
+    named: true,
+    options: {},
+    panes: ["@1"],
+    activePane: "@1",
+    ...over,
+  });
+  // A prompt that says where it is names the window, and what runs in it follows in brackets —
+  // including the shell at a prompt, as a terminal shows it. The change's own id is only the
+  // fallback, for a window that says nothing about itself.
+  expect(presentWindow(raw({ place: "corvi" }))).toMatchObject({ label: "corvi (zsh)", busy: false });
+  expect(presentWindow(raw({ place: "corvi", command: "gradle" }))).toMatchObject({
+    label: "corvi (gradle)",
+    busy: true,
+  });
+  // The place outlives a command that takes the title over: a title that is the job is not shown
+  // instead of the place.
+  expect(presentWindow(raw({ place: "corvi", terminalTitle: "gradle", command: "gradle" })).label).toBe(
+    "corvi (gradle)",
+  );
+  // No announcement: the terminal's own title says where it is, then the directory it was opened
+  // in. A title that already says the job is not repeated.
+  expect(presentWindow(raw({ terminalTitle: "..-naming/corvi" })).label).toBe("..-naming/corvi (zsh)");
+  expect(presentWindow(raw({ terminalTitle: "gradle", command: "gradle" })).label).toBe("gradle");
+  expect(presentWindow(raw({})).label).toBe("PROJ-TITLE (zsh)");
+  // A name you gave still wins over all of it, and so does an agent's own session name; a split
+  // window's count still follows whatever the name is.
+  expect(presentWindow(raw({ place: "corvi", title: "Build logs" })).label).toBe("Build logs");
+  expect(
+    presentWindow(
+      raw({
+        place: "corvi",
+        options: { "@agent_status": "working", "@agent_session_name": "fix the failing test" },
+      }),
+    ).label,
+  ).toBe("fix the failing test");
+  expect(presentWindow(raw({ place: "corvi", panes: ["@1", "@2"] })).label).toBe("corvi (zsh) (2 panes)");
+  // The tooltip says what runs and where the shell is, not where the window was opened.
+  expect(presentWindow(raw({ place: "corvi", command: "gradle" })).detail).toBe(
+    "PROJ-TITLE (gradle) in corvi",
+  );
 });
 test("a change may be blocked, which is active but not workable", async () => {
   const { CHANGE_STATES, isFinished } = await import("@corvi/changes/record");

@@ -10,7 +10,7 @@
  * nothing.
  */
 import { randomBytes } from "node:crypto";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 
@@ -185,29 +185,52 @@ const commandOptions = (record: WindowRecord, session: SessionInfo | undefined):
   };
 };
 
+/** Where a session is now, as a window may be named by it: its announced cwd relative to the
+ * change (`corvi`, `corvi/packages/terminals`). The change's own root is its directory name, and a
+ * cwd outside the change (or reached through another path to the same place) is its last segment —
+ * a window never carries a path that says nothing, and the relative form is what makes it short. */
+export const placeOf = (changeDir: string, cwd: string | undefined): string | undefined => {
+  if (cwd === undefined || cwd === "") return undefined;
+  const rel = relative(changeDir, cwd);
+  if (rel === "") return basename(changeDir);
+  if (rel.startsWith("..") || isAbsolute(rel)) return basename(cwd);
+  return rel;
+};
+
 /** The raw window a host session presents as. A labelled one (an action run) uses the label as
  * its name and lets the presenter speak; a plain shell uses its directory. `title` is the name the
- * user gave it, which the presenter shows in place of either. */
+ * user gave it, which the presenter shows in place of either; `place` is where the shell is now
+ * and `terminalTitle` what the terminal calls itself, which the presenter prefers in that order;
+ * `command` is what is running in front of it. */
 const hostRaw = (
   record: WindowRecord,
   dir: string,
   session: SessionInfo | undefined,
   status: AgentStatus | undefined,
-): RawWindow => ({
-  index: 0,
-  id: record.id,
-  name: record.label ?? basename(dir),
-  ...(record.title !== undefined ? { title: record.title } : {}),
-  command: record.label !== undefined ? "sh" : (record.command ?? "sh"),
-  active: record.active,
-  activity: record.activity,
-  directory: basename(dir),
-  named: true,
-  options: { ...agentOptions(status), ...commandOptions(record, session) },
-  panes: [...record.panes],
-  activePane: record.activePane,
-  subagent: (session?.metadata?.subagentId?.trim() ?? "") !== "",
-});
+): RawWindow => {
+  const place = placeOf(dir, session?.workingDirectory);
+  return {
+    index: 0,
+    id: record.id,
+    name: record.label ?? basename(dir),
+    ...(record.title !== undefined ? { title: record.title } : {}),
+    ...(place !== undefined ? { place } : {}),
+    ...(session?.title !== undefined ? { terminalTitle: session.title } : {}),
+    // What the pane is running now, which is what `running`-style presentation wants: a shell at a
+    // prompt names itself, a job names itself, and neither is the directory the window was opened
+    // in. A labelled window keeps the label's own "sh": its action says what it is, and the
+    // command string it runs is already the better answer for its detail.
+    command: record.label !== undefined ? "sh" : (session?.job ?? record.command ?? "sh"),
+    active: record.active,
+    activity: record.activity,
+    directory: basename(dir),
+    named: true,
+    options: { ...agentOptions(status), ...commandOptions(record, session) },
+    panes: [...record.panes],
+    activePane: record.activePane,
+    subagent: (session?.metadata?.subagentId?.trim() ?? "") !== "",
+  };
+};
 
 /** The change's windows, presented. Rebuilds and persists the registry from the live host
  * sessions. */
@@ -398,18 +421,59 @@ const listRecords = async (changeId: string): Promise<WindowRecord[]> => {
 };
 
 /** A new interactive shell window. Returns the new record. */
+/** Open the shell window and read it back: the body the two new-window entry points share. The
+ * caller holds the registry lock. `here` is the directory the shell starts in when it is not the
+ * change's own: the change env is still seeded from `changeRoot`, because the CLI finds its change
+ * by that, whatever directory the shell is sitting in. */
+const openShellWindow = async (
+  changeId: string,
+  changeRoot: string,
+  size: { readonly cols: number; readonly rows: number },
+  here?: string,
+): Promise<WindowRecord> => {
+  const id = await openHostWindow(
+    changeId,
+    changeRoot,
+    [shell()],
+    size,
+    "activate",
+    {},
+    here === undefined ? {} : { cwd: here, envDir: changeRoot },
+  );
+  const records = await listRecords(changeId);
+  const created = records.find((record) => record.id === id);
+  if (created === undefined) throw new Error(`the new window ${id} vanished from the registry`);
+  return created;
+};
+
+/** A new interactive shell window in `dir`. Returns the new record. */
 export const newWindowAsync = (
   changeId: string,
   dir: string,
   size: { readonly cols: number; readonly rows: number } = { cols: 80, rows: 24 },
+): Promise<WindowRecord> => withRegistryLock(() => openShellWindow(changeId, dir, size));
+
+/** The directory the change's active pane is in: where its shell announced it is, else where that
+ * pane was opened, else the change's own. The caller holds the registry lock. */
+const hereIn = async (changeId: string, fallbackDir: string): Promise<string> => {
+  const { live, host } = await liveFor(changeId);
+  const active = rebuild(changeId, live).find((record) => record.active);
+  if (active === undefined) return fallbackDir;
+  const session = host.get(active.activePane) ?? host.get(active.panes[0] ?? "");
+  return session?.workingDirectory ?? session?.cwd ?? fallbackDir;
+};
+
+/** A new interactive shell where the active window is now, which is what "new terminal here"
+ * means: a shell that has `cd`-ed somewhere gets its next one there, and a change with no window
+ * yet gets `fallbackDir`. */
+export const newWindowHereAsync = (
+  changeId: string,
+  fallbackDir: string,
+  size: { readonly cols: number; readonly rows: number } = { cols: 80, rows: 24 },
 ): Promise<WindowRecord> =>
-  withRegistryLock(async () => {
-    const id = await openHostWindow(changeId, dir, [shell()], size, "activate");
-    const records = await listRecords(changeId);
-    const created = records.find((record) => record.id === id);
-    if (created === undefined) throw new Error(`the new window ${id} vanished from the registry`);
-    return created;
-  });
+  withRegistryLock(async () =>
+    openShellWindow(changeId, fallbackDir, size, await hereIn(changeId, fallbackDir)),
+  );
 
 /** A host window running one command — the window a command action gets. Returns its id. */
 export const newWindowRunningAsync = (
@@ -614,11 +678,25 @@ export const splitPaneAsync = (
     if (record === undefined || record.activePane === "") return;
     const sessions = hostRunning() ? await (await hostClient()).list() : [];
     const active = sessions.find((session) => session.id === record.activePane);
-    const cwd = active?.cwd ?? (await dirOf(changeId));
+    // A split opens where the shell is now, as the manual says: the announced cwd when it has one,
+    // the directory the pane was opened in otherwise. The change env is seeded from the change's
+    // own directory either way.
+    const changeRoot = await dirOf(changeId);
+    const cwd = active?.workingDirectory ?? active?.cwd ?? changeRoot;
     const paneId = freshId();
     // The pane's metadata names the window, so a rebuild adopts it the moment its session exists:
     // a crash between opening it and the focus save cannot orphan it.
-    await openPane(changeId, windowId, paneId, cwd, [shell()], { cols: 100, rows: 30 });
+    await openPane(
+      changeId,
+      windowId,
+      paneId,
+      cwd,
+      [shell()],
+      { cols: 100, rows: 30 },
+      {
+        envDir: changeRoot,
+      },
+    );
     try {
       const after = await listRecords(changeId);
       save(
@@ -742,6 +820,9 @@ export const allWindows = (): Effect.Effect<Record<string, PresentedWindow[]>, C
 
 export const newWindow = (changeId: string, dir: string): Effect.Effect<void, CommandFailure> =>
   Effect.tryPromise({ try: async () => void (await newWindowAsync(changeId, dir)), catch: asFailure });
+
+export const newWindowHere = (changeId: string, dir: string): Effect.Effect<void, CommandFailure> =>
+  Effect.tryPromise({ try: async () => void (await newWindowHereAsync(changeId, dir)), catch: asFailure });
 
 export const selectWindow = (changeId: string, index: number): Effect.Effect<void, CommandFailure> =>
   Effect.tryPromise({ try: () => selectWindowAsync(changeId, index), catch: asFailure });

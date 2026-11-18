@@ -8,8 +8,8 @@
  *
  * What the host owns across a client's life (the "terminals survive a restart" property):
  *   - the pty and its shell, whether or not a client is attached;
- *   - the session record, keyed by id, with cwd / createdAt / pty pid / alive / lastSeq and the
- *     reporter's OSC status, discoverable with `session.list`;
+ *   - the session record, keyed by id, with cwd / createdAt / pty pid / alive / lastSeq, the
+ *     reporter's OSC status and the terminal's own title, discoverable with `session.list`;
  *   - a bounded (4 MiB by default) byte replay buffer with offsets, so `attach since` can resume.
  *     The reply carries `oldestSeq` and `truncated` (a `since` before the buffer start). The bound
  *     is per live session and configurable with `CORVI_HOST_REPLAY_BYTES` (read once at host
@@ -27,6 +27,16 @@
  *   - **OSC status**: a reporter may emit `ESC ] 1337 ; corvi = <base64 json> BEL`; the host
  *     parses it out of the pty stream (see `osc.ts`), strips it before forwarding, records it on
  *     the session, and clears it on exit;
+ *   - **the terminal's title**: a shell prompt or a program names the terminal with `OSC 0`/`1`/
+ *     `2`. The host reads the newest one without removing it from the stream (a terminal shows
+ *     its title too) and records it on the session, so the server can name the window the way
+ *     the thing inside it names itself;
+ *   - **the directory the shell is in**: `OSC 7` (`file://host/path`), which a prompt announces
+ *     as you `cd`. It is the one fact a command cannot take over, so a window can keep saying
+ *     where it is while it also says what runs there;
+ *   - **what is in the foreground**: the pty's foreground process group, sampled from `ps` and
+ *     cached for a second, so a window can say what is running in it (`gradle`, `nvim`, `pi`)
+ *     rather than only the shell it was opened with;
  *   - **idle shutdown**: with `idleMs > 0`, once there are no client connections and no live
  *     sessions for that long, the host closes. A live session always keeps it up, and an accepted
  *     connection cancels a pending shutdown.
@@ -48,7 +58,8 @@ import {
   type Owner,
   type SessionInfo,
 } from "./protocol.ts";
-import { parseOsc } from "./osc.ts";
+import { parseOsc, scanTerminal } from "./osc.ts";
+import { makeJobSampler, type JobSample } from "./jobs.ts";
 
 const DEFAULT_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
 
@@ -112,8 +123,17 @@ type Session = {
     readonly sessionName?: string;
     readonly at: string;
   };
+  /** The newest title the terminal in this pty was given (`OSC 0`/`1`/`2`): the directory a
+   * prompt is in, or the name of the program running in it. Absent until something sets one. */
+  title?: string;
+  /** The directory the shell last announced (`OSC 7`), which moves as it `cd`s. Absent until a
+   * prompt announces one; `cwd` remains where the session was opened. */
+  workingDirectory?: string;
   /** Bytes held because they might be the start of a split OSC sequence. */
   oscCarry: Buffer;
+  /** Bytes held because a title sequence might have been split across chunks. Only the scanner
+   * reads them; they were already forwarded to the display. */
+  titleCarry: Buffer;
   /** The server's opaque metadata (at least a change id), returned by `session.list` so it can
    * rebuild its registry after a restart. */
   readonly metadata?: Record<string, string>;
@@ -271,6 +291,7 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
       subscribers: new Set(),
       alive: true,
       oscCarry: Buffer.alloc(0),
+      titleCarry: Buffer.alloc(0),
       ...(metadata !== undefined ? { metadata } : {}),
       retired: false,
     };
@@ -278,8 +299,13 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
     touch();
     child.onData((data) => {
       if (session.retired || sessions.get(id) !== session) return;
-      const parsed = parseOsc(asBuffer(data), session.oscCarry);
+      const chunk = asBuffer(data);
+      const parsed = parseOsc(chunk, session.oscCarry);
       session.oscCarry = parsed.carry;
+      const scanned = scanTerminal(chunk, session.titleCarry);
+      session.titleCarry = scanned.carry;
+      if (scanned.title !== undefined) session.title = scanned.title;
+      if (scanned.directory !== undefined) session.workingDirectory = scanned.directory;
       for (const status of parsed.statuses) {
         session.status =
           status.status === "clear"
@@ -369,21 +395,40 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
     sessions.get(id)?.subscribers.delete(connection);
   };
 
-  const listSessions = (): SessionInfo[] =>
-    [...sessions.values()].map((session) => ({
-      id: session.id,
-      incarnation: session.incarnation,
-      cwd: session.cwd,
-      pid: session.pty.pid,
-      createdAt: session.createdAt,
-      alive: session.alive,
-      lastSeq: session.emitted,
-      ...(session.exitCode !== undefined ? { exitCode: session.exitCode } : {}),
-      ...(session.signal !== undefined ? { signal: session.signal } : {}),
-      ...(session.exitedAt !== undefined ? { exitedAt: session.exitedAt } : {}),
-      ...(session.status !== undefined ? { status: session.status } : {}),
-      ...(session.metadata !== undefined ? { metadata: session.metadata } : {}),
-    }));
+  /** The last `ps` sample, and the one read in flight, shared by every session read. */
+  const sampleJobs = makeJobSampler();
+
+  /** What one session's terminal is running in the foreground. A dead session has no job: its pid
+   * may already belong to someone else. */
+  const jobOf = (session: Session, sample: JobSample | undefined): string | undefined => {
+    if (!session.alive || sample === undefined) return undefined;
+    const group = sample.foregroundOf.get(session.pty.pid);
+    return group === undefined ? undefined : sample.nameOfGroup.get(group);
+  };
+
+  const listSessions = async (): Promise<SessionInfo[]> => {
+    const sample = await sampleJobs();
+    return [...sessions.values()].map((session) => {
+      const job = jobOf(session, sample);
+      return {
+        id: session.id,
+        incarnation: session.incarnation,
+        cwd: session.cwd,
+        pid: session.pty.pid,
+        createdAt: session.createdAt,
+        alive: session.alive,
+        lastSeq: session.emitted,
+        ...(session.exitCode !== undefined ? { exitCode: session.exitCode } : {}),
+        ...(session.signal !== undefined ? { signal: session.signal } : {}),
+        ...(session.exitedAt !== undefined ? { exitedAt: session.exitedAt } : {}),
+        ...(session.status !== undefined ? { status: session.status } : {}),
+        ...(session.title !== undefined ? { title: session.title } : {}),
+        ...(session.workingDirectory !== undefined ? { workingDirectory: session.workingDirectory } : {}),
+        ...(job !== undefined ? { job } : {}),
+        ...(session.metadata !== undefined ? { metadata: session.metadata } : {}),
+      };
+    });
+  };
 
   const handle = (connection: Connection, value: unknown): void => {
     const request = parseRequest(value);
@@ -505,7 +550,11 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
         return;
       }
       case "session.list":
-        respond(connection, request, { sessions: listSessions() });
+        // The foreground job is one `ps` for every session, joined by any poll that arrives while
+        // it runs; a failure still answers, with the names it last had.
+        void listSessions()
+          .then((sessions) => respond(connection, request, { sessions }))
+          .catch(() => undefined);
         return;
     }
   };

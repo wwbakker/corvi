@@ -670,6 +670,39 @@ test.skipIf(!usable)(
 );
 
 test.skipIf(!usable)(
+  "a window is named where its shell is, with what runs there in brackets",
+  async () => {
+    const { page, dir } = await openTerminal(id);
+    const tab = page.locator(".window-tab:not(.new):not(.overview)").first();
+    await tab.waitFor({ timeout: 20_000 });
+    const windowId = await tab.getAttribute("data-window-id");
+    expect(windowId).toBeTruthy();
+    await awaitAttached(page);
+    const label = async (): Promise<string> => (await tab.locator(".label").innerText()).trim();
+    // The place is the directory the shell announces (OSC 7), not the change the window was
+    // opened in; the process in front of it follows in brackets, as a terminal shows it. This
+    // shell's prompt announces nothing of its own, so the test announces a place for it.
+    await page.keyboard.type("printf '\\033]7;file://host/tmp\\007'\n");
+    expect(await until(async () => /^tmp \(\w+\)$/.test(await label()), true, budget(30_000))).toBe(true);
+    // A command holds the brackets while it runs and gives them back to the shell afterwards; the
+    // place is what stays put. The navigation column says the same thing, from one server answer.
+    await page.keyboard.type("sleep 8\n");
+    expect(await until(label, "tmp (sleep)", budget(30_000))).toBe("tmp (sleep)");
+    const sidebar = page.locator(`.sidebar .entry.window[data-window-id="${windowId}"] .label`);
+    expect((await sidebar.innerText()).trim()).toBe("tmp (sleep)");
+    expect(await until(async () => /^tmp \(\w+\)$/.test(await label()), true, budget(30_000))).toBe(true);
+    // Put the shared window back where it was found: the suite reuses this change, and the later
+    // tests open windows "here", which is the change's own directory for them.
+    await page.keyboard.type(`printf '\\033]7;file://host${dir}\\007'\n`);
+    expect(await until(async () => /^PROJ-TERM \(\w+\)$/.test(await label()), true, budget(30_000))).toBe(
+      true,
+    );
+    await page.close();
+  },
+  budget(60_000),
+);
+
+test.skipIf(!usable)(
   "a window can be named from its tab, and the name survives a reload",
   async () => {
     const { page } = await openTerminal(id);
@@ -697,15 +730,17 @@ test.skipIf(!usable)(
     await field.fill("Build logs");
     await dialog.locator("button", { hasText: "OK" }).click();
 
-    // The tab and the navigation column name the window the same way, and the tooltip still says
-    // where it is and what runs in it.
+    // The tab and the navigation column name the window the same way, and the tooltip says where
+    // it is and what runs in it. The name and the tooltip are separate facts, so the name need not
+    // appear in the tooltip; the old `ctrl-b` chord in it was never implemented.
     expect(
       await until(async () => (await tab.locator(".label").innerText()).trim(), "Build logs", budget(10_000)),
     ).toBe("Build logs");
     expect(
       await until(async () => (await sidebarLabel.innerText()).trim(), "Build logs", budget(10_000)),
     ).toBe("Build logs");
-    expect(await tab.getAttribute("title")).toContain(defaultLabel);
+    expect(await tab.getAttribute("title")).toContain(" in ");
+    expect(await tab.getAttribute("title")).not.toContain("ctrl-b");
 
     // A reload reads the registry, which is where the name lives.
     await page.reload();
