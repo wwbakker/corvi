@@ -188,7 +188,10 @@ with a step plan while it runs. Uncommitted changes or unpushed commits in the c
 the update with the reason in place of the button: Corvi never merges or rebases its own
 checkout. A run that stops half way says where it stopped, and **Try again** picks up what is
 left. When the steps are done, **Restart now** restarts the app to use the new version — the
-terminals (host sessions) survive the restart. The pi and opencode extensions are symlinks into the
+terminals (host sessions) survive the restart. The host itself keeps running the code it started
+with; when that is no longer what the server runs, the restart icon in the bottom row offers to
+replace it, and asks first (see [terminals](terminals.md#sessions-and-attachment)). The pi and
+opencode extensions are symlinks into the
 checkout and follow the update; see [the manual](terminals.md) for their protocols.
 
 ## Browser use

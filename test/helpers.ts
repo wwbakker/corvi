@@ -20,6 +20,7 @@ import { capabilitiesLayer } from "../apps/server/src/integrations/services.ts";
 import type { Capabilities } from "../apps/server/src/integrations/api/capabilities.ts";
 import { setRepos } from "../apps/server/src/change/provisioning.ts";
 import { sh, type ShellResult } from "../apps/server/src/capabilities/shell.ts";
+import { HOST_DIR, hostBuildId } from "../apps/server/src/terminals/host/identity.ts";
 import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
 import {
@@ -198,7 +199,7 @@ export const stopRunHost = async (tmp: string): Promise<void> => {
   const client = await ensureHost({
     socket,
     checkout: process.cwd(),
-    buildId: process.env.CORVI_BUILD ?? "dev",
+    buildId: hostBuildId(HOST_DIR),
     runtime: "node",
   })
     .then((result) => result.client)

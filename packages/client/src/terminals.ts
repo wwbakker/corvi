@@ -3,8 +3,10 @@ import {
   TerminalsResponseSchema,
   TerminalWindowSchema,
   TerminalStatusResponseSchema,
+  HostStatusSchema,
   UrlSchema,
   WindowActionBodySchema,
+  type HostStatusDto,
   type TerminalWindowDto,
   type TerminalStatusDto,
   type TerminalStatusResponseDto,
@@ -22,6 +24,10 @@ export interface TerminalsApi {
   readonly windowAction: (changeId: ChangeId, action: WindowActionBodyDto) => Promise<TerminalWindowDto[]>;
   /** Report an agent status for one host session (the CLI reporter transport). */
   readonly setStatus: (body: TerminalStatusDto) => Promise<TerminalStatusResponseDto>;
+  /** The terminal host this server is talking to, and whether it is the one it would have started. */
+  readonly hostStatus: (options?: RequestOptions) => Promise<HostStatusDto>;
+  /** Replace the host. Ends every session it held, so the caller asks the user first. */
+  readonly restartHost: () => Promise<HostStatusDto>;
 }
 
 export const makeTerminalsApi = (send: Send): TerminalsApi => {
@@ -37,5 +43,7 @@ export const makeTerminalsApi = (send: Send): TerminalsApi => {
       }),
     setStatus: async (body) =>
       request(send, "POST", "/terminals/status", TerminalStatusResponseSchema, { body }),
+    hostStatus: async (options) => request(send, "GET", "/terminals/host", HostStatusSchema, options),
+    restartHost: async () => request(send, "POST", "/terminals/host/restart", HostStatusSchema),
   };
 };

@@ -1,9 +1,10 @@
 import { Effect, Schema } from "effect";
-import { TerminalStatusSchema } from "@corvi/contracts/api";
+import { TerminalStatusSchema, type HostStatusDto } from "@corvi/contracts/api";
 import { WINDOW_TITLE_MAX } from "@corvi/contracts/terminal";
 import { changeDir, readChange } from "../change/server/index.ts";
 import { BadRequestError, InternalError } from "@corvi/contracts/errors";
 import { runRoute } from "../capabilities/effect/run.ts";
+import { messageOf } from "../capabilities/effect/support.ts";
 import { guard } from "../capabilities/web.ts";
 import {
   allWindows,
@@ -25,6 +26,8 @@ import {
   type TerminalSession,
 } from "./server/session.ts";
 import { applyStatus } from "./server/status.ts";
+import { hostStatus } from "./server/hostStatus.ts";
+import { restartHostClient } from "./server/host.ts";
 import { bodyAs, json, withChange } from "../capabilities/web.ts";
 
 /** A window action: what to do, with the indices and ids the action needs. */
@@ -49,6 +52,23 @@ const terminalDir = (id: string): Promise<string | undefined> =>
       return change && !change.completedAt ? changeDir(change) : undefined;
     }),
   );
+
+/** The host's status and its restart, as effects: a promise's failure becomes the transport's own
+ * shape here, so each route is one map. */
+const hostStatusEffect = (): Effect.Effect<HostStatusDto, InternalError> =>
+  Effect.tryPromise({
+    try: () => hostStatus(),
+    catch: (error) => new InternalError({ message: messageOf(error) }),
+  });
+
+const restartHostEffect = (): Effect.Effect<HostStatusDto, InternalError> =>
+  Effect.tryPromise({
+    try: async () => {
+      await restartHostClient();
+      return await hostStatus();
+    },
+    catch: (error) => new InternalError({ message: messageOf(error) }),
+  });
 
 export const terminalsRoutes = guard({
   // The terminal's socket: one WebSocket per connection, attached to the change's active host
@@ -97,6 +117,21 @@ export const terminalsRoutes = guard({
           json,
         ),
       ),
+  },
+
+  // The terminal host this server is talking to, and whether it is the one this server would have
+  // started. A read-only question: the answer comes from the owner record, and nothing is started
+  // or stopped to produce it. The page polls it, so the column can offer a restart instead of the
+  // server taking one.
+  "/api/terminals/host": {
+    GET: () => runRoute(Effect.map(hostStatusEffect(), json)),
+  },
+
+  // Replace the host, because the user asked: this ends every pty the old host held, which is why
+  // it is a POST with a caller and never a decision the server takes for itself. The answer is the
+  // status after the restart, so the page needs no second read.
+  "/api/terminals/host/restart": {
+    POST: () => runRoute(Effect.map(restartHostEffect(), json)),
   },
 
   // The agent status for one host session, reported by the `corvi status` CLI (or a direct POST).

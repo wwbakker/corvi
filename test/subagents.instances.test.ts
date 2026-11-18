@@ -516,7 +516,10 @@ test("await --turn waits for an unsettled turn and wakes on its reply", async ()
     await run(recordTurn(own, created.id, { text: "first answer", inReplyTo: 1 })); // reply #2
     await run(sendToSubagent(own, created.id, "More detail", "orchestrator")); // inbound #3
     await run(nextForSubagent(own, created.id)); // claim #3, live window attached
-    process.env.CORVI_SUBAGENT_POLL_MS = "60";
+    // The horizon has to outlast the write below by a wide margin, not by a factor of two: both
+    // tests using it park an await while a concurrent append is in flight, and a loaded machine
+    // can take a hundred milliseconds to get to it.
+    process.env.CORVI_SUBAGENT_POLL_MS = "1000";
     // Turn 3 has not settled: the explicit target waits to the horizon, then wakes on its reply.
     const held = await run(awaitReady(own, { ids: [created.id], mode: "any", turn: 3 }));
     expect(held.status).toBe("timeout");
@@ -872,7 +875,7 @@ test("an attributed reply for turn 1 does not settle the claimed turn 3", async 
     await run(recordTurn(own, created.id, { text: "first answer", inReplyTo: 1 })); // reply #2
     await run(sendToSubagent(own, created.id, "More detail", "orchestrator")); // inbound #3
     await run(nextForSubagent(own, created.id)); // claim #3, live window attached
-    process.env.CORVI_SUBAGENT_POLL_MS = "60";
+    process.env.CORVI_SUBAGENT_POLL_MS = "1000";
     // Turn 1's reply is older than the claimed turn 3: the await holds to the horizon.
     const held = await run(awaitReady(own, { ids: [created.id], mode: "any" }));
     expect(held.status).toBe("timeout");

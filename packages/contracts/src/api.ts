@@ -341,6 +341,34 @@ export type TerminalsResponseDto = typeof TerminalsResponseSchema.Type;
 export const UrlSchema = Schema.Struct({ url: Schema.String });
 export type UrlDto = typeof UrlSchema.Type;
 
+/** The identity a terminal host records when it starts, and what this server asks for: provenance
+ * (checkout, build) and the one compatibility fact (protocol). */
+export const HostIdentitySchema = Schema.Struct({
+  checkout: Schema.String,
+  buildId: Schema.String,
+  protocol: Schema.Number,
+});
+export type HostIdentityDto = typeof HostIdentitySchema.Type;
+
+/** One way a running host is not the one this server would have started. `theirs` is what the host
+ * recorded and `ours` what this server asks for; a protocol reads as its number. */
+export const HostMismatchSchema = Schema.Struct({
+  kind: Schema.Literals(["checkout", "build", "protocol"]),
+  theirs: Schema.Union([Schema.String, Schema.Number]),
+  ours: Schema.Union([Schema.String, Schema.Number]),
+});
+export type HostMismatchDto = typeof HostMismatchSchema.Type;
+
+/** The terminal host as this server sees it. `sessions` is present only while the host is not
+ * ours — the counts are what a restart would end. */
+export const HostStatusSchema = Schema.Struct({
+  running: Schema.Boolean,
+  identity: Schema.NullOr(HostIdentitySchema),
+  stale: Schema.Array(HostMismatchSchema),
+  sessions: Schema.optional(Schema.Struct({ live: Schema.Number, working: Schema.Number })),
+});
+export type HostStatusDto = typeof HostStatusSchema.Type;
+
 /** An agent status for one host session, set by the CLI/HTTP reporter transport. The session and
  * its incarnation come from the pty environment (`CORVI_SESSION_ID`/`CORVI_SESSION_INCARNATION`). */
 export const TerminalStatusSchema = Schema.Struct({

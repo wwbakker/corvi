@@ -18,6 +18,7 @@ import {
 } from "./helpers.ts";
 import { csiuFor } from "@corvi/terminals/model";
 import { ensureHost } from "../apps/server/src/terminals/host/client.ts";
+import { HOST_DIR, hostBuildId } from "../apps/server/src/terminals/host/identity.ts";
 
 /**
  * The terminal through a real browser. The pty is owned by the terminal host: the page's xterm
@@ -527,7 +528,7 @@ test.skipIf(!usable)(
     const host = await ensureHost({
       socket: join(tmp, "state", "corvi", "host.sock"),
       checkout: process.cwd(),
-      buildId: process.env.CORVI_BUILD ?? "dev",
+      buildId: hostBuildId(HOST_DIR),
       runtime: "node",
     });
     const replay = await host.client.attach(pane, 0);

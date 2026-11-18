@@ -1,12 +1,13 @@
 /**
  * The server's client for the terminal host: start-or-adopt, then drive it.
  *
- * `ensureHost` reads the host's owner record and, when the record's checkout, build id and
- * protocol match, adopts the running host. A real mismatch replaces it; a transient failure
- * (refused connection, handshake or info timeout) is retried and never becomes a signal to a
- * possibly-live host; only records whose pid is not a verified live host are unlinked. The
- * check-and-spawn is serialized with an exclusive `<socket>.lock`, so two servers starting at
- * once cannot both spawn a host.
+ * `ensureHost` reads the host's owner record and adopts the running host. A different checkout,
+ * build or protocol is reported in `stale` rather than acted on: the protocol is the compatibility
+ * contract, and replacing a host ends every pty inside it. So `restartHost` is the only thing here
+ * that retires a host, and its one caller is the user. A transient failure (refused connection,
+ * handshake or info timeout) is retried and never becomes a signal to a possibly-live host; only
+ * records whose pid is not a verified live host are unlinked. The check-and-spawn is serialized
+ * with an exclusive `<socket>.lock`, so two servers starting at once cannot both spawn a host.
  *
  * `HostClient` wraps one connection: requests and replies matched by `requestId`, and
  * `onData`/`onExit` for the streaming half. Data carries `(incarnation, seq)`, and the client
@@ -20,6 +21,7 @@ import { connect, type Socket } from "node:net";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { PROTOCOL, type Owner, type SessionInfo } from "./protocol.ts";
+import { identityOf, mismatches, type HostIdentity, type HostMismatch } from "./identity.ts";
 
 export { PROTOCOL };
 export type HostOwner = Owner;
@@ -28,12 +30,29 @@ export type { SessionInfo };
 export type EnsureOptions = {
   readonly socket: string;
   readonly checkout: string;
+  /** What this caller's host code is, as `identity.ts` computes it from the modules on disk. */
   readonly buildId: string;
   /** Idle shutdown passed to a host this client starts; omitted or 0 disables it. */
   readonly idleMs?: number;
   /** The executable that runs `main.ts`. Defaults to this process; tests pass `"node"` because
    * the pty path must run under Node, not Bun. */
   readonly runtime?: string;
+};
+
+/** The identity this caller asks a host for. */
+export const identityOfOptions = (options: EnsureOptions): HostIdentity => ({
+  checkout: options.checkout,
+  buildId: options.buildId,
+  protocol: PROTOCOL,
+});
+
+export type EnsureResult = {
+  readonly client: HostClient;
+  /** The host was already running when we asked, whether or not it is ours. */
+  readonly adopted: boolean;
+  /** Why the running host is not the one this caller would have started; empty when it is ours.
+   * Non-empty means the host was kept anyway, for the user to restart when it suits them. */
+  readonly stale: readonly HostMismatch[];
 };
 
 export type AttachResult = {
@@ -391,9 +410,10 @@ const verifiedHostPid = (owner: HostOwner, socketPath: string): boolean => {
   return Number.isFinite(started) && started <= Date.now();
 };
 
-/** Stop a host this client can no longer talk to. The graceful path is authenticated; the signal
- * path only ever touches a pid `verifiedHostPid` accepts. */
-const stopStale = async (socketPath: string): Promise<void> => {
+/** Stop the host that is running at `socketPath`, and remove the records that describe it. This is
+ * the restart's own hand: the graceful path is authenticated, and the signal path only ever touches
+ * a pid `verifiedHostPid` accepts. */
+const stopHost = async (socketPath: string): Promise<void> => {
   const owner = readOwner(socketPath);
   try {
     const client = await HostClient.connect(socketPath);
@@ -422,15 +442,6 @@ const stopStale = async (socketPath: string): Promise<void> => {
   }
 };
 
-const retire = async (client: HostClient | undefined, socketPath: string): Promise<void> => {
-  if (client) {
-    await client.shutdown().catch(() => undefined);
-    client.close();
-  }
-  await stopStale(socketPath);
-  removeRecords(socketPath);
-};
-
 type Inspection =
   | { readonly kind: "none" }
   | { readonly kind: "transient"; readonly error: string }
@@ -446,8 +457,29 @@ const inspect = async (socketPath: string): Promise<Inspection> => {
   }
 };
 
-const sameOwner = (owner: HostOwner, options: EnsureOptions): boolean =>
-  owner.checkout === options.checkout && owner.buildId === options.buildId && owner.protocol === PROTOCOL;
+/** The owner record of a host that is still alive, read from disk. Asking this connects to
+ * nothing, so it neither starts nor stops a host, and it answers while the host is idle. */
+export const liveHostOwner = (socketPath: string): HostOwner | undefined => {
+  const owner = readOwner(socketPath);
+  return owner !== undefined && processAlive(owner.pid) ? owner : undefined;
+};
+
+type Held =
+  | { readonly kind: "ours"; readonly client: HostClient }
+  | { readonly kind: "kept"; readonly client: HostClient; readonly stale: readonly HostMismatch[] };
+
+/** A running host, kept as it is: replacing it would end every shell, agent and action run inside
+ * it, so a difference is something to report and let the user act on. */
+const claim = (client: HostClient, owner: HostOwner, options: EnsureOptions): Held => {
+  const stale = mismatches(identityOfOptions(options), identityOf(owner));
+  return stale.length === 0 ? { kind: "ours", client } : { kind: "kept", client, stale };
+};
+
+const held = (claimed: Held, adopted: boolean): EnsureResult => ({
+  client: claimed.client,
+  adopted,
+  stale: claimed.kind === "kept" ? claimed.stale : [],
+});
 
 /** Serialize check-and-spawn across processes. The holder pid is written to a temp file and
  * `link`ed into place (atomic), so a reader never sees an empty lock; a lock whose holder is
@@ -505,10 +537,7 @@ const withLock = async <T>(socketPath: string, body: () => Promise<T>): Promise<
   }
 };
 
-const spawnHost = async (
-  options: EnsureOptions,
-  depth = 0,
-): Promise<{ client: HostClient; adopted: boolean }> => {
+const spawnHost = async (options: EnsureOptions, depth = 0): Promise<EnsureResult> => {
   if (depth > 2) throw new Error(`could not start a host of our own at ${options.socket}`);
   // Bun loads node-pty but never delivers a byte of pty output; a host spawned by it would look
   // alive and be silent. The server runs on Node, so this only catches a caller that forgot.
@@ -538,10 +567,10 @@ const spawnHost = async (
     if (existsSync(`${options.socket}.token`) && existsSync(options.socket)) {
       try {
         const { client, owner } = await connectAndInfo(options.socket);
-        if (sameOwner(owner, options)) return { client, adopted: false };
-        // A racing host with different ownership won the bind: replace it and start ours.
-        await retire(client, options.socket);
-        return spawnHost(options, depth + 1);
+        // Our own child is the usual case, and it is not "adopted". A host that won the bind with
+        // an identity of its own is: it was already there when this client asked.
+        const claimed = claim(client, owner, options);
+        return held(claimed, claimed.kind !== "ours");
       } catch {
         // still coming up
       }
@@ -551,13 +580,12 @@ const spawnHost = async (
   }
 };
 
-const ensureUnlocked = async (options: EnsureOptions): Promise<{ client: HostClient; adopted: boolean }> => {
+const ensureUnlocked = async (options: EnsureOptions): Promise<EnsureResult> => {
   const first = await inspect(options.socket);
   if (first.kind === "host") {
-    if (sameOwner(first.owner, options)) return { client: first.client, adopted: true };
-    // Ownership disagrees: this host belongs to another build or checkout. Replace it.
-    await retire(first.client, options.socket);
-  } else if (first.kind === "transient") {
+    return held(claim(first.client, first.owner, options), true);
+  }
+  if (first.kind === "transient") {
     // A transient failure is never a reason to signal a pid. Retry; only unlink records when no
     // verified live host owns them.
     const owner = readOwner(options.socket);
@@ -566,11 +594,7 @@ const ensureUnlocked = async (options: EnsureOptions): Promise<{ client: HostCli
     for (;;) {
       await sleep(100);
       const again = await inspect(options.socket);
-      if (again.kind === "host") {
-        if (sameOwner(again.owner, options)) return { client: again.client, adopted: true };
-        await retire(again.client, options.socket);
-        break;
-      }
+      if (again.kind === "host") return held(claim(again.client, again.owner, options), true);
       if (again.kind === "none") break;
       if (Date.now() > deadline) {
         if (!verified) {
@@ -586,5 +610,14 @@ const ensureUnlocked = async (options: EnsureOptions): Promise<{ client: HostCli
 
 /** Start-or-adopt, serialized across processes. The returned client is connected and handshaken;
  * the caller owns whether it closes (detach) or not (adopt). */
-export const ensureHost = async (options: EnsureOptions): Promise<{ client: HostClient; adopted: boolean }> =>
+export const ensureHost = async (options: EnsureOptions): Promise<EnsureResult> =>
   withLock(options.socket, () => ensureUnlocked(options));
+
+/** Replace the running host with one of ours, whatever it was. Only a user asks for this: it ends
+ * every pty the old host held, so it is never this module's own decision. */
+export const restartHost = async (options: EnsureOptions): Promise<EnsureResult> =>
+  withLock(options.socket, async () => {
+    await stopHost(options.socket);
+    removeRecords(options.socket);
+    return ensureUnlocked(options);
+  });

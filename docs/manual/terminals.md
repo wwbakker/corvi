@@ -15,6 +15,14 @@ the server keeps, which also survives a Corvi restart). Completing or cancelling
 explicitly stops its sessions before archiving
 it.
 
+One host serves one state directory, so every checkout on this machine shares it. When the running
+host is not the one this server would have started — it was started by another checkout, or by
+another build — the server keeps it and says so instead of replacing it: a replacement ends every
+shell, agent and action run inside it. An icon in the navigation column's bottom row appears while
+that is the case, in the same yellow as an available update; it opens a question that names the
+difference, counts what a restart would close, and only then restarts. Nothing else ever replaces
+it: an out-of-date host with nothing running inside it is still the user's to restart.
+
 One window holds a session at a time. Opening the same terminal in a second window attaches there
 and tells the first window it has been taken over: the first keeps its last screen, says the
 terminal is open in another window, and offers **Take over** — which re-attaches it and, in turn,
