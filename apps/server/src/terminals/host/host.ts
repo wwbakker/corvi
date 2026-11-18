@@ -31,6 +31,9 @@
  *     `2`. The host reads the newest one without removing it from the stream (a terminal shows
  *     its title too) and records it on the session, so the server can name the window the way
  *     the thing inside it names itself;
+ *   - **what is in the foreground**: the pty's foreground process group, sampled from `ps` and
+ *     cached for a second, so a window can say what is running in it (`gradle`, `nvim`, `pi`)
+ *     rather than only the shell it was opened with;
  *   - **idle shutdown**: with `idleMs > 0`, once there are no client connections and no live
  *     sessions for that long, the host closes. A live session always keeps it up, and an accepted
  *     connection cancels a pending shutdown.
@@ -53,6 +56,7 @@ import {
   type SessionInfo,
 } from "./protocol.ts";
 import { parseOsc, scanTitle } from "./osc.ts";
+import { makeJobSampler, type JobSample } from "./jobs.ts";
 
 const DEFAULT_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
 
@@ -384,22 +388,39 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
     sessions.get(id)?.subscribers.delete(connection);
   };
 
-  const listSessions = (): SessionInfo[] =>
-    [...sessions.values()].map((session) => ({
-      id: session.id,
-      incarnation: session.incarnation,
-      cwd: session.cwd,
-      pid: session.pty.pid,
-      createdAt: session.createdAt,
-      alive: session.alive,
-      lastSeq: session.emitted,
-      ...(session.exitCode !== undefined ? { exitCode: session.exitCode } : {}),
-      ...(session.signal !== undefined ? { signal: session.signal } : {}),
-      ...(session.exitedAt !== undefined ? { exitedAt: session.exitedAt } : {}),
-      ...(session.status !== undefined ? { status: session.status } : {}),
-      ...(session.title !== undefined ? { title: session.title } : {}),
-      ...(session.metadata !== undefined ? { metadata: session.metadata } : {}),
-    }));
+  /** The last `ps` sample, and the one read in flight, shared by every session read. */
+  const sampleJobs = makeJobSampler();
+
+  /** What one session's terminal is running in the foreground. A dead session has no job: its pid
+   * may already belong to someone else. */
+  const jobOf = (session: Session, sample: JobSample | undefined): string | undefined => {
+    if (!session.alive || sample === undefined) return undefined;
+    const group = sample.foregroundOf.get(session.pty.pid);
+    return group === undefined ? undefined : sample.nameOfGroup.get(group);
+  };
+
+  const listSessions = async (): Promise<SessionInfo[]> => {
+    const sample = await sampleJobs();
+    return [...sessions.values()].map((session) => {
+      const job = jobOf(session, sample);
+      return {
+        id: session.id,
+        incarnation: session.incarnation,
+        cwd: session.cwd,
+        pid: session.pty.pid,
+        createdAt: session.createdAt,
+        alive: session.alive,
+        lastSeq: session.emitted,
+        ...(session.exitCode !== undefined ? { exitCode: session.exitCode } : {}),
+        ...(session.signal !== undefined ? { signal: session.signal } : {}),
+        ...(session.exitedAt !== undefined ? { exitedAt: session.exitedAt } : {}),
+        ...(session.status !== undefined ? { status: session.status } : {}),
+        ...(session.title !== undefined ? { title: session.title } : {}),
+        ...(job !== undefined ? { job } : {}),
+        ...(session.metadata !== undefined ? { metadata: session.metadata } : {}),
+      };
+    });
+  };
 
   const handle = (connection: Connection, value: unknown): void => {
     const request = parseRequest(value);
@@ -521,7 +542,11 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
         return;
       }
       case "session.list":
-        respond(connection, request, { sessions: listSessions() });
+        // The foreground job is one `ps` for every session, joined by any poll that arrives while
+        // it runs; a failure still answers, with the names it last had.
+        void listSessions()
+          .then((sessions) => respond(connection, request, { sessions }))
+          .catch(() => undefined);
         return;
     }
   };

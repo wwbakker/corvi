@@ -61,9 +61,11 @@ window strip, the status channel, and attaching all work the same way wherever t
 
 Windows appear under their change in the navigation column and in the strip above the terminal. A
 default label is the terminal's own title: a shell's prompt sets it to the directory it is in, and
-a program sets it to its own name, so a window reads as where it is and what runs there. A shell
-that sets no title is named by the window's directory instead, and an action's label or an agent's
-own session name wins over both. There is no session manager underneath — a window
+a program sets it to its own name, so a window reads as where it is and what runs there. What runs
+in the foreground is named beside it (`gradle` in `corvi - (gradle)`), a shell waiting at a prompt
+is not named at all, and a title that already says the job is not repeated. A shell that sets no
+title is named by the window's directory instead, and an action's label or an agent's own session
+name wins over both. There is no session manager underneath — a window
 *is* a host session, and the strip switches between them. When more windows exist than fit, the
 strip wraps to a second row instead of showing a horizontal scrollbar. The strip is capped at two
 rows and scrolls once there are more; the **Actions** menu sits vertically centred in the strip.

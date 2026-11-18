@@ -502,6 +502,16 @@ test("the terminal's own title names the window, under a name you gave and under
   // follows whatever the name is.
   expect(presentWindow(raw({})).label).toBe("PROJ-TITLE");
   expect(presentWindow(raw({ terminalTitle: "corvi", panes: ["@1", "@2"] })).label).toBe("corvi (2 panes)");
+  // What runs in the foreground is said beside the name — the shell at a prompt is not — and a
+  // title that already says the job is not repeated.
+  expect(presentWindow(raw({ terminalTitle: "corvi", command: "gradle" }))).toMatchObject({
+    label: "corvi - (gradle)",
+    busy: true,
+  });
+  expect(presentWindow(raw({ terminalTitle: "corvi", command: "zsh" }))).toMatchObject({
+    label: "corvi",
+    busy: false,
+  });
 });
 test("a change may be blocked, which is active but not workable", async () => {
   const { CHANGE_STATES, isFinished } = await import("@corvi/changes/record");

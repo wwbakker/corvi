@@ -200,7 +200,11 @@ const hostRaw = (
   name: record.label ?? basename(dir),
   ...(record.title !== undefined ? { title: record.title } : {}),
   ...(session?.title !== undefined ? { terminalTitle: session.title } : {}),
-  command: record.label !== undefined ? "sh" : (record.command ?? "sh"),
+  // What the pane is running now, which is what `running`-style presentation wants: a shell at a
+  // prompt names itself, a job names itself, and neither is the directory the window was opened
+  // in. A labelled window keeps the label's own "sh": its action says what it is, and the
+  // command string it runs is already the better answer for its detail.
+  command: record.label !== undefined ? "sh" : (session?.job ?? record.command ?? "sh"),
   active: record.active,
   activity: record.activity,
   directory: basename(dir),

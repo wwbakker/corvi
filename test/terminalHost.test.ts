@@ -22,6 +22,7 @@ import {
   scanTitle,
   TITLE_CAP,
 } from "../apps/server/src/terminals/host/osc.ts";
+import { parseJobs } from "../apps/server/src/terminals/host/jobs.ts";
 import {
   PROTOCOL,
   parseRequest,
@@ -197,6 +198,44 @@ describe("terminal host OSC", () => {
     expect(sanitizeStatus(null)).toBeUndefined();
     const long = sanitizeStatus({ status: "working", name: "x".repeat(999) });
     expect(long?.name?.length).toBe(120);
+  });
+});
+
+describe("terminal host foreground jobs", () => {
+  test("maps a pty's foreground group to the job running in it", () => {
+    // At a prompt the terminal's foreground group is the shell's own.
+    const idle = parseJobs("  100   100   100 /bin/zsh", 1);
+    expect(idle.at).toBe(1);
+    expect(idle.foregroundOf.get(100)).toBe(100);
+    expect(idle.nameOfGroup.get(100)).toBe("zsh");
+    // With a job in front, the shell's terminal names the job's group instead.
+    const busy = parseJobs(["  100   100   101 /bin/zsh", "  101   101   101 /usr/bin/sleep"].join("\n"), 2);
+    expect(busy.foregroundOf.get(100)).toBe(101);
+    expect(busy.nameOfGroup.get(101)).toBe("sleep");
+    // A process with no terminal has no foreground group at all.
+    expect(parseJobs("  200   200     0 /usr/bin/other", 0).foregroundOf.get(200)).toBeUndefined();
+  });
+
+  test("names a pipeline by its leader, and a leaderless group by a member", () => {
+    const sample = parseJobs(
+      [
+        "  300   300   300 /usr/bin/grep",
+        "  301   300   300 /usr/bin/head",
+        // The group's leader (402) is not in the listing; its member still names it.
+        "  400   402   400 /bin/zsh",
+        "  500   500   500 /Applications/Corvi Helper.app/Contents/MacOS/Corvi Helper",
+      ].join("\n"),
+      0,
+    );
+    expect(sample.nameOfGroup.get(300)).toBe("grep");
+    expect(sample.nameOfGroup.get(402)).toBe("zsh");
+    // A path is cut to the name a label can carry.
+    expect(sample.nameOfGroup.get(500)).toBe("Corvi Helper");
+  });
+
+  test("uses the name a program gave itself", () => {
+    // `ps` reports pi's own process title, not the node it runs on.
+    expect(parseJobs("  300   300   300 pi", 0).nameOfGroup.get(300)).toBe("pi");
   });
 });
 
@@ -781,6 +820,31 @@ describe.skipIf(!usable)("terminal host under Node", () => {
       await fixture.client.attach("title", 0);
       expect(seen.join("").includes("\x1b]1;Window name\x07")).toBe(true);
       await fixture.client.kill("title");
+    } finally {
+      await closeHost(fixture);
+    }
+  }, 30_000);
+
+  test("reports the process in the foreground of a session", async () => {
+    const fixture = await openHost();
+    try {
+      // The pty's child becomes the job itself, so no job control is needed to put one in front.
+      await fixture.client.open("job", {
+        cwd: fixture.dir,
+        command: ["/bin/sh", "-c", "exec sleep 30"],
+        cols: 80,
+        rows: 24,
+      });
+      await waitFor(
+        "the foreground job to be reported",
+        async () => session(await fixture.client.list(), "job")?.job === "sleep",
+      );
+      // A dead session has no job: its pid may already belong to somebody else.
+      await fixture.client.kill("job");
+      await waitFor("the job to go with the session", async () => {
+        const dead = session(await fixture.client.list(), "job");
+        return dead?.alive === false && dead.job === undefined;
+      });
     } finally {
       await closeHost(fixture);
     }
