@@ -1284,6 +1284,40 @@ test.skipIf(!usable)(
   30_000,
 );
 
+/** A change with `count` terminal windows, created idempotently: `--retry=2` re-runs a body that
+ * may already have made some. `name` gives every window a long title, which is what makes the
+ * strip wrap at the shared viewport. */
+const terminalWindows = async (change: string, count: number, name?: string): Promise<void> => {
+  const created = await fetch(`${url}/api/changes`, {
+    method: "POST",
+    // A working change, not an idea: the overview's draft list is counted elsewhere in this file.
+    body: JSON.stringify({ id: change, checkouts: checkoutsOf([repoDir]) }),
+  });
+  if (!created.ok) {
+    const existing = await fetch(`${url}/api/changes/${change}`);
+    expect(existing.ok).toBe(true);
+  }
+  const listed = await fetch(`${url}/api/changes/${change}/terminal/windows`);
+  expect(listed.ok).toBe(true);
+  let windows = (await listed.json()) as { id: string }[];
+  for (let index = windows.length; index < count; index++) {
+    const opened = await fetch(`${url}/api/changes/${change}/terminal/windows`, {
+      method: "POST",
+      body: JSON.stringify({ action: "new" }),
+    });
+    expect(opened.ok).toBe(true);
+    windows = (await opened.json()) as { id: string }[];
+  }
+  if (name === undefined) return;
+  for (const [index, window] of windows.entries()) {
+    const renamed = await fetch(`${url}/api/changes/${change}/terminal/windows`, {
+      method: "POST",
+      body: JSON.stringify({ action: "rename", window: window.id, title: `${name} ${index + 1}` }),
+    });
+    expect(renamed.ok).toBe(true);
+  }
+};
+
 test.skipIf(!usable)(
   "the tab row wraps to two rows and the chrome stays one sticky block",
   async () => {
@@ -1291,27 +1325,7 @@ test.skipIf(!usable)(
     // separator, four windows' tabs and "+". The windows are made through the registry's own
     // route, the way the tab's "+" does, so no page has to be attached for them to exist.
     const wrap = "PROJ-PAGES-WRAP";
-    // Idempotent setup: `--retry=2` re-runs this body without `beforeAll`, so a first attempt that
-    // failed midway must not make the retry fail on "already exists". Create only what is missing.
-    const created = await fetch(`${url}/api/changes`, {
-      method: "POST",
-      // A working change, not an idea: the overview's draft list is counted elsewhere in this file.
-      body: JSON.stringify({ id: wrap, checkouts: checkoutsOf([repoDir]) }),
-    });
-    if (!created.ok) {
-      const existing = await fetch(`${url}/api/changes/${wrap}`);
-      expect(existing.ok).toBe(true);
-    }
-    const listed = await fetch(`${url}/api/changes/${wrap}/terminal/windows`);
-    expect(listed.ok).toBe(true);
-    const already = ((await listed.json()) as unknown[]).length;
-    for (let i = already; i < 4; i++) {
-      const opened = await fetch(`${url}/api/changes/${wrap}/terminal/windows`, {
-        method: "POST",
-        body: JSON.stringify({ action: "new" }),
-      });
-      expect(opened.ok).toBe(true);
-    }
+    await terminalWindows(wrap, 4);
 
     return withPage(
       browser,
@@ -1403,6 +1417,50 @@ test.skipIf(!usable)(
         await items.waitFor({ state: "hidden" });
       },
       { width: 900, height: 420 },
+    );
+  },
+  60_000,
+);
+
+test.skipIf(!usable)(
+  "the dashboard fills the window even when the tab row wraps",
+  async () => {
+    // The case viewport arithmetic got wrong: the windows' tabs wrap to a second row, so the cards'
+    // room is less than a one-row constant assumes. The fill is the flex chain's, so the chrome
+    // costs the cards exactly its own height and the page stays inside the window.
+    const fill = "PROJ-PAGES-FILL";
+    await terminalWindows(fill, 4, "A long window title number");
+    await withPage(
+      browser,
+      async (page) => {
+        await page.goto(`${url}/changes/${fill}/dashboard`, { waitUntil: "domcontentloaded" });
+        await page.waitForSelector(".widget");
+        await page.waitForFunction(() => document.querySelectorAll(".window-tab").length >= 5);
+
+        // Wrapped: this is the case a one-row constant would have got wrong.
+        const tops = await page
+          .locator(".window-tab")
+          .evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)));
+        expect(new Set(tops).size).toBeGreaterThanOrEqual(2);
+
+        // Nothing is pushed past the window: no phantom scrollbar from the chrome.
+        const [scrollHeight, innerHeight] = await page.evaluate(() => [
+          document.documentElement.scrollHeight,
+          window.innerHeight,
+        ]);
+        expect(scrollHeight).toBeLessThanOrEqual(innerHeight);
+
+        // And the columns reach the content's bottom edge: the last card took what was left.
+        const [widgets, content] = await Promise.all([
+          page.locator(".widgets").boundingBox(),
+          page.locator(".content").boundingBox(),
+        ]);
+        if (!widgets || !content) throw new Error("the dashboard did not lay out");
+        expect(Math.abs(widgets.y + widgets.height - (content.y + content.height - 48))).toBeLessThanOrEqual(
+          2,
+        );
+      },
+      { width: 1280, height: 1000 },
     );
   },
   60_000,

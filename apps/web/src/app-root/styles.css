@@ -1,17 +1,18 @@
 @import "@xterm/xterm/css/xterm.css";
 
-/* Registered so that switching changes in Spaces glides from one pair to the next. Without
-   @property the colours still change; only the glide is missing. */
+/* Registered so that switching changes in Spaces glides from one pair to the next. The initial
+   value is only what a colour is before the sheet's own pair below applies: @property cannot read
+   a token, so the pair itself has one home in `:root` and these stay colourless. */
 @property --hue-a {
   syntax: "<color>";
   inherits: true;
-  initial-value: #2b1bd6;
+  initial-value: transparent;
 }
 
 @property --hue-b {
   syntax: "<color>";
   inherits: true;
-  initial-value: #fd6701;
+  initial-value: transparent;
 }
 
 /* The page's colours, and the only place a colour is written down: a rule that wants something
@@ -27,12 +28,35 @@
   color-scheme: dark;
   --on-accent: #ffffff;
 
-  /* The colours a change lights the page with, and Corvi's own pair for the overview and ideas: a
-     theme may read them, and only Spaces fills them per change (app-root/theme.ts). */
-  --hue-a: #2b1bd6;
-  --hue-b: #fd6701;
-  --change-a: #2b1bd6;
-  --change-b: #fd6701;
+  /* Corvi's own pair: ultramarine and orange. The overview and ideas wear it in every theme, and
+     it is the one home the `--hue-*` and `--change-*` defaults refer to. */
+  --corvi-a: #2b1bd6;
+  --corvi-b: #fd6701;
+
+  /* The Spaces palette: eight fixed pairs, in the order the look depends on. A change's id indexes
+     into them, so the pairs are never shuffled (domain/theme.ts names a pair, never its colours). */
+  --space-1-a: #3a20ff;
+  --space-1-b: #fd6701;
+  --space-2-a: #0f8f7f;
+  --space-2-b: #7be0b8;
+  --space-3-a: #006e8f;
+  --space-3-b: #36d1c4;
+  --space-4-a: #8a1fb8;
+  --space-4-b: #ff4fa0;
+  --space-5-a: #7a1030;
+  --space-5-b: #ff7a59;
+  --space-6-a: #1f5fd6;
+  --space-6-b: #7ad1ff;
+  --space-7-a: #0b6b3a;
+  --space-7-b: #8ff0a4;
+  --space-8-a: #8a5a10;
+  --space-8-b: #ffd166;
+
+  /* The colours a change lights the page with, and the pair the column draws beside a name. */
+  --hue-a: var(--corvi-a);
+  --hue-b: var(--corvi-b);
+  --change-a: var(--corvi-a);
+  --change-b: var(--corvi-b);
   --change-mark: none; /* whether the column draws a change's pair beside its name */
 
   /* How far the backdrop follows the cursor (Dusk's sky): written by app-root/theme.ts. */
@@ -62,8 +86,18 @@
     transparent
   ); /* the caret's line, an echo of
                                                                     a selection, a trailing space */
+  /* The floating chrome over a terminal — its menus, its find bar, a link's tooltip — is opaque
+     and based on the well: a backdrop filter over a canvas that repaints as output scrolls pays for
+     itself every frame. */
+  --terminal-chrome: color-mix(in srgb, var(--well) 90%, var(--text));
   --scrim: rgb(0 0 0 / 0.5); /* behind a dialog */
   --shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+}
+
+/* A pair that is being set for the first time in this page is painted, not glided to: a cold
+   deep link has nothing to glide from (app-root/theme.ts adds this for that one application). */
+:root.hue-instant {
+  transition: none;
 }
 
 /* Dusk, the default: the dusk sky behind dark frosted glass. The glass is darker than the
@@ -369,10 +403,6 @@ dialog,
 .settings .workspace-card,
 .action-docs,
 .menu-items,
-.terminal-menu,
-.window-menu,
-.terminal-find,
-.terminal-link-tooltip,
 .toast,
 .theme-choice {
   -webkit-backdrop-filter: var(--surface-blur);
@@ -1032,6 +1062,9 @@ body.drawer-open {
 /* What the change is: its name first, then the id and the branch that identify it. All three
    give way to the controls rather than pushing them out of the row. */
 .change-title {
+  /* The row's free space is the title's, so its two fields can trade width between them: the
+     branch gives way first, and the name keeps its width until the branch has none left. */
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1056,14 +1089,16 @@ body.drawer-open {
   color: var(--muted);
 }
 
-/* The branch is an identifier: monospace, and the first field to shorten when the row is narrow. */
+/* The branch is an identifier: monospace, and the first field to shorten when the row is narrow.
+   Its basis is zero and it grows into the title's leftover, so it shrinks to nothing before the
+   name has to; its own text is what takes the ellipsis (a flex box cannot ellipsize its anonymous
+   text item). */
 .change-branch {
   display: flex;
   align-items: center;
   gap: 5px;
+  flex: 1 1 0;
   min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   color: var(--muted);
@@ -1073,14 +1108,18 @@ body.drawer-open {
   flex: none;
 }
 
-.change-branch {
+.change-branch-name {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* In the app window the row is chrome as well as a page header: dragging it moves the window.
-   Everything you can click in it stays a control — the rename button, the state select, the window
-   tabs (whose own drag reorders them) and the workspace switcher. A browser has neither the drag
-   nor lights to lay out around. */
+/* In the app window the title row is chrome as well as a page header: dragging it moves the window.
+   Everything you can click in it stays a control — the name's field, the state select, the actions
+   menu — and the workspace switcher is the column's own version of the same. The tab row under it
+   is not part of the drag region at all. A browser has neither the drag nor lights to lay out
+   around. */
 .hosted .page > header,
 .hosted .page > .change-chrome > header,
 .hosted .wizard > header,
@@ -2376,7 +2415,7 @@ button.create:hover:not(:disabled) {
   z-index: 40;
   min-width: 160px;
   padding: 4px;
-  background: var(--surface);
+  background: var(--terminal-chrome);
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
@@ -2423,7 +2462,7 @@ dialog.window-rename {
   gap: 2px;
   max-width: min(420px, calc(100vw - 16px));
   padding: 6px 10px;
-  background: var(--surface);
+  background: var(--terminal-chrome);
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
@@ -2475,7 +2514,7 @@ dialog.window-rename {
   display: flex;
   gap: 6px;
   padding: 4px;
-  background: var(--surface);
+  background: var(--terminal-chrome);
   border: 1px solid var(--line);
   border-radius: 8px;
 }
@@ -4018,15 +4057,24 @@ button.danger:disabled {
 
 /* The dashboard is the page: its columns run to the bottom of the window, and the last card in
    each takes what is left, so a wide window does not end in a band of empty page under the cards.
-   The page is given the window's height less the content's own padding (16px above, 48px below);
-   when the cards are taller than that it grows and the document scrolls as it always did. */
-.page.dashboard-page {
+   The height is the flex chain's, not an arithmetic: the content is a sized column
+   (`.app-body`'s flex child), the page and the fieldset and the grid each take what is left, so a
+   wrapped tab row, a notice or an error banner above the view costs the cards exactly its own
+   height — nothing to restate when the chrome grows. */
+.content.dashboard {
   display: flex;
   flex-direction: column;
-  min-height: calc(100dvh - 64px);
+  min-height: 0;
 }
 
-.page.dashboard-page > .widgets-fieldset {
+.page.dashboard-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.page.dashboard-page .widgets-fieldset {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -4035,10 +4083,7 @@ button.danger:disabled {
 
 .page.dashboard-page .widgets {
   flex: 1;
-  /* The cards' room: the window less the content's own padding (16px above, 48px below) and the
-     chrome above them (the title row, the tab row and the space under them). A flex child does not
-     grow into a parent's min-height, so the height is stated here rather than relied on above. */
-  min-height: calc(100dvh - 140px);
+  min-height: 0;
   align-items: stretch;
 }
 
@@ -4068,12 +4113,16 @@ button.danger:disabled {
   }
 }
 
+/* The view slot is the act of arriving, whatever the view is: the wrapper is keyed by the view, so
+   a core view, an extension's tab and a return to the terminal all fade. Without a box of its own
+   the view stays the page's child for the flex chains above it. */
+.view-slot {
+  display: contents;
+}
+
 @media (prefers-reduced-motion: no-preference) {
-  .page > .widgets-fieldset,
-  .page > .plan-page,
-  .page > .transcripts,
-  .page > .local,
-  .page > .terminal-host {
+  .view-slot > *,
+  .terminal-host.view-arrives {
     animation: view-arrive 140ms ease-out;
   }
 }

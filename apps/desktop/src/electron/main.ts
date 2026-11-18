@@ -37,8 +37,10 @@ import type { HostNotice } from "@corvi/web/host";
 import { ID, PRODUCT, env, stateDir } from "@corvi/configuration/node";
 
 /** The page's own background, so the window, its frame and the gap before the first paint are
- * all one colour instead of a white flash. Same value as the hosts this replaced. */
-const BACKGROUND = "#14161a";
+ * all one colour instead of a white flash. It is Dusk's `--bg`
+ * (apps/web/src/app-root/styles.css), the default theme: the page applies a stored theme before it
+ * paints, but the native window is drawn before any page exists. */
+const BACKGROUND = "#07062a";
 /** What this copy is called in the Dock and the title bar until the page names itself. */
 const DEFAULT_TITLE = PRODUCT;
 /** The event sound canberra resolves through the user's sound theme — the Linux analogue of
@@ -174,7 +176,9 @@ const playSound = (): void => {
 };
 
 const show = (win: BrowserWindow, message: string): void => {
-  const html = `<body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:${BACKGROUND};color:#8b93a1;font:14px ui-sans-serif,system-ui,sans-serif">${message}</body>`;
+  // The splash's text is Dusk's `--muted` (apps/web/src/app-root/styles.css): the same default
+  // theme the background above comes from.
+  const html = `<body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:${BACKGROUND};color:#b7b4e4;font:14px ui-sans-serif,system-ui,sans-serif">${message}</body>`;
   void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 };
 

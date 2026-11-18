@@ -121,12 +121,17 @@ const painted = (page: Page): Promise<Painted[]> =>
     }),
   );
 
-// Dusk's tokens, the default theme: the editor reads them, so a change of look is a change here.
-const heading = "rgb(143, 160, 255)"; // --md-heading
-const code = "rgb(126, 240, 176)"; // --md-code
-const link = "rgb(201, 166, 255)"; // --md-link
-const quote = "rgb(183, 180, 228)"; // --md-quote
-const mark = "rgb(142, 139, 192)"; // --md-mark
+/** A token's value in the form the painted spans report, resolved by the browser: the sheet is
+ * what the editor follows, so a retuned token is a retuned expectation, not a broken test. */
+const resolved = (page: Page, token: string): Promise<string> =>
+  page.evaluate((name) => {
+    const probe = document.createElement("span");
+    probe.style.color = `var(${name})`;
+    document.body.append(probe);
+    const colour = getComputedStyle(probe).color;
+    probe.remove();
+    return colour;
+  }, token);
 
 test.skipIf(!usable)(
   "the plan tab shows the markup as source: every character visible, colored like an editor",
@@ -154,8 +159,16 @@ test.skipIf(!usable)(
       expect(await onDisk()).toBe(source);
 
       // Colored like an editor colors it: structure in color, emphasis in weight/slant/strike,
-      // the marks dim. The exact values are the tokens' (markdownTheme.test.ts); this pins that
-      // they survive to the DOM.
+      // the marks dim. The expected values are the theme's own tokens, resolved here: what is
+      // pinned is that they reach the DOM, not which shade the default theme happens to use.
+      const { text, heading, code, link, quote, mark } = {
+        text: await resolved(page, "--text"),
+        heading: await resolved(page, "--md-heading"),
+        code: await resolved(page, "--md-code"),
+        link: await resolved(page, "--md-link"),
+        quote: await resolved(page, "--md-quote"),
+        mark: await resolved(page, "--md-mark"),
+      };
       const spans = await painted(page);
       const look = (text: string): Omit<Painted, "text"> | undefined => {
         const found = spans.find((s) => s.text.trim() === text);
@@ -176,19 +189,19 @@ test.skipIf(!usable)(
         decoration: "none",
       });
       expect(look("bold")).toEqual({
-        color: "rgb(236, 234, 255)",
+        color: text,
         weight: "700",
         style: "normal",
         decoration: "none",
       });
       expect(look("italic")).toEqual({
-        color: "rgb(236, 234, 255)",
+        color: text,
         weight: "400",
         style: "italic",
         decoration: "none",
       });
       expect(look("struck")).toEqual({
-        color: "rgb(236, 234, 255)",
+        color: text,
         weight: "400",
         style: "normal",
         decoration: "line-through",
@@ -323,7 +336,7 @@ test.skipIf(!usable)(
 
       expect(await editorText(page.locator(".wizard-plan .md-editor"))).toBe("# Starting **plan**");
       const spans = await painted(page);
-      expect(spans.find((s) => s.text === "#")?.color).toBe(mark);
+      expect(spans.find((s) => s.text === "#")?.color).toBe(await resolved(page, "--md-mark"));
       expect(spans.find((s) => s.text === "plan")?.weight).toBe("700");
 
       // The heading is the title's one-way source: the read-only field follows it, and the id

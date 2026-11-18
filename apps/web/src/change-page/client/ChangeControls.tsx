@@ -74,12 +74,11 @@ export function ChangeControls({
             <span className="change-id">{change.id}</span>
             <span className="change-branch" title={change.branch}>
               <BranchIcon title="branch" />
-              {change.branch}
+              <span className="change-branch-name">{change.branch}</span>
             </span>
           </>
         )}
       </div>
-      <span className="spacer" />
       {blocked && <StaleMarker>unavailable</StaleMarker>}
       {change && (
         <>

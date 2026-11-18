@@ -78,6 +78,18 @@ const serve = async (page: Page): Promise<void> => {
   );
 };
 
+/** A token's value in the form `getComputedStyle` reports colours, resolved in the page: the
+ * assertion is that the control wears the theme's token, not which shade the default theme uses. */
+const resolved = (page: Page, token: string): Promise<string> =>
+  page.evaluate((name) => {
+    const probe = document.createElement("span");
+    probe.style.color = `var(${name})`;
+    document.body.append(probe);
+    const colour = getComputedStyle(probe).color;
+    probe.remove();
+    return colour;
+  }, token);
+
 const icon = (page: Page): Locator => page.locator(".sidebar .icon-entry.stale");
 
 test.skipIf(!usable)(
@@ -102,7 +114,7 @@ test.skipIf(!usable)(
       expect(await restart.getAttribute("title")).toBe(
         "Terminal host started from another checkout — restart it",
       );
-      expect(await restart.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(255, 207, 90)");
+      expect(await restart.evaluate((el) => getComputedStyle(el).color)).toBe(await resolved(page, "--warn"));
 
       // The click asks, with the reason and what it would end.
       await restart.click();

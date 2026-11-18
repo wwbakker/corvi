@@ -19,7 +19,6 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { csiuFor, isNewWindowKey, type Platform } from "@corvi/terminals/model";
 import type { RemoteAvailabilityReasonDto } from "@corvi/contracts/availability";
 import { shouldKeepSocket } from "./socketTarget.ts";
-import { subscribeTheme } from "../../app-root/theme.ts";
 
 /** How much scrollback the page keeps: as much as the server serializes, so a resume is whole. */
 const SCROLLBACK = 5000;
@@ -69,8 +68,9 @@ const themeColor = (name: string): string =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 /** xterm holds the colours it is given rather than reading the tokens itself, so it is the reader
- * that has to be told when the theme changes (`subscribeTheme`). The background is the sheet's
- * well, which is opaque in every theme: no backdrop blur sits behind a terminal. */
+ * that has to be told when the theme changes: it watches `data-theme` (`followTheme`), the
+ * attribute every switch sets. The background is the sheet's well, which is opaque in every theme:
+ * no backdrop blur sits behind a terminal. */
 const terminalTheme = (): ITheme => ({
   background: themeColor("--well"),
   foreground: themeColor("--text"),
@@ -304,8 +304,14 @@ export function TerminalPane({
       ),
     );
     term.open(element);
-    const followTheme = subscribeTheme(() => {
+    // The attribute is the switch, and this reader resolves it itself: a theme change while the
+    // terminal is open re-reads the tokens instead of leaving the old ones on the canvas.
+    const followTheme = new MutationObserver(() => {
       term.options.theme = terminalTheme();
+    });
+    followTheme.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
     });
     try {
       // Chromium composites hardware-accelerated (the reason for the Electron host); where it
@@ -357,7 +363,7 @@ export function TerminalPane({
     (element as HTMLElement & { corviTerminal?: Terminal }).corviTerminal = term;
     setGeneration((n) => n + 1);
     return () => {
-      followTheme();
+      followTheme.disconnect();
       input.dispose();
       binary.dispose();
       selection.dispose();

@@ -6,10 +6,12 @@
  * switch writes the cookie and the attribute the stylesheet keys on, and every rule follows
  * without a reload.
  *
- * xterm resolves a token's value when its theme is set (`TerminalPane.tsx`), so it is the reader
- * that has to be told about a switch; this module's sky shift holds state as well, and both
- * subscribe here. The Markdown editor's theme is CSS custom properties only
- * (`editor/client/theme.ts`), so it follows the attribute like any other rule.
+ * Setting `data-theme` is the whole switch: the stylesheet keys every token on it, and the
+ * Markdown editor follows through its CSS custom properties (`editor/client/theme.ts`). The one
+ * reader that holds a resolved colour is xterm (`TerminalPane.tsx`), which watches the attribute
+ * itself. The inline script in `index.html` applies the stored choice before the stylesheet
+ * paints; this module applies it again, because the script trusts the cookie where this validates
+ * it.
  */
 import { type ColourPair, type ThemeId, themeOf } from "../domain/theme.ts";
 import { getPref, setPref } from "./prefs.ts";
@@ -20,37 +22,37 @@ const THEME_KEY = "corvi:theme";
 /** At most how far the sky moves: half of the mockup's 24px by 16px. */
 const SKY_SHIFT = { x: 12, y: 8 } as const;
 
-type ThemeListener = (theme: ThemeId) => void;
-
-const listeners = new Set<ThemeListener>();
-
 /** The theme this device last chose, or Dusk when there is none — or when the stored value names
  * a theme this version no longer has. */
 export const themeInUse = (): ThemeId => themeOf(getPref(THEME_KEY));
 
-/** Follow theme switches. Returns the unsubscribe function the reader disposes with. */
-export const subscribeTheme = (listener: ThemeListener): (() => void) => {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-};
+/** The media query that turns the sky still. It is consulted again whenever it changes, so a
+ * reader who asks for less motion mid-session gets it without waiting for a theme switch. */
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
+/** The theme the page is on, so the media query's changes know whether the sky applies at all. */
+let skyTheme: ThemeId | null = null;
 let skyHandler: ((event: MouseEvent) => void) | null = null;
 
+/** Stop the sky following the pointer, and put it back where the sheet draws it. */
+const stopSky = (): void => {
+  if (skyHandler === null) return;
+  window.removeEventListener("mousemove", skyHandler);
+  skyHandler = null;
+  const root = document.documentElement;
+  root.style.removeProperty("--sky-x");
+  root.style.removeProperty("--sky-y");
+};
+
 /** The dusk sky follows the cursor, at a fraction of the mockup's amount. Nothing else moves, and
- * a reader who asked for less motion gets a still sky. */
-const skyFollowsCursor = (on: boolean): void => {
-  if (on === (skyHandler !== null)) return;
-  if (!on) {
-    window.removeEventListener("mousemove", skyHandler!);
-    skyHandler = null;
-    const root = document.documentElement;
-    root.style.removeProperty("--sky-x");
-    root.style.removeProperty("--sky-y");
+ * a reader who asked for less motion — now, not only when the theme was chosen — gets a still sky. */
+const syncSky = (): void => {
+  const wanted = skyTheme === "dusk" && !reducedMotion.matches;
+  if (!wanted) {
+    stopSky();
     return;
   }
-  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (skyHandler !== null) return;
   skyHandler = (event: MouseEvent): void => {
     // The pointer's place in the window, as -1..1 across each axis: the edge is the full shift.
     const across = (event.clientX / window.innerWidth - 0.5) * 2;
@@ -61,21 +63,31 @@ const skyFollowsCursor = (on: boolean): void => {
   window.addEventListener("mousemove", skyHandler, { passive: true });
 };
 
+reducedMotion.addEventListener("change", syncSky);
+
 /** The browser's own chrome — the status bar a phone or a docked browser draws — takes the page's
  * base colour, so it does not stay a bar from the theme you left. */
 const paintBrowserChrome = (): void => {
   const base = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
   if (base === "") return;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", base);
+  let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+  if (meta === null) {
+    // The page's own script makes this before the first paint; a document that ran no script gets
+    // it here, on the first theme application.
+    meta = document.createElement("meta");
+    meta.name = "theme-color";
+    document.head.append(meta);
+  }
+  meta.content = base;
 };
 
 /** Put one theme on the page: the attribute the stylesheet keys on, the browser chrome, and the
- * readers that hold a resolved colour. */
+ * sky the theme owns. */
 export const applyTheme = (theme: ThemeId): void => {
   document.documentElement.dataset.theme = theme;
   paintBrowserChrome();
-  skyFollowsCursor(theme === "dusk");
-  for (const listener of [...listeners]) listener(theme);
+  skyTheme = theme;
+  syncSky();
 };
 
 /** Choose a theme on this device: it applies now, and it is what the next visit starts in. */
@@ -89,10 +101,23 @@ export const applyStoredTheme = (): void => {
   applyTheme(themeInUse());
 };
 
-/** The colours the open change lights the page with, in the Spaces theme. The values live on the
- * root element so the sky's gradients, which are tokens, read them. */
-export const applyChangeColours = (colours: ColourPair): void => {
+/**
+ * The colours the open change lights the page with, in Spaces. The values are token references
+ * (`domain/theme.ts`) set on the root element, where the theme's sky and the column's swatches
+ * read them.
+ *
+ * `animate` is for a real move from one change to another. The first pair of a page load — a cold
+ * deep link included — and a move to or from the overview have nothing to glide from, and are
+ * painted: the glide would animate a switch that never happened.
+ */
+export const applyChangeColours = (colours: ColourPair, animate: boolean): void => {
   const root = document.documentElement;
+  root.classList.toggle("hue-instant", !animate);
   root.style.setProperty("--hue-a", colours.from);
   root.style.setProperty("--hue-b", colours.to);
+  if (animate) return;
+  // Resolve the pair before transitions come back: the next application may glide, but this one
+  // is already where it belongs.
+  void getComputedStyle(root).getPropertyValue("--hue-a");
+  requestAnimationFrame(() => root.classList.remove("hue-instant"));
 };

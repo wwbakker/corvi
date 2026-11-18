@@ -1,18 +1,14 @@
 import { expect, test } from "bun:test";
-import {
-  CORVI_COLOURS,
-  DEFAULT_THEME,
-  isThemeId,
-  THEMES,
-  themeOf,
-  coloursOf,
-} from "../apps/web/src/domain/theme.ts";
+import { join } from "node:path";
+import { CORVI_COLOURS, DEFAULT_THEME, THEMES, themeOf, coloursOf } from "../apps/web/src/domain/theme.ts";
 
 /**
- * The theme vocabulary: which looks exist, which one a page starts in, and the fixed colours a
- * change wears in Spaces. The stylesheet owns what a theme looks like; these are the facts the
- * page and the settings picker share, and the ones a stored preference is read against.
+ * The theme vocabulary: which looks exist, which one a page starts in, and the named pairs a
+ * change wears in Spaces. The stylesheet owns every colour; this pins the vocabulary and the
+ * id → pair mapping, and checks that the pairs the mapping names are the ones the sheet writes.
  */
+
+const source = (path: string): Promise<string> => Bun.file(join(import.meta.dir, "..", path)).text();
 
 test("four themes are offered, Dusk first and as the default", () => {
   expect(THEMES.map((theme) => theme.id)).toEqual(["dusk", "ultramarine", "raven", "spaces"]);
@@ -27,15 +23,11 @@ test("a preference that names no known theme reads as Dusk", () => {
   expect(themeOf(undefined)).toBe("dusk");
   expect(themeOf("")).toBe("dusk");
   expect(themeOf("dark")).toBe("dusk");
-  expect(isThemeId("dark")).toBe(false);
-  for (const theme of THEMES) {
-    expect(themeOf(theme.id)).toBe(theme.id);
-    expect(isThemeId(theme.id)).toBe(true);
-  }
+  for (const theme of THEMES) expect(themeOf(theme.id)).toBe(theme.id);
 });
 
 test("ideas and the overview keep Corvi's own pair", () => {
-  expect(CORVI_COLOURS).toEqual({ from: "#2b1bd6", to: "#fd6701" });
+  expect(CORVI_COLOURS).toEqual({ from: "var(--corvi-a)", to: "var(--corvi-b)" });
   // An idea is not a job yet, and no id gives it a colour of its own.
   expect(coloursOf("PROJ-1", true)).toEqual(CORVI_COLOURS);
   expect(coloursOf("idea-agent-briefing", true)).toEqual(CORVI_COLOURS);
@@ -44,21 +36,44 @@ test("ideas and the overview keep Corvi's own pair", () => {
 });
 
 test("a change's pair is its id's place in a fixed palette", () => {
-  // Pinned: the pairs are stable, so a change looks the same on every device and after a
-  // restart. Reordering the palette is a look change, not a refactor.
-  expect(coloursOf("PROJ-1182", false)).toEqual({ from: "#0f8f7f", to: "#7be0b8" });
-  expect(coloursOf("redesign-ui-layout", false)).toEqual({ from: "#3a20ff", to: "#fd6701" });
+  // Pinned: a pair is a token name, so the colours can be retuned in the sheet while a change
+  // keeps the same place in the palette. The order is the look — reordering it is not a refactor.
+  expect(coloursOf("PROJ-1182", false)).toEqual({
+    from: "var(--space-2-a)",
+    to: "var(--space-2-b)",
+  });
+  expect(coloursOf("redesign-ui-layout", false)).toEqual({
+    from: "var(--space-1-a)",
+    to: "var(--space-1-b)",
+  });
 
   // The same id is always the same pair, and it is not the pair of a different id.
   expect(coloursOf("PROJ-1182", false)).toEqual(coloursOf("PROJ-1182", false));
   expect(coloursOf("PROJ-1182", false)).not.toEqual(coloursOf("PROJ-1179", false));
 
-  // The palette is colour pairs, not one hue: both halves are opaque hex colours and they
-  // differ, so the gradient beside a name reads as two colours.
+  // Every pair a change can wear is one of the eight, named by both halves.
   for (const id of ["PROJ-1182", "PROJ-1179", "PROJ-1191", "PROJ-1168", "PROJ-1"]) {
     const pair = coloursOf(id, false);
-    expect(pair.from).toMatch(/^#[0-9a-f]{6}$/);
-    expect(pair.to).toMatch(/^#[0-9a-f]{6}$/);
-    expect(pair.from).not.toBe(pair.to);
+    expect(pair.from).toMatch(/^var\(--space-[1-8]-a\)$/);
+    expect(pair.to).toMatch(/^var\(--space-[1-8]-b\)$/);
+    expect(pair.from.replace("-a)", "-b)")).toBe(pair.to);
   }
+});
+
+test("the pairs a change can wear are written in the stylesheet, not in the theme module", async () => {
+  const sheet = await source("apps/web/src/app-root/styles.css");
+  expect(sheet).toMatch(/--corvi-a:\s*#[0-9a-f]{6}/);
+  expect(sheet).toMatch(/--corvi-b:\s*#[0-9a-f]{6}/);
+  for (let index = 1; index <= 8; index++) {
+    expect(sheet).toMatch(new RegExp(`--space-${index}-a:\\s*#[0-9a-f]{6}`));
+    expect(sheet).toMatch(new RegExp(`--space-${index}-b:\\s*#[0-9a-f]{6}`));
+  }
+  // The pair has one home: the defaults refer to it instead of restating its colours.
+  expect(sheet).toMatch(/--hue-a:\s*var\(--corvi-a\)/);
+  expect(sheet).toMatch(/--hue-b:\s*var\(--corvi-b\)/);
+  expect(sheet).toMatch(/--change-a:\s*var\(--corvi-a\)/);
+  expect(sheet).toMatch(/--change-b:\s*var\(--corvi-b\)/);
+
+  // And the module that names the pairs writes no colour of its own.
+  expect(await source("apps/web/src/domain/theme.ts")).not.toMatch(/#[0-9a-f]{6}/i);
 });

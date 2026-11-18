@@ -519,47 +519,59 @@ export function ChangeView({
       {/* A completed or cancelled change's observer failures: the operation itself succeeded, so
           these are reported on its response rather than rendered as a failure of the change. */}
       <LifecycleFailures results={after} />
-      {active.kind === "dashboard" && (
-        <ChangeDashboard
-          id={id}
-          change={change}
-          infos={infos}
-          widgets={widgets}
-          generation={generation}
-          blocked={blocked}
-          completing={completing}
-          onSaved={saved}
-          onFinished={setChange}
-          onOpenPage={onOpenPage}
-        />
+      {/* The view slot: one wrapper for whichever change view is showing, keyed by that view, so
+          arriving at a view is the transition — core views and extension tabs alike, with no list
+          of roots to maintain. `display: contents` keeps the wrapper out of the layout. The
+          terminal is the one view that stays mounted, so it arrives with a class instead. */}
+      {active.kind !== "terminals" && (
+        <div className="view-slot" key={activeId}>
+          {active.kind === "dashboard" && (
+            <ChangeDashboard
+              id={id}
+              change={change}
+              infos={infos}
+              widgets={widgets}
+              generation={generation}
+              blocked={blocked}
+              completing={completing}
+              onSaved={saved}
+              onFinished={setChange}
+              onOpenPage={onOpenPage}
+            />
+          )}
+          {/* The plan is the change's own document: it stays visible once the work starts, and is
+              a read-only record once the change is over. Its own tab — a document of the change,
+              not a card beside its status — between the dashboard and the tabs extensions
+              contribute. */}
+          {active.kind === "plan" &&
+            (change ? (
+              <PlanPage
+                changeId={id}
+                source={source}
+                generation={sourceGeneration}
+                readOnly={isFinished(change) || blocked}
+              />
+            ) : (
+              <p className="hint">loading…</p>
+            ))}
+          {active.kind === "transcripts" && <TranscriptsPage changeId={id} />}
+          {/* An extension's own tab. It gets the change, which may still be loading: nothing to
+              hand it means a hint rather than a crash. */}
+          {active.kind === "tab" &&
+            (change ? (
+              <TabHost key={active.tab.id} info={active.tab} change={change} workspace={change.workspace} />
+            ) : (
+              <p className="hint">loading…</p>
+            ))}
+        </div>
       )}
-      {/* The plan is the change's own document: it stays visible once the work starts, and is a
-          read-only record once the change is over. Its own tab — a document of the change, not
-          a card beside its status — between the dashboard and the tabs extensions contribute. */}
-      {active.kind === "plan" &&
-        (change ? (
-          <PlanPage
-            changeId={id}
-            source={source}
-            generation={sourceGeneration}
-            readOnly={isFinished(change) || blocked}
-          />
-        ) : (
-          <p className="hint">loading…</p>
-        ))}
-      {active.kind === "transcripts" && <TranscriptsPage changeId={id} />}
-      {/* An extension's own tab. It gets the change, which may still be loading: nothing to
-          hand it means a hint rather than a crash. */}
-      {active.kind === "tab" &&
-        (change ? (
-          <TabHost key={active.tab.id} info={active.tab} change={change} workspace={change.workspace} />
-        ) : (
-          <p className="hint">loading…</p>
-        ))}
       {/* The terminal page's pane: the only place a pty is attached, so it is unmounted while a
           non-terminal view shows and re-attaches when you come back. */}
       {terminalOpened && (
-        <div className="terminal-host" hidden={active.kind !== "terminals"}>
+        <div
+          className={active.kind === "terminals" ? "terminal-host view-arrives" : "terminal-host"}
+          hidden={active.kind !== "terminals"}
+        >
           <TerminalPane
             changeId={id}
             url={terminal.url}

@@ -120,6 +120,18 @@ let status: StubStatus = available();
 let starts = 0;
 let checks = 0;
 
+/** A token's value in the form `getComputedStyle` reports colours, resolved in the page: the
+ * assertion is that the control wears the theme's token, not which shade the default theme uses. */
+const resolved = (page: Page, token: string): Promise<string> =>
+  page.evaluate((name) => {
+    const probe = document.createElement("span");
+    probe.style.color = `var(${name})`;
+    document.body.append(probe);
+    const colour = getComputedStyle(probe).color;
+    probe.remove();
+    return colour;
+  }, token);
+
 const serve = async (page: Page): Promise<void> => {
   await page.route(
     (u) => u.pathname.startsWith("/api/app/update"),
@@ -180,7 +192,7 @@ test.skipIf(!usable)(
         expect(await toast.locator(".toast-body").textContent()).toContain("2 new commits");
         const icon = page.locator(".sidebar .icon-entry.update.available");
         await icon.waitFor();
-        expect(await icon.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(255, 207, 90)");
+        expect(await icon.evaluate((el) => getComputedStyle(el).color)).toBe(await resolved(page, "--warn"));
         await page.locator(".toast-close").click();
         await toast.waitFor({ state: "detached" });
         await icon.waitFor();
@@ -256,7 +268,9 @@ test.skipIf(!usable)(
         // Gray, not yellow: no update is waiting.
         const icon = page.locator(".sidebar .icon-entry.update");
         await icon.waitFor();
-        expect(await icon.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(184, 189, 240)");
+        expect(await icon.evaluate((el) => getComputedStyle(el).color)).toBe(
+          await resolved(page, "--nav-muted"),
+        );
         await icon.click();
         const dialog = page.locator("dialog");
         await dialog.waitFor();

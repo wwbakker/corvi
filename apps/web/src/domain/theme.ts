@@ -2,8 +2,9 @@
  * The looks Corvi wears, and the colours a change carries in the Spaces theme.
  *
  * A theme is a set of design tokens in `apps/web/src/app-root/styles.css`: the stylesheet owns
- * every colour, and this module owns only which theme is which and what a change's colours are.
- * The choice itself is per device and lives in a cookie (`apps/web/src/app-root/theme.ts`).
+ * every colour, and this module owns only which theme is which and which named pair a change
+ * wears. The choice itself is per device and lives in a cookie
+ * (`apps/web/src/app-root/theme.ts`).
  */
 
 export type ThemeId = "dusk" | "ultramarine" | "raven" | "spaces";
@@ -43,32 +44,33 @@ export const THEMES: readonly ThemeChoice[] = [
 /** Dusk is the default: a stored preference that names no known theme falls back to it. */
 export const DEFAULT_THEME: ThemeId = "dusk";
 
-export const isThemeId = (value: string | null | undefined): value is ThemeId =>
-  THEMES.some((theme) => theme.id === value);
-
 export const themeOf = (value: string | null | undefined): ThemeId =>
-  isThemeId(value) ? value : DEFAULT_THEME;
+  THEMES.find((theme) => theme.id === value)?.id ?? DEFAULT_THEME;
 
-/** Two colours that belong together: the page's light, and the accent beside it. */
+/** A named pair of tokens that belong together: the page's light, and the accent beside it. The
+ * values are token references, never colours — `styles.css` is where a colour is written. */
 export interface ColourPair {
   readonly from: string;
   readonly to: string;
 }
 
 /** Corvi's own pair: ultramarine and orange. The overview and ideas keep it in every theme. */
-export const CORVI_COLOURS: ColourPair = { from: "#2b1bd6", to: "#fd6701" };
+export const CORVI_COLOURS: ColourPair = {
+  from: "var(--corvi-a)",
+  to: "var(--corvi-b)",
+};
 
-/** The fixed palette a change's pair comes from in Spaces. Its order is part of the look: a
- * change's index is derived from its id, so the pairs are never shuffled. */
+/** The fixed palette a change's pair comes from in Spaces, as tokens. Its order is part of the
+ * look: a change's index is derived from its id, so the pairs are never shuffled. */
 const SPACE_COLOURS: readonly ColourPair[] = [
-  { from: "#3a20ff", to: "#fd6701" },
-  { from: "#0f8f7f", to: "#7be0b8" },
-  { from: "#006e8f", to: "#36d1c4" },
-  { from: "#8a1fb8", to: "#ff4fa0" },
-  { from: "#7a1030", to: "#ff7a59" },
-  { from: "#1f5fd6", to: "#7ad1ff" },
-  { from: "#0b6b3a", to: "#8ff0a4" },
-  { from: "#8a5a10", to: "#ffd166" },
+  { from: "var(--space-1-a)", to: "var(--space-1-b)" },
+  { from: "var(--space-2-a)", to: "var(--space-2-b)" },
+  { from: "var(--space-3-a)", to: "var(--space-3-b)" },
+  { from: "var(--space-4-a)", to: "var(--space-4-b)" },
+  { from: "var(--space-5-a)", to: "var(--space-5-b)" },
+  { from: "var(--space-6-a)", to: "var(--space-6-b)" },
+  { from: "var(--space-7-a)", to: "var(--space-7-b)" },
+  { from: "var(--space-8-a)", to: "var(--space-8-b)" },
 ];
 
 /** FNV-1a: small, stable, and spread well enough for ids that only differ in their digits. */
