@@ -272,7 +272,7 @@ export function Sidebar({
             className={
               selected && page === "terminals" && w.active ? "entry sub window current" : "entry sub window"
             }
-            title={`ctrl-b ${w.index} — ${w.detail}`}
+            title={w.detail}
             // Focus is what a mousedown moves, and a terminal you cannot type in after
             // clicking is useless. Preventing the default keeps it in the terminal.
             onMouseDown={(e) => e.preventDefault()}

@@ -11,6 +11,10 @@ export type RawWindow = {
    * pane count of a split window still follows it. It belongs to the window, not to the shell in
    * it. */
   title?: string;
+  /** What the terminal in the window calls itself: the pty's newest `OSC 0`/`1`/`2` title, which a
+   * shell's prompt sets to the directory it is in and a running program sets to its own name. The
+   * composed label's base, until a presenter or a name of yours answers. */
+  terminalTitle?: string;
   /** What is running in the active pane: zsh, nvim, gradle, ... */
   command: string;
   active: boolean;

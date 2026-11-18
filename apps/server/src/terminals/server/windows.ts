@@ -187,7 +187,8 @@ const commandOptions = (record: WindowRecord, session: SessionInfo | undefined):
 
 /** The raw window a host session presents as. A labelled one (an action run) uses the label as
  * its name and lets the presenter speak; a plain shell uses its directory. `title` is the name the
- * user gave it, which the presenter shows in place of either. */
+ * user gave it, which the presenter shows in place of either, and `terminalTitle` is what the
+ * terminal in the pane calls itself, which the presenter uses before the directory. */
 const hostRaw = (
   record: WindowRecord,
   dir: string,
@@ -198,6 +199,7 @@ const hostRaw = (
   id: record.id,
   name: record.label ?? basename(dir),
   ...(record.title !== undefined ? { title: record.title } : {}),
+  ...(session?.title !== undefined ? { terminalTitle: session.title } : {}),
   command: record.label !== undefined ? "sh" : (record.command ?? "sh"),
   active: record.active,
   activity: record.activity,

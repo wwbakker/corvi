@@ -183,7 +183,7 @@ export function WindowTabs({
             data-window-id={w.id}
             disabled={disabled}
             className={classes.join(" ")}
-            title={`ctrl-b ${w.index} — ${w.detail}`}
+            title={w.detail}
             // Focus is what a mousedown moves, and a terminal you cannot type in after clicking
             // a tab is useless; the drag rides the same mousedown (see startDrag).
             onMouseDown={(e) => startDrag(e, w.index)}
@@ -206,11 +206,7 @@ export function WindowTabs({
       <button
         className="window-tab new"
         disabled={disabled}
-        title={
-          platform === "mac"
-            ? "new terminal here (cmd-t, or ctrl-b c)"
-            : "new terminal here (ctrl-alt-t, or ctrl-b c)"
-        }
+        title={platform === "mac" ? "new terminal here (cmd-t)" : "new terminal here (ctrl-alt-t)"}
         onMouseDown={(e) => e.preventDefault()}
         onClick={onNewWindow}
       >

@@ -8,8 +8,8 @@
  *
  * What the host owns across a client's life (the "terminals survive a restart" property):
  *   - the pty and its shell, whether or not a client is attached;
- *   - the session record, keyed by id, with cwd / createdAt / pty pid / alive / lastSeq and the
- *     reporter's OSC status, discoverable with `session.list`;
+ *   - the session record, keyed by id, with cwd / createdAt / pty pid / alive / lastSeq, the
+ *     reporter's OSC status and the terminal's own title, discoverable with `session.list`;
  *   - a bounded (4 MiB by default) byte replay buffer with offsets, so `attach since` can resume.
  *     The reply carries `oldestSeq` and `truncated` (a `since` before the buffer start). The bound
  *     is per live session and configurable with `CORVI_HOST_REPLAY_BYTES` (read once at host
@@ -27,6 +27,10 @@
  *   - **OSC status**: a reporter may emit `ESC ] 1337 ; corvi = <base64 json> BEL`; the host
  *     parses it out of the pty stream (see `osc.ts`), strips it before forwarding, records it on
  *     the session, and clears it on exit;
+ *   - **the terminal's title**: a shell prompt or a program names the terminal with `OSC 0`/`1`/
+ *     `2`. The host reads the newest one without removing it from the stream (a terminal shows
+ *     its title too) and records it on the session, so the server can name the window the way
+ *     the thing inside it names itself;
  *   - **idle shutdown**: with `idleMs > 0`, once there are no client connections and no live
  *     sessions for that long, the host closes. A live session always keeps it up, and an accepted
  *     connection cancels a pending shutdown.
@@ -48,7 +52,7 @@ import {
   type Owner,
   type SessionInfo,
 } from "./protocol.ts";
-import { parseOsc } from "./osc.ts";
+import { parseOsc, scanTitle } from "./osc.ts";
 
 const DEFAULT_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
 
@@ -112,8 +116,14 @@ type Session = {
     readonly sessionName?: string;
     readonly at: string;
   };
+  /** The newest title the terminal in this pty was given (`OSC 0`/`1`/`2`): the directory a
+   * prompt is in, or the name of the program running in it. Absent until something sets one. */
+  title?: string;
   /** Bytes held because they might be the start of a split OSC sequence. */
   oscCarry: Buffer;
+  /** Bytes held because a title sequence might have been split across chunks. Only the scanner
+   * reads them; they were already forwarded to the display. */
+  titleCarry: Buffer;
   /** The server's opaque metadata (at least a change id), returned by `session.list` so it can
    * rebuild its registry after a restart. */
   readonly metadata?: Record<string, string>;
@@ -271,6 +281,7 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
       subscribers: new Set(),
       alive: true,
       oscCarry: Buffer.alloc(0),
+      titleCarry: Buffer.alloc(0),
       ...(metadata !== undefined ? { metadata } : {}),
       retired: false,
     };
@@ -278,8 +289,12 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
     touch();
     child.onData((data) => {
       if (session.retired || sessions.get(id) !== session) return;
-      const parsed = parseOsc(asBuffer(data), session.oscCarry);
+      const chunk = asBuffer(data);
+      const parsed = parseOsc(chunk, session.oscCarry);
       session.oscCarry = parsed.carry;
+      const scanned = scanTitle(chunk, session.titleCarry);
+      session.titleCarry = scanned.carry;
+      if (scanned.title !== undefined) session.title = scanned.title;
       for (const status of parsed.statuses) {
         session.status =
           status.status === "clear"
@@ -382,6 +397,7 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
       ...(session.signal !== undefined ? { signal: session.signal } : {}),
       ...(session.exitedAt !== undefined ? { exitedAt: session.exitedAt } : {}),
       ...(session.status !== undefined ? { status: session.status } : {}),
+      ...(session.title !== undefined ? { title: session.title } : {}),
       ...(session.metadata !== undefined ? { metadata: session.metadata } : {}),
     }));
 

@@ -16,8 +16,11 @@ import {
   OSC_ST,
   MAX_OSC_CARRY,
   MAX_OSC_PAYLOAD,
+  MAX_TITLE_CARRY,
   parseOsc,
   sanitizeStatus,
+  scanTitle,
+  TITLE_CAP,
 } from "../apps/server/src/terminals/host/osc.ts";
 import {
   PROTOCOL,
@@ -194,6 +197,84 @@ describe("terminal host OSC", () => {
     expect(sanitizeStatus(null)).toBeUndefined();
     const long = sanitizeStatus({ status: "working", name: "x".repeat(999) });
     expect(long?.name?.length).toBe(120);
+  });
+});
+
+describe("terminal host OSC titles", () => {
+  const none = Buffer.alloc(0);
+  /** One OSC sequence as a terminal receives it: `ESC ] code ; payload BEL`. */
+  const osc = (code: string, payload: string, terminator = "\x07"): Buffer =>
+    Buffer.from(`\x1b]${code};${payload}${terminator}`, "utf8");
+
+  test("reads the tab title and the window title", () => {
+    expect(scanTitle(osc("1", "/tmp"), none).title).toBe("/tmp");
+    expect(scanTitle(osc("2", "vim - file.ts"), none).title).toBe("vim - file.ts");
+    expect(scanTitle(osc("0", "pi - corvi"), none).title).toBe("pi - corvi");
+  });
+
+  test("the newest title in a chunk wins, as it does in a terminal", () => {
+    // A prompt sets the window title and then the tab title; the short one is the one to show.
+    const chunk = Buffer.concat([osc("2", "wessel@host:~/corvi"), osc("1", "corvi")]);
+    expect(scanTitle(chunk, none).title).toBe("corvi");
+  });
+
+  test("a string-terminated title parses", () => {
+    expect(scanTitle(osc("1", "corvi", "\x1b\\"), none).title).toBe("corvi");
+  });
+
+  test("a title split across chunks is carried", () => {
+    const head = scanTitle(Buffer.from("\x1b]1;co"), none);
+    expect(head.title).toBeUndefined();
+    expect(head.carry.toString("utf8")).toBe("\x1b]1;co");
+    expect(scanTitle(Buffer.from("rvi\x07"), head.carry).title).toBe("corvi");
+  });
+
+  test("an introducer split after its escape is carried too", () => {
+    const head = scanTitle(Buffer.from("\x1b"), none);
+    expect(head.carry.length).toBe(1);
+    expect(scanTitle(Buffer.from("]1;x\x07"), head.carry).title).toBe("x");
+  });
+
+  test("other OSC numbers are not titles", () => {
+    const chunk = Buffer.concat([
+      osc("7", "file://host/tmp"),
+      osc("8", ";https://example.com"),
+      osc("10", "rgb:ffff/ffff/ffff"),
+      osc("52", "c;AAAA"),
+      osc("133", "A"),
+      Buffer.from("\x1b]1337;corvi=eyJzdGF0dXMiOiJ3b3JraW5nIn0=\x07", "ascii"),
+      osc("7501", "state=done:app=pi"),
+    ]);
+    expect(scanTitle(chunk, none).title).toBeUndefined();
+  });
+
+  test("a title is one line, and capped", () => {
+    expect(scanTitle(osc("1", "  one\n\ttwo  "), none).title).toBe("one two");
+    expect(scanTitle(osc("1", "x".repeat(TITLE_CAP + 50)), none).title?.length).toBe(TITLE_CAP);
+  });
+
+  test("an empty title leaves the last real one in place", () => {
+    const chunk = Buffer.concat([osc("1", "corvi"), osc("1", "")]);
+    expect(scanTitle(chunk, none).title).toBe("corvi");
+  });
+
+  test("a malformed sequence does not swallow the next one", () => {
+    // A raw ESC inside the payload: the sequence is abandoned and a later one still reads.
+    const stray = Buffer.concat([Buffer.from("\x1b]1;bad\x1bX", "binary"), osc("2", "good")]);
+    expect(scanTitle(stray, none).title).toBe("good");
+    // An introducer that starts again before a terminator means the first never ended.
+    const nested = Buffer.concat([Buffer.from("\x1b]1;never ends", "utf8"), osc("2", "good")]);
+    expect(scanTitle(nested, none).title).toBe("good");
+  });
+
+  test("an absurd unterminated sequence is not carried", () => {
+    const body = Buffer.concat([
+      Buffer.from("\x1b]2;", "ascii"),
+      Buffer.from("A".repeat(MAX_TITLE_CARRY + 1)),
+    ]);
+    const result = scanTitle(body, none);
+    expect(result.title).toBeUndefined();
+    expect(result.carry.length).toBe(0);
   });
 });
 
@@ -674,6 +755,32 @@ describe.skipIf(!usable)("terminal host under Node", () => {
           session(await fixture.client.list(), "osc")?.alive === false &&
           session(await fixture.client.list(), "osc")?.status === undefined,
       );
+    } finally {
+      await closeHost(fixture);
+    }
+  }, 30_000);
+
+  test("records the terminal's own title without taking it out of the output", async () => {
+    const fixture = await openHost();
+    try {
+      // A title is not a private channel like the reporter's: the display is entitled to it too.
+      const script = `process.stdout.write("\\x1b]1;Window name\\x07");setTimeout(()=>{},3000)`;
+      const seen: string[] = [];
+      fixture.client.onData("title", (data) => seen.push(data.toString("utf8")));
+      await fixture.client.open("title", {
+        cwd: fixture.dir,
+        command: ["node", "-e", script],
+        cols: 100,
+        rows: 30,
+      });
+      await waitFor(
+        "the title to be recorded",
+        async () => session(await fixture.client.list(), "title")?.title === "Window name",
+      );
+      // A client attaching afterwards is replayed the same bytes, title included.
+      await fixture.client.attach("title", 0);
+      expect(seen.join("").includes("\x1b]1;Window name\x07")).toBe(true);
+      await fixture.client.kill("title");
     } finally {
       await closeHost(fixture);
     }

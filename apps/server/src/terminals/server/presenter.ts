@@ -52,8 +52,9 @@ const merged = (raw: RawWindow): WindowPresentation =>
  * The first presenter that answers a field wins (registration order within an extension, load
  * order across them); what nobody answered, the core says:
  *
- * - the base name is where the window is, or the label an action gave it; what runs in it says
- *   less than the directory does;
+ * - the base name is the terminal's own title when it has one, else where the window is, or the
+ *   label an action gave it; a prompt names the directory it is in, and a program names itself,
+ *   which says more than where the window was opened;
  * - a name you gave replaces both and is not extended with what is running; a split window's pane
  *   count still follows it;
  * - the composed name appends what is running, unless it is a plain shell or already says it —
@@ -65,7 +66,10 @@ const merged = (raw: RawWindow): WindowPresentation =>
  */
 export const presentWindow = (raw: RawWindow): PresentedWindow => {
   const said = merged(raw);
-  const base = raw.named ? raw.name : raw.directory || raw.name;
+  // The terminal's own title is the base when it has one: a prompt names the directory it is in,
+  // a running program names itself, and either is a better answer than the directory the window
+  // was opened in. It is a base, not a label, so what a presenter adds still attaches to it.
+  const base = raw.terminalTitle ?? (raw.named ? raw.name : raw.directory || raw.name);
   const what = said.running ?? raw.command;
   const composed =
     raw.title ??

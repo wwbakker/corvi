@@ -466,6 +466,43 @@ test("a name you gave replaces every label the presenters compose, and the prese
     presentWindow(raw({ options: { "@agent_status": "waiting", "@agent_last_message": "All green." } })).note,
   ).toBe("All green.");
 });
+test("the terminal's own title names the window, under a name you gave and under an agent's", async () => {
+  const { presentWindow } = await import("../apps/server/src/terminals/server/index.ts");
+  const raw = (over: Partial<RawWindow>): RawWindow => ({
+    index: 0,
+    id: "@1",
+    name: "PROJ-TITLE",
+    command: "zsh",
+    active: true,
+    activity: false,
+    directory: "PROJ-TITLE",
+    named: true,
+    options: {},
+    panes: ["@1"],
+    activePane: "@1",
+    ...over,
+  });
+  // The prompt names the directory it is in; a program names itself while it runs. Either beats
+  // the directory the window was opened in, which is the change's own id.
+  expect(presentWindow(raw({ terminalTitle: "corvi" })).label).toBe("corvi");
+  expect(presentWindow(raw({ terminalTitle: "gradle" })).label).toBe("gradle");
+  // It is a base, not an override, so a title that is what is running is not said twice.
+  expect(presentWindow(raw({ terminalTitle: "gradle", command: "gradle" })).label).toBe("gradle");
+  // A name you gave still wins over it, and so does an agent's own session name.
+  expect(presentWindow(raw({ terminalTitle: "corvi", title: "Build logs" })).label).toBe("Build logs");
+  expect(
+    presentWindow(
+      raw({
+        terminalTitle: "π - corvi",
+        options: { "@agent_status": "working", "@agent_session_name": "fix the failing test" },
+      }),
+    ).label,
+  ).toBe("fix the failing test");
+  // Without a title the change's directory is still the base, and a split window's count still
+  // follows whatever the name is.
+  expect(presentWindow(raw({})).label).toBe("PROJ-TITLE");
+  expect(presentWindow(raw({ terminalTitle: "corvi", panes: ["@1", "@2"] })).label).toBe("corvi (2 panes)");
+});
 test("a change may be blocked, which is active but not workable", async () => {
   const { CHANGE_STATES, isFinished } = await import("@corvi/changes/record");
   const { stateClass } = await import("../apps/web/src/app-root/stateClass.ts");

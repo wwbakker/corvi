@@ -670,6 +670,41 @@ test.skipIf(!usable)(
 );
 
 test.skipIf(!usable)(
+  "a title the terminal sets names the window in the strip and the column",
+  async () => {
+    const { page } = await openTerminal(id);
+    const tab = page.locator(".window-tab:not(.new):not(.overview)").first();
+    await tab.waitFor({ timeout: 20_000 });
+    const windowId = await tab.getAttribute("data-window-id");
+    expect(windowId).toBeTruthy();
+    const defaultLabel = (await tab.locator(".label").innerText()).trim();
+    await awaitAttached(page);
+    // A title is the terminal's own name for itself: a prompt sets it to a directory, a program to
+    // its own name, and the registry shows it as the window's label. This shell's prompt sets none,
+    // so the title a command sets is the one that stays — and it outlives the command.
+    await page.keyboard.type("printf '\\033]1;title-check\\007'\n");
+    expect(
+      await until(
+        async () => (await tab.locator(".label").innerText()).trim(),
+        "title-check",
+        budget(30_000),
+      ),
+    ).toBe("title-check");
+    // The navigation column says the same thing, because one server answer names both.
+    const sidebar = page.locator(`.sidebar .entry.window[data-window-id="${windowId}"] .label`);
+    expect((await sidebar.innerText()).trim()).toBe("title-check");
+    // Put the shared window back the way this test found it: the suite reuses this change, and the
+    // title the command set does not go away on its own here.
+    await page.keyboard.type(`printf '\\033]1;${defaultLabel}\\007'\n`);
+    expect(
+      await until(async () => (await tab.locator(".label").innerText()).trim(), defaultLabel, budget(30_000)),
+    ).toBe(defaultLabel);
+    await page.close();
+  },
+  budget(60_000),
+);
+
+test.skipIf(!usable)(
   "a window can be named from its tab, and the name survives a reload",
   async () => {
     const { page } = await openTerminal(id);
@@ -697,15 +732,17 @@ test.skipIf(!usable)(
     await field.fill("Build logs");
     await dialog.locator("button", { hasText: "OK" }).click();
 
-    // The tab and the navigation column name the window the same way, and the tooltip still says
-    // where it is and what runs in it.
+    // The tab and the navigation column name the window the same way, and the tooltip says where
+    // it is and what runs in it. The name and the tooltip are separate facts, so the name need not
+    // appear in the tooltip; the old `ctrl-b` chord in it was never implemented.
     expect(
       await until(async () => (await tab.locator(".label").innerText()).trim(), "Build logs", budget(10_000)),
     ).toBe("Build logs");
     expect(
       await until(async () => (await sidebarLabel.innerText()).trim(), "Build logs", budget(10_000)),
     ).toBe("Build logs");
-    expect(await tab.getAttribute("title")).toContain(defaultLabel);
+    expect(await tab.getAttribute("title")).toContain(" in ");
+    expect(await tab.getAttribute("title")).not.toContain("ctrl-b");
 
     // A reload reads the registry, which is where the name lives.
     await page.reload();

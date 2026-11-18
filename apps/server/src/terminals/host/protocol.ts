@@ -45,6 +45,10 @@ export type SessionInfo = {
   readonly signal?: number;
   readonly exitedAt?: string;
   readonly status?: SessionStatus;
+  /** The newest title the terminal in the session was given (`OSC 0`/`1`/`2`). A shell prompt
+   * sets it to the directory it is in; a program sets it to its own name. It outlives a client
+   * detach, like `status`, because the host owns the pty. */
+  readonly title?: string;
   readonly metadata?: Record<string, string>;
 };
 
