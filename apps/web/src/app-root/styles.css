@@ -389,6 +389,12 @@ body.resizing {
   color: var(--warn);
 }
 
+/* The terminal host is not the one this server would have started: the same yellow as an available
+   update, because both are "something is waiting for you to say yes". */
+.sidebar .bottom-row .icon-entry.stale {
+  color: var(--warn);
+}
+
 .sidebar .entry .label {
   min-width: 0; /* a flex child refuses to shrink below its content without this */
   overflow: hidden;
@@ -1224,6 +1230,14 @@ dialog textarea {
   padding: 0;
   display: grid;
   gap: 8px;
+}
+
+/* What the terminal host restart would change, one reason a line. */
+.host-mismatches {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
 }
 
 /* An acknowledge, in the override dialog's list or on its own: one line, checkbox first. */

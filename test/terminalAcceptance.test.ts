@@ -14,6 +14,7 @@ import {
   stopTestServer,
 } from "./helpers.ts";
 import { ensureHost } from "../apps/server/src/terminals/host/client.ts";
+import { HOST_DIR, hostBuildId } from "../apps/server/src/terminals/host/identity.ts";
 
 /**
  * The terminal's user-facing invariants, through a real browser. These are the seams the recent
@@ -469,7 +470,7 @@ test.skipIf(!usable)(
     const { client } = await ensureHost({
       socket: join(tmp, "state", "corvi", "host.sock"),
       checkout: process.cwd(),
-      buildId: process.env.CORVI_BUILD ?? "dev",
+      buildId: hostBuildId(HOST_DIR),
       runtime: "node",
     });
     const incarnation = (await client.list()).find((entry) => entry.id === live!.id)?.incarnation;

@@ -35,9 +35,15 @@ The host survives the server and the app; the page reconnects to a surviving she
   the pty, an incarnation, byte `seq` offsets, a **4 MiB** replay buffer (per live session,
   overridable with `CORVI_HOST_REPLAY_BYTES` for tests), exit code/signal, status, and
   `cwd`/`createdAt`. Idle shutdown when no client is connected and no session is alive.
-- `client.ts` — the server-side `ensureHost` (spawn or adopt) with an exclusive lock, ownership
-  comparison (replace on a real mismatch, retry on a transient failure), and `HostClient`
-  (`open/attach/write/resize/kill/list/info/shutdown`).
+- `client.ts` — the server-side `ensureHost` (spawn or adopt) with an exclusive lock, and
+  `HostClient` (`open/attach/write/resize/kill/list/info/shutdown`). A host whose identity differs
+  is **adopted** and reported, not replaced: checkout and build are provenance, `protocol` is the
+  compatibility contract, and replacing a host ends every pty inside it. A transient failure is
+  retried, never signalled. `restartHost` is the only path that retires a host on purpose, and its
+  one caller is the user.
+- `identity.ts` — what a host is (checkout, build, protocol), the pure comparison, and the build id:
+  a content hash of the host's own modules. A hash rather than a commit id, because the host runs
+  from source, so a docs-only update does not ask for a restart the way a host change does.
 - `protocol.ts` — the request grammar and shared shapes; `osc.ts` — OSC-1337 status parsing.
 
 Its contract: it knows session ids, not changes. Metadata (`change`, `window`, `subagentId`) is
@@ -45,7 +51,11 @@ opaque to it and is how the server re-associates windows after a restart.
 
 ## The server terminal module — `apps/server/src/terminals/server/`
 
-- `host.ts` — one `HostClient` for the server, re-ensured when the host dies.
+- `host.ts` — one `HostClient` for the server, re-ensured when the host dies, plus the restart the
+  user asks for.
+- `hostStatus.ts` — what the running host is versus what this server would have started, read from
+  the owner record (`GET /api/terminals/host`); it asks the host how many sessions it holds only
+  while the answer is `stale`, because that count is what the restart warning is about.
 - `session.ts` — the WebSocket bridge and hub. The screen is **warm for the life of its session**:
   one host attach from window open, whether or not a page is looking, and no timed release. It
   seeds from the store, feeds every host byte to the headless screen, and serves a page the
@@ -151,7 +161,10 @@ running the action command, the prompt is a bracketed write, submit is Enter, an
 - A window id is opaque; a window holds one or more panes, each a host session identified by
   `(id, incarnation)`.
 - Detaching, hiding a pane, or restarting the server never kills a shell; completing or cancelling
-  a change does.
+  a change does. A host restart kills every shell in it, so only the user asks for one — the icon in
+  the navigation column's bottom row, offered while the running host is not the one this server
+  would have started (another checkout, or another build). Nothing replaces a host by itself,
+  whatever it holds.
 - The pty size matches the grid the page shows in steady state — a window created before its page
   opens is resized on attach. The exception is the one-column shrink during a gap reprint; the
   grow restores the latest grid.

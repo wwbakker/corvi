@@ -31,6 +31,8 @@ import { Notifier } from "./notify.tsx";
 import { UpdateNotice } from "../app-update/UpdateNotice.tsx";
 import { UpdateDialog } from "../app-update/UpdateDialog.tsx";
 import { useAppUpdate } from "../app-update/state.ts";
+import { HostRestartDialog } from "../terminals/client/HostRestartDialog.tsx";
+import { hostMismatchTitle, useHostRestart } from "../terminals/client/hostRestart.ts";
 import { hostOf } from "./host.ts";
 import { MenuIcon } from "./icons.tsx";
 import { useContextMenu } from "./contextMenu.ts";
@@ -455,6 +457,9 @@ function App(): JSX.Element {
   // The app's own new version: the icon in the column's bottom row, the notice, and the dialog
   // behind them (apps/web/src/app-update/state.ts).
   const appUpdate = useAppUpdate();
+  // The terminal host this server is not running, and the restart it offers instead of taking
+  // (apps/web/src/terminals/client/hostRestart.ts).
+  const hostRestart = useHostRestart();
   const chrome = {
     "--titlebar-height": `${TITLE_BAR_HEIGHT}px`,
     "--traffic-inset": bridge?.platform === "darwin" ? `${TRAFFIC_LIGHTS.inset}px` : "0px",
@@ -517,6 +522,12 @@ function App(): JSX.Element {
         settings={view.name === "settings"}
         update={appUpdate.status}
         onUpdate={appUpdate.open}
+        hostReason={
+          hostRestart.stale && hostRestart.status !== null
+            ? hostMismatchTitle(hostRestart.status.stale)
+            : undefined
+        }
+        onRestartHost={hostRestart.open}
         onOpenChange={(c) =>
           setView({
             name: "change",
@@ -675,6 +686,15 @@ function App(): JSX.Element {
           onCheck={appUpdate.check}
           onStart={appUpdate.start}
           onRestart={appUpdate.restart}
+        />
+      )}
+      {hostRestart.dialog && hostRestart.status !== null && (
+        <HostRestartDialog
+          status={hostRestart.status}
+          busy={hostRestart.busy}
+          error={hostRestart.error}
+          onClose={hostRestart.close}
+          onRestart={hostRestart.restart}
         />
       )}
     </div>

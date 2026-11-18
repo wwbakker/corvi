@@ -6,9 +6,11 @@ import { join } from "node:path";
 import {
   ensureHost,
   HostClient,
+  restartHost,
   type EnsureOptions,
   type SessionInfo,
 } from "../apps/server/src/terminals/host/client.ts";
+import { hostBuildId, mismatches } from "../apps/server/src/terminals/host/identity.ts";
 import {
   OSC_INTRO,
   OSC_ST,
@@ -23,7 +25,7 @@ import {
   requestIdFrom,
   requestTypeOf,
 } from "../apps/server/src/terminals/host/protocol.ts";
-import { runSh, testTempDir, waitFor } from "./helpers.ts";
+import { runSh, testTempDir, until, waitFor } from "./helpers.ts";
 
 /**
  * The terminal host's own suite. Protocol and OSC parsing are pure, so they run under Bun with the
@@ -195,6 +197,42 @@ describe("terminal host OSC", () => {
   });
 });
 
+// --- identity ---------------------------------------------------------------------------------------
+
+describe("terminal host identity", () => {
+  test("names every difference with both values, in a stable order", () => {
+    const ours = { checkout: "/a", buildId: "aaa", protocol: 2 };
+    expect(mismatches(ours, ours)).toEqual([]);
+    expect(mismatches(ours, { checkout: "/b", buildId: "bbb", protocol: 1 })).toEqual([
+      { kind: "checkout", theirs: "/b", ours: "/a" },
+      { kind: "build", theirs: "bbb", ours: "aaa" },
+      { kind: "protocol", theirs: 1, ours: 2 },
+    ]);
+    expect(mismatches(ours, { ...ours, buildId: "bbb" })).toEqual([
+      { kind: "build", theirs: "bbb", ours: "aaa" },
+    ]);
+  });
+
+  test("is a content hash of the host's own modules", async () => {
+    const dir = await testTempDir("host-identity");
+    try {
+      for (const module of ["main.ts", "host.ts", "protocol.ts"])
+        writeFileSync(join(dir, module), `// ${module}\n`);
+      const first = hostBuildId(dir);
+      expect(first).toMatch(/^[0-9a-f]{12}$/);
+      expect(hostBuildId(dir)).toBe(first);
+      // The server's client sits beside the host's modules in the real tree; it is not part of the
+      // host, so changing it must not ask for a host restart.
+      writeFileSync(join(dir, "client.ts"), "// the server's side\n");
+      expect(hostBuildId(dir)).toBe(first);
+      writeFileSync(join(dir, "host.ts"), "// the host's own code, changed\n");
+      expect(hostBuildId(dir)).not.toBe(first);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 // --- integration under Node ------------------------------------------------------------------------
 
 const usable = (await runSh(["which", "node"])).code === 0;
@@ -343,18 +381,136 @@ describe.skipIf(!usable)("terminal host under Node", () => {
     }
   }, 30_000);
 
-  test("replaces a host whose ownership disagrees", async () => {
+  test("keeps a host with a session in it, and says why it is not ours", async () => {
     const fixture = await openHost();
     try {
-      const replacement = await ensureHost({ ...fixture.options, buildId: "other" });
+      await fixture.client.open("busy", {
+        cwd: fixture.dir,
+        command: ["/bin/sh", "-c", "sleep 30"],
+        cols: 80,
+        rows: 24,
+      });
+      const kept = await ensureHost({ ...fixture.options, buildId: "other" });
       try {
-        expect(replacement.adopted).toBe(false);
-        const newPid = (await replacement.client.info()).pid;
-        expect(newPid).not.toBe(fixture.pid);
-        await waitFor("the old host to be retired", async () => !alive(fixture.pid));
+        expect(kept.adopted).toBe(true);
+        expect(kept.stale).toEqual([{ kind: "build", theirs: "test", ours: "other" }]);
+        expect((await kept.client.info()).pid).toBe(fixture.pid);
+        expect(alive(fixture.pid)).toBe(true);
+        // The whole point: the shell inside is still there to adopt.
+        expect(session(await kept.client.list(), "busy")?.alive).toBe(true);
       } finally {
-        await replacement.client.shutdown().catch(() => undefined);
-        replacement.client.close();
+        // Adopted, so detach rather than shut the host down.
+        kept.client.close();
+      }
+    } finally {
+      await closeHost(fixture);
+    }
+  }, 30_000);
+
+  test("keeps another checkout's host even with nothing alive in it", async () => {
+    const fixture = await openHost();
+    const other = await testTempDir("host-other");
+    try {
+      const kept = await ensureHost({ ...fixture.options, checkout: other });
+      try {
+        expect(kept.adopted).toBe(true);
+        expect(kept.stale).toEqual([{ kind: "checkout", theirs: fixture.dir, ours: other }]);
+        expect((await kept.client.info()).pid).toBe(fixture.pid);
+      } finally {
+        kept.client.close();
+      }
+    } finally {
+      await closeHost(fixture);
+      await rm(other, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("keeps a host that only differs in build, even with nothing alive in it", async () => {
+    // Nothing is lost by replacing an empty host, and it is still not this client's to take: the
+    // decision is the user's, from the icon. Anything else would put a restart nobody asked for
+    // under a running agent the moment the host became busy again.
+    const fixture = await openHost();
+    try {
+      const kept = await ensureHost({ ...fixture.options, buildId: "other" });
+      try {
+        expect(kept.adopted).toBe(true);
+        expect(kept.stale).toEqual([{ kind: "build", theirs: "test", ours: "other" }]);
+        expect((await kept.client.info()).pid).toBe(fixture.pid);
+        expect(alive(fixture.pid)).toBe(true);
+      } finally {
+        kept.client.close();
+      }
+    } finally {
+      await closeHost(fixture);
+    }
+  }, 30_000);
+
+  test("adopts a host that speaks another protocol rather than signalling it", async () => {
+    const dir = await testTempDir("host-protocol");
+    const socketPath = join(dir, "host.sock");
+    writeFileSync(`${socketPath}.token`, "token", { mode: 0o600 });
+    const owner = {
+      pid: process.pid,
+      socket: socketPath,
+      checkout: dir,
+      buildId: "test",
+      protocol: PROTOCOL + 1,
+      startedAt: new Date().toISOString(),
+    };
+    const server = createServer((socket) => {
+      socket.setEncoding("utf8");
+      let buffer = "";
+      socket.on("data", (chunk: string) => {
+        buffer += chunk;
+        for (;;) {
+          const newline = buffer.indexOf("\n");
+          if (newline === -1) break;
+          const line = buffer.slice(0, newline);
+          buffer = buffer.slice(newline + 1);
+          if (line.trim() === "") continue;
+          const request = JSON.parse(line) as { type: string; requestId?: number };
+          const reply =
+            request.type === "hello"
+              ? { type: "welcome", requestId: request.requestId, owner }
+              : { type: "ok", request: request.type, requestId: request.requestId, owner };
+          socket.write(`${JSON.stringify(reply)}\n`);
+        }
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    try {
+      const adopted = await ensureHost({ socket: socketPath, checkout: dir, buildId: "test" });
+      try {
+        expect(adopted.adopted).toBe(true);
+        expect(adopted.stale).toEqual([{ kind: "protocol", theirs: PROTOCOL + 1, ours: PROTOCOL }]);
+      } finally {
+        adopted.client.close();
+      }
+    } finally {
+      server.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("restarting replaces the host and ends the sessions it held", async () => {
+    const fixture = await openHost();
+    try {
+      await fixture.client.open("doomed", {
+        cwd: fixture.dir,
+        command: ["/bin/sh", "-c", "sleep 30"],
+        cols: 80,
+        rows: 24,
+      });
+      const restarted = await restartHost(fixture.options);
+      try {
+        expect(restarted.adopted).toBe(false);
+        expect(restarted.stale).toEqual([]);
+        expect((await restarted.client.info()).pid).not.toBe(fixture.pid);
+        expect(await restarted.client.list()).toHaveLength(0);
+        await waitFor("the old host to be gone", async () => !alive(fixture.pid));
+      } finally {
+        await restarted.client.shutdown().catch(() => undefined);
+        restarted.client.close();
       }
     } finally {
       await closeHost(fixture);
@@ -643,22 +799,30 @@ describe.skipIf(!usable)("terminal host under Node", () => {
 
     const cap = await openHost();
     try {
+      // One at a time, each watched to its exit: eviction is oldest-exit-first, and 66 shells that
+      // all start together exit in whatever order the machine gives them. Waiting for each turns
+      // "the oldest two went" from a claim about scheduling into a claim about the rule.
       for (let i = 0; i < 66; i++) {
-        await cap.client.open(`d${String(i).padStart(2, "0")}`, {
+        const id = `d${String(i).padStart(2, "0")}`;
+        await cap.client.open(id, {
           cwd: cap.dir,
           command: ["/bin/sh", "-c", "exit 0"],
           cols: 40,
           rows: 10,
         });
+        const exited = await until(
+          async () => session(await cap.client.list(), id)?.alive === false,
+          true,
+          15_000,
+          10,
+        );
+        expect(exited).toBe(true);
       }
-      await waitFor(
-        "every session to exit",
-        async () => (await cap.client.list()).every((entry) => !entry.alive),
-        30_000,
-      );
       const retained = await cap.client.list();
       expect(retained.length).toBe(64);
       expect(session(retained, "d00")).toBeUndefined();
+      expect(session(retained, "d01")).toBeUndefined();
+      expect(session(retained, "d02")).toBeDefined();
       expect(session(retained, "d65")).toBeDefined();
     } finally {
       await closeHost(cap);

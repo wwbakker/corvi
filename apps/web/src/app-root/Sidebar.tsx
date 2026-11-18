@@ -2,7 +2,7 @@ import { type JSX, useEffect, useRef, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
 import type { Change } from "./api.ts";
 import { stateClass } from "./stateClass.ts";
-import { CiIcon, TerminalIcon, AgentIcon, GearIcon, PowerIcon, UpdateIcon } from "./icons.tsx";
+import { CiIcon, TerminalIcon, AgentIcon, GearIcon, PowerIcon, RefreshIcon, UpdateIcon } from "./icons.tsx";
 import { byWorkOrder, IDEATION, isFinished, isIdeation, type ChangeSummary } from "../domain/change.ts";
 import { TRAFFIC_LIGHTS } from "../domain/chrome.ts";
 import type { TerminalWindow } from "../domain/terminal.ts";
@@ -92,6 +92,8 @@ export function Sidebar({
   settings,
   update,
   onUpdate,
+  hostReason,
+  onRestartHost,
   onOpenChange,
   onSelectWindow,
 }: {
@@ -136,6 +138,10 @@ export function Sidebar({
    * version is waiting, gray when there is none, hidden when this run cannot update at all. */
   update: AppUpdateStatus | null;
   onUpdate: () => void;
+  /** Why the running terminal host is not the one this server would have started. Present only
+   * while it is not, so the icon exists only when there is a restart to offer. */
+  hostReason?: string;
+  onRestartHost: () => void;
   onOpenChange: (change: Change) => void;
   onSelectWindow: (change: Change, index: number) => void;
   /** Whether the narrow window's drawer is open: on a wide window the column is always there and
@@ -383,7 +389,9 @@ export function Sidebar({
 
       {/* At the bottom of the column, not below the list: it is where you go once in a while,
           and it should be in the same place whether you have two changes or nine. Settings is
-          the gear; the update icon sits to its right. */}
+          the gear; the update icon sits to its right, and the terminal host's own restart stands
+          between them, present only while the host is not the one this server would have
+          started. */}
       <div className="bottom-row">
         <button
           className={`icon-entry${settings ? " current" : ""}`}
@@ -401,6 +409,16 @@ export function Sidebar({
         >
           <PowerIcon title="Power" />
         </button>
+        {hostReason !== undefined && (
+          <button
+            className="icon-entry stale"
+            title={hostReason}
+            aria-label="Restart the terminal host"
+            onClick={onRestartHost}
+          >
+            <RefreshIcon title="Restart the terminal host" />
+          </button>
+        )}
         {update?.eligible && (
           <button
             className={`icon-entry update${update.behind > 0 ? " available" : ""}`}
