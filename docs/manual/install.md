@@ -45,6 +45,8 @@ The installed app records the checkout it runs from. Reinstall after moving the 
 changing the desktop host/installer; server and page edits are read on the next launch.
 `app:install` leaves the app running on the new build when it is done — starting it if it was
 not open, quitting and replacing a running installed app first — so do not use it as a test command.
+It quits the app and the server it started, and leaves the terminal host running, so the shells in
+its windows survive the reinstall.
 
 The application starts through an interactive login shell so tools and exported credentials can
 be found. If an integration works in a terminal but not the app, check the environment provided by
