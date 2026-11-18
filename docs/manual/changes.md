@@ -132,9 +132,14 @@ copy failure does not make worktree creation fail.
 
 ## Dashboard and review
 
+A change's page is its title row — name, id, branch, state and actions — over one tab row holding
+its views and terminal windows; [the interface](interface.md#change-views) describes both.
+
 The dashboard shows the notes beside independently loaded integration status cards: local
 worktrees, Jira, GitHub pull requests/checks, and Azure pipeline runs where enabled.
-Narrow windows stack documents before status cards.
+Narrow windows stack documents before status cards. The columns reach the bottom of the window and
+the last card in each grows into what is left, so a wide window does not end in an empty band under
+the cards.
 
 A card that owns something editable carries a pencil in its header, the same way the Local
 changes card's repository editor does. The Jira and GitHub issues cards re-point their change at

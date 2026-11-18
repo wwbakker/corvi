@@ -59,6 +59,9 @@ at `/settings` edits the same file. This page describes current configuration na
 
 ## Settings and scopes
 
+The theme is not a setting in this file: it is a per-device browser preference, chosen in
+**Settings → Appearance** (see [themes](interface.md#themes)).
+
 Every setting exists at two scopes: at the top level of the file (the global level) and inside a
 workspace's `settings`, where it overrides the global one key by key. The settings are:
 
