@@ -118,7 +118,7 @@ test.skipIf(!usable)(
       browser,
       async (page) => {
         await page.goto(`${url}/changes/${id}/plan`, { waitUntil: "domcontentloaded" });
-        await page.locator(".change-tabs .menu > button").click();
+        await page.locator(".change-bar .menu > button").click();
         await page.getByRole("button", { name: "Cancel change" }).click();
         await confirm(page, "Cancel change").click();
 

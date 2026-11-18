@@ -1,15 +1,13 @@
 import { type JSX, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { AgentIcon, TerminalIcon } from "../../app-root/icons.tsx";
+import { AgentIcon, PlusIcon, TerminalIcon } from "../../app-root/icons.tsx";
 import type { Platform } from "@corvi/terminals/model";
 import { WINDOW_TITLE_MAX, type TerminalWindow } from "../../domain/terminal.ts";
-import type { Page } from "../../app-root/Sidebar.tsx";
 
-/** The change's windows as tabs, with the way back to the dashboard first. The dashboard and
- * the terminal both show this strip — a window is one click from either — and because it is
- * one element, the contents are the same on both: the same icon in the same colour, the same
- * name. */
+/** The change's terminal windows as tabs, under the change's views: the same icon in the same
+ * colour as the column's window rows, the same name, and "+" to open another. They share the
+ * row with the views because a window is one click from any of them. */
 export function WindowTabs({
-  page,
+  terminals,
   windows,
   platform,
   disabled,
@@ -18,13 +16,10 @@ export function WindowTabs({
   onMoveWindow,
   onRenameWindow,
   onRenameClosed,
-  onOpenOverview,
 }: {
-  /** Which surface of the change is on screen: its own views — the dashboard, or one of the tabs it
-   * contributes — or one of its terminals. The strip is drawn on both, and the Overview tab stands
-   * for all of the former, so it stays current while any of them is showing rather than only for the
-   * dashboard. */
-  page: Page;
+  /** Whether the terminal is the surface on screen: only then is a window tab the current one.
+   * While a view shows, the view's tab is what says where you are. */
+  terminals: boolean;
   /** This change's terminal windows: what the terminal page's tabs are. */
   windows: TerminalWindow[];
   /** The server's platform: what the new-terminal tab's shortcut assumes. */
@@ -43,16 +38,13 @@ export function WindowTabs({
   onRenameWindow: (windowId: string, title: string) => void;
   /** The rename dialog has closed (committed or not): the keyboard belongs to the page again. */
   onRenameClosed: () => void;
-  /** The way back to the change's own views, wherever in them you left off (remember.ts): from
-   * a terminal this is the way out, and while a view is showing the tab is already current. */
-  onOpenOverview: () => void;
 }): JSX.Element {
-  // Which window tab a drag is carrying, and which one it is over: the fixed ends of the strip
-  // — overview and "new" — take no part in either.
+  // Which window tab a drag is carrying, and which one it is over: "new" is the row's fixed end
+  // and takes no part in either.
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
-  // The tab's own menu: where it was opened, and for which window. The Overview and "new" tabs
-  // are not windows, so they never get one.
+  // The tab's own menu: where it was opened, and for which window. The "new" tab is not a
+  // window, so it never gets one.
   const [menu, setMenu] = useState<{ x: number; y: number; window: TerminalWindow } | null>(null);
   // The window whose name is being edited, and the name as it is typed. Null closes the dialog.
   const [renaming, setRenaming] = useState<TerminalWindow | null>(null);
@@ -158,20 +150,9 @@ export function WindowTabs({
 
   return (
     <nav className="window-tabs">
-      {/* The way back to what the change is doing. On the dashboard the tab is already where
-          you are; in the terminal it is the way out. */}
-      <button
-        // Any of the change's own views, not only the dashboard: the row under this one says which of
-        // them, and a terminal is the only thing here that is not one.
-        className={page === "terminals" ? "window-tab overview" : "window-tab overview current"}
-        title="the change's overview"
-        onClick={onOpenOverview}
-      >
-        <span className="label">Overview</span>
-      </button>
       {windows.map((w) => {
         const classes = ["window-tab"];
-        if (w.active && page === "terminals") classes.push("current");
+        if (w.active && terminals) classes.push("current");
         if (dragIndex === w.index) classes.push("dragging");
         if (dropIndex === w.index && dragIndex !== null && dragIndex !== w.index) {
           classes.push("drop-target");
@@ -195,9 +176,7 @@ export function WindowTabs({
             </span>
             <span className="label">{w.label}</span>
             {/* Not for the window you are looking at: you see its output already. */}
-            {w.activity && !(w.active && page === "terminals") && (
-              <span className="bell" title="new output" />
-            )}
+            {w.activity && !(w.active && terminals) && <span className="bell" title="new output" />}
           </button>
         );
       })}
@@ -206,12 +185,12 @@ export function WindowTabs({
       <button
         className="window-tab new"
         disabled={disabled}
+        aria-label="new terminal"
         title={platform === "mac" ? "new terminal here (cmd-t)" : "new terminal here (ctrl-alt-t)"}
         onMouseDown={(e) => e.preventDefault()}
         onClick={onNewWindow}
       >
-        <TerminalIcon title="new terminal" />
-        <span className="label">new</span>
+        <PlusIcon title="new terminal" />
       </button>
       {menu && (
         <div

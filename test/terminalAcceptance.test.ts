@@ -262,7 +262,7 @@ test.skipIf(!usable)(
     const id = "ACC-RESTORE";
     const dir = await createChange(id);
     const page = await openTerminal(id);
-    const tabs = page.locator(".window-tab:not(.new):not(.overview)");
+    const tabs = page.locator(".window-tab:not(.new)");
     await tabs.first().waitFor({ timeout: 15_000 });
 
     // Window 1: its own shell, with a variable only it has, and a distinctive screen.
@@ -413,7 +413,7 @@ test.skipIf(!usable)(
     const page = await openTerminal(id);
     // A subagent's window is a window of its change, labelled from the subagent: the strip selects
     // it like any other, and the pane then attaches to that shell.
-    const subagentTab = page.locator(".window-tab:not(.new):not(.overview)", { hasText: "Reviewer" });
+    const subagentTab = page.locator(".window-tab:not(.new)", { hasText: "Reviewer" });
     await subagentTab.first().waitFor({ timeout: 15_000 });
     await subagentTab.first().click();
     // Prove the shell under the pane answers before typing the long guarded command, or a mid-type
@@ -444,9 +444,9 @@ test.skipIf(!usable)(
     expect(written.status).toBe(200);
 
     const page = await openTerminal(id);
-    const tabs = page.locator(".window-tab:not(.new):not(.overview)");
+    const tabs = page.locator(".window-tab:not(.new)");
     // Run it from the page's own menu, the path a person takes.
-    await page.getByRole("button", { name: "Actions ▾" }).click();
+    await page.getByRole("button", { name: "Terminal ▾" }).click();
     await page.locator(".menu-items button", { hasText: "Freeze Me" }).click();
 
     // The kept-open window stays in the strip, labelled from the action.

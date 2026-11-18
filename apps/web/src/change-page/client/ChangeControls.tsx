@@ -1,39 +1,33 @@
 import { type JSX } from "react";
 import { CHANGE_STATES, IDEATION, type Change, type ChangeState } from "../../app-root/api.ts";
 import { ActionsMenu, type Action } from "../../app-root/ActionsMenu.tsx";
+import { BranchIcon } from "../../app-root/icons.tsx";
+import { StaleMarker } from "../../app-root/RemoteAvailability.tsx";
 import { stateClass } from "../../app-root/stateClass.ts";
 import { isFinished } from "../../domain/change.ts";
 
 /**
- * The change's own controls, at the tabs' height: which view is showing, what the change is
- * called, where it stands, and its actions. They belong to the change rather than to any one of
- * its views — under the window's row rather than in it (docs/manual/interface.md).
+ * The change's title row: what the change is (its name, id and branch), where it stands, and its
+ * actions. In the app window this row is the title bar — the band you drag the window by — so it
+ * holds no tabs: the views and the terminal windows share the row under it.
  *
- * The name is typed here, in the row the menu that asks for it lives in: the window's own row
- * says nothing about the change. The rows are labels for what follows them and the actions menu
- * is the one that ends things — so the endings sit under the state they end.
+ * The name is typed here, in the row the menu that asks for it lives in. Every field is a label
+ * for what follows the row, and the actions menu is the one that ends things, so the endings sit
+ * under the state they end.
  */
 export function ChangeControls({
-  nav,
-  activeId,
   change,
   idea,
   blocked,
   actions,
   draft,
   onDraft,
-  onOpenPage,
   onRename,
   onState,
   reopening = false,
   onReopen,
 }: {
-  /** The change's views: the core's, then the extensions' tabs in load order. */
-  nav: { id: string; title: string }[];
-  /** Which of them is showing. */
-  activeId: string;
-  /** The record, while it is still on its way: the tabs are shown already, the controls with
-   * it. */
+  /** The record, while it is still on its way: the row shows the page's shape, the fields wait. */
   change: Change | undefined;
   /** Whether this change is still an idea: its state is not yours to pick. */
   idea: boolean;
@@ -44,7 +38,6 @@ export function ChangeControls({
   /** The name being typed, or null while the field is shut. */
   draft: string | null;
   onDraft: (value: string | null) => void;
-  onOpenPage: (id: string) => void;
   /** Commit the name being typed: its blur, trimmed. */
   onRename: (title: string) => void;
   /** Move the change to another state. */
@@ -53,37 +46,43 @@ export function ChangeControls({
   /** Undo a cancellation; only a cancelled change offers it. */
   onReopen?: () => void;
 }): JSX.Element {
+  const name = change?.title ?? change?.branch ?? "";
   return (
-    <div className="change-tabs">
-      <nav className="tabs">
-        {nav.map((tab) => (
-          <button
-            key={tab.id}
-            className={activeId === tab.id ? "tab current" : "tab"}
-            onClick={() => onOpenPage(tab.id)}
-          >
-            {tab.title}
-          </button>
-        ))}
-      </nav>
+    <header className="change-bar">
+      <div className="change-title">
+        {draft === null ? (
+          <h1 className="change-name" title={name}>
+            {name}
+          </h1>
+        ) : (
+          <input
+            className="subject"
+            autoFocus
+            value={draft}
+            placeholder="what this change is about"
+            disabled={blocked === true}
+            onChange={(e) => onDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") onDraft(null);
+              if (e.key === "Enter") e.currentTarget.blur();
+            }}
+            onBlur={() => onRename(draft.trim())}
+          />
+        )}
+        {change && (
+          <>
+            <span className="change-id">{change.id}</span>
+            <span className="change-branch" title={change.branch}>
+              <BranchIcon title="branch" />
+              {change.branch}
+            </span>
+          </>
+        )}
+      </div>
       <span className="spacer" />
+      {blocked && <StaleMarker>unavailable</StaleMarker>}
       {change && (
         <>
-          {draft !== null && (
-            <input
-              className="subject"
-              autoFocus
-              value={draft}
-              placeholder="what this change is about"
-              disabled={blocked === true}
-              onChange={(e) => onDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") onDraft(null);
-                if (e.key === "Enter") e.currentTarget.blur();
-              }}
-              onBlur={() => onRename(draft.trim())}
-            />
-          )}
           <select
             className={stateClass(change.state)}
             value={change.state ?? "Implementation"}
@@ -139,6 +138,6 @@ export function ChangeControls({
           )}
         </>
       )}
-    </div>
+    </header>
   );
 }

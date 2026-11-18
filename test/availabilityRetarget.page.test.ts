@@ -168,7 +168,7 @@ test.skipIf(!usable)(
       );
       expect((await content.textContent()) ?? "").toContain("PLAN-READONLY");
       // The change's own controls are usable while the target is reachable.
-      const phase = page.locator(".change-tabs select");
+      const phase = page.locator(".change-bar select");
       await until(async () => (await phase.count()) > 0, true, budget(20_000));
       expect(await phase.isDisabled()).toBe(false);
 

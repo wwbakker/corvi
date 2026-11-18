@@ -299,11 +299,15 @@ export function Sidebar({
 
   return (
     <nav className={open ? "sidebar open" : "sidebar"} style={{ width }}>
-      {/* The window's own top row: on macOS the traffic lights sit here, and in the app window it
-          is what you drag the window by (apps/web/src/domain/chrome.ts). The switcher moves up into it so
-          the column's first row lines up with the page's strip beside it. A browser has no lights
-          and nothing to drag, and the row is where the switcher has always been. */}
+      {/* The brand row: the raven, the app's name, and which client's world this is. In the app
+          window it is the top of the window — the lights sit in it on macOS, and the whole row is
+          what you drag the window by (apps/web/src/domain/chrome.ts) — so it clears them and lines
+          up with the page's title row beside it. A browser has no lights and nothing to drag, and
+          the row is where the brand has always been. */}
       <div className="band">
+        <img className="brand-logo" src="/icons/favicon-32.png" alt="" width={22} height={22} />
+        <span className="brand-name">Corvi</span>
+        <span className="spacer" />
         {/* Which client's world this is. Everything below is what that context contains, so it
             belongs above everything rather than beside it. Always shown, even with one
             workspace: which context you are in should be visible, not implied. */}

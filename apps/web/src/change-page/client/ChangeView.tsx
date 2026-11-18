@@ -14,7 +14,6 @@ import { useCached } from "../../app-root/cache.ts";
 import { FORMAT_VERSION, isFinished } from "../../domain/change.ts";
 import type { RemoteAvailabilityReasonDto } from "@corvi/contracts/availability";
 import { changeKey, useChangeClient, useSourceAvailability } from "../../app-root/sources.ts";
-import { StaleMarker } from "../../app-root/RemoteAvailability.tsx";
 import { LifecycleFailures } from "../../app-root/LifecycleFailures.tsx";
 import { TerminalPane } from "../../terminals/client/TerminalPane.tsx";
 import { CheatSheet } from "../../terminals/client/CheatSheet.tsx";
@@ -25,7 +24,7 @@ import { forceQuestion, completionRefusal } from "./refusals.ts";
 import { WindowTabs } from "../../terminals/client/WindowTabs.tsx";
 import type { Page } from "../../app-root/Sidebar.tsx";
 import { changeNav, resolveChangePage, type ChangeTabInfo } from "./changeTabs.ts";
-import { forgetChange, lastViewOf, seeView } from "../../app-root/remember.ts";
+import { forgetChange, seeView } from "../../app-root/remember.ts";
 import { changeActions } from "./changeActions.ts";
 import { ChangeControls } from "./ChangeControls.tsx";
 import { ChangeDashboard } from "./ChangeDashboard.tsx";
@@ -400,17 +399,25 @@ export function ChangeView({
   const activeWindow = windows.find((window) => window.active);
   const activePaneId = activeWindow?.activePane ?? activeWindow?.id ?? null;
 
-  /** The window's own row: the change's terminals as tabs, and — on the terminal page — the key
-   * reference. The change's name is deliberately not here: the navigation column carries it, and the
-   * row is the window's, so both of a change's pages still begin the same way
-   * (docs/manual/interface.md). */
-  const changeHeader = (
-    <header className="change-bar">
+  /** The change's views, and its terminal windows beside them, in one row under the title: a view
+   * and a window are both one click away, and the separator is what says they are different kinds
+   * of thing. The key reference belongs to the terminal alone. */
+  const changeTabs = (
+    <div className="change-tabs">
+      <nav className="tabs views">
+        {nav.map((tab) => (
+          <button
+            key={tab.id}
+            className={activeId === tab.id ? "tab current" : "tab"}
+            onClick={() => onOpenPage(tab.id)}
+          >
+            {tab.title}
+          </button>
+        ))}
+      </nav>
+      <span className="tab-separator" aria-hidden="true" />
       <WindowTabs
-        // Which surface is on screen, not which of the change's tabs: this row is the change's
-        // views against its terminals, and the row below says which of those views. An unknown
-        // segment resolves to the plan, which is one of them.
-        page={active.kind}
+        terminals={active.kind === "terminals"}
         windows={windows}
         platform={platform}
         disabled={blocked}
@@ -423,13 +430,11 @@ export function ChangeView({
           // refocus only runs while it is visible, so the dashboard is unaffected.
           setFocusRequest((n) => n + 1);
         }}
-        onOpenOverview={() => onOpenPage(lastViewOf(key))}
       />
       <span className="spacer" />
-      {blocked && <StaleMarker>unavailable</StaleMarker>}
-      {/* The key reference is the terminal's: on the other views the row below carries the
-          change's own tabs, state and actions instead. The menu holds the key reference beside
-          the actions this window may run (apps/web/src/actions/RunMenu.tsx). */}
+      {/* The key reference is the terminal's: on the other views the row is the change's own tabs
+          and windows, and the key reference would say nothing about them. The menu holds the key
+          reference beside the actions this window may run (`actions/RunMenu.tsx`). */}
       {active.kind === "terminals" && (
         <RunMenu
           changeId={id}
@@ -439,37 +444,36 @@ export function ChangeView({
           onRan={() => setFocusRequest((n) => n + 1)}
         />
       )}
-    </header>
+    </div>
   );
 
   return (
-    <div className={active.kind === "terminals" ? "page terminal-page" : "page"}>
-      {/* The window's title bar and the change's own row are one sticky block: nothing sits
-          between them, so a taller window's row cannot push the change's row out of place. */}
+    <div
+      className={
+        active.kind === "terminals"
+          ? "page terminal-page"
+          : active.kind === "dashboard"
+            ? "page dashboard-page"
+            : "page"
+      }
+    >
+      {/* The title row and the tab row are one sticky block: nothing sits between them, and the
+          wrapper carries the stickiness so neither row needs an offset that tracks the other's
+          height. The title row is the window's in the app; the row under it is the change's. */}
       <div className="change-chrome">
-        {/* The window's title bar: a tab per terminal, and — on the terminal page — the key
-            reference. The same row on both of a change's pages. */}
-        {changeHeader}
-        {/* The change's own views, and the change's state and actions at the tabs' height: they
-            belong to the change rather than to any one of its views, and the row that says which
-            view you are in is where they fit — under the window's row rather than in it. */}
-        {active.kind !== "terminals" && (
-          <ChangeControls
-            nav={nav}
-            activeId={activeId}
-            change={change}
-            idea={idea}
-            blocked={blocked}
-            actions={actions}
-            draft={draft}
-            onDraft={setDraft}
-            onOpenPage={onOpenPage}
-            onRename={commitRename}
-            onState={moveTo}
-            reopening={reopening}
-            onReopen={reopen}
-          />
-        )}
+        <ChangeControls
+          change={change}
+          idea={idea}
+          blocked={blocked}
+          actions={actions}
+          draft={draft}
+          onDraft={setDraft}
+          onRename={commitRename}
+          onState={moveTo}
+          reopening={reopening}
+          onReopen={reopen}
+        />
+        {changeTabs}
       </div>
       <CheatSheet
         open={cheatSheet}

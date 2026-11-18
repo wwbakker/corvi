@@ -355,8 +355,8 @@ body::after {
    every theme, and a full-window blur does not belong behind it. */
 .page > header,
 .wizard > header,
+.change-chrome > header.change-bar,
 .change-tabs,
-.page.terminal-page .change-bar,
 .widget,
 .change-card,
 .table,
@@ -912,7 +912,7 @@ body.drawer-open {
 /* The field the change's name is typed into: the menu's "Rename change" opens it in the row that
    carries the change's controls, because the window's own row says nothing about the change
    (docs/manual/interface.md). */
-.change-tabs input.subject {
+.change-bar input.subject {
   min-width: 220px;
   max-width: 100%;
 }
@@ -1012,13 +1012,69 @@ body.drawer-open {
   margin: -16px -24px 16px;
 }
 
+/* The change's title row: the name, id and branch on the left; the state and the actions on the
+   right. It is the window's title bar in the app (apps/web/src/domain/chrome.ts), so it is exactly
+   one row tall: a long name truncates rather than making the bar taller than the column's band. */
 .change-chrome > header.change-bar {
-  /* A single row of tabs is the title bar's height exactly; the row grows only when the tabs wrap
-     to a second line, which is why the height is auto rather than the base header's fixed one. */
-  height: auto;
-  min-height: var(--titlebar-height);
+  height: var(--titlebar-height);
   margin: 0;
   padding-inline: 24px;
+  gap: 10px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  /* The row's own layer, above the tab row under it: the actions menu opens from here and hangs
+     over that row, and both rows are materials (a backdrop filter makes a stacking context), so
+     the order has to be stated rather than left to the DOM. */
+  position: relative;
+  z-index: 3;
+}
+
+/* What the change is: its name first, then the id and the branch that identify it. All three
+   give way to the controls rather than pushing them out of the row. */
+.change-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.change-name {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.change-id {
+  flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* The branch is an identifier: monospace, and the first field to shorten when the row is narrow. */
+.change-branch {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.change-branch svg {
+  flex: none;
+}
+
+.change-branch {
+  text-overflow: ellipsis;
 }
 
 /* In the app window the row is chrome as well as a page header: dragging it moves the window.
@@ -2062,19 +2118,21 @@ button.create:hover:not(:disabled) {
   color: var(--nav-muted);
 }
 
-/* The change's own row: its views as tabs, and its state and actions at their height, right under
-   the window's row — the two together are the page's chrome, and the content scrolls under them
-   rather than past them. They are ordinary flow inside `.change-chrome` (which bleeds and sticks),
-   so this row carries neither its own full-bleed margins nor an offset. The tabs inside keep their
-   own dress, without the line they carry in a page that has no row above them. */
+/* The one tab row: the change's views, a line, then its terminal windows and "+". A view and a
+   window are different kinds of thing — the line says so — and both are one click from anywhere in
+   the change. Ordinary flow inside `.change-chrome` (which bleeds and sticks), so the row carries
+   neither its own full-bleed margins nor an offset. Its `--tab-row-height` is what a window strip
+   wraps against. */
 .change-tabs {
+  --tab-row-height: 36px;
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 4px;
+  min-height: var(--tab-row-height);
   margin: 0;
-  /* The first tab's text lands where the change's name does above it: the tab's own padding is the
-     rest of the way to the page's 24px. */
-  padding-inline: 18px;
+  padding-inline: 14px;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
 }
@@ -2082,6 +2140,21 @@ button.create:hover:not(:disabled) {
 .change-tabs .tabs {
   border-bottom: 0;
   margin-bottom: 0;
+}
+
+.change-tabs .tab {
+  padding: 7px 12px;
+  font-size: 13px;
+}
+
+/* What separates the change's views from its windows: the two are both tabs, and the line is what
+   says they are not the same list. */
+.tab-separator {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  margin: 0 8px;
+  background: var(--line);
 }
 
 /* Two views of one change, under its header. */
@@ -2141,37 +2214,6 @@ button.create:hover:not(:disabled) {
   flex-direction: column;
 }
 
-.page.terminal-page .change-bar {
-  margin: 0;
-  /* The name starts where the dashboard's does: the page's own padding, then the title's. */
-  padding: 0 10px 0 24px;
-  /* No bottom border: the tabs sit on the terminal rather than above a line. The bar is as tall
-     as its tabs (the global min-height keeps a single row at the title bar's height), and its
-     non-tab controls — the Actions menu, a notice — sit on the row's centre line, the way the
-     Overview row's do. The tabs still fill the row: `.window-tabs` stretches below. */
-  align-items: center;
-  gap: 8px;
-  border-bottom: 0;
-  background: var(--surface);
-}
-
-/* The tabs fill the bar's height even though the bar centres its other children: a wrapped strip
-   of two rows makes the bar taller, and the tabs take that whole height. The terminal bar has no
-   bottom border, so a row is the full title bar here rather than a pixel short of it. */
-.page.terminal-page .window-tabs {
-  align-self: stretch;
-  --window-tab-height: var(--titlebar-height);
-}
-
-/* The Actions menu stretches to the bar so its dropdown anchors at the bar's bottom edge, not at
-   the centred button's: a wrapped strip is taller, and a menu hung off the button would open over
-   its second row. The button itself stays its own height, centred in the stretched wrapper. */
-.page.terminal-page .change-bar .menu {
-  align-self: stretch;
-  display: flex;
-  align-items: center;
-}
-
 /* The terminal page's chrome is one block, and it must not shrink out of the flex chain: the pane
    takes what is left. Above xterm's own layers: its stylesheet paints helpers (z-index 5) and
    overlays (10) into the root stacking context (`.xterm` creates none of its own), so the block's
@@ -2182,28 +2224,14 @@ button.create:hover:not(:disabled) {
   z-index: 12;
 }
 
-/* The key reference is the terminal's own, not a control of the page's: the size of the tabs
-   beside it, so neither makes the strip taller than the other. The row centres it, like the
-   Overview row's controls. */
-.page.terminal-page .change-bar button:not(.window-tab) {
-  padding: 3px 8px;
-  font-size: 12px;
-}
-
-/* The change's name is the same one the dashboard shows, in the same place, so the row does not
-   move when you switch between a change's two views. */
-
-/* A session's windows as tabs: the current one in the same dress as the column's selected
-   terminal — accent fill, white text — and the rest quiet. They wrap row-major instead of
-   scrolling sideways, so a session with more windows than fit grows the bar rather than hiding
-   tabs past its edge. The strip is capped at two rows and scrolls vertically past that, so the
-   bar can never become the whole window. Each row is the title bar's height, which is what makes
-   the cap exact; the row gap is the only slack. */
+/* A session's windows as tabs in the same row as the change's views: the same dress as a view's
+   tab, with the current window underlined in the accent and a state mark beside its name. They
+   wrap row-major instead of scrolling sideways, so a session with more windows than fit grows the
+   row rather than hiding tabs past its edge. The strip is capped at two rows and scrolls vertically
+   past that, so the row can never become the whole window; the row gap is the only slack. */
 .window-tabs {
   --window-tab-row-gap: 2px;
-  /* A row is the title bar's height less the chrome row's own bottom border, so a single row
-     makes the bar measure exactly the title bar (see `.change-chrome > header.change-bar`). */
-  --window-tab-height: calc(var(--titlebar-height) - 1px);
+  --window-tab-height: calc(var(--tab-row-height, 36px) - 8px);
   display: flex;
   align-items: stretch;
   flex-wrap: wrap;
@@ -2222,12 +2250,11 @@ button.create:hover:not(:disabled) {
   gap: 6px;
   min-height: var(--window-tab-height);
   max-width: 220px;
-  padding: 4px 10px;
+  padding: 3px 10px;
   background: transparent;
   border: 0;
-  /* Rounded at the top only: the bottom edge is where the terminal begins. A floating first row
-     in a wrapped strip keeps the flat bottom, set apart from the row below by the row gap. */
-  border-radius: 6px 6px 0 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 6px;
   font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
@@ -2252,19 +2279,19 @@ button.create:hover:not(:disabled) {
 }
 
 .window-tab:hover:not(.current) {
-  background: var(--raise);
+  background: var(--hover);
   color: var(--text);
 }
 
+/* The current window wears the view tab's dress — full-strength text and an accent underline —
+   and its state icon keeps its colour, exactly as it does on the column's selected window. */
 .window-tab.current {
-  background: var(--selection);
-  color: var(--on-accent);
+  color: var(--text);
+  border-bottom-color: var(--accent);
 }
 
-/* The label goes white with the fill; the state icon keeps its colour, exactly as it does on
-   the column's selected window — a working agent is green wherever it is shown. */
 .window-tab.current .label {
-  color: var(--on-accent);
+  color: inherit;
 }
 
 /* Output arrived in a window you were not looking at. */
@@ -3439,11 +3466,35 @@ button.danger:disabled {
    window's own in the app (below) and the column's own elsewhere; in both, the menu opens from the
    box this sits in and is anchored to its right edge, so the pill's right edge is what keeps the list
    inside the window. */
+/* The brand row: the raven, the app's name, and the workspace switcher at the column's right —
+   the row the window's title bar is in the app. */
 .sidebar > .band {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  justify-content: center;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 10px;
+}
+
+.sidebar > .band .brand-logo {
+  flex: none;
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+}
+
+.sidebar > .band .brand-name {
+  flex: none;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--nav-text);
+}
+
+.sidebar > .band .spacer {
+  flex: 1;
+  min-width: 0;
 }
 
 .sidebar > .band .menu {
@@ -3477,7 +3528,11 @@ button.danger:disabled {
   z-index: 1;
   flex: none;
   height: var(--titlebar-height);
-  /* Measured from the column's own gutter, not from the window's edge. */
+  /* The brand starts to the right of the traffic lights, and the row is as tall as the page's
+     title row beside it: the lights are the main process's, the clearance is the page's. Measured
+     from the column's own gutter, not from the window's edge. */
+  padding-top: 0;
+  padding-bottom: 0;
   padding-left: max(0px, calc(var(--traffic-inset) - 8px));
   background: inherit;
 }
@@ -3904,7 +3959,6 @@ button.danger:disabled {
   .content:not(.flush) .page > header,
   .content:not(.flush) .wizard > header,
   .change-chrome > header.change-bar,
-  .page.terminal-page .change-bar,
   .change-tabs {
     padding-left: var(--chrome-left);
   }
@@ -3960,6 +4014,85 @@ button.danger:disabled {
   margin: 0;
   padding: 0;
   min-inline-size: 0;
+}
+
+/* The dashboard is the page: its columns run to the bottom of the window, and the last card in
+   each takes what is left, so a wide window does not end in a band of empty page under the cards.
+   The page is given the window's height less the content's own padding (16px above, 48px below);
+   when the cards are taller than that it grows and the document scrolls as it always did. */
+.page.dashboard-page {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - 64px);
+}
+
+.page.dashboard-page > .widgets-fieldset {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.page.dashboard-page .widgets {
+  flex: 1;
+  /* The cards' room: the window less the content's own padding (16px above, 48px below) and the
+     chrome above them (the title row, the tab row and the space under them). A flex child does not
+     grow into a parent's min-height, so the height is stated here rather than relied on above. */
+  min-height: calc(100dvh - 140px);
+  align-items: stretch;
+}
+
+.page.dashboard-page .column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  /* The two-column rule aligns its columns at the top; on the dashboard they reach the bottom of
+     the window instead, which is what gives the last card in each its share of the height. */
+  align-self: stretch;
+}
+
+/* The last card grows into the column's leftover height; it never shrinks below its content. */
+.page.dashboard-page .column > *:last-child {
+  flex: 1 0 auto;
+}
+
+/* A view arrives with a short fade. Only the view does: the chrome above it is where you already
+   are, and fading it would make every navigation blink. Nothing loops. */
+@keyframes view-arrive {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .page > .widgets-fieldset,
+  .page > .plan-page,
+  .page > .transcripts,
+  .page > .local,
+  .page > .terminal-host {
+    animation: view-arrive 140ms ease-out;
+  }
+}
+
+/* Hovering eases: a colour arriving in a blink reads as a repaint, a step of a fifth of a second
+   reads as the pointer being somewhere. */
+button,
+select,
+.sidebar .entry,
+.tabs .tab,
+.window-tab,
+.change-card,
+.widget,
+.menu-items button {
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    opacity 0.15s ease;
 }
 
 /* At the drawer breakpoint the toggle overlays the top-left corner: the banner keeps its text

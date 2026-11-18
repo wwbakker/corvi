@@ -33,6 +33,48 @@ export function TerminalIcon({ title }: { title: string }): JSX.Element {
   );
 }
 
+/** New: a plus. */
+export function PlusIcon({ title }: { title: string }): JSX.Element {
+  return (
+    <svg
+      {...size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      role="img"
+      aria-label={title}
+    >
+      <title>{title}</title>
+      <path d="M8 3.5v9M3.5 8h9" />
+    </svg>
+  );
+}
+
+/** A branch: the two dots it connects, and the line between them — the change's row shows it
+ * beside the branch's name. */
+export function BranchIcon({ title }: { title: string }): JSX.Element {
+  return (
+    <svg
+      {...size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role="img"
+      aria-label={title}
+    >
+      <title>{title}</title>
+      <circle cx="4.5" cy="3.5" r="1.7" />
+      <circle cx="4.5" cy="12.5" r="1.7" />
+      <circle cx="11.5" cy="5.5" r="1.7" />
+      <path d="M4.5 5.2v5.6" />
+      <path d="M11.5 7.2c0 2.7-2.6 3.3-5.4 4" />
+    </svg>
+  );
+}
+
 /** Builds: the button you press to start one. */
 export function CiIcon({ title }: { title: string }): JSX.Element {
   return (

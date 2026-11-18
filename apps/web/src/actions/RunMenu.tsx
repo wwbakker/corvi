@@ -108,6 +108,9 @@ export function RunMenu({
     <>
       {notice && <span className="summary">{notice}</span>}
       <ActionsMenu
+        // Its own name, not the change's "Actions": the title row above carries the change's menu,
+        // and this one runs things in the terminal you are looking at.
+        label="Terminal ▾"
         actions={items}
         onOpen={() =>
           client.actions
