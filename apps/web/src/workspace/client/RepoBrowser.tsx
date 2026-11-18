@@ -1,4 +1,4 @@
-import { type JSX, useCallback, useEffect, useState } from "react";
+import { type JSX, type RefObject, useCallback, useEffect, useState } from "react";
 import type { CorviClient } from "@corvi/client";
 import { apiClient, type Branches, type Listing, type Selection } from "../../app-root/api.ts";
 import { DirectoryListing } from "./DirectoryListing.tsx";
@@ -16,6 +16,7 @@ export function RepoBrowser({
   onChange,
   workspace,
   client = apiClient,
+  filterRef,
 }: {
   /** Repositories already chosen, with their mode and base branch. */
   selected: Selection[];
@@ -24,6 +25,8 @@ export function RepoBrowser({
   /** The source to read through: the local server, or the gateway client of the workspace this
    * browser is for. The workspace id above is the one THAT server knows the context by. */
   client?: CorviClient;
+  /** The filter, so the dialog showing this browser can give it the keyboard when it opens. */
+  filterRef?: RefObject<HTMLInputElement | null>;
   onAdd: (absolutePath: string) => void;
   onRemove: (absolutePath: string) => void;
   onChange: (absolutePath: string, patch: Partial<Selection>) => void;
@@ -68,6 +71,8 @@ export function RepoBrowser({
     }
   }, [selected, client]);
 
+  const added = (path: string): boolean => selected.some((s) => s.path === path);
+
   return (
     <div className="browser">
       {error && <div className="error-banner">{error}</div>}
@@ -75,22 +80,17 @@ export function RepoBrowser({
         <div className="pane">
           <DirectoryListing
             listing={listing}
+            filterRef={filterRef}
             onOpen={(path) => open(path, showHidden)}
             showHidden={showHidden}
             onShowHidden={show}
             showRepoTag
-            action={(entry) => {
-              const added = selected.some((s) => s.path === entry.path);
-              return (
-                <button
-                  type="button"
-                  disabled={!entry.isRepo || added}
-                  title={entry.isRepo ? undefined : "not a git repository"}
-                  onClick={() => onAdd(entry.path)}
-                >
-                  {added ? "Added" : "Add"}
-                </button>
-              );
+            action={{
+              label: (entry) => (added(entry.path) ? "Added" : "Add"),
+              hint: "add",
+              disabled: (entry) => !entry.isRepo || added(entry.path),
+              title: (entry) => (entry.isRepo ? undefined : "not a git repository"),
+              run: (entry) => onAdd(entry.path),
             }}
           />
         </div>

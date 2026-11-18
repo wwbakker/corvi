@@ -1377,6 +1377,13 @@ dialog textarea.message {
   background: var(--raise);
 }
 
+/* The row the keyboard is on. It outranks the hover, because the hover is the mouse's guess and
+   this is the row a keypress will act on. */
+.entries li button.dir.selected,
+.entries li button.dir.selected:hover {
+  background: var(--selection);
+}
+
 .browser .filter {
   margin-bottom: 8px;
 }
@@ -1405,6 +1412,40 @@ dialog textarea.message {
 
 .listing-controls label.check input {
   width: auto;
+}
+
+/* The keymap's toggle: a control, but not one competing with the filter beside it. */
+.listing-controls button.keys {
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+}
+
+.listing-controls button.keys:hover,
+.listing-controls button.keys[aria-expanded="true"] {
+  color: var(--text);
+  background: var(--raise);
+}
+
+/* The chords, folded out: one line in the pane's own muted voice, so the rows keep the room. The
+   keys are chips, because an unadorned word in the middle of a sentence is not a key. */
+.keymap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.keymap code {
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--well);
+  color: var(--text);
 }
 
 .selected-pane {
