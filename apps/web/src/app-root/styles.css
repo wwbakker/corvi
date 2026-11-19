@@ -4392,6 +4392,11 @@ button.danger:disabled {
   /* The two-column rule aligns its columns at the top; on the dashboard they reach the bottom of
      the window instead, which is what gives the last card in each its share of the height. */
   align-self: stretch;
+  /* The column, not the document, is what scrolls when the cards need more room than the window
+     has left — a tab row that wraps to a third line costs the cards their height, and the page
+     must not grow past the window for it. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* The last card grows into the column's leftover height; it never shrinks below its content. */
