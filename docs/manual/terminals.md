@@ -68,10 +68,10 @@ a build runs, `corvi (zsh)` at a prompt. The place is the directory the shell an
 no directory is named by its terminal title instead, and then by the window's directory. An
 action's label or an agent's own session name wins over both, and a name you gave wins over
 everything. There is no session manager underneath — a window *is* a host session, and the tabs
-switch between them. When more windows exist than fit, they wrap
-to a second row instead of showing a horizontal scrollbar; they are capped at two rows and
-scroll once there are more. At the right end of the row is **Terminal ▾**, the menu of actions
-that fit the window you are on and the terminal cheat sheet.
+switch between them. The views and the windows are one bar: when more windows exist than fit,
+they wrap onto another line at the row's left edge instead of showing a horizontal scrollbar, and
+the row grows with them. The window's actions — the ones that fit the window you are on, and the
+terminal cheat sheet — are entries of the change's **Actions** menu in the title row.
 
 The **+** at the end of the row — **Cmd-T** on macOS, **Ctrl-Alt-T** on Linux — creates another
 host session in the current window's directory. It becomes the current window. Work that opens a

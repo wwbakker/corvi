@@ -1,7 +1,7 @@
 import { type JSX } from "react";
 import { CHANGE_STATES, IDEATION, type Change, type ChangeState } from "../../app-root/api.ts";
 import { ActionsMenu, type Action } from "../../app-root/ActionsMenu.tsx";
-import { BranchIcon, ChevronDownIcon } from "../../app-root/icons.tsx";
+import { BranchIcon } from "../../app-root/icons.tsx";
 import { StaleMarker } from "../../app-root/RemoteAvailability.tsx";
 import { stateClass } from "../../app-root/stateClass.ts";
 import { isFinished } from "../../domain/change.ts";
@@ -20,6 +20,7 @@ export function ChangeControls({
   idea,
   blocked,
   actions,
+  onActionsOpen,
   draft,
   onDraft,
   onRename,
@@ -35,6 +36,8 @@ export function ChangeControls({
    * the transport gate would refuse them, and the UI must not offer a mutation it cannot make. */
   blocked?: boolean;
   actions: Action[];
+  /** Called when the actions menu opens: the terminal's entries are discovered afresh then. */
+  onActionsOpen?: () => void;
   /** The name being typed, or null while the field is shut. */
   draft: string | null;
   onDraft: (value: string | null) => void;
@@ -47,6 +50,17 @@ export function ChangeControls({
   onReopen?: () => void;
 }): JSX.Element {
   const name = change?.title ?? change?.branch ?? "";
+  // The states a started change may move between: the ones it is in, not the ones it ends in (a
+  // word is not a merge), and not Ideation (there is no going back over a branch that exists).
+  const states: ChangeState[] =
+    change === undefined
+      ? []
+      : [
+          ...CHANGE_STATES.filter((s) => s !== IDEATION && !isFinished({ ...change, state: s })),
+          // A change that has already ended still shows its own state, because a menu cannot
+          // display what it does not offer.
+          ...(isFinished(change) ? [change.state ?? "Completed"] : []),
+        ];
   return (
     <header className="change-bar">
       <div className="change-title">
@@ -71,7 +85,6 @@ export function ChangeControls({
         )}
         {change && (
           <>
-            <span className="change-id">{change.id}</span>
             <span className="change-branch" title={change.branch}>
               <BranchIcon title="branch" />
               <span className="change-branch-name">{change.branch}</span>
@@ -82,44 +95,25 @@ export function ChangeControls({
       {blocked && <StaleMarker>unavailable</StaleMarker>}
       {change && (
         <>
-          {/* The state is picked from a list, so it wears the same dress as the Actions menu
-              beside it: one height, one padding, one chevron. The select itself keeps its native
-              behaviour, and the icon is drawn because a select's own arrow cannot be styled. */}
-          <span className="state-pick">
-            <select
-              className={stateClass(change.state)}
-              value={change.state ?? "Implementation"}
-              // An idea's state is not yours to pick: starting the work is what leaves it, and
-              // that does more than a word (see the actions). An unavailable workspace cannot
-              // write the state either, so the select is disabled rather than refused on click.
-              disabled={idea || blocked === true}
-              // Your own view of where the change stands; completing it sets "Completed".
-              onChange={(e) => onState(e.target.value as ChangeState)}
-            >
-              {/* An idea shows its one state. A started change offers the states you are in, not
-                the ones a change ends in, and not `Ideation` — there is no going back over a
-                branch that now exists. Picking "Completed" from a list would set the word
-                without merging anything, removing a worktree or archiving the change — a label
-                that lies. Ending a change is Complete or Cancel, which do the work. A change
-                that has already ended still shows its own state, because a select cannot
-                display what it does not offer. */}
-              {idea ? (
-                <option>{IDEATION}</option>
-              ) : (
-                <>
-                  {CHANGE_STATES.filter((s) => !isFinished({ ...change, state: s }) && s !== IDEATION).map(
-                    (s) => (
-                      <option key={s}>{s}</option>
-                    ),
-                  )}
-                  {isFinished(change) && <option>{change.state}</option>}
-                </>
-              )}
-            </select>
-            <span className="caret" aria-hidden="true">
-              <ChevronDownIcon title="pick a state" />
-            </span>
-          </span>
+          {/* The state is a menu, not a native select: the list has to look like the page's other
+              menus, and a select's dropdown is the platform's to paint. Where the state is not
+              yours to pick — an idea, or a workspace that cannot be written — it is a chip with
+              no menu behind it. */}
+          {idea || blocked === true ? (
+            <span className={`state-chip ${stateClass(change.state)}`}>{change.state}</span>
+          ) : (
+            <ActionsMenu
+              className={`state ${stateClass(change.state)}`}
+              label={change.state ?? "Implementation"}
+              actions={states.map((state) => ({
+                label: state,
+                // The state you are in is not something to move to: it would be a write that
+                // changes nothing.
+                disabled: state === change.state,
+                onSelect: () => onState(state),
+              }))}
+            />
+          )}
           {isFinished(change) ? (
             <>
               {/* How it ended, not only that it did: a change that was abandoned is not one that
@@ -141,7 +135,7 @@ export function ChangeControls({
               )}
             </>
           ) : (
-            <ActionsMenu actions={actions} className="actions" />
+            <ActionsMenu actions={actions} className="actions" onOpen={onActionsOpen} />
           )}
         </>
       )}

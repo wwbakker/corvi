@@ -63,9 +63,7 @@ test("the tabs route lists the included tab for the workspace that has it, and h
     const disabled = await runEffect(
       createChange({ id: "PROJ-TAB-OFF", checkouts: checkoutsOf([repo]), workspace: "without-tab" }),
     );
-    expect(await tabsOf(enabled.id)).toEqual([
-      { id: "review", title: "Review changes", extension: "review" },
-    ]);
+    expect(await tabsOf(enabled.id)).toEqual([{ id: "review", title: "Changes", extension: "review" }]);
     // A workspace that dropped review has no tab for it, not an empty one.
     expect(await tabsOf(disabled.id)).toEqual([]);
   } finally {

@@ -187,8 +187,8 @@ export function UpdateIcon({ title }: { title: string }): JSX.Element {
       aria-label={title}
     >
       <title>{title}</title>
-      <path d="M13 8a5 5 0 1 1-1.5-3.6" />
-      <path d="M13 1.8V5h-3.2" />
+      <path d="M8 11.5V3M4.5 6.5 8 3l3.5 3.5" />
+      <path d="M3 13.2h10" />
     </svg>
   );
 }

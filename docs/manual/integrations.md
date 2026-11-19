@@ -58,9 +58,9 @@ and acknowledgement behavior.
 The GitHub issue picker appears after repository selection. It can select or create an issue,
 use its title for the change, and close it on completion.
 
-## Review changes
+## Changes
 
-The **Review changes** tab groups local file changes by repository and shows the selected diff.
+The **Changes** tab groups local file changes by repository and shows the selected diff.
 Clean repositories remain visible. Staged and unstaged versions of one path appear separately;
 untracked files are diffed against an empty file. The view refreshes while you work.
 

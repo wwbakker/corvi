@@ -1210,9 +1210,10 @@ test.skipIf(!usable)(
         const titleRow = page.locator(".change-bar");
         await titleRow.locator(".change-name").waitFor();
 
-        // What the change is: all three fields, and the name is also the OS window's title.
+        // What the change is: its name and its branch, and the name is also the OS window's title.
+        // The id is not repeated here — the branch starts with it.
         expect((await titleRow.locator(".change-name").innerText()).trim()).toBe("Anonymise customer names");
-        expect((await titleRow.locator(".change-id").innerText()).trim()).toBe(id);
+        expect(await titleRow.locator(".change-id").count()).toBe(0);
         expect((await titleRow.locator(".change-branch").innerText()).trim()).toContain(id);
         await page.waitForFunction(() => document.title === "Anonymise customer names");
         expect(await page.title()).toBe("Anonymise customer names");
@@ -1234,7 +1235,7 @@ test.skipIf(!usable)(
         expect((await tabsRow.locator(".tabs .tab").allInnerTexts()).map((s) => s.trim())).toEqual([
           "Plan",
           "Dashboard",
-          "Review changes",
+          "Changes",
         ]);
         expect(await tabsRow.locator(".tab-separator").count()).toBe(1);
         expect(await tabsRow.locator(".window-tabs").count()).toBe(1);
@@ -1244,10 +1245,10 @@ test.skipIf(!usable)(
         expect(separator).toBeGreaterThan(0);
         expect(windows).toBeGreaterThan(separator);
 
-        // The state and the actions are the title row's, not the tabs'.
-        await titleRow.locator("select").waitFor();
-        await titleRow.locator(".menu > button").waitFor();
-        expect(await tabsRow.locator("select").count()).toBe(0);
+        // The state and the actions are the title row's, not the tabs': two menus, the state's
+        // first.
+        await titleRow.locator(".menu > button").first().waitFor();
+        expect(await titleRow.locator(".menu > button").count()).toBe(2);
         expect(await tabsRow.locator(".menu").count()).toBe(0);
 
         // The two rows are one sticky block: the wrapper carries the stickiness, so neither row has
@@ -1344,44 +1345,42 @@ test.skipIf(!usable)(
         const tops = await tabs.evaluateAll((els) =>
           els.map((el) => Math.round(el.getBoundingClientRect().top)),
         );
-        // More windows than fit: the strip wraps, and the cap below is what keeps it from growing
-        // the row with the session. How many rows the tabs *want* depends on their names; the
-        // contract is that they wrap at all and that the row is taller than the title bar.
+        // More windows than fit: the tabs wrap, and the row is taller than the title bar.
+        // How many rows the tabs *want* depends on their names; the contract is that they wrap
+        // and that the row grows with them.
         expect(new Set(tops).size).toBeGreaterThanOrEqual(2);
         const row = await tabsRow.boundingBox();
         if (!row) throw new Error("the tab row did not lay out");
         expect(row.height).toBeGreaterThan(TITLE_BAR_HEIGHT);
 
-        // No horizontal scrollbar: the rows wrap instead of hiding tabs past the edge.
-        const horizontally = await page.locator(".window-tabs").evaluate((el) => ({
+        // One bar: the views and the windows are items of the same row, so the second line begins
+        // at the row's own left edge rather than staying indented under the views. Nothing inside
+        // the row scrolls — the row itself is what grows.
+        const lines = await tabsRow.evaluate((el) => {
+          const rowLeft = el.getBoundingClientRect().left;
+          const padding = Number.parseFloat(getComputedStyle(el).paddingLeft);
+          const items = [...el.querySelectorAll<HTMLElement>(".window-tab")].map((tab) =>
+            tab.getBoundingClientRect(),
+          );
+          const secondLine = items.filter((box) => Math.round(box.top) > Math.round(items[0]!.top));
+          return {
+            left: Math.round(Math.min(...secondLine.map((box) => box.left)) - rowLeft),
+            padding: Math.round(padding),
+            scrollers: [...el.querySelectorAll<HTMLElement>(".window-tabs")].filter(
+              (box) => getComputedStyle(box).overflowY === "auto" || box.scrollHeight > box.clientHeight,
+            ).length,
+          };
+        });
+        expect(lines.left).toBeLessThanOrEqual(lines.padding + 1);
+        expect(lines.scrollers).toBe(0);
+
+        // At a narrow width the tabs keep wrapping inside the row instead of hiding past its edge.
+        await page.setViewportSize({ width: 360, height: 420 });
+        const wide = await tabsRow.evaluate((el) => ({
           scrollWidth: el.scrollWidth,
           clientWidth: el.clientWidth,
         }));
-        expect(horizontally.scrollWidth).toBeLessThanOrEqual(horizontally.clientWidth);
-
-        // Capped at two rows with a scroll fallback, so a third row would scroll rather than grow the row.
-        const cap = await page.locator(".window-tabs").evaluate((el) => {
-          const style = getComputedStyle(el);
-          return { overflowY: style.overflowY, maxHeight: style.maxHeight, rowGap: style.rowGap };
-        });
-        expect(cap.overflowY).toBe("auto");
-        // Two rows plus the gap between them: the value the strip scrolls past, not the row's height.
-        const rowHeight = (await tabs.first().boundingBox())!.height;
-        expect(cap.maxHeight).toBe(`${2 * rowHeight + Number.parseFloat(cap.rowGap)}px`);
-
-        // The cap, exercised: at a width where the tabs need a third row, the strip stays the cap's
-        // height and scrolls, so the row does not grow with the session.
-        await page.setViewportSize({ width: 360, height: 420 });
-        await page.waitForFunction(() => {
-          const strip = document.querySelector(".window-tabs");
-          return strip !== null && strip.scrollHeight > strip.clientHeight;
-        });
-        const capped = await page.locator(".window-tabs").evaluate((el) => ({
-          clientHeight: el.clientHeight,
-          scrollHeight: el.scrollHeight,
-        }));
-        expect(capped.clientHeight).toBe(Number.parseFloat(cap.maxHeight));
-        expect(capped.scrollHeight).toBeGreaterThan(capped.clientHeight);
+        expect(wide.scrollWidth).toBeLessThanOrEqual(wide.clientWidth + 1);
         await page.setViewportSize({ width: 900, height: 420 });
 
         // The regression the shared sticky wrapper exists to prevent: with two rows, a hard-coded
@@ -1394,22 +1393,9 @@ test.skipIf(!usable)(
         expect(stoppedTitle.y).toBe(0);
         expect(Math.abs(stoppedTabs.y - (stoppedTitle.y + stoppedTitle.height))).toBeLessThanOrEqual(1);
 
-        // The terminal's key menu rides at the right end of the tab row, on its centre line.
-        await page.goto(`${url}/changes/${wrap}/terminals`, { waitUntil: "domcontentloaded" });
-        const keyMenu = page.locator(".change-tabs .menu > button");
-        await keyMenu.waitFor();
-        const [terminalTabs, keyBox] = await Promise.all([
-          page.locator(".change-tabs").boundingBox(),
-          keyMenu.boundingBox(),
-        ]);
-        if (!terminalTabs || !keyBox) throw new Error("the terminal's tab row did not lay out");
-        expect(
-          Math.abs(terminalTabs.y + terminalTabs.height / 2 - (keyBox.y + keyBox.height / 2)),
-        ).toBeLessThanOrEqual(1);
-
         // The change's Actions menu is the title row's: it opens below its button, over the tab row,
         // and the choice is clickable there.
-        const actions = page.locator(".change-bar .menu > button");
+        const actions = page.locator(".change-bar .menu > button.actions");
         await actions.click();
         const items = page.locator(".change-bar .menu-items");
         await items.waitFor();
@@ -1614,12 +1600,11 @@ test.skipIf(!usable)(
         // The title row is what you drag the window by; everything you can click in it stays a
         // control. The tab row under it is not part of the drag region at all.
         expect(await region(".change-bar")).toBe("drag");
-        expect(await region(".change-bar select")).toBe("no-drag");
         expect(await region(".change-bar .menu > button")).toBe("no-drag");
         expect(await region(".change-tabs")).not.toBe("drag");
         // The name is the row's, not a button: renaming is the Actions menu's entry.
         expect(await title.locator(".change-name").count()).toBe(1);
-        expect(await title.locator(".change-id").count()).toBe(1);
+        expect(await title.locator(".change-id").count()).toBe(0);
         expect(await title.locator(".change-branch").count()).toBe(1);
 
         // The brand row: the raven, the name, and the switcher as a compact pill at the column's
@@ -1880,8 +1865,9 @@ test.skipIf(!usable)(
       browser,
       async (page) => {
         await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
-        await page.waitForSelector(".change-bar select");
-        const options = (await page.locator(".change-bar select option").allInnerTexts()).map((s) =>
+        const stateMenu = page.locator(".change-bar .menu > button").first();
+        await stateMenu.click();
+        const options = (await page.locator(".change-bar .menu-items button").allInnerTexts()).map((s) =>
           s.trim(),
         );
         // The words are the record's: the rename of record format v2 reaches the page.
@@ -1912,16 +1898,14 @@ test.skipIf(!usable)(
         expect((await page.locator(".change-tabs .tabs .tab").allInnerTexts()).map((s) => s.trim())).toEqual([
           "Plan",
           "Dashboard",
-          "Review changes",
+          "Changes",
         ]);
         expect((await page.locator(".change-tabs .tabs .tab.current").innerText()).trim()).toBe("Plan");
 
-        const review = page.locator(".change-tabs .tabs .tab", { hasText: "Review changes" });
+        const review = page.locator(".change-tabs .tabs .tab", { hasText: "Changes" });
         await review.click();
         await page.waitForURL(`**/changes/${id}/review`);
-        expect((await page.locator(".change-tabs .tabs .tab.current").innerText()).trim()).toBe(
-          "Review changes",
-        );
+        expect((await page.locator(".change-tabs .tabs .tab.current").innerText()).trim()).toBe("Changes");
         // A view showing means no window tab is current: there is one answer to "where am I".
         expect(await page.locator(".change-tabs .window-tab.current").count()).toBe(0);
 

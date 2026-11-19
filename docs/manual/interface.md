@@ -24,7 +24,7 @@ title you typed; opening it restores its draft. Only one destination is highligh
 window, a change view, or the draft being edited.
 
 Selecting a change opens its **Plan** — the first of its views. **Plan**, **Dashboard** and
-**Review changes** are views of that change; its terminal windows are tabs in the same row and
+**Changes** are views of that change; its terminal windows are tabs in the same row and
 can also be opened directly from the navigation column. Each view has a URL, so deep links,
 reload, and browser Back work.
 Coming back to a change's overview — from a terminal window, or by opening the change again —
@@ -104,7 +104,7 @@ Every change page begins with a **title row**: the change's name, id and branch 
 its state selector and **Actions** menu on the right — a finished change shows how it ended and,
 when cancelled, **Reopen** instead of that menu. Renaming is the menu's **Rename change**
 entry, which opens a field in place of the name. Under the title row is the change's one **tab
-row**: **Plan**, **Dashboard**, **Review changes** and any other tab an extension contributes, a
+row**: **Plan**, **Dashboard**, **Changes** and any other tab an extension contributes, a
 separator, then the change's terminal windows with their status marks and **+** for a new window.
 In the desktop app the title row is the window's title bar — the part you drag the window by — and
 the tab row under it is not part of that drag area. The **Plan** tab is
@@ -134,9 +134,9 @@ was lost is held (the plan and notes editors become read-only), and recovery doe
 it: resuming the edit, or an explicit save, follows the normal save policy. The change's phase
 selector and the action menus are held back until it recovers.
 
-On the terminal page the title row's **Actions** menu is the change's, and the right end of the tab
-row carries **Terminal ▾**: the actions that fit the window you are on — a prompt for the agent
-window you are looking at, a command for a plain shell — and then the terminal cheat sheet. Each
+The title row's **Actions** menu is the change's and the window's at once: the change's endings
+first, then the actions that fit the window you are on — a prompt for the agent window you are
+looking at, a command for a plain shell — and the terminal cheat sheet. Each
 action is a file on disk; the **Actions** and **Subagents** pages list
 these files and say where they live, with a **Repositories** block per active change: pick the
 change, see what its checkouts carry, and create, edit or delete those files like any other. New

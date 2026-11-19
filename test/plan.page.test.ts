@@ -141,13 +141,14 @@ test.skipIf(!usable)(
       await page.waitForSelector(".md-editor .cm-line");
       await loaded(page);
 
-      // The editor is the tab's content, exactly: it reaches the window's edges the terminal
-      // reaches — no padding around it. (Briefing the agent is the terminal page's action menu
-      // now, so there is no floating button over the corner.)
+      // The editor is the tab's content, exactly: the document is a surface inset from the
+      // window's edge by the page's margin (14px) and its hairline, and fills what it is given.
+      // (Briefing the agent is the change's Actions menu now, so there is no floating button over
+      // the corner.)
       const frame = await page.locator(".plan-page .md-editor").boundingBox();
       if (!frame) throw new Error("the plan editor did not lay out");
-      expect(Math.abs(frame.x + frame.width - 1280)).toBeLessThan(5);
-      expect(Math.abs(frame.y + frame.height - 900)).toBeLessThan(5);
+      expect(Math.abs(frame.x + frame.width - (1280 - 15))).toBeLessThan(5);
+      expect(Math.abs(frame.y + frame.height - (900 - 15))).toBeLessThan(5);
       // The two tab rows are one block of chrome on this tab too: nothing between them.
       const bar = await page.locator(".change-bar").boundingBox();
       const tabs = await page.locator(".change-tabs").boundingBox();

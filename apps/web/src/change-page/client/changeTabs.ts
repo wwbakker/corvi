@@ -2,7 +2,7 @@
  * The tabs on a change's page, and which one a URL names. Pure, so the fallback rule can be
  * pinned without a renderer: an id that is not one of the core's pages, and not a tab an
  * extension offered, is the plan — the tab a change opens on — so a stale URL still shows
- * something rather than a blank page. "Review changes" is an extension tab now, so the URL follows the extension's enablement
+ * something rather than a blank page. "Changes" is an extension tab now, so the URL follows the extension's enablement
  * rather than being core.
  */
 
@@ -14,7 +14,7 @@ const CORE: ReadonlySet<string> = new Set(["dashboard", "plan", "terminals", "tr
 
 /** The tabs the nav shows: the change's Plan first — where a change opens — then the core's
  * Dashboard, then the extensions' tabs in load order — the review extension's
- * "Review changes" among them when it is enabled. A finished change ends with its Transcripts: the
+ * "Changes" among them when it is enabled. A finished change ends with its Transcripts: the
  * agent sessions kept when it was archived. A contributed id that would shadow a core page is
  * dropped. */
 export const changeNav = (

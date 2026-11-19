@@ -43,7 +43,7 @@ afterAll(async () => {
 });
 test("the review tab is offered only when the extension is enabled, and its URL otherwise falls back", () => {
   const enabled = changeTabsFor(ws({ settings: { extensions: ["review"] } }));
-  expect(enabled).toEqual([{ id: "review", title: "Review changes", extension: "review" }]);
+  expect(enabled).toEqual([{ id: "review", title: "Changes", extension: "review" }]);
   expect(resolveChangePage("review", enabled)).toEqual({ kind: "tab", tab: enabled[0]! });
   // A workspace that dropped review has no tab for it, and /changes/:id/review is the plan,
   // where a change opens — not a blank page.

@@ -1347,9 +1347,15 @@ test.skipIf(!usable)(
     await page.keyboard.down(forceSelect);
     const selBox = await screen.boundingBox();
     if (selBox === null) throw new Error("the terminal has no box");
-    await page.mouse.move(selBox.x + 2, selBox.y + 2);
+    // The screen's corners are rounded (docs/manual/interface.md), so the drag starts and ends
+    // inside the curve: the gesture is "across the screen", and its ends do not have to be the
+    // last pixels of a corner the surface does not have.
+    const inset = 18;
+    await page.mouse.move(selBox.x + inset, selBox.y + inset);
     await page.mouse.down();
-    await page.mouse.move(selBox.x + selBox.width - 2, selBox.y + selBox.height - 2, { steps: 12 });
+    await page.mouse.move(selBox.x + selBox.width - inset, selBox.y + selBox.height - inset, {
+      steps: 12,
+    });
     await page.mouse.up();
     await page.keyboard.up(forceSelect);
     await until(async () => (await terminalSelection(page)).trim().length > 0, true, budget(10_000));

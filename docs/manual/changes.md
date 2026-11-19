@@ -153,7 +153,7 @@ follows the file when it changes outside Corvi — an agent or an IDE editing it
 are in flight it asks, with **Reload** and **Keep mine**, before either version goes away. A
 finished change's plan is a read-only record.
 
-The **Review changes** tab shows per-repository staged/unstaged changes and diffs. Its commit and
+The **Changes** tab shows per-repository staged/unstaged changes and diffs. Its commit and
 push actions are described in [integrations and included features](integrations.md#review-changes).
 Repository menus can open the relevant checkout in the file manager or IntelliJ when available.
 
@@ -229,7 +229,7 @@ close pull requests or move tickets. The result lists what remains open, and whi
 work was shelved.
 
 Nothing is lost by cancelling. Uncommitted changes to tracked files and untracked files go onto a
-shelf (see [Review changes](integrations.md#review-changes)) before the worktree is removed — an
+shelf (see [Changes](integrations.md#changes)) before the worktree is removed — an
 idea's worktree is a real checkout and no exception — so they are neither refused nor asked
 about. Ignored files (build output) are not kept. A checkout in the middle of a merge with
 unresolved conflicts is refused: resolve them first. Unpushed commits still require

@@ -30,7 +30,7 @@ import { ChangeControls } from "./ChangeControls.tsx";
 import { ChangeDashboard } from "./ChangeDashboard.tsx";
 import { PlanPage } from "./PlanPage.tsx";
 import { TranscriptsPage } from "./TranscriptsPage.tsx";
-import { RunMenu } from "../../actions/RunMenu.tsx";
+import { useTerminalActions } from "../../actions/terminalActions.ts";
 import { TabHost, type WidgetInfo } from "../../integrations/client.tsx";
 import { DashboardIcon, PageIcon, PlanIcon, ReviewIcon } from "../../app-root/icons.tsx";
 
@@ -334,7 +334,7 @@ export function ChangeView({
             : outcome._tag === "Conflicts"
               ? `${repository}: the shelved work conflicts in ${outcome.files.join(", ")} — resolve it; the shelf is kept`
               : outcome._tag === "NotClean"
-                ? `${repository}: the checkout has changes, so the shelf was not applied; apply it from Review changes`
+                ? `${repository}: the checkout has changes, so the shelf was not applied; apply it from the Changes tab`
                 : `${repository}: the shelf was not applied (${outcome.reason}); it is kept`,
         );
         setNotice(lines.length ? `Reopened. ${lines.join(" · ")}` : "Reopened.");
@@ -386,6 +386,17 @@ export function ChangeView({
     onCopyDescription: copyDescription,
     onComplete: () => complete(),
     onCancel: () => cancel(),
+  });
+
+  // The windows' actions are the change's menu's too: one menu, with the change's own endings at
+  // the top and the window's work under them (actions/terminalActions.ts).
+  const terminalActions = useTerminalActions({
+    changeId: id,
+    windows,
+    disabled: blocked,
+    onOpenCheatSheet: () => setCheatSheet(true),
+    onRan: () => setFocusRequest((n) => n + 1),
+    onNotice: setNotice,
   });
 
   // The nav the page shows, and which of its tabs is current. A URL naming an id nobody offers
@@ -443,19 +454,6 @@ export function ChangeView({
           setFocusRequest((n) => n + 1);
         }}
       />
-      <span className="spacer" />
-      {/* The key reference is the terminal's: on the other views the row is the change's own tabs
-          and windows, and the key reference would say nothing about them. The menu holds the key
-          reference beside the actions this window may run (`actions/RunMenu.tsx`). */}
-      {active.kind === "terminals" && (
-        <RunMenu
-          changeId={id}
-          windows={windows}
-          disabled={blocked}
-          onOpenCheatSheet={() => setCheatSheet(true)}
-          onRan={() => setFocusRequest((n) => n + 1)}
-        />
-      )}
     </div>
   );
 
@@ -477,7 +475,8 @@ export function ChangeView({
           change={change}
           idea={idea}
           blocked={blocked}
-          actions={actions}
+          actions={[...actions, ...terminalActions.actions]}
+          onActionsOpen={terminalActions.refresh}
           draft={draft}
           onDraft={setDraft}
           onRename={commitRename}
