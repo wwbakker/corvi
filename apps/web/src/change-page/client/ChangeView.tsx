@@ -14,7 +14,6 @@ import { useCached } from "../../app-root/cache.ts";
 import { FORMAT_VERSION, isFinished } from "../../domain/change.ts";
 import type { RemoteAvailabilityReasonDto } from "@corvi/contracts/availability";
 import { changeKey, useChangeClient, useSourceAvailability } from "../../app-root/sources.ts";
-import { StaleMarker } from "../../app-root/RemoteAvailability.tsx";
 import { LifecycleFailures } from "../../app-root/LifecycleFailures.tsx";
 import { TerminalPane } from "../../terminals/client/TerminalPane.tsx";
 import { CheatSheet } from "../../terminals/client/CheatSheet.tsx";
@@ -25,14 +24,15 @@ import { forceQuestion, completionRefusal } from "./refusals.ts";
 import { WindowTabs } from "../../terminals/client/WindowTabs.tsx";
 import type { Page } from "../../app-root/Sidebar.tsx";
 import { changeNav, resolveChangePage, type ChangeTabInfo } from "./changeTabs.ts";
-import { forgetChange, lastViewOf, seeView } from "../../app-root/remember.ts";
+import { forgetChange, seeView } from "../../app-root/remember.ts";
 import { changeActions } from "./changeActions.ts";
 import { ChangeControls } from "./ChangeControls.tsx";
 import { ChangeDashboard } from "./ChangeDashboard.tsx";
 import { PlanPage } from "./PlanPage.tsx";
 import { TranscriptsPage } from "./TranscriptsPage.tsx";
-import { RunMenu } from "../../actions/RunMenu.tsx";
+import { useTerminalActions } from "../../actions/terminalActions.ts";
 import { TabHost, type WidgetInfo } from "../../integrations/client.tsx";
+import { DashboardIcon, PageIcon, PlanIcon, ReviewIcon } from "../../app-root/icons.tsx";
 
 /** The message to show for whatever a request threw: typed client errors and plain errors both
  * carry one. */
@@ -334,7 +334,7 @@ export function ChangeView({
             : outcome._tag === "Conflicts"
               ? `${repository}: the shelved work conflicts in ${outcome.files.join(", ")} — resolve it; the shelf is kept`
               : outcome._tag === "NotClean"
-                ? `${repository}: the checkout has changes, so the shelf was not applied; apply it from Review changes`
+                ? `${repository}: the checkout has changes, so the shelf was not applied; apply it from the Changes tab`
                 : `${repository}: the shelf was not applied (${outcome.reason}); it is kept`,
         );
         setNotice(lines.length ? `Reopened. ${lines.join(" · ")}` : "Reopened.");
@@ -388,6 +388,17 @@ export function ChangeView({
     onCancel: () => cancel(),
   });
 
+  // The windows' actions are the change's menu's too: one menu, with the change's own endings at
+  // the top and the window's work under them (actions/terminalActions.ts).
+  const terminalActions = useTerminalActions({
+    changeId: id,
+    windows,
+    disabled: blocked,
+    onOpenCheatSheet: () => setCheatSheet(true),
+    onRan: () => setFocusRequest((n) => n + 1),
+    onNotice: setNotice,
+  });
+
   // The nav the page shows, and which of its tabs is current. A URL naming an id nobody offers
   // — a tab that has gone, a typo — resolves to the plan, so the page still renders.
   const nav = changeNav(tabs ?? [], { finished });
@@ -400,17 +411,36 @@ export function ChangeView({
   const activeWindow = windows.find((window) => window.active);
   const activePaneId = activeWindow?.activePane ?? activeWindow?.id ?? null;
 
-  /** The window's own row: the change's terminals as tabs, and — on the terminal page — the key
-   * reference. The change's name is deliberately not here: the navigation column carries it, and the
-   * row is the window's, so both of a change's pages still begin the same way
-   * (docs/manual/interface.md). */
-  const changeHeader = (
-    <header className="change-bar">
+  /** The change's views, and its terminal windows beside them, in one row under the title: a view
+   * and a window are both one click away, and the separator is what says they are different kinds
+   * of thing. The key reference belongs to the terminal alone. */
+  const changeTabs = (
+    <div className="change-tabs">
+      <nav className="tabs views">
+        {nav.map((tab) => (
+          <button
+            key={tab.id}
+            className={activeId === tab.id ? "tab current" : "tab"}
+            onClick={() => onOpenPage(tab.id)}
+          >
+            <span className="ic" aria-hidden="true">
+              {tab.id === "plan" ? (
+                <PlanIcon title={tab.title} />
+              ) : tab.id === "dashboard" ? (
+                <DashboardIcon title={tab.title} />
+              ) : tab.id === "review" ? (
+                <ReviewIcon title={tab.title} />
+              ) : (
+                <PageIcon title={tab.title} />
+              )}
+            </span>
+            {tab.title}
+          </button>
+        ))}
+      </nav>
+      <span className="tab-separator" aria-hidden="true" />
       <WindowTabs
-        // Which surface is on screen, not which of the change's tabs: this row is the change's
-        // views against its terminals, and the row below says which of those views. An unknown
-        // segment resolves to the plan, which is one of them.
-        page={active.kind}
+        terminals={active.kind === "terminals"}
         windows={windows}
         platform={platform}
         disabled={blocked}
@@ -423,53 +453,38 @@ export function ChangeView({
           // refocus only runs while it is visible, so the dashboard is unaffected.
           setFocusRequest((n) => n + 1);
         }}
-        onOpenOverview={() => onOpenPage(lastViewOf(key))}
       />
-      <span className="spacer" />
-      {blocked && <StaleMarker>unavailable</StaleMarker>}
-      {/* The key reference is the terminal's: on the other views the row below carries the
-          change's own tabs, state and actions instead. The menu holds the key reference beside
-          the actions this window may run (apps/web/src/actions/RunMenu.tsx). */}
-      {active.kind === "terminals" && (
-        <RunMenu
-          changeId={id}
-          windows={windows}
-          disabled={blocked}
-          onOpenCheatSheet={() => setCheatSheet(true)}
-          onRan={() => setFocusRequest((n) => n + 1)}
-        />
-      )}
-    </header>
+    </div>
   );
 
   return (
-    <div className={active.kind === "terminals" ? "page terminal-page" : "page"}>
-      {/* The window's title bar and the change's own row are one sticky block: nothing sits
-          between them, so a taller window's row cannot push the change's row out of place. */}
+    <div
+      className={
+        active.kind === "terminals"
+          ? "page terminal-page"
+          : active.kind === "dashboard"
+            ? "page dashboard-page"
+            : "page"
+      }
+    >
+      {/* The title row and the tab row are one sticky block: nothing sits between them, and the
+          wrapper carries the stickiness so neither row needs an offset that tracks the other's
+          height. The title row is the window's in the app; the row under it is the change's. */}
       <div className="change-chrome">
-        {/* The window's title bar: a tab per terminal, and — on the terminal page — the key
-            reference. The same row on both of a change's pages. */}
-        {changeHeader}
-        {/* The change's own views, and the change's state and actions at the tabs' height: they
-            belong to the change rather than to any one of its views, and the row that says which
-            view you are in is where they fit — under the window's row rather than in it. */}
-        {active.kind !== "terminals" && (
-          <ChangeControls
-            nav={nav}
-            activeId={activeId}
-            change={change}
-            idea={idea}
-            blocked={blocked}
-            actions={actions}
-            draft={draft}
-            onDraft={setDraft}
-            onOpenPage={onOpenPage}
-            onRename={commitRename}
-            onState={moveTo}
-            reopening={reopening}
-            onReopen={reopen}
-          />
-        )}
+        <ChangeControls
+          change={change}
+          idea={idea}
+          blocked={blocked}
+          actions={[...actions, ...terminalActions.actions]}
+          onActionsOpen={terminalActions.refresh}
+          draft={draft}
+          onDraft={setDraft}
+          onRename={commitRename}
+          onState={moveTo}
+          reopening={reopening}
+          onReopen={reopen}
+        />
+        {changeTabs}
       </div>
       <CheatSheet
         open={cheatSheet}
@@ -515,47 +530,59 @@ export function ChangeView({
       {/* A completed or cancelled change's observer failures: the operation itself succeeded, so
           these are reported on its response rather than rendered as a failure of the change. */}
       <LifecycleFailures results={after} />
-      {active.kind === "dashboard" && (
-        <ChangeDashboard
-          id={id}
-          change={change}
-          infos={infos}
-          widgets={widgets}
-          generation={generation}
-          blocked={blocked}
-          completing={completing}
-          onSaved={saved}
-          onFinished={setChange}
-          onOpenPage={onOpenPage}
-        />
+      {/* The view slot: one wrapper for whichever change view is showing, keyed by that view, so
+          arriving at a view is the transition — core views and extension tabs alike, with no list
+          of roots to maintain. `display: contents` keeps the wrapper out of the layout. The
+          terminal is the one view that stays mounted, so it arrives with a class instead. */}
+      {active.kind !== "terminals" && (
+        <div className="view-slot" key={activeId}>
+          {active.kind === "dashboard" && (
+            <ChangeDashboard
+              id={id}
+              change={change}
+              infos={infos}
+              widgets={widgets}
+              generation={generation}
+              blocked={blocked}
+              completing={completing}
+              onSaved={saved}
+              onFinished={setChange}
+              onOpenPage={onOpenPage}
+            />
+          )}
+          {/* The plan is the change's own document: it stays visible once the work starts, and is
+              a read-only record once the change is over. Its own tab — a document of the change,
+              not a card beside its status — between the dashboard and the tabs extensions
+              contribute. */}
+          {active.kind === "plan" &&
+            (change ? (
+              <PlanPage
+                changeId={id}
+                source={source}
+                generation={sourceGeneration}
+                readOnly={isFinished(change) || blocked}
+              />
+            ) : (
+              <p className="hint">loading…</p>
+            ))}
+          {active.kind === "transcripts" && <TranscriptsPage changeId={id} />}
+          {/* An extension's own tab. It gets the change, which may still be loading: nothing to
+              hand it means a hint rather than a crash. */}
+          {active.kind === "tab" &&
+            (change ? (
+              <TabHost key={active.tab.id} info={active.tab} change={change} workspace={change.workspace} />
+            ) : (
+              <p className="hint">loading…</p>
+            ))}
+        </div>
       )}
-      {/* The plan is the change's own document: it stays visible once the work starts, and is a
-          read-only record once the change is over. Its own tab — a document of the change, not
-          a card beside its status — between the dashboard and the tabs extensions contribute. */}
-      {active.kind === "plan" &&
-        (change ? (
-          <PlanPage
-            changeId={id}
-            source={source}
-            generation={sourceGeneration}
-            readOnly={isFinished(change) || blocked}
-          />
-        ) : (
-          <p className="hint">loading…</p>
-        ))}
-      {active.kind === "transcripts" && <TranscriptsPage changeId={id} />}
-      {/* An extension's own tab. It gets the change, which may still be loading: nothing to
-          hand it means a hint rather than a crash. */}
-      {active.kind === "tab" &&
-        (change ? (
-          <TabHost key={active.tab.id} info={active.tab} change={change} workspace={change.workspace} />
-        ) : (
-          <p className="hint">loading…</p>
-        ))}
       {/* The terminal page's pane: the only place a pty is attached, so it is unmounted while a
           non-terminal view shows and re-attaches when you come back. */}
       {terminalOpened && (
-        <div className="terminal-host" hidden={active.kind !== "terminals"}>
+        <div
+          className={active.kind === "terminals" ? "terminal-host view-arrives" : "terminal-host"}
+          hidden={active.kind !== "terminals"}
+        >
           <TerminalPane
             changeId={id}
             url={terminal.url}

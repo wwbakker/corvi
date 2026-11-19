@@ -38,6 +38,8 @@ import { MenuIcon } from "./icons.tsx";
 import { useContextMenu } from "./contextMenu.ts";
 import { SessionGate } from "./SessionGate.tsx";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../domain/chrome.ts";
+import { coloursOf, CORVI_COLOURS } from "../domain/theme.ts";
+import { applyChangeColours, applyStoredTheme } from "./theme.ts";
 import type { SettingsView } from "../settings/model.ts";
 import { ActionsPage } from "../actions/ActionsPage.tsx";
 import { SubagentsPage } from "../subagents/SubagentsPage.tsx";
@@ -289,6 +291,9 @@ function App(): JSX.Element {
   // The plan is the tab's content and takes its frame, so its page gives up the padding the
   // way the terminal's does — the editor is the content area, exactly.
   const onPlan = view.name === "change" && view.page === "plan";
+  // The dashboard is the page: its content column is sized so the cards can fill what the chrome
+  // leaves instead of guessing the chrome's height.
+  const onDashboard = view.name === "change" && view.page === "dashboard";
   // The terminals belong to the changes, not to the page you are on: the column lists every
   // change's windows, whichever change you are looking at. Pushed by the server, so this costs
   // one connection and no polling.
@@ -308,6 +313,21 @@ function App(): JSX.Element {
     Boolean(change?.completedAt),
     onTerminal || wantsTerminal,
   );
+
+  // Spaces lights the page with the open change's own colour pair; the overview, the wizard and
+  // the pages that belong to no change keep Corvi's own pair. The values are what the theme's sky
+  // reads, and it glides from one pair to the next (`--hue-a`/`--hue-b` in styles.css).
+  const changeColours = change === undefined ? CORVI_COLOURS : coloursOf(change.id, isIdeation(change));
+  // Which change the pair belongs to, so only a real move between two changes glides: the first
+  // pair of a page load, and a move to or from the overview, are painted.
+  const colourSource = useRef<string | null>(null);
+  const colourKey = change === undefined ? "" : `${change.source ?? ""}\u0000${change.id}`;
+  useEffect(() => {
+    const previous = colourSource.current;
+    const animate = previous !== null && previous !== "" && colourKey !== "" && previous !== colourKey;
+    colourSource.current = colourKey;
+    applyChangeColours(changeColours, animate);
+  }, [changeColours.from, changeColours.to, colourKey]);
 
   // Navigating pushes a history entry; Back and a reload both land on the same page. A page
   // with unsaved edits publishes a leave guard (app-root/navigation.ts); while it is dirty, the
@@ -549,7 +569,7 @@ function App(): JSX.Element {
           name={viewedName}
           onSettings={() => setView({ name: "settings" })}
         />
-        <main className={onTerminal || onPlan ? "content flush" : "content"}>
+        <main className={`content${onTerminal || onPlan ? " flush" : ""}${onDashboard ? " dashboard" : ""}`}>
           {view.name === "home" && (
             <Home
               changes={changes}
@@ -700,6 +720,11 @@ function App(): JSX.Element {
     </div>
   );
 }
+
+// The theme this device chose, before the first render. `index.html`'s own script already set it
+// ahead of the first paint; this applies it again for what a small script trusts and this module
+// validates, and puts the sky's follow and the browser chrome on it.
+applyStoredTheme();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

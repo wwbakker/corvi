@@ -170,6 +170,60 @@ try {
   await page.locator(".template-choice", { hasText: "Reviewer" }).click();
   await shot("13-subagents-picker");
   await page.locator("dialog.template-picker").getByRole("button", { name: "Cancel" }).click();
+
+  // A change's own page and the looks it can wear. The change is the instance's own (these
+  // captures are meant for an isolated one, seeded with a change); without one they are skipped
+  // rather than making data on somebody's real instance.
+  const changes = (await fetch(`${url}/api/changes`).then((response) => response.json())) as {
+    id: string;
+    state?: string;
+  }[];
+  // A change that has started, when there is one: its dashboard has the state cards beside the
+  // documents, which is what the picture is for.
+  const change = (changes.find((record) => record.state !== "Ideation") ?? changes[0])?.id;
+  if (change === undefined) {
+    console.log("no change on this instance: the change-page, theme and terminal shots were skipped");
+  } else {
+    const changeUrl = (page: string): string => `${url}/changes/${encodeURIComponent(change)}/${page}`;
+    // Dusk is the default, and the one the manual's pictures are taken in.
+    await page.context().addCookies([{ name: "corvi:theme", value: "dusk", url }]);
+    await page.goto(changeUrl("dashboard"), { waitUntil: "domcontentloaded" });
+    await page.waitForSelector(".change-bar .change-name");
+    await page.waitForTimeout(500);
+    await shot("14-change-dashboard");
+
+    // Every theme, on the same page: the four looks the choice offers, in Settings' order.
+    for (const theme of ["ultramarine", "raven", "spaces"]) {
+      await page.context().addCookies([{ name: "corvi:theme", value: theme, url }]);
+      await page.goto(changeUrl("dashboard"), { waitUntil: "domcontentloaded" });
+      await page.waitForSelector(".change-bar .change-name");
+      await page.waitForTimeout(500);
+      await shot(`15-theme-${theme}`);
+    }
+
+    // Back to Dusk for the terminal: the page's chrome and an attached shell.
+    await page.context().addCookies([{ name: "corvi:theme", value: "dusk", url }]);
+    await page.goto(changeUrl("terminals"), { waitUntil: "domcontentloaded" });
+    await page.waitForSelector(".terminal-screen .xterm-screen");
+    await page.waitForTimeout(800);
+    // Two harmless commands in the change's own checkout, so the capture shows a screen with a
+    // shell in it rather than an empty one. Nothing outside the checkout is touched.
+    await page.locator(".terminal-screen").click();
+    await page.keyboard.type("echo 'corvi terminal on a host session'");
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(300);
+    await page.keyboard.type("ls");
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(400);
+    await shot("18-change-terminal");
+
+    // Where the theme is chosen: the Appearance section of Settings.
+    await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "Appearance" }).click();
+    await page.waitForSelector(".theme-choices");
+    await page.waitForTimeout(300);
+    await shot("19-settings-appearance");
+  }
 } finally {
   if (errors.length) console.log("console errors:\n" + errors.join("\n"));
   await browser.close();

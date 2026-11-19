@@ -1,17 +1,17 @@
-/** The terminal page's menu: the actions this window may run, then the terminal cheat sheet, behind
- * the one button that replaced it.
+/** The actions a change's terminal windows may run, as entries of the change's own **Actions** menu.
  *
- * The list is fetched when the menu opens — discovery is per request, so an edited or newly
- * written file shows up on the next open — and the client names an action by key when running
- * one. The text never leaves the machine. After a run the notice names the window it went to,
- * and the keyboard goes back to the terminal (`focusRequest`): every run owes that. */
-import { type JSX, useState } from "react";
+ * There is one menu on a change page: the title row's. It carries the change's lifecycle actions
+ * and, under them, the window's — these. The list is fetched when the menu opens (discovery is per
+ * request, so an edited or newly written file shows up on the next open), the client names an
+ * action by key when running one, and the text never leaves the machine. After a run the notice
+ * names the window it went to and the keyboard goes back to the terminal. */
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ChangeId } from "@corvi/contracts/changes";
 import type { ActionSummaryDto, RunActionResultDto } from "@corvi/contracts/actions";
 import type { TerminalWindow } from "../domain/terminal.ts";
 import { useChangeClient } from "../app-root/sources.ts";
-import { ActionsMenu, type Action } from "../app-root/ActionsMenu.tsx";
+import type { Action } from "../app-root/ActionsMenu.tsx";
 
 /** What kind of window is on screen. The agent kind is the presented icon — the app's
  * presenters read pi's own `@agent_status` for it. */
@@ -45,12 +45,14 @@ export const noticeFor = (label: string, result: RunActionResultDto): string => 
   return result.submitted ? `Sent to ${where}` : `Pasted into ${where} — read it and send it`;
 };
 
-export function RunMenu({
+/** The terminal entries of the change's Actions menu, and the way to refresh them. */
+export function useTerminalActions({
   changeId,
   windows,
   disabled,
   onOpenCheatSheet,
   onRan,
+  onNotice,
 }: {
   changeId: string;
   /** This change's windows, so the filter can see what is on screen. */
@@ -58,21 +60,38 @@ export function RunMenu({
   /** The change's workspace is unavailable: the cheat sheet is local and still offered, but no
    * action that would reach the remote is. */
   disabled?: boolean;
+  /** The cheat sheet is the page's dialog: the menu only asks for it. */
   onOpenCheatSheet: () => void;
   /** The keyboard goes back to the terminal after a run. */
   onRan: () => void;
-}): JSX.Element {
+  /** What the page says after a run: the window it went to, or why it could not run. */
+  onNotice: (message: string | null) => void;
+}): { actions: Action[]; refresh: () => void } {
   const client = useChangeClient();
   const [actions, setActions] = useState<readonly ActionSummaryDto[]>([]);
-  const [notice, setNotice] = useState<string | null>(null);
-  const active = windows.find((w) => w.active);
+  const clear = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  const say = (message: string): void => {
-    setNotice(message);
-    setTimeout(() => setNotice(null), 2500);
-  };
+  // A notice is the page's, not the menu's: it outlives the menu closing on the way to the run.
+  useEffect(() => () => clearTimeout(clear.current), []);
+
+  const say = useCallback(
+    (message: string | null): void => {
+      clearTimeout(clear.current);
+      onNotice(message);
+      if (message !== null) clear.current = setTimeout(() => onNotice(null), 2500);
+    },
+    [onNotice],
+  );
+
+  const refresh = useCallback((): void => {
+    client.actions
+      .list(ChangeId.make(changeId))
+      .then(setActions)
+      .catch((e: Error) => say(e.message));
+  }, [client, changeId, say]);
 
   const run = (found: ActionSummaryDto): void => {
+    const active = windows.find((w) => w.active);
     onRan();
     client.actions
       .run(ChangeId.make(changeId), found.key, active?.id)
@@ -80,10 +99,15 @@ export function RunMenu({
       .catch((e: Error) => say(e.message));
   };
 
-  const items: Action[] = [
+  // The run entries first, then the cheat sheet: the menu's last section is reading, not doing.
+  const active = windows.find((w) => w.active);
+  const entries: Action[] = [
     // Named and disabled, not hidden: an unavailable workspace's actions explain themselves the
     // way the change's own menu does, and the cheat sheet (local) stays usable.
-    ...applicableActions(actions, active).map((found) => ({
+    ...applicableActions(actions, active).map((found, index) => ({
+      // The change's own endings sit above this block, and the line is where they stop being
+      // the menu's subject: what follows runs in a window.
+      separated: index === 0,
       disabled: disabled === true,
       // Workspace and repository actions carry their source ("review — orders-api"), so the
       // same id from two checkouts is two entries, each saying whose it is.
@@ -104,18 +128,5 @@ export function RunMenu({
     { label: "terminal cheat sheet", separated: true, onSelect: onOpenCheatSheet },
   ];
 
-  return (
-    <>
-      {notice && <span className="summary">{notice}</span>}
-      <ActionsMenu
-        actions={items}
-        onOpen={() =>
-          client.actions
-            .list(ChangeId.make(changeId))
-            .then(setActions)
-            .catch((e: Error) => say(e.message))
-        }
-      />
-    </>
-  );
+  return { actions: entries, refresh };
 }

@@ -1,8 +1,22 @@
-import { type JSX, useEffect, useRef, useState } from "react";
+import { type CSSProperties, type JSX, useEffect, useRef, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
 import type { Change } from "./api.ts";
 import { stateClass } from "./stateClass.ts";
-import { CiIcon, TerminalIcon, AgentIcon, GearIcon, PowerIcon, RefreshIcon, UpdateIcon } from "./icons.tsx";
+import {
+  BoltIcon,
+  ChangesIcon,
+  CiIcon,
+  TerminalIcon,
+  AgentIcon,
+  GearIcon,
+  LeftoversIcon,
+  PageIcon,
+  PlusIcon,
+  PowerIcon,
+  RefreshIcon,
+  SubagentsIcon,
+  UpdateIcon,
+} from "./icons.tsx";
 import { byWorkOrder, IDEATION, isFinished, isIdeation, type ChangeSummary } from "../domain/change.ts";
 import { TRAFFIC_LIGHTS } from "../domain/chrome.ts";
 import type { TerminalWindow } from "../domain/terminal.ts";
@@ -12,8 +26,10 @@ import { draftLabel, type Draft } from "../wizard/draft.ts";
 import { getPref, setPref } from "./prefs.ts";
 import { ALL, type Workspace } from "../workspace/client/workspaces.ts";
 import { ActionsMenu } from "./ActionsMenu.tsx";
+import { RavenMark } from "./RavenMark.tsx";
 import { hostOf } from "./host.ts";
 import type { AppUpdateStatus } from "../app-update/model.ts";
+import { coloursOf } from "../domain/theme.ts";
 import { PowerDialog } from "../power/PowerDialog.tsx";
 import { usePower } from "../power/state.ts";
 
@@ -244,18 +260,22 @@ export function Sidebar({
     // One thing is highlighted at a time. On a terminal that thing is the window, not the
     // change it belongs to: two highlights would be two answers to "where am I".
     const here = selected && page !== "terminals";
+    // The pair Spaces draws beside the name; the other themes never show it (`--change-mark`).
+    const colours = coloursOf(c.id, isIdeation(c));
     return (
       <div key={changeKey(c.source ?? "", c.id)} className="change-entry">
         <button
           // The bar down the left is the change's own state, in the usual colours.
           className={`entry sub change ${stateClass(c.state)}${here ? " current" : ""}`}
           title={c.branch}
+          style={{ "--change-a": colours.from, "--change-b": colours.to } as CSSProperties}
           onClick={() => onOpenChange(c)}
         >
           {/* One line: the change's name, and how it is doing. The branch is the tooltip above,
               which is where the id has gone — it is what the branch starts with, and the row has
               room for one of the two. */}
           <span className="top">
+            <span className="swatch" aria-hidden="true" />
             <span className="subject">{c.title ?? c.branch}</span>
             <Icons
               summary={summaries[`${changeKey(c.source ?? "", c.id)}@${generationOf(c.source ?? "")}`]}
@@ -294,11 +314,15 @@ export function Sidebar({
 
   return (
     <nav className={open ? "sidebar open" : "sidebar"} style={{ width }}>
-      {/* The window's own top row: on macOS the traffic lights sit here, and in the app window it
-          is what you drag the window by (apps/web/src/domain/chrome.ts). The switcher moves up into it so
-          the column's first row lines up with the page's strip beside it. A browser has no lights
-          and nothing to drag, and the row is where the switcher has always been. */}
+      {/* The brand row: the raven, the app's name, and which client's world this is. In the app
+          window it is the top of the window — the lights sit in it on macOS, and the whole row is
+          what you drag the window by (apps/web/src/domain/chrome.ts) — so it clears them and lines
+          up with the page's title row beside it. A browser has no lights and nothing to drag, and
+          the row is where the brand has always been. */}
       <div className="band">
+        <RavenMark />
+        <span className="brand-name">Corvi</span>
+        <span className="spacer" />
         {/* Which client's world this is. Everything below is what that context contains, so it
             belongs above everything rather than beside it. Always shown, even with one
             workspace: which context you are in should be visible, not implied. */}
@@ -322,12 +346,23 @@ export function Sidebar({
       </div>
 
       {/* The overview. The way to start one left this row for the Ideas heading below, where the
-          entries it adds to begin. */}
+          entries it adds to begin. The icon says what the list is; the count says how much work
+          is in it, quietly, at the row's right. */}
       <button
         className={current || extPage || actions || settings || wizard ? "entry" : "entry current"}
         onClick={onHome}
       >
-        Changes
+        <span className="ic" aria-hidden="true">
+          <ChangesIcon title="changes" />
+        </span>
+        <span className="label">Changes</span>
+        {/* The number is drawn for the eye; the row's name stays "Changes", which is what it is
+            called everywhere else. */}
+        {live.length > 0 && (
+          <em className="count" aria-hidden="true">
+            {live.length}
+          </em>
+        )}
       </button>
       <div className="list">
         {/* Ideas first, under their own heading: they are the newest thing and the one thing you
@@ -339,10 +374,11 @@ export function Sidebar({
           <button
             className="create"
             title={newBlocked === true ? "this workspace is unavailable" : "start a new idea"}
+            aria-label="new idea"
             disabled={newBlocked}
             onClick={onNew}
           >
-            New
+            <PlusIcon title="new idea" />
           </button>
         </div>
         {/* The draft is not a change yet — nothing has been written — so it appears as an idea
@@ -356,6 +392,7 @@ export function Sidebar({
               onClick={onNew}
             >
               <span className="top">
+                <span className="swatch" aria-hidden="true" />
                 <span className="subject">{draftLabel(draft)}</span>
               </span>
             </button>
@@ -371,11 +408,18 @@ export function Sidebar({
           then the extensions' pages, offered as the server lists them — a context without the
           extension has no entry, not an empty one. Settings stays hardcoded below: it is the
           core's own too, but where you go once in a while rather than while working. */}
+      <p className="group-label workspace-label">Workspace</p>
       <button className={`entry${actions ? " current" : ""}`} onClick={onActions}>
-        Actions
+        <span className="ic" aria-hidden="true">
+          <BoltIcon title="actions" />
+        </span>
+        <span className="label">Actions</span>
       </button>
       <button className={`entry${subagents ? " current" : ""}`} onClick={onSubagents}>
-        Subagents
+        <span className="ic" aria-hidden="true">
+          <SubagentsIcon title="subagents" />
+        </span>
+        <span className="label">Subagents</span>
       </button>
       {pages.map((p) => (
         <button
@@ -383,7 +427,10 @@ export function Sidebar({
           className={extPage === p.id ? "entry current" : "entry"}
           onClick={() => onPage(p.id)}
         >
-          {p.title}
+          <span className="ic" aria-hidden="true">
+            {p.id === "leftovers" ? <LeftoversIcon title={p.title} /> : <PageIcon title={p.title} />}
+          </span>
+          <span className="label">{p.title}</span>
         </button>
       ))}
 

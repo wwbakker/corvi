@@ -132,9 +132,14 @@ copy failure does not make worktree creation fail.
 
 ## Dashboard and review
 
+A change's page is its title row — name, id, branch, state and actions — over one tab row holding
+its views and terminal windows; [the interface](interface.md#change-views) describes both.
+
 The dashboard shows the notes beside independently loaded integration status cards: local
 worktrees, Jira, GitHub pull requests/checks, and Azure pipeline runs where enabled.
-Narrow windows stack documents before status cards.
+Narrow windows stack documents before status cards. The columns reach the bottom of the window and
+the last card in each grows into what is left, so a wide window does not end in an empty band under
+the cards.
 
 A card that owns something editable carries a pencil in its header, the same way the Local
 changes card's repository editor does. The Jira and GitHub issues cards re-point their change at
@@ -148,7 +153,7 @@ follows the file when it changes outside Corvi — an agent or an IDE editing it
 are in flight it asks, with **Reload** and **Keep mine**, before either version goes away. A
 finished change's plan is a read-only record.
 
-The **Review changes** tab shows per-repository staged/unstaged changes and diffs. Its commit and
+The **Changes** tab shows per-repository staged/unstaged changes and diffs. Its commit and
 push actions are described in [integrations and included features](integrations.md#review-changes).
 Repository menus can open the relevant checkout in the file manager or IntelliJ when available.
 
@@ -224,7 +229,7 @@ close pull requests or move tickets. The result lists what remains open, and whi
 work was shelved.
 
 Nothing is lost by cancelling. Uncommitted changes to tracked files and untracked files go onto a
-shelf (see [Review changes](integrations.md#review-changes)) before the worktree is removed — an
+shelf (see [Changes](integrations.md#changes)) before the worktree is removed — an
 idea's worktree is a real checkout and no exception — so they are neither refused nor asked
 about. Ignored files (build output) are not kept. A checkout in the middle of a merge with
 unresolved conflicts is refused: resolve them first. Unpushed commits still require

@@ -1,4 +1,4 @@
-/** The Actions page: the files behind the terminal page's menu, one row per file, by scope. The
+/** The Actions page: the files behind the change's Actions menu, one row per file, by scope. The
  * shared `FileListPage` holds the list/editor/create frame; this supplies the actions API, editor
  * and words. */
 import { type JSX } from "react";
@@ -24,7 +24,7 @@ export function ActionsPage({
       view="actions"
       pageClass="actions-page"
       title="Actions"
-      hint="The terminal page's menu runs these. Each action is one file — YAML frontmatter for where it goes, the body for what it says — and saving writes that file at once."
+      hint="The change's Actions menu runs these. Each action is one file — YAML frontmatter for where it goes, the body for what it says — and saving writes that file at once."
       empty="no actions yet"
       repositoryHint={
         <>

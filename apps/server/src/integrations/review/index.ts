@@ -50,11 +50,11 @@ const withChange = <E, R>(
 
 export default {
   name: "review",
-  title: "Review changes",
+  title: "Changes",
 
   // The change's local-changes tab: uncommitted work across every repository, and the diff of
   // the selected file.
-  changeTabs: [{ id: "review", title: "Review changes" }],
+  changeTabs: [{ id: "review", title: "Changes" }],
 
   routes: [
     {

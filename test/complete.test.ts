@@ -1135,8 +1135,9 @@ test("changeActions: the endings are last and apart, and an idea ends by discard
     onComplete: noop,
     onCancel: noop,
   };
-  // A started change: the name, the copy, then the two endings — Complete and Cancel — the
-  // first of them set apart from what can still be undone.
+  // A started change: the name, the copy, then the two endings — Complete and Cancel. The
+  // menu's one dividing line is not here: it separates these from the window's actions, which
+  // follow them (apps/web/src/actions/terminalActions.ts).
   const active = changeActions({ ...base, idea: false });
   expect(active.map((a) => a.label)).toEqual([
     "Rename change",
@@ -1144,7 +1145,7 @@ test("changeActions: the endings are last and apart, and an idea ends by discard
     "Complete change",
     "Cancel change",
   ]);
-  expect(active.filter((a) => a.separated).map((a) => a.label)).toEqual(["Complete change"]);
+  expect(active.filter((a) => a.separated)).toEqual([]);
   expect(active.at(-1)?.title).toContain("nothing is merged");
   // The readiness poll is the hover's orientation; the click re-checks.
   const ready = changeActions({

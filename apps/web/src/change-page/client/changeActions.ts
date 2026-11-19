@@ -62,7 +62,6 @@ export function changeActions(spec: {
         { label: "Copy PR description", onSelect: spec.onCopyDescription },
         {
           label: completing ? "Completing…" : "Complete change",
-          separated: true,
           disabled: completing,
           title: completion?.ready
             ? "Ready to complete"

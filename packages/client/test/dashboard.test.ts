@@ -16,7 +16,7 @@ test("the dashboard reads hit their named paths and decode their payloads", asyn
         ]);
       if (url.endsWith("/tabs"))
         return Response.json({
-          tabs: [{ id: "review", title: "Review changes", extension: "review" }],
+          tabs: [{ id: "review", title: "Changes", extension: "review" }],
         });
       if (url.endsWith("/widgets"))
         return Response.json({

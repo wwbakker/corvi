@@ -121,11 +121,17 @@ const painted = (page: Page): Promise<Painted[]> =>
     }),
   );
 
-const heading = "rgb(108, 182, 255)"; // --md-heading
-const code = "rgb(126, 231, 135)"; // --md-code
-const link = "rgb(163, 113, 247)"; // --md-link
-const quote = "rgb(139, 147, 161)"; // --md-quote
-const mark = "rgb(86, 95, 108)"; // --md-mark
+/** A token's value in the form the painted spans report, resolved by the browser: the sheet is
+ * what the editor follows, so a retuned token is a retuned expectation, not a broken test. */
+const resolved = (page: Page, token: string): Promise<string> =>
+  page.evaluate((name) => {
+    const probe = document.createElement("span");
+    probe.style.color = `var(${name})`;
+    document.body.append(probe);
+    const colour = getComputedStyle(probe).color;
+    probe.remove();
+    return colour;
+  }, token);
 
 test.skipIf(!usable)(
   "the plan tab shows the markup as source: every character visible, colored like an editor",
@@ -135,13 +141,14 @@ test.skipIf(!usable)(
       await page.waitForSelector(".md-editor .cm-line");
       await loaded(page);
 
-      // The editor is the tab's content, exactly: it reaches the window's edges the terminal
-      // reaches — no padding around it. (Briefing the agent is the terminal page's action menu
-      // now, so there is no floating button over the corner.)
+      // The editor is the tab's content, exactly: the document is a surface inset from the
+      // window's edge by the page's margin (14px) and its hairline, and fills what it is given.
+      // (Briefing the agent is the change's Actions menu now, so there is no floating button over
+      // the corner.)
       const frame = await page.locator(".plan-page .md-editor").boundingBox();
       if (!frame) throw new Error("the plan editor did not lay out");
-      expect(Math.abs(frame.x + frame.width - 1280)).toBeLessThan(5);
-      expect(Math.abs(frame.y + frame.height - 900)).toBeLessThan(5);
+      expect(Math.abs(frame.x + frame.width - (1280 - 15))).toBeLessThan(5);
+      expect(Math.abs(frame.y + frame.height - (900 - 15))).toBeLessThan(5);
       // The two tab rows are one block of chrome on this tab too: nothing between them.
       const bar = await page.locator(".change-bar").boundingBox();
       const tabs = await page.locator(".change-tabs").boundingBox();
@@ -153,8 +160,16 @@ test.skipIf(!usable)(
       expect(await onDisk()).toBe(source);
 
       // Colored like an editor colors it: structure in color, emphasis in weight/slant/strike,
-      // the marks dim. The exact values are the tokens' (markdownTheme.test.ts); this pins that
-      // they survive to the DOM.
+      // the marks dim. The expected values are the theme's own tokens, resolved here: what is
+      // pinned is that they reach the DOM, not which shade the default theme happens to use.
+      const { text, heading, code, link, quote, mark } = {
+        text: await resolved(page, "--text"),
+        heading: await resolved(page, "--md-heading"),
+        code: await resolved(page, "--md-code"),
+        link: await resolved(page, "--md-link"),
+        quote: await resolved(page, "--md-quote"),
+        mark: await resolved(page, "--md-mark"),
+      };
       const spans = await painted(page);
       const look = (text: string): Omit<Painted, "text"> | undefined => {
         const found = spans.find((s) => s.text.trim() === text);
@@ -175,19 +190,19 @@ test.skipIf(!usable)(
         decoration: "none",
       });
       expect(look("bold")).toEqual({
-        color: "rgb(223, 227, 234)",
+        color: text,
         weight: "700",
         style: "normal",
         decoration: "none",
       });
       expect(look("italic")).toEqual({
-        color: "rgb(223, 227, 234)",
+        color: text,
         weight: "400",
         style: "italic",
         decoration: "none",
       });
       expect(look("struck")).toEqual({
-        color: "rgb(223, 227, 234)",
+        color: text,
         weight: "400",
         style: "normal",
         decoration: "line-through",
@@ -322,7 +337,7 @@ test.skipIf(!usable)(
 
       expect(await editorText(page.locator(".wizard-plan .md-editor"))).toBe("# Starting **plan**");
       const spans = await painted(page);
-      expect(spans.find((s) => s.text === "#")?.color).toBe(mark);
+      expect(spans.find((s) => s.text === "#")?.color).toBe(await resolved(page, "--md-mark"));
       expect(spans.find((s) => s.text === "plan")?.weight).toBe("700");
 
       // The heading is the title's one-way source: the read-only field follows it, and the id

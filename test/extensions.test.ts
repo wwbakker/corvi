@@ -249,7 +249,7 @@ test("an extension's page is offered only in a context that has it", () => {
 });
 test("a change tab is offered only in a context that has the integration", () => {
   expect(changeTabsFor(ws({ settings: { extensions: ["review"] } }))).toEqual([
-    { id: "review", title: "Review changes", extension: "review" },
+    { id: "review", title: "Changes", extension: "review" },
   ]);
   // A context that dropped review has no tab for it, not an empty one.
   expect(changeTabsFor(ws({ settings: { extensions: ["notes"] } }))).toEqual([]);

@@ -1,4 +1,5 @@
 {
+  "//": "background_color and theme_color are Dusk's --bg (apps/web/src/app-root/styles.css), the default theme: the splash and the installed window's frame wear the same colour the page starts in.",
   "name": "Corvi",
   "short_name": "Corvi",
   "description": "One dashboard for a change: tickets, worktrees, pull requests and pipelines.",
@@ -7,8 +8,8 @@
   "display": "standalone",
   "display_override": ["tabbed", "standalone"],
   "tab_strip": { "new_tab_button": { "url": "/" } },
-  "background_color": "#14161a",
-  "theme_color": "#14161a",
+  "background_color": "#07062a",
+  "theme_color": "#07062a",
   "icons": [
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },

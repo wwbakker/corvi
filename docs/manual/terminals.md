@@ -55,27 +55,29 @@ agent conversation. Those are separate planned capabilities.
 A change in a remote workspace has terminals too, with one difference: its host session — the
 shell, the CLIs, and any agent — runs on the **remote** machine. The page attaches to it through
 the local client's gateway, and the scrollback the server keeps is the remote server's. The
-window strip, the status channel, and attaching all work the same way wherever the session runs.
+window tabs, the status channel, and attaching all work the same way wherever the session runs.
 
 ## Windows and navigation
 
-Windows appear under their change in the navigation column and in the strip above the terminal. A
-default label is where the shell is, named relative to the change — `corvi`,
+Windows appear under their change in the navigation column and as tabs in the change's one tab
+row, after its views. A default label is where the shell is, named relative to the change —
+`corvi`,
 `corvi/packages/terminals` — with the process in its foreground in brackets: `corvi (gradle)` while
 a build runs, `corvi (zsh)` at a prompt. The place is the directory the shell announces as you
 `cd`, so it stays put while a command takes the terminal's own title over. A shell that announces
 no directory is named by its terminal title instead, and then by the window's directory. An
 action's label or an agent's own session name wins over both, and a name you gave wins over
-everything. There is no session manager underneath — a window
-*is* a host session, and the strip switches between them. When more windows exist than fit, the
-strip wraps to a second row instead of showing a horizontal scrollbar. The strip is capped at two
-rows and scrolls once there are more; the **Actions** menu sits vertically centred in the strip.
+everything. There is no session manager underneath — a window *is* a host session, and the tabs
+switch between them. The views and the windows are one bar: when more windows exist than fit,
+they wrap onto another line at the row's left edge instead of showing a horizontal scrollbar, and
+the row grows with them. The window's actions — the ones that fit the window you are on, and the
+terminal cheat sheet — are entries of the change's **Actions** menu in the title row.
 
-The new-window control, **Cmd-T** on macOS or **Ctrl-Alt-T** on Linux, creates another host session
-in the current window's directory. It becomes the current window. Work that opens a window in the
-background — an action run, a subagent — does not: it leaves the terminal you are looking at
+The **+** at the end of the row — **Cmd-T** on macOS, **Ctrl-Alt-T** on Linux — creates another
+host session in the current window's directory. It becomes the current window. Work that opens a
+window in the background — an action run, a subagent — does not: it leaves the terminal you are looking at
 selected, so an idle shell is never taken over by something you did not open. Explicitly opening a
-terminal — a strip tab, a notification, or a subagent entry — selects it. In a normal Chrome tab,
+terminal — a window tab, a notification, or a subagent entry — selects it. In a normal Chrome tab,
 Cmd-T remains a browser shortcut; the desktop app can deliver it to Corvi. Keyboard focus stays
 with the terminal while switching windows.
 
@@ -84,7 +86,7 @@ right-click menu holds Copy, Paste, Select all, Clear, Find and Open link. A dot
 that arrived while you were looking elsewhere.
 
 A window's name can be changed from its tab: right-click the tab and pick **Rename**. The name
-replaces the default label everywhere the label is shown — the strip, the navigation column and
+replaces the default label everywhere the label is shown — the tab row, the navigation column and
 notifications — and it wins over the name an action or an agent reports. A split window still says
 how many panes it holds, after the name. The tab's tooltip still says where the window is and what
 runs in it. An empty field restores the default. The name belongs to the window rather than to the
@@ -115,7 +117,7 @@ not a pane; a crashed agent's status is cleared when its host session ends.
 | session name | free text | the session's own name, once the agent has one. |
 | message | free text | the first sentence (at most 180 characters) of the last answer. |
 
-Corvi's window strip reads those facts (as the `@agent_*` window options the presenter declares),
+Corvi's window tabs read those facts (as the `@agent_*` window options the presenter declares),
 through the CLI/HTTP store first and the host's OSC parse as the fallback: the session name
 becomes the window's label, the status colours the icon and decides whether a notification is
 owed (the edge from working to waiting, except for a subagent — see [Attention
@@ -176,7 +178,7 @@ A transition from working to waiting can notify you when you are not actively lo
 window. Selecting the same change is not enough to suppress it if another view/window is active.
 A subagent never notifies: its settled turn is waiting for its orchestrator (`corvi subagent
 await`, the dashboard's subagent card), not for you, so it raises no attention edge — the window
-strip and the subagent card still show its state. Notification sound is configurable. With no connected page,
+tab and the subagent card still show its state. Notification sound is configurable. With no connected page,
 there is no server-side OS notifier.
 Several waiting windows can notify separately; each uses a stable window identity.
 

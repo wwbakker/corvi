@@ -86,7 +86,7 @@ test("a state becomes one class, lowercased with spaces as dashes", () => {
 });
 
 test("a change's page id resolves to the core, an offered tab, or the plan", () => {
-  const review = { id: "review", title: "Review changes", extension: "review" };
+  const review = { id: "review", title: "Changes", extension: "review" };
   const tab = { id: "ci", title: "CI", extension: "ci" };
   const tabs = [review, tab];
 
@@ -94,7 +94,7 @@ test("a change's page id resolves to the core, an offered tab, or the plan", () 
   expect(resolveChangePage("plan", tabs)).toEqual({ kind: "plan" });
   expect(resolveChangePage("terminals", tabs)).toEqual({ kind: "terminals" });
   expect(resolveChangePage("ci", tabs)).toEqual({ kind: "tab", tab });
-  // "Review changes" is an extension tab now, so it resolves through the offered list.
+  // "Changes" is an extension tab now, so it resolves through the offered list.
   expect(resolveChangePage("review", tabs)).toEqual({ kind: "tab", tab: review });
 
   // An id nobody offered — a stale URL, a tab the extension stopped declaring, `review` on a
@@ -115,14 +115,14 @@ test("the change nav is the plan, the dashboard, and then the extensions' tabs i
   ]);
   expect(
     changeNav([
-      { id: "review", title: "Review changes", extension: "review" },
+      { id: "review", title: "Changes", extension: "review" },
       { id: "ci", title: "CI", extension: "ci" },
       { id: "jira", title: "Issues", extension: "jira" },
     ]),
   ).toEqual([
     { id: "plan", title: "Plan" },
     { id: "dashboard", title: "Dashboard" },
-    { id: "review", title: "Review changes" },
+    { id: "review", title: "Changes" },
     { id: "ci", title: "CI" },
     { id: "jira", title: "Issues" },
   ]);
@@ -219,12 +219,10 @@ test("only an abort is an abort", () => {
 });
 
 test("a finished change's nav ends with its transcripts, and only a finished change resolves them", () => {
-  expect(
-    changeNav([{ id: "review", title: "Review changes", extension: "review" }], { finished: true }),
-  ).toEqual([
+  expect(changeNav([{ id: "review", title: "Changes", extension: "review" }], { finished: true })).toEqual([
     { id: "plan", title: "Plan" },
     { id: "dashboard", title: "Dashboard" },
-    { id: "review", title: "Review changes" },
+    { id: "review", title: "Changes" },
     { id: "transcripts", title: "Transcripts" },
   ]);
   expect(resolveChangePage("transcripts", [], { finished: true })).toEqual({ kind: "transcripts" });

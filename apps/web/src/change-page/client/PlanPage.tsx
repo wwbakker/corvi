@@ -20,8 +20,8 @@ import { useSavedText } from "../../editor/client/useSavedText.ts";
  * reload, or keep what is here. A save is based on the revision it read, so a plan that moved
  * underneath is refused rather than overwritten.
  *
- * Briefing the agent about it is the terminal page's action menu
- * (apps/web/src/actions/RunMenu.tsx), not this page's.
+ * Briefing the agent about it is the change's Actions menu
+ * (apps/web/src/actions/terminalActions.ts), not this page's.
  */
 export function PlanPage({
   changeId,

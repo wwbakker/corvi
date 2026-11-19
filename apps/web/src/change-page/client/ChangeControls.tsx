@@ -1,39 +1,34 @@
 import { type JSX } from "react";
 import { CHANGE_STATES, IDEATION, type Change, type ChangeState } from "../../app-root/api.ts";
 import { ActionsMenu, type Action } from "../../app-root/ActionsMenu.tsx";
+import { BranchIcon } from "../../app-root/icons.tsx";
+import { StaleMarker } from "../../app-root/RemoteAvailability.tsx";
 import { stateClass } from "../../app-root/stateClass.ts";
 import { isFinished } from "../../domain/change.ts";
 
 /**
- * The change's own controls, at the tabs' height: which view is showing, what the change is
- * called, where it stands, and its actions. They belong to the change rather than to any one of
- * its views — under the window's row rather than in it (docs/manual/interface.md).
+ * The change's title row: what the change is (its name, id and branch), where it stands, and its
+ * actions. In the app window this row is the title bar — the band you drag the window by — so it
+ * holds no tabs: the views and the terminal windows share the row under it.
  *
- * The name is typed here, in the row the menu that asks for it lives in: the window's own row
- * says nothing about the change. The rows are labels for what follows them and the actions menu
- * is the one that ends things — so the endings sit under the state they end.
+ * The name is typed here, in the row the menu that asks for it lives in. Every field is a label
+ * for what follows the row, and the actions menu is the one that ends things, so the endings sit
+ * under the state they end.
  */
 export function ChangeControls({
-  nav,
-  activeId,
   change,
   idea,
   blocked,
   actions,
+  onActionsOpen,
   draft,
   onDraft,
-  onOpenPage,
   onRename,
   onState,
   reopening = false,
   onReopen,
 }: {
-  /** The change's views: the core's, then the extensions' tabs in load order. */
-  nav: { id: string; title: string }[];
-  /** Which of them is showing. */
-  activeId: string;
-  /** The record, while it is still on its way: the tabs are shown already, the controls with
-   * it. */
+  /** The record, while it is still on its way: the row shows the page's shape, the fields wait. */
   change: Change | undefined;
   /** Whether this change is still an idea: its state is not yours to pick. */
   idea: boolean;
@@ -41,10 +36,11 @@ export function ChangeControls({
    * the transport gate would refuse them, and the UI must not offer a mutation it cannot make. */
   blocked?: boolean;
   actions: Action[];
+  /** Called when the actions menu opens: the terminal's entries are discovered afresh then. */
+  onActionsOpen?: () => void;
   /** The name being typed, or null while the field is shut. */
   draft: string | null;
   onDraft: (value: string | null) => void;
-  onOpenPage: (id: string) => void;
   /** Commit the name being typed: its blur, trimmed. */
   onRename: (title: string) => void;
   /** Move the change to another state. */
@@ -53,67 +49,71 @@ export function ChangeControls({
   /** Undo a cancellation; only a cancelled change offers it. */
   onReopen?: () => void;
 }): JSX.Element {
+  const name = change?.title ?? change?.branch ?? "";
+  // The states a started change may move between: the ones it is in, not the ones it ends in (a
+  // word is not a merge), and not Ideation (there is no going back over a branch that exists).
+  const states: ChangeState[] =
+    change === undefined
+      ? []
+      : [
+          ...CHANGE_STATES.filter((s) => s !== IDEATION && !isFinished({ ...change, state: s })),
+          // A change that has already ended still shows its own state, because a menu cannot
+          // display what it does not offer.
+          ...(isFinished(change) ? [change.state ?? "Completed"] : []),
+        ];
   return (
-    <div className="change-tabs">
-      <nav className="tabs">
-        {nav.map((tab) => (
-          <button
-            key={tab.id}
-            className={activeId === tab.id ? "tab current" : "tab"}
-            onClick={() => onOpenPage(tab.id)}
-          >
-            {tab.title}
-          </button>
-        ))}
-      </nav>
-      <span className="spacer" />
+    <header className="change-bar">
+      <div className="change-title">
+        {draft === null ? (
+          <h1 className="change-name" title={name}>
+            {name}
+          </h1>
+        ) : (
+          <input
+            className="subject"
+            autoFocus
+            value={draft}
+            placeholder="what this change is about"
+            disabled={blocked === true}
+            onChange={(e) => onDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") onDraft(null);
+              if (e.key === "Enter") e.currentTarget.blur();
+            }}
+            onBlur={() => onRename(draft.trim())}
+          />
+        )}
+        {change && (
+          <>
+            <span className="change-branch" title={change.branch}>
+              <BranchIcon title="branch" />
+              <span className="change-branch-name">{change.branch}</span>
+            </span>
+          </>
+        )}
+      </div>
+      {blocked && <StaleMarker>unavailable</StaleMarker>}
       {change && (
         <>
-          {draft !== null && (
-            <input
-              className="subject"
-              autoFocus
-              value={draft}
-              placeholder="what this change is about"
-              disabled={blocked === true}
-              onChange={(e) => onDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") onDraft(null);
-                if (e.key === "Enter") e.currentTarget.blur();
-              }}
-              onBlur={() => onRename(draft.trim())}
+          {/* The state is a menu, not a native select: the list has to look like the page's other
+              menus, and a select's dropdown is the platform's to paint. Where the state is not
+              yours to pick — an idea, or a workspace that cannot be written — it is a chip with
+              no menu behind it. */}
+          {idea || blocked === true ? (
+            <span className={`state-chip ${stateClass(change.state)}`}>{change.state}</span>
+          ) : (
+            <ActionsMenu
+              className={`state ${stateClass(change.state)}`}
+              label={change.state ?? "Implementation"}
+              actions={states.map((state) => ({
+                label: state,
+                // The state you are in is not something to move to: it would be a write that
+                // changes nothing.
+                disabled: state === change.state,
+                onSelect: () => onState(state),
+              }))}
             />
           )}
-          <select
-            className={stateClass(change.state)}
-            value={change.state ?? "Implementation"}
-            // An idea's state is not yours to pick: starting the work is what leaves it, and
-            // that does more than a word (see the actions). An unavailable workspace cannot
-            // write the state either, so the select is disabled rather than refused on click.
-            disabled={idea || blocked === true}
-            // Your own view of where the change stands; completing it sets "Completed".
-            onChange={(e) => onState(e.target.value as ChangeState)}
-          >
-            {/* An idea shows its one state. A started change offers the states you are in, not
-                the ones a change ends in, and not `Ideation` — there is no going back over a
-                branch that now exists. Picking "Completed" from a list would set the word
-                without merging anything, removing a worktree or archiving the change — a label
-                that lies. Ending a change is Complete or Cancel, which do the work. A change
-                that has already ended still shows its own state, because a select cannot
-                display what it does not offer. */}
-            {idea ? (
-              <option>{IDEATION}</option>
-            ) : (
-              <>
-                {CHANGE_STATES.filter((s) => !isFinished({ ...change, state: s }) && s !== IDEATION).map(
-                  (s) => (
-                    <option key={s}>{s}</option>
-                  ),
-                )}
-                {isFinished(change) && <option>{change.state}</option>}
-              </>
-            )}
-          </select>
           {isFinished(change) ? (
             <>
               {/* How it ended, not only that it did: a change that was abandoned is not one that
@@ -135,10 +135,10 @@ export function ChangeControls({
               )}
             </>
           ) : (
-            <ActionsMenu actions={actions} />
+            <ActionsMenu actions={actions} className="actions" onOpen={onActionsOpen} />
           )}
         </>
       )}
-    </div>
+    </header>
   );
 }

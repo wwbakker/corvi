@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dusk">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -10,9 +10,36 @@
          makes, and the icons to the /icons route the server already serves. -->
     <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png" />
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
-    <meta name="theme-color" content="#14161a" />
     <meta name="apple-mobile-web-app-title" content="Corvi" />
     <link rel="stylesheet" href="./styles.css" />
+    <!-- The theme is this device's cookie (apps/web/src/app-root/prefs.ts). Running after the
+         stylesheet and before the first paint, this means a device on Raven, Spaces or Ultramarine
+         never sees a frame of Dusk. `app-root/theme.ts` applies the stored choice again, with the
+         validation a small script in the page does not do. -->
+    <script>
+      (() => {
+        const found = document.cookie.split("; ").find((entry) => entry.startsWith("corvi:theme="));
+        if (found) {
+          try {
+            document.documentElement.dataset.theme = decodeURIComponent(found.slice("corvi:theme=".length));
+          } catch {
+            // Not valid percent-encoding: not a theme. The sheet keeps Dusk.
+          }
+        }
+        // The browser chrome takes the page's background, read from the sheet rather than copied
+        // here; app-root/theme.ts keeps it up to date after a switch.
+        const background = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+        if (background) {
+          let meta = document.querySelector('meta[name="theme-color"]');
+          if (!meta) {
+            meta = document.createElement("meta");
+            meta.setAttribute("name", "theme-color");
+            document.head.append(meta);
+          }
+          meta.setAttribute("content", background);
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

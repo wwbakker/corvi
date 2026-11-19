@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { applicableActions, noticeFor } from "../apps/web/src/actions/RunMenu.tsx";
+import { applicableActions, noticeFor } from "../apps/web/src/actions/terminalActions.ts";
 import type { ActionSummaryDto } from "@corvi/contracts/actions";
 import type { TerminalWindow } from "../apps/web/src/domain/terminal.ts";
 

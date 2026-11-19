@@ -606,7 +606,7 @@ test.skipIf(!usable)(
   "the window strip is the server's registry: a new tab is its own shell",
   async () => {
     const { page, dir } = await openTerminal(id);
-    const tabs = page.locator(".window-tab:not(.new):not(.overview)");
+    const tabs = page.locator(".window-tab:not(.new)");
     await tabs.first().waitFor({ timeout: 15_000 });
     expect(await tabs.count()).toBe(1);
 
@@ -673,7 +673,7 @@ test.skipIf(!usable)(
   "a window is named where its shell is, with what runs there in brackets",
   async () => {
     const { page, dir } = await openTerminal(id);
-    const tab = page.locator(".window-tab:not(.new):not(.overview)").first();
+    const tab = page.locator(".window-tab:not(.new)").first();
     await tab.waitFor({ timeout: 20_000 });
     const windowId = await tab.getAttribute("data-window-id");
     expect(windowId).toBeTruthy();
@@ -706,7 +706,7 @@ test.skipIf(!usable)(
   "a window can be named from its tab, and the name survives a reload",
   async () => {
     const { page } = await openTerminal(id);
-    const tab = page.locator(".window-tab:not(.new):not(.overview)").first();
+    const tab = page.locator(".window-tab:not(.new)").first();
     await tab.waitFor({ timeout: 20_000 });
     const windowId = await tab.getAttribute("data-window-id");
     expect(windowId).toBeTruthy();
@@ -775,7 +775,7 @@ test.skipIf(!usable)(
   "the tab menu closes on Escape and on a click elsewhere, and never opens on the fixed tabs",
   async () => {
     const { page } = await openTerminal(id);
-    const tab = page.locator(".window-tab:not(.new):not(.overview)").first();
+    const tab = page.locator(".window-tab:not(.new)").first();
     await tab.waitFor({ timeout: 20_000 });
     const menu = page.locator(".window-menu");
     const before = (await tab.locator(".label").innerText()).trim();
@@ -810,8 +810,7 @@ test.skipIf(!usable)(
     await page.locator(".terminal-screen").click();
     expect(await until(() => menu.count(), 0, budget(5_000))).toBe(0);
 
-    // Overview and "new" are the strip's fixed ends, not windows: neither has a menu.
-    await page.locator(".window-tab.overview").click({ button: "right" });
+    // "new" is the strip's fixed end, not a window: it has no menu.
     await page.locator(".window-tab.new").click({ button: "right" });
     await Bun.sleep(300);
     expect(await menu.count()).toBe(0);
@@ -824,7 +823,7 @@ test.skipIf(!usable)(
   "cancelling or escaping a rename keeps the name and gives the terminal the keyboard",
   async () => {
     const { page } = await openTerminal(id);
-    const tab = page.locator(".window-tab:not(.new):not(.overview)").first();
+    const tab = page.locator(".window-tab:not(.new)").first();
     await tab.waitFor({ timeout: 20_000 });
     const defaultLabel = (await tab.locator(".label").innerText()).trim();
     const dialog = page.locator("dialog.window-rename");
@@ -865,7 +864,7 @@ test.skipIf(!usable)(
   "rapid window switching keeps the screen the tab names",
   async () => {
     const { page } = await openTerminal(rapid);
-    const tabs = page.locator(".window-tab:not(.new):not(.overview)");
+    const tabs = page.locator(".window-tab:not(.new)");
     await tabs.first().waitFor({ timeout: 15_000 });
 
     // One marker per window's shell, so the rendered buffer says which screen the pane holds.
@@ -916,7 +915,7 @@ test.skipIf(!usable)(
     expect(await page.locator(".terminal-gone").count()).toBe(0);
     await awaitAttached(page);
     // The list arrives and the strip appears without a reload.
-    await page.locator(".window-tab:not(.new):not(.overview)").first().waitFor({ timeout: 20_000 });
+    await page.locator(".window-tab:not(.new)").first().waitFor({ timeout: 20_000 });
     expect(held).toBeGreaterThan(0);
     await page.close();
   },
@@ -927,7 +926,7 @@ test.skipIf(!usable)(
   "rapid selections settle on the last one when an earlier response is slow",
   async () => {
     const { page } = await openTerminal(rapid);
-    const tabs = page.locator(".window-tab:not(.new):not(.overview)");
+    const tabs = page.locator(".window-tab:not(.new)");
     await tabs.first().waitFor({ timeout: 15_000 });
     // The shared change may already carry windows from an earlier test in this file.
     if ((await tabs.count()) < 2) {
@@ -965,7 +964,7 @@ test.skipIf(!usable)(
   "a failed selection is said, not silently dropped",
   async () => {
     const { page } = await openTerminal(rapid);
-    const tabs = page.locator(".window-tab:not(.new):not(.overview)");
+    const tabs = page.locator(".window-tab:not(.new)");
     await tabs.first().waitFor({ timeout: 15_000 });
     // The shared change may already carry windows from an earlier test in this file.
     if ((await tabs.count()) < 2) {
@@ -1013,7 +1012,7 @@ test.skipIf(!usable)(
   "every window's pty is the size the page shows",
   async () => {
     const { page, dir } = await openTerminal(id);
-    const tabs = page.locator(".window-tab:not(.new):not(.overview)");
+    const tabs = page.locator(".window-tab:not(.new)");
     await tabs.first().waitFor({ timeout: 15_000 });
 
     // (a) the change's first window: its shell starts at the page's grid (the subagent's window is
@@ -1070,7 +1069,7 @@ test.skipIf(!usable)(
   "the grid fills the host and the scrollbar overlays it, hidden until scrolled",
   async () => {
     const { page, dir } = await openTerminal(id);
-    const tabs = page.locator(".window-tab:not(.new):not(.overview)");
+    const tabs = page.locator(".window-tab:not(.new)");
     await tabs.first().waitFor({ timeout: 15_000 });
     // A fresh window: a new shell with no scrollback, so the overlay starts hidden.
     const before = await tabs.count();
@@ -1348,9 +1347,15 @@ test.skipIf(!usable)(
     await page.keyboard.down(forceSelect);
     const selBox = await screen.boundingBox();
     if (selBox === null) throw new Error("the terminal has no box");
-    await page.mouse.move(selBox.x + 2, selBox.y + 2);
+    // The screen's corners are rounded (docs/manual/interface.md), so the drag starts and ends
+    // inside the curve: the gesture is "across the screen", and its ends do not have to be the
+    // last pixels of a corner the surface does not have.
+    const inset = 18;
+    await page.mouse.move(selBox.x + inset, selBox.y + inset);
     await page.mouse.down();
-    await page.mouse.move(selBox.x + selBox.width - 2, selBox.y + selBox.height - 2, { steps: 12 });
+    await page.mouse.move(selBox.x + selBox.width - inset, selBox.y + selBox.height - inset, {
+      steps: 12,
+    });
     await page.mouse.up();
     await page.keyboard.up(forceSelect);
     await until(async () => (await terminalSelection(page)).trim().length > 0, true, budget(10_000));
@@ -1608,7 +1613,7 @@ test.skipIf(!usable)(
       // The terminal's menu is the page's, and the page swallows the click before the handler runs.
       expect(await page.locator(".terminal-menu").count()).toBe(0);
       // The window tab's own menu follows the same setting, from the same capture-phase stopper.
-      const tab = page.locator(".window-tab:not(.new):not(.overview)").first();
+      const tab = page.locator(".window-tab:not(.new)").first();
       await tab.waitFor({ timeout: 20_000 });
       await tab.click({ button: "right" });
       await Bun.sleep(300);
@@ -1863,7 +1868,7 @@ test.skipIf(!usable)(
     expect(await until(async () => (await cursorHidden()) === true, true, budget(10_000))).toBe(true);
 
     // A new window and back: each attach replays through the pane's erase, which shows the cursor.
-    const tabs = page.locator(".window-tab:not(.new):not(.overview)");
+    const tabs = page.locator(".window-tab:not(.new)");
     const before = await tabs.count();
     await page.locator(".window-tab.new").click();
     expect(await until(() => tabs.count(), before + 1)).toBe(before + 1);
@@ -1897,7 +1902,7 @@ test.skipIf(!usable)(
   "a static marker in a continuously-updating window survives a switch and a reconnect",
   async () => {
     const { page } = await openTerminal(live);
-    const tabs = page.locator(".window-tab:not(.new):not(.overview)");
+    const tabs = page.locator(".window-tab:not(.new)");
     await tabs.first().waitFor({ timeout: 15_000 });
 
     // A marker drawn once, then a loop that keeps the screen updating at a fixed position forever:

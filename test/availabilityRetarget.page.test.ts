@@ -167,10 +167,9 @@ test.skipIf(!usable)(
         budget(30_000),
       );
       expect((await content.textContent()) ?? "").toContain("PLAN-READONLY");
-      // The change's own controls are usable while the target is reachable.
-      const phase = page.locator(".change-tabs select");
+      // The change's own controls are usable while the target is reachable: its state is a menu.
+      const phase = page.locator(".change-bar .menu > button").first();
       await until(async () => (await phase.count()) > 0, true, budget(20_000));
-      expect(await phase.isDisabled()).toBe(false);
 
       // Same target goes offline: the document is retained, and the editor is read-only.
       a.close();
@@ -181,9 +180,15 @@ test.skipIf(!usable)(
         budget(30_000),
       );
       expect(await content.getAttribute("contenteditable")).toBe("false");
-      // The phase select must not offer a remote mutation while its workspace is away.
-      await until(async () => await phase.isDisabled(), true, budget(20_000));
-      expect(await phase.isDisabled()).toBe(true);
+      // The state must not offer a remote mutation while its workspace is away: it becomes a
+      // chip with no menu behind it.
+      await until(
+        async () =>
+          (await page.locator(".change-bar .state-chip").count()) > 0 &&
+          (await page.locator(".change-bar .menu").count()) === 1,
+        true,
+        budget(20_000),
+      );
       // The document is retained after the reconfigure settles.
       await until(
         async () => ((await content.textContent()) ?? "").includes("PLAN-READONLY"),

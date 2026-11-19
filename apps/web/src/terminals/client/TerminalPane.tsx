@@ -7,7 +7,7 @@ import {
   type JSX,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { Terminal } from "@xterm/xterm";
+import { Terminal, type ITheme } from "@xterm/xterm";
 import {
   BrowserClipboardProvider,
   ClipboardAddon,
@@ -66,6 +66,17 @@ const clampSelectionEnd = (
  * must read as the app's, and a second copy of the palette here is a copy that drifts. */
 const themeColor = (name: string): string =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+/** xterm holds the colours it is given rather than reading the tokens itself, so it is the reader
+ * that has to be told when the theme changes: it watches `data-theme` (`followTheme`), the
+ * attribute every switch sets. The background is the sheet's well, which is opaque in every theme:
+ * no backdrop blur sits behind a terminal. */
+const terminalTheme = (): ITheme => ({
+  background: themeColor("--well"),
+  foreground: themeColor("--text"),
+  cursor: themeColor("--text"),
+  cursorAccent: themeColor("--well"),
+});
 
 /** Show the cursor after an empty reset: `term.reset()` does not clear DECTCEM, so a cursor a
  * full-screen program hid would otherwise stick. The server's snapshots carry it themselves. */
@@ -268,12 +279,7 @@ export function TerminalPane({
       // The terminal is the deepest surface the app has, and the sheet owns it: xterm takes the
       // background from the same `--well` token (apps/web/src/app-root/styles.css) rather than a
       // second copy of the colour here, which is the kind of pair that drifts.
-      theme: {
-        background: themeColor("--well"),
-        foreground: "#e6edf3",
-        cursor: themeColor("--text"),
-        cursorAccent: themeColor("--well"),
-      },
+      theme: terminalTheme(),
       // Option-drag forces xterm's own selection where a full-screen program has enabled mouse
       // reporting and would otherwise swallow the drag; a program inside the shell can turn
       // reporting on itself.
@@ -298,6 +304,15 @@ export function TerminalPane({
       ),
     );
     term.open(element);
+    // The attribute is the switch, and this reader resolves it itself: a theme change while the
+    // terminal is open re-reads the tokens instead of leaving the old ones on the canvas.
+    const followTheme = new MutationObserver(() => {
+      term.options.theme = terminalTheme();
+    });
+    followTheme.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
     try {
       // Chromium composites hardware-accelerated (the reason for the Electron host); where it
       // cannot, xterm's own renderer takes over rather than leaving a dead canvas.
@@ -348,6 +363,7 @@ export function TerminalPane({
     (element as HTMLElement & { corviTerminal?: Terminal }).corviTerminal = term;
     setGeneration((n) => n + 1);
     return () => {
+      followTheme.disconnect();
       input.dispose();
       binary.dispose();
       selection.dispose();
