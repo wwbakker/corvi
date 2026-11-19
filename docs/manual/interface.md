@@ -50,7 +50,7 @@ keys and the scopes. Its scope bar holds **Global** and one tab per workspace, a
 below the tabs depend on the scope. Four sections behave differently from the settings around
 them:
 
-- **Appearance** (global scope): the four themes, applied as soon as one is picked. The choice
+- **Appearance** (global scope): the five themes, applied as soon as one is picked. The choice
   belongs to this device, not to the config file, so this section has no **Save**; see
   [Themes](#themes).
 - **Remote access** (global scope): **Enable remote access** and the listener's **Port** ride the
@@ -74,9 +74,9 @@ hosts it. Unticking the box switches it back to local; **Remove this context** d
 
 ## Themes
 
-![The four themes in Settings → Appearance](../images/themes.png)
+![The themes in Settings → Appearance](../images/themes.png)
 
-Corvi ships four dark themes, chosen in **Settings → Appearance**:
+Corvi ships five dark themes, chosen in **Settings → Appearance**:
 
 - **Dusk** (the default): the dusk sky behind frosted panels.
 - **Ultramarine**: a solid ultramarine navigation column, a deep-navy page and translucent blue
@@ -85,13 +85,15 @@ Corvi ships four dark themes, chosen in **Settings → Appearance**:
   you orange, and a change's state a filled chip.
 - **Spaces**: every change lights the page with its own colour pair, derived from its id. Ideas and
   the changes overview keep Corvi's own pair — ultramarine and orange.
+- **Classic**: Corvi before the redesign — graphite surfaces, one blue accent, and no sky, glass
+  or glow.
 
 The choice is per device rather than part of `config.json`: it is kept in a browser cookie, so it
 applies to this browser on this machine and survives a restart. Picking a theme applies it at once;
 another tab that is already open keeps the theme it loaded with until it is reloaded.
 
 A theme is a set of the design tokens in `apps/web/src/app-root/styles.css`, and that file is the
-only place a colour is written down. All four themes are dark (`color-scheme: dark`). A terminal's
+only place a colour is written down. All five themes are dark (`color-scheme: dark`). A terminal's
 well stays opaque in every theme, and the menus and find bar that float over it are opaque too, so
 no backdrop blur runs behind a terminal. In Dusk the sky moves with the pointer, by at most 12 by 8
 pixels; reduced motion — including switching that preference on mid-session — stops it. In Spaces,
@@ -176,7 +178,7 @@ bun run app:sandbox 4090 --open
 
 Screenshots use `CORVI_URL` (default `http://127.0.0.1:4000`) and are written under `shots/`.
 Besides the wizard, settings and file pages, the harness captures a change's dashboard in each of
-the four themes, its terminal page and the Appearance section; those need a change on the instance
+the themes, its terminal page and the Appearance section; those need a change on the instance
 (seed an isolated one), and are skipped when there is none. It drives the page in a browser, so it
 does not capture the native macOS title bar — that needs the app on macOS.
 Chromium is the primary engine because Electron uses it. Optional WebKit checks require a

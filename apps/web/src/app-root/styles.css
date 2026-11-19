@@ -332,6 +332,58 @@
   --change-mark: inline-block;
 }
 
+/* Classic: Corvi as it looked before the redesign — graphite surfaces, one blue accent, no sky,
+   no glass. Every token the other themes set is set here, so none of Dusk's defaults show
+   through. Retuned only where the redesign's parts need a tone the original palette did not have
+   (the blurred materials are turned off rather than faked). */
+[data-theme="classic"] {
+  --bg: #14161a;
+  --backdrop: #14161a;
+  --hills: none;
+  --preview: linear-gradient(160deg, #1c1f25 0%, #1c1f25 60%, #316dca 100%);
+
+  --surface: #1c1f25;
+  --surface-blur: none;
+  --well: #0d1117;
+
+  --text: #dfe3ea;
+  --muted: #8b93a1;
+  --faint: #565f6c;
+
+  --accent: #316dca;
+  --info: #6cb6ff;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --error: #f85149;
+  --purple: #a371f7;
+  --ideation: #4cc2c4;
+  --diff-add: #7ee787;
+  --diff-del: #ffa198;
+
+  --md-heading: #6cb6ff;
+  --md-code: #7ee787;
+  --md-link: #a371f7;
+  --md-quote: #8b93a1;
+  --md-mark: #565f6c;
+
+  --line: #2b3038;
+  --selection: color-mix(in srgb, var(--accent) 35%, transparent);
+
+  /* The column is the window's own surface: the original app had one surface across the top of
+     the window and down the left, with the page a shade darker beside it. */
+  --nav: #1c1f25;
+  --nav-blur: none;
+  --nav-text: #dfe3ea;
+  --nav-muted: #8b93a1;
+  --nav-faint: #565f6c;
+  --nav-line: #2b3038;
+  --nav-hover: color-mix(in srgb, var(--surface) 89%, var(--text));
+  --nav-current: color-mix(in srgb, var(--accent) 35%, transparent);
+  --nav-current-text: #ffffff;
+
+  --tab-on: var(--accent);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -1112,6 +1164,10 @@ body.drawer-open {
   margin: 0;
   padding-inline: 20px;
   gap: 12px;
+  /* The page-header rule would give this row the material and the line under it; here the block
+     above carries both, so the two rows are one surface with one line, under the tabs. */
+  background: transparent;
+  border-bottom: 0;
   /* The row's own layer, above the tab row under it: the actions menu opens from here and hangs
      over that row, and both rows are materials (a backdrop filter makes a stacking context), so
      the order has to be stated rather than left to the DOM. */
@@ -3812,6 +3868,18 @@ button.danger:disabled {
    (apps/web/src/actions/ActionEditor.tsx). The frame is the window's height minus the page's
    padding (16px above, 48px below), so the two columns end where the page does and neither can
    hang a scrollbar on the window. */
+/* The file pages stack their cards; the cards get the dashboard's air between them, so the
+   page reads as a column of things rather than one long sheet. */
+.page.actions-page > .widget + .widget,
+.page.subagents-page > .widget + .widget {
+  margin-top: 16px;
+}
+
+.page.actions-page > .hint + .widget,
+.page.subagents-page > .hint + .widget {
+  margin-top: 12px;
+}
+
 .page.actions-page.editing {
   display: flex;
   flex-direction: column;

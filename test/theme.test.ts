@@ -10,10 +10,16 @@ import { CORVI_COLOURS, DEFAULT_THEME, THEMES, themeOf, coloursOf } from "../app
 
 const source = (path: string): Promise<string> => Bun.file(join(import.meta.dir, "..", path)).text();
 
-test("four themes are offered, Dusk first and as the default", () => {
-  expect(THEMES.map((theme) => theme.id)).toEqual(["dusk", "ultramarine", "raven", "spaces"]);
+test("five themes are offered, Dusk first and as the default", () => {
+  expect(THEMES.map((theme) => theme.id)).toEqual(["dusk", "ultramarine", "raven", "spaces", "classic"]);
   expect(THEMES[0]!.id).toBe(DEFAULT_THEME);
-  expect(THEMES.map((theme) => theme.name)).toEqual(["Dusk", "Ultramarine", "Raven Black", "Spaces"]);
+  expect(THEMES.map((theme) => theme.name)).toEqual([
+    "Dusk",
+    "Ultramarine",
+    "Raven Black",
+    "Spaces",
+    "Classic",
+  ]);
   // Every one names what it is, so the picker needs no second table of prose.
   for (const theme of THEMES) expect(theme.blurb.length).toBeGreaterThan(0);
 });

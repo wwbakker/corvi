@@ -7,7 +7,7 @@
  * (`apps/web/src/app-root/theme.ts`).
  */
 
-export type ThemeId = "dusk" | "ultramarine" | "raven" | "spaces";
+export type ThemeId = "dusk" | "ultramarine" | "raven" | "spaces" | "classic";
 
 /** A theme as Settings offers it: the id the stylesheet keys on, and the words beside it. */
 export interface ThemeChoice {
@@ -38,6 +38,11 @@ export const THEMES: readonly ThemeChoice[] = [
     id: "spaces",
     name: "Spaces",
     blurb: "Every change lights the page with its own colour, drawn from its id.",
+  },
+  {
+    id: "classic",
+    name: "Classic",
+    blurb: "Corvi before the redesign: graphite surfaces, one blue accent, and no sky.",
   },
 ];
 

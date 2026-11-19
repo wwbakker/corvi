@@ -104,7 +104,10 @@ export function useTerminalActions({
   const entries: Action[] = [
     // Named and disabled, not hidden: an unavailable workspace's actions explain themselves the
     // way the change's own menu does, and the cheat sheet (local) stays usable.
-    ...applicableActions(actions, active).map((found) => ({
+    ...applicableActions(actions, active).map((found, index) => ({
+      // The change's own endings sit above this block, and the line is where they stop being
+      // the menu's subject: what follows runs in a window.
+      separated: index === 0,
       disabled: disabled === true,
       // Workspace and repository actions carry their source ("review — orders-api"), so the
       // same id from two checkouts is two entries, each saying whose it is.
