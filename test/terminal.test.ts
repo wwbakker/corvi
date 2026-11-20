@@ -1545,14 +1545,26 @@ test.skipIf(!usable)(
     await typeUntilText(page, `echo ${url}`, "hover-me");
     const point = await hoverPointFor(page, url);
     expect(point).not.toBeNull();
-    await page.mouse.move(point!.x, point!.y);
-
-    const tooltip = page.locator(".terminal-link-tooltip");
-    await tooltip.waitFor({ timeout: 10_000 });
-    const text = await tooltip.innerText();
-    expect(text).toContain(url);
     const isMac = await page.evaluate(() => /mac/i.test(navigator.platform));
-    expect(text).toContain(isMac ? "Cmd-click to open" : "Ctrl-click to open");
+    const hint = isMac ? "Cmd-click to open" : "Ctrl-click to open";
+    // The linkifier registers the URL while the line is processed, and a tooltip that arrives
+    // just before a repaint can go again; move onto the link until it shows with its whole text,
+    // and read it in that same moment (a later `innerText` can auto-wait on a tooltip that has
+    // already gone).
+    let text = "";
+    await waitFor(
+      "the link's tooltip with its open hint",
+      async () => {
+        await page.mouse.move(point!.x, point!.y);
+        const tooltip = page.locator(".terminal-link-tooltip").first();
+        if ((await tooltip.count()) === 0 || !(await tooltip.isVisible())) return false;
+        text = (await tooltip.textContent().catch(() => "")) ?? "";
+        return text.includes(url) && text.includes(hint);
+      },
+      budget(15_000),
+    );
+    expect(text).toContain(url);
+    expect(text).toContain(hint);
 
     // Leaving the link hides it.
     await page.mouse.move(5, 5);
