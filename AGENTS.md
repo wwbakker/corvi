@@ -57,6 +57,9 @@ bun run test
 
 Run the **full suite**, not only selected tests. Use `bun run test`, not bare `bun test`: the
 script isolates data and cleans up owned test resources. Report failures and skips honestly.
+A fresh checkout or worktree needs `bun install --frozen-lockfile`, `bunx playwright install
+chromium` and `bun run electron:install` first: the Electron runtime test fails rather than skips
+without its binary ([testing](docs/guides/testing.md)).
 For documentation changes, also check local links and remove references to deleted guidance.
 Do not claim target boundary checks exist before they are implemented.
 

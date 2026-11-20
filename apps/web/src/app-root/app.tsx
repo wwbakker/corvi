@@ -40,6 +40,7 @@ import { SessionGate } from "./SessionGate.tsx";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../domain/chrome.ts";
 import { coloursOf, CORVI_COLOURS } from "../domain/theme.ts";
 import { applyChangeColours, applyStoredTheme } from "./theme.ts";
+import { applyStoredMonoFont, loadSymbolsFont } from "./monoFont.ts";
 import type { SettingsView } from "../settings/model.ts";
 import { ActionsPage } from "../actions/ActionsPage.tsx";
 import { SubagentsPage } from "../subagents/SubagentsPage.tsx";
@@ -725,6 +726,18 @@ function App(): JSX.Element {
 // ahead of the first paint; this applies it again for what a small script trusts and this module
 // validates, and puts the sky's follow and the browser chrome on it.
 applyStoredTheme();
+// The monospace face this device chose, likewise before anything monospace is drawn.
+applyStoredMonoFont();
+// The icon font, before the first render rather than when the first icon needs it. Chromium keeps
+// the boxes it drew for text laid out while the font was still loading (seen in the editor), and a
+// font that lands after the render makes CodeMirror re-measure, so the page shifts under the
+// reader. Locally it takes milliseconds; a slow remote link waits at most this long, then the
+// page renders and the font arrives late.
+const SYMBOLS_FONT_WAIT_MS = 1000;
+await Promise.race([
+  loadSymbolsFont(),
+  new Promise<void>((resolve) => setTimeout(resolve, SYMBOLS_FONT_WAIT_MS)),
+]);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

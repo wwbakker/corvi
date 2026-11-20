@@ -50,9 +50,9 @@ keys and the scopes. Its scope bar holds **Global** and one tab per workspace, a
 below the tabs depend on the scope. Four sections behave differently from the settings around
 them:
 
-- **Appearance** (global scope): the five themes, applied as soon as one is picked. The choice
-  belongs to this device, not to the config file, so this section has no **Save**; see
-  [Themes](#themes).
+- **Appearance** (global scope): the five themes and the monospace font, applied as soon as they
+  are chosen. Both belong to this device, not to the config file, so this section has no
+  **Save**; see [Themes](#themes) and [Monospace font](#monospace-font).
 - **Remote access** (global scope): **Enable remote access** and the listener's **Port** ride the
 draft and are written by **Save**. The Tailscale block publishes the listener to the tailnet —
 **Publish to Tailscale** / **Stop publishing** — shows the published URL, and says why it cannot
@@ -99,6 +99,22 @@ no backdrop blur runs behind a terminal. In Dusk the sky moves with the pointer,
 pixels; reduced motion — including switching that preference on mid-session — stops it. In Spaces,
 switching changes glides from one pair to the next, while arriving at a change from a cold link
 paints its colour instead of animating it.
+
+## Monospace font
+
+Terminals, the plan editor, diffs and identifiers share one monospace font. By default it is the
+system's (SF Mono or Menlo on macOS). **Settings → Appearance → Monospace font** puts an installed
+font in front of it: type the family name as the system lists it — Font Book on macOS, `fc-list :
+family` on Linux; the info icon beside the field says the same. A name that is not installed falls
+back to the default. Like the theme, the choice is kept in a cookie for this device and applies at
+once; a terminal picks it up when it is next shown.
+
+Programs in a terminal often print [Nerd Fonts](https://www.nerdfonts.com) icons — pi's footer,
+prompts, file listings. Those are private-use characters no system font draws, so Corvi serves the
+Nerd Fonts symbols font (`Symbols Nerd Font Mono`) after the text faces, whatever font is chosen.
+`bun install` fetches it, pinned by version and checksum, into `apps/web/fonts` with its licences.
+When that fetch failed (no network during install) the page works as before, the icons show as
+boxes, and the Appearance section says so; `bun run fonts` then `bun run build:web` fixes it.
 
 ## Change views
 

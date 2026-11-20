@@ -19,6 +19,10 @@ test("the page bundle is browser-only", async () => {
     // The page's other assets are built beside it, not fetched at runtime.
     expect(await Bun.file(join(out, "index.html")).exists()).toBe(true);
     expect(await Bun.file(join(out, "styles.css")).exists()).toBe(true);
+    // The icon font `bun install` fetched ships with its licences beside it.
+    for (const file of ["SymbolsNerdFontMono-Regular.ttf", "LICENSE", "README.md"]) {
+      expect(await Bun.file(join(out, "fonts", file)).exists()).toBe(true);
+    }
   } finally {
     await rm(out, { recursive: true, force: true });
   }

@@ -4,3 +4,4 @@ node_modules
 shots/
 /.idea/
 apps/web/dist
+apps/web/fonts
