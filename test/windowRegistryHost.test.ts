@@ -25,7 +25,7 @@ import {
 import { stateDir } from "@corvi/configuration/node";
 import { WINDOW_TITLE_MAX } from "@corvi/contracts/terminal";
 import { TerminalSessions, terminalSessionsLayer } from "../apps/server/src/change/lifecycle-layer.ts";
-import { testTempDir, waitFor } from "./helpers.ts";
+import { budget, testTempDir, waitFor } from "./helpers.ts";
 
 /**
  * The registry's I/O half, against real host windows: new windows persist in order with one
@@ -248,28 +248,40 @@ test("a window holds panes: split adds and focuses one, focus-pane moves, close-
   expect(registry.records(changeId).some((entry) => entry.id === window.id)).toBe(false);
 }, 60_000);
 
-test("closing the last pane does not resurrect the window while its pty lingers", async () => {
-  // A command that ignores SIGHUP: `pty.kill()` cannot end it promptly, so its host session stays
-  // alive after the close. It exits on its own after ~2 s.
-  const ready = join(dir, "lingering-ready.txt");
-  const id = await newWindowRunningAsync(
-    changeId,
-    dir,
-    `trap '' HUP; echo ready > ${ready}; i=0; while [ $i -lt 20 ]; do sleep 0.1; i=$((i+1)); done`,
-    {},
-  );
-  // The trap must be installed before the signal, or the default SIGHUP ends the shell first.
-  await waitFor("the shell to ignore SIGHUP", async () => await Bun.file(ready).exists(), 15_000);
-  await closePaneAsync(changeId, id, id);
-  expect(registry.records(changeId).some((entry) => entry.id === id)).toBe(false);
-  // The tombstone is persisted with the registry, so a restart does not re-adopt the lingering pty.
-  expect(registry.closedIds()).toContain(id);
-  // The lingering session is alive; a rebuild must not re-adopt it and recreate the window.
-  expect((await (await hostClient()).list()).some((entry) => entry.id === id && entry.alive)).toBe(true);
-  const windows = await listWindowsAsync(changeId);
-  expect(windows.some((window) => window.id === id)).toBe(false);
-  expect(registry.records(changeId).some((entry) => entry.id === id)).toBe(false);
-}, 60_000);
+test(
+  "closing the last pane does not resurrect the window while its pty lingers",
+  async () => {
+    // A command that ignores SIGHUP: `pty.kill()` cannot end it promptly, so its host session stays
+    // alive after the close. It exits on its own after ~2 s.
+    const ready = join(dir, "lingering-ready.txt");
+    const id = await newWindowRunningAsync(
+      changeId,
+      dir,
+      `trap '' HUP; echo ready > ${ready}; i=0; while [ $i -lt 20 ]; do sleep 0.1; i=$((i+1)); done`,
+      {},
+    );
+    // The trap must be installed before the signal, or the default SIGHUP ends the shell first.
+    await waitFor("the shell to ignore SIGHUP", async () => await Bun.file(ready).exists(), budget(15_000));
+    await closePaneAsync(changeId, id, id);
+    expect(registry.records(changeId).some((entry) => entry.id === id)).toBe(false);
+    // The tombstone is persisted with the registry, so a restart does not re-adopt the lingering pty.
+    expect(registry.closedIds()).toContain(id);
+    // The lingering session is alive; a rebuild must not re-adopt it and recreate the window.
+    expect((await (await hostClient()).list()).some((entry) => entry.id === id && entry.alive)).toBe(true);
+    const windows = await listWindowsAsync(changeId);
+    expect(windows.some((window) => window.id === id)).toBe(false);
+    expect(registry.records(changeId).some((entry) => entry.id === id)).toBe(false);
+
+    // It ignores SIGHUP, so only its own loop ends it; wait for that here rather than leaving a
+    // live session for the lifecycle stop below (which cannot kill it) to race.
+    await waitFor(
+      "the lingering session to exit on its own",
+      async () => (await (await hostClient()).list()).every((entry) => entry.id !== id || !entry.alive),
+      budget(15_000),
+    );
+  },
+  budget(60_000),
+);
 
 test("adopts a live pane whose window exists, so a crash mid-split leaves no orphan", async () => {
   const window = await newWindowAsync(changeId, dir);
@@ -376,26 +388,30 @@ test("a named pane that is gone is refused; no other session is attached or crea
   await stopHostTerminals(staleChange);
 }, 60_000);
 
-test("completing/cancelling a change stops its host sessions through the lifecycle service", async () => {
-  expect(ids().length).toBeGreaterThan(0);
-  // The product's own stop (the `TerminalSessions` capability `completeChange`/`cancelChange`
-  // call), not the raw windows helper: this is the path a completed change takes.
-  await Effect.runPromise(
-    Effect.provide(
-      Effect.flatMap(TerminalSessions, (sessions) =>
-        sessions.stop(changeId as Parameters<typeof sessions.stop>[0]),
+test(
+  "completing/cancelling a change stops its host sessions through the lifecycle service",
+  async () => {
+    expect(ids().length).toBeGreaterThan(0);
+    // The product's own stop (the `TerminalSessions` capability `completeChange`/`cancelChange`
+    // call), not the raw windows helper: this is the path a completed change takes.
+    await Effect.runPromise(
+      Effect.provide(
+        Effect.flatMap(TerminalSessions, (sessions) =>
+          sessions.stop(changeId as Parameters<typeof sessions.stop>[0]),
+        ),
+        terminalSessionsLayer,
       ),
-      terminalSessionsLayer,
-    ),
-  );
-  expect(registry.records(changeId)).toEqual([]);
-  // The host sessions are killed, not merely forgotten.
-  await waitFor(
-    "the change's host sessions to be gone",
-    async () =>
-      (await (await hostClient()).list()).every(
-        (session) => session.metadata?.change !== changeId || !session.alive,
-      ),
-    15_000,
-  );
-}, 30_000);
+    );
+    expect(registry.records(changeId)).toEqual([]);
+    // The host sessions are killed, not merely forgotten.
+    await waitFor(
+      "the change's host sessions to be gone",
+      async () =>
+        (await (await hostClient()).list()).every(
+          (session) => session.metadata?.change !== changeId || !session.alive,
+        ),
+      budget(15_000),
+    );
+  },
+  budget(60_000),
+);
