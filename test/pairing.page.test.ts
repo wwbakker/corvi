@@ -7,12 +7,14 @@ import { type Browser, type Page } from "playwright";
 import { instanceRecords } from "../apps/cli/src/discovery.ts";
 import { DEVICE_COOKIE } from "../apps/server/src/devices/server/index.ts";
 import {
+  budget,
   closePages,
   openEngine,
   testTempDir,
   startTestServer,
   stopTestServer,
   VIEWPORT,
+  watchPage,
   withPage,
 } from "./helpers.ts";
 
@@ -37,7 +39,7 @@ let server: ReturnType<typeof Bun.spawn>;
 /** A page in a fresh context, with no device cookie: the remote origin treats it as unpaired. */
 const unpairedPage = async (): Promise<Page> => {
   const context = await browser.newContext({ viewport: VIEWPORT });
-  return context.newPage();
+  return watchPage(await context.newPage());
 };
 
 const freePort = async (): Promise<number> => {
@@ -116,9 +118,17 @@ test.skipIf(!usable)(
         });
         await page.getByLabel("Pairing code").fill(created.code);
         await page.getByLabel("This device's name").fill("Remote browser");
+        // The page reloads as soon as the pair resolves. Register the wait before the click, so
+        // the navigation is never missed and the goto below does not start under it.
+        const appReload = page.waitForEvent("framenavigated", {
+          predicate: (frame) => frame === page.mainFrame(),
+          timeout: budget(20_000),
+        });
         await page.getByRole("button", { name: "Pair" }).click();
         for (let i = 0; i < 100 && paired === undefined; i++) await Bun.sleep(50);
         expect(paired?.status).toBe(201);
+        await appReload;
+        await page.waitForLoadState("domcontentloaded");
         // The body page JS sees carries no token.
         expect(paired?.body.device.name).toBe("Remote browser");
         expect(paired?.body).not.toHaveProperty("token");

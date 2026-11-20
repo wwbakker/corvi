@@ -33,6 +33,14 @@ same files. The terminal group is a naming convention, not a semantic one: brows
 merely drive terminal UI (pages, the subagent change page) stay in the rest group. A named group
 whose files are all missing fails with exit 3 rather than falling through to the whole suite.
 
+Add `--repeat=N` to the runner to run the same mode N times without rebuilding, stopping at the
+first failure. A single green run says little about a flake; use it with `-t` to reproduce one
+instead of re-running by hand:
+
+```sh
+bun scripts/test-run.ts e2e-terminal test/terminal.test.ts -t "the tab menu closes" --repeat=10
+```
+
 `bun run boundaries` checks the workspace dependency graph declared in `architecture.json`:
 decoded imports, declared dependencies, deep imports, relative escapes, and cycles for extracted
 packages. Negative fixtures for it live in `test/architecture.test.ts`.
@@ -41,6 +49,26 @@ Use the **complete suite** through `bun run test`. The wrapper isolates the chan
 archive, configuration, and state directory and runs owned-resource cleanup on exit. A focused
 test can help development, but is not completion verification. Bare `bun test` does not provide
 all wrapper safeguards; do not use it as the final check.
+
+## CI and flakes
+
+CI installs Bun 1.4.5 and Node 26.13.1 — the versions the suite is verified in. Keep the
+development checkout on the same pair; an unpinned toolchain makes a CI-only failure look like a
+code failure. The browser jobs run without `--retry`: a test that passes on a later attempt hides
+the defect that reddened it, so a flake is meant to be red. Do not make a job green by adding a
+retry or a longer sleep. Wait for the condition instead — `budget()` scales a deadline,
+`settleLayout()` waits for fonts and for the page's boxes to stop moving before a layout
+measurement, and a gate (the new session exists, the tooltip is visible) beats a guessed pause.
+
+`bun run flakes [--limit=N]` reads the last N CI runs through `gh` and reports which
+tests failed and which passed only on a later attempt. It is how the flake rate is checked after
+a change; the parser is pinned in `test/ciFlakes.test.ts`.
+
+A failed browser test writes a screenshot, the page's DOM, and a JSON record of the viewport,
+document and layout boxes to `CORVI_TEST_ARTIFACTS`; the pages still open at the end of a file
+are recorded too, by `closePages()`. CI uploads that directory when a job fails. Read the record
+before changing a test: it says which box overflowed, which element had focus, and what the page
+logged.
 
 Every `bun test` run is isolated from the real config and change directories either way:
 `scripts/test-isolation.ts` (wired in `bunfig.toml`) fills the changes root, archive,

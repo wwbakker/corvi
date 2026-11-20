@@ -23,10 +23,14 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
+      # The versions the suite is verified in. Keep them in step with the development checkout:
+      # an unpinned toolchain makes a CI-only failure look like a code failure.
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26.13.1
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun run lint
@@ -46,9 +50,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26.13.1
       - run: bun install --frozen-lockfile
       - run: bun run electron:install
       - run: bun run test:unit
@@ -56,14 +62,14 @@ jobs:
   e2e:
     # The non-terminal browser end-to-end files on their own, one file at a time: they are the
     # most timing-sensitive part of the suite, so they get generous wait budgets
-    # (CORVI_TEST_WAIT_SCALE scales every wait deadline and test timeout) and one bounded
-    # retry — a test that passes on retry still reads as a flake in the log, but it is not a
-    # red build. What a failed test saw is left in test-artifacts/ and uploaded below. The
+    # (CORVI_TEST_WAIT_SCALE scales every wait deadline and test timeout) and no retry. A retry
+    # would let a flake pass, which is how the same defect survives for months; a red test is the
+    # signal to fix it. What a failed test saw is left in test-artifacts/ and uploaded below. The
     # sibling below runs the terminal files; both must be required status checks in branch
     # protection, or a terminal-only failure will not block a merge.
     runs-on: ubuntu-latest
-    # More than the jobs above — retries and scaled waits — but still a budget before a hang
-    # is a failure: one pass of the non-terminal group takes a couple of minutes.
+    # More than the jobs above — scaled waits — but still a budget before a hang is a failure: one
+    # pass of the non-terminal group takes a couple of minutes.
     timeout-minutes: 20
     env:
       CORVI_TEST_WAIT_SCALE: "3"
@@ -71,27 +77,29 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26.13.1
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
-      - run: bun scripts/test-run.ts e2e-rest --retry=2
+      - run: bun scripts/test-run.ts e2e-rest
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: e2e-failure-screenshots
+          name: e2e-failure-artifacts
           path: test-artifacts/
           if-no-files-found: ignore
 
   e2e-terminal:
     # The terminal browser end-to-end files (test/terminal*.test.ts) on their own. Same setup,
-    # waits and retry as `e2e`, and its own artifact name — upload-artifact@v4 rejects a
-    # duplicate name within a single run. It must be a required status check alongside `e2e`
-    # in branch protection, or a terminal-only failure will not block a merge.
+    # waits and no retry as `e2e`, and its own artifact name — upload-artifact@v4 rejects a
+    # duplicate name within a single run. It must be a required status check alongside `e2e` in
+    # branch protection, or a terminal-only failure will not block a merge.
     runs-on: ubuntu-latest
-    # More than the jobs above — retries and scaled waits — but still a budget before a hang
-    # is a failure: one pass of the terminal group takes a couple of minutes.
+    # More than the jobs above — scaled waits — but still a budget before a hang is a failure: one
+    # pass of the terminal group takes a couple of minutes.
     timeout-minutes: 20
     env:
       CORVI_TEST_WAIT_SCALE: "3"
@@ -99,15 +107,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26.13.1
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
-      - run: bun scripts/test-run.ts e2e-terminal --retry=2
+      - run: bun scripts/test-run.ts e2e-terminal
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: e2e-terminal-failure-screenshots
+          name: e2e-terminal-failure-artifacts
           path: test-artifacts/
           if-no-files-found: ignore

@@ -536,7 +536,11 @@ a {
 .app {
   display: flex;
   align-items: stretch;
-  min-height: 100vh;
+  /* The window owns the height. Without a definite height a content-sized app lets taller chrome
+     or wider font metrics grow the document past the viewport — the page then scrolls as a whole
+     instead of the region that should. The sidebar and the content scroll inside this box. */
+  height: 100dvh;
+  overflow: hidden;
 }
 
 .content {
@@ -546,6 +550,9 @@ a {
      refuses to shrink below its content and pushes past the viewport instead of scrolling. */
   min-height: 0;
   padding: 16px 24px 48px;
+  /* The document no longer scrolls: a normal page scrolls here, and a flush frame or the
+     dashboard hands that job to the region that should have it (their rules below). */
+  overflow-y: auto;
 }
 
 /* The banner and the page, sharing the space beside the navigation column: the banner is a row
@@ -561,8 +568,8 @@ a {
 /* A flush frame (the terminal's, the plan's) fills the window, so the column becomes exactly the
    window's height: the banner is a row that takes its share, and the frame fills what is left.
    Without a definite height here the frame's basis-0 flex has nothing to resolve against and its
-   internal scroll-past-end padding grows it past the viewport. A normal page keeps the
-   content-sized column, so the document still scrolls. */
+   internal scroll-past-end padding grows it past the viewport. A normal page scrolls in
+   `.content`; this rule only pins the frame's column. */
 .app-body:has(> .content.flush) {
   height: 100dvh;
   overflow: hidden;
@@ -3827,12 +3834,25 @@ button.danger:disabled {
 
 .sidebar > .band .menu {
   margin-bottom: 0;
+  /* The row's last item: it may shorten to the row's edge rather than push past it. A flex box
+     of its own is what lets the trigger inside shrink with it; an inline-flex button in a block
+     keeps its content width and overflows instead. */
+  display: flex;
+  min-width: 0;
+}
+
+.sidebar > .band .menu > button {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 /* The switcher is a chip in the row's right: the column's quiet tone on its own background, one
    size smaller than the entries — a context, not a destination. */
 .sidebar > .band button.workspace {
   width: auto;
+  /* The row is narrower on Linux, where the column's scrollbar takes width; let the pill shorten
+     rather than push its right edge past the row. */
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -3843,6 +3863,13 @@ button.danger:disabled {
   font-weight: 400;
   color: var(--nav-muted);
   background: color-mix(in srgb, var(--nav-text) 8%, transparent);
+}
+
+.menu > button .menu-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* Every menu trigger's chevron: a box, so the glyph sits on the text's centre line rather than
@@ -4447,6 +4474,8 @@ button.danger:disabled {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* The columns below are the scrollers; a page scrollbar here would be a second, empty one. */
+  overflow: hidden;
 }
 
 .page.dashboard-page {

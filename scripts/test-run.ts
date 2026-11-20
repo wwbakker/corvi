@@ -12,7 +12,8 @@
  * is a file filter: the mode's own list is dropped and `bun test` discovers the files the filter
  * names, because a list and a positional together run every listed file and drop the filter. Use
  * `-t <name>` (or `--test-name-pattern=<name>`) to filter test names within the mode's files:
- * those arguments keep the list.
+ * those arguments keep the list. `--repeat=N` runs the mode N times without rebuilding and stops
+ * at the first failure, so a flake can be hunted without a shell loop.
  *
  * A named mode whose group matched no test files exits 3 with a message on stderr; it never falls
  * through to `bun test` with an empty argument list, which would run the whole suite instead. A
@@ -168,6 +169,19 @@ const VALUE_FLAGS: ReadonlySet<string> = new Set([
   "--coverage-reporter",
   "--coverage-threshold",
 ]);
+
+/** How many times to run the mode. One when the flag is absent; undefined when it is malformed,
+ * which the caller reports before anything runs. */
+export const repeatOf = (args: readonly string[]): number | undefined => {
+  const flag = args.find((arg) => arg.startsWith("--repeat="));
+  if (flag === undefined) return 1;
+  const count = Number(flag.slice("--repeat=".length));
+  return Number.isInteger(count) && count > 0 ? count : undefined;
+};
+
+/** The arguments a repeated run passes to `bun test`: the runner's own flag is not Bun's. */
+export const withoutRepeat = (args: readonly string[]): readonly string[] =>
+  args.filter((arg) => !arg.startsWith("--repeat="));
 
 /** The positional arguments that name test files, ignoring flags and the values they take. */
 export const fileFiltersOf = (args: readonly string[]): readonly string[] => {
@@ -393,7 +407,12 @@ const main = async (): Promise<number> => {
     console.error(`scripts/test-run.ts: ${bunProblem}`);
     return 4;
   }
-  const passthrough = args.slice(1);
+  const repeat = repeatOf(args.slice(1));
+  if (repeat === undefined) {
+    console.error("scripts/test-run.ts: --repeat must be a positive whole number");
+    return 2;
+  }
+  const passthrough = withoutRepeat(args.slice(1));
 
   for (const name of SCRUBBED) delete process.env[name];
 
@@ -429,7 +448,14 @@ const main = async (): Promise<number> => {
   await stopIfTerminating();
   if (buildCode !== 0) return buildCode;
 
-  return runMode(mode, groups, passthrough);
+  let code = 0;
+  for (let run = 1; run <= repeat; run++) {
+    if (repeat > 1) console.log(`repeat ${run}/${repeat}`);
+    code = await runMode(mode, groups, passthrough);
+    await stopIfTerminating();
+    if (code !== 0) break;
+  }
+  return code;
 };
 
 if (import.meta.main) {

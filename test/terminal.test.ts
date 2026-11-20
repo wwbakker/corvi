@@ -15,7 +15,9 @@ import {
   waitFor,
   startTestServer,
   stopTestServer,
+  watchPage,
 } from "./helpers.ts";
+
 import { csiuFor } from "@corvi/terminals/model";
 import { ensureHost } from "../apps/server/src/terminals/host/client.ts";
 import { HOST_DIR, hostBuildId } from "../apps/server/src/terminals/host/identity.ts";
@@ -42,6 +44,24 @@ const fileText = (path: string): Promise<string> =>
  * scales with machine load, so a busy machine delays the test rather than cascading it. */
 const awaitAttached = (page: Page): Promise<void> =>
   page.waitForSelector(".terminal-screen[data-attached]", { timeout: budget(60_000) }).then(() => undefined);
+
+/** The visible, attached pane has the keyboard. Clicking the screen focuses xterm's textarea; a
+ * click that lands while the panes are still switching leaves the keyboard in the previous
+ * window's shell, where a command typed for the new pty is silently a no-op. Retried because the
+ * pane may not accept focus until its attach has finished. */
+const focusVisiblePane = (page: Page): Promise<void> =>
+  waitFor(
+    "the visible terminal to have the keyboard",
+    async () => {
+      await page.locator(".terminal-screen:not([hidden])").click();
+      return page.evaluate(() => {
+        const screen = document.querySelector(".terminal-screen:not([hidden])");
+        const active = document.activeElement;
+        return screen !== null && active !== null && screen.contains(active);
+      });
+    },
+    budget(20_000),
+  );
 
 /** Run one command and wait for its exact effect. The command is typed once, after the attach
  * gate, so no retry can run it twice. */
@@ -418,7 +438,7 @@ afterAll(async () => {
 }, budget(60_000));
 
 const openTerminal = async (change: string): Promise<{ page: Page; dir: string }> => {
-  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  const page = watchPage(await browser.newPage({ viewport: { width: 1200, height: 800 } }));
   await page.goto(`${url}/changes/${change}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
@@ -778,6 +798,13 @@ test.skipIf(!usable)(
     const tab = page.locator(".window-tab:not(.new)").first();
     await tab.waitFor({ timeout: 20_000 });
     const menu = page.locator(".window-menu");
+    // The name follows what runs in front of the shell and arrives asynchronously; record it only
+    // once it has the shell's own name in brackets.
+    await waitFor(
+      "the window to be named after its shell",
+      async () => /^PROJ-TERM \(\w+\)$/.test((await tab.locator(".label").innerText()).trim()),
+      budget(10_000),
+    );
     const before = (await tab.locator(".label").innerText()).trim();
 
     // Focus is still in the terminal after the right-click, and the Escape the menu swallows never
@@ -797,12 +824,13 @@ test.skipIf(!usable)(
       await until(async () => (await terminalText(page)).includes("ESC_MARKER"), true, budget(10_000)),
     ).toBe(true);
     expect(await terminalText(page)).not.toContain("^[");
-    // Leave cat before the rest of the test types at a prompt.
+    // Leave cat before the rest of the test types at a prompt. The name follows the process in
+    // front of the shell, so it comes back asynchronously after cat is gone; wait for it rather
+    // than assuming a fixed pause is long enough.
     await page.keyboard.press("Control+C");
-    await Bun.sleep(300);
-
-    // The name is untouched.
-    expect((await tab.locator(".label").innerText()).trim()).toBe(before);
+    expect(
+      await until(async () => (await tab.locator(".label").innerText()).trim(), before, budget(10_000)),
+    ).toBe(before);
 
     // A click anywhere else dismisses it too.
     await tab.click({ button: "right" });
@@ -825,6 +853,11 @@ test.skipIf(!usable)(
     const { page } = await openTerminal(id);
     const tab = page.locator(".window-tab:not(.new)").first();
     await tab.waitFor({ timeout: 20_000 });
+    await waitFor(
+      "the window to be named after its shell",
+      async () => /^PROJ-TERM \(\w+\)$/.test((await tab.locator(".label").innerText()).trim()),
+      budget(10_000),
+    );
     const defaultLabel = (await tab.locator(".label").innerText()).trim();
     const dialog = page.locator("dialog.window-rename");
     const openRename = async (): Promise<void> => {
@@ -1019,7 +1052,8 @@ test.skipIf(!usable)(
     // pinned in test/terminalAcceptance.test.ts).
     const firstFile = join(dir, "size-first.txt");
     let firstReported = "";
-    for (let attempt = 0; attempt < 40 && !/^\d+ \d+$/.test(firstReported); attempt++) {
+    const firstDeadline = Date.now() + budget(30_000);
+    while (!/^\d+ \d+$/.test(firstReported) && Date.now() < firstDeadline) {
       await page.keyboard.type(`stty size > ${firstFile}\n`);
       await Bun.sleep(200);
       firstReported = (await fileText(firstFile)).trim();
@@ -1046,13 +1080,14 @@ test.skipIf(!usable)(
     await page.waitForSelector(".terminal-screen:not([hidden])[data-attached]", {
       timeout: budget(20_000),
     });
-    await page.locator(".terminal-screen:not([hidden])").click();
+    await focusVisiblePane(page);
 
     // Retry until the command reaches the NEW shell (the marker is absent) and it writes its tty
     // size; the old shell writes nothing, so a stray early keystroke cannot satisfy the check.
     const file = join(dir, "size.txt");
     let reported = "";
-    for (let attempt = 0; attempt < 40 && !/^\d+ \d+$/.test(reported); attempt++) {
+    const deadline = Date.now() + budget(30_000);
+    while (!/^\d+ \d+$/.test(reported) && Date.now() < deadline) {
       await page.keyboard.type(`[ -z "$GEO_MARK" ] && stty size > ${file} || true\n`);
       await Bun.sleep(200);
       reported = (await fileText(file)).trim();
@@ -1510,14 +1545,43 @@ test.skipIf(!usable)(
     await typeUntilText(page, `echo ${url}`, "hover-me");
     const point = await hoverPointFor(page, url);
     expect(point).not.toBeNull();
-    await page.mouse.move(point!.x, point!.y);
-
-    const tooltip = page.locator(".terminal-link-tooltip");
-    await tooltip.waitFor({ timeout: 10_000 });
-    const text = await tooltip.innerText();
-    expect(text).toContain(url);
     const isMac = await page.evaluate(() => /mac/i.test(navigator.platform));
-    expect(text).toContain(isMac ? "Cmd-click to open" : "Ctrl-click to open");
+    const hint = isMac ? "Cmd-click to open" : "Ctrl-click to open";
+    // The linkifier registers the URL while the line is processed, and a tooltip that arrives
+    // just before a repaint can go again; move onto the link until it shows with its whole text,
+    // and read it in that same moment (a later `innerText` can auto-wait on a tooltip that has
+    // already gone).
+    let shownUrl = "";
+    let shownHint = "";
+    await waitFor(
+      "the link's tooltip with its open hint",
+      async () => {
+        await page.mouse.move(point!.x, point!.y);
+        const tooltip = page.locator(".terminal-link-tooltip").first();
+        if ((await tooltip.count()) === 0 || !(await tooltip.isVisible())) return false;
+        // The tooltip has a span for the URL and one for the hint; compare each whole, rather
+        // than asking whether the URL is a substring of the text (any host could be before or
+        // after it).
+        shownUrl =
+          (
+            await tooltip
+              .locator(".terminal-link-tooltip-url")
+              .textContent()
+              .catch(() => "")
+          )?.trim() ?? "";
+        shownHint =
+          (
+            await tooltip
+              .locator(".terminal-link-tooltip-hint")
+              .textContent()
+              .catch(() => "")
+          )?.trim() ?? "";
+        return shownUrl === url && shownHint === hint;
+      },
+      budget(15_000),
+    );
+    expect(shownUrl).toBe(url);
+    expect(shownHint).toBe(hint);
 
     // Leaving the link hides it.
     await page.mouse.move(5, 5);
@@ -1572,8 +1636,18 @@ test.skipIf(!usable)(
     await typeUntilText(page, `echo ${url}`, "tooltip-menu");
     const point = await hoverPointFor(page, url);
     expect(point).not.toBeNull();
-    await page.mouse.move(point!.x, point!.y);
-    await page.locator(".terminal-link-tooltip").waitFor({ timeout: 10_000 });
+    // The linkifier registers the URL while the line is processed; a single move that lands
+    // before it does leaves no tooltip, and the pointer never moves again. Hover until the
+    // tooltip shows rather than trusting the first move.
+    await waitFor(
+      "the link tooltip",
+      async () => {
+        await page.mouse.move(point!.x, point!.y);
+        const tooltip = page.locator(".terminal-link-tooltip");
+        return (await tooltip.count()) > 0 && (await tooltip.first().isVisible());
+      },
+      budget(15_000),
+    );
 
     // A right click that does not move the pointer: the tooltip is cleared by the menu opening, not
     // by the pointer leaving the link.
