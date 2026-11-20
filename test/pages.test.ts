@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { type Browser, type Page } from "playwright";
 import {
+  budget,
   checkoutsOf,
   closePages,
   openEngine,
@@ -13,6 +14,7 @@ import {
   testTempDir,
   startTestServer,
   VIEWPORT,
+  waitFor,
   withPage,
 } from "./helpers.ts";
 import { editorText, fillEditor } from "./editor.ts";
@@ -1937,6 +1939,16 @@ test.skipIf(!usable)(
       async (page) => {
         await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
         await page.locator(".change-tabs .tabs .tab").first().waitFor();
+        // The extension's tab is part of the row the server tells the page about; the first tab
+        // can paint before that answer arrives. Wait for the row, not just its first item.
+        await waitFor(
+          "the change's view tabs",
+          async () =>
+            (await page.locator(".change-tabs .tabs .tab").allInnerTexts())
+              .map((text) => text.trim())
+              .join("|") === "Plan|Dashboard|Changes",
+          budget(15_000),
+        );
 
         // Plan first, then the dashboard, then the extensions' tabs in load order.
         expect((await page.locator(".change-tabs .tabs .tab").allInnerTexts()).map((s) => s.trim())).toEqual([
