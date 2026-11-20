@@ -1551,20 +1551,37 @@ test.skipIf(!usable)(
     // just before a repaint can go again; move onto the link until it shows with its whole text,
     // and read it in that same moment (a later `innerText` can auto-wait on a tooltip that has
     // already gone).
-    let text = "";
+    let shownUrl = "";
+    let shownHint = "";
     await waitFor(
       "the link's tooltip with its open hint",
       async () => {
         await page.mouse.move(point!.x, point!.y);
         const tooltip = page.locator(".terminal-link-tooltip").first();
         if ((await tooltip.count()) === 0 || !(await tooltip.isVisible())) return false;
-        text = (await tooltip.textContent().catch(() => "")) ?? "";
-        return text.includes(url) && text.includes(hint);
+        // The tooltip has a span for the URL and one for the hint; compare each whole, rather
+        // than asking whether the URL is a substring of the text (any host could be before or
+        // after it).
+        shownUrl =
+          (
+            await tooltip
+              .locator(".terminal-link-tooltip-url")
+              .textContent()
+              .catch(() => "")
+          )?.trim() ?? "";
+        shownHint =
+          (
+            await tooltip
+              .locator(".terminal-link-tooltip-hint")
+              .textContent()
+              .catch(() => "")
+          )?.trim() ?? "";
+        return shownUrl === url && shownHint === hint;
       },
       budget(15_000),
     );
-    expect(text).toContain(url);
-    expect(text).toContain(hint);
+    expect(shownUrl).toBe(url);
+    expect(shownHint).toBe(hint);
 
     // Leaving the link hides it.
     await page.mouse.move(5, 5);
