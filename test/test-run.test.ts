@@ -12,7 +12,9 @@ import {
   importsBrowserAtRuntime,
   isMode,
   isTerminalGroup,
+  repeatOf,
   runPlan,
+  withoutRepeat,
 } from "../scripts/test-run.ts";
 
 /**
@@ -135,4 +137,16 @@ test("a Bun older than engines.bun is refused, naming the fix", () => {
   );
   // No requirement declared: any Bun runs.
   expect(bunVersionProblem("1.3.14", undefined)).toBeUndefined();
+});
+
+test("--repeat is the runner's flag, not Bun's, and a malformed count is refused", () => {
+  expect(repeatOf([])).toBe(1);
+  expect(repeatOf(["--repeat=5"])).toBe(5);
+  expect(repeatOf(["--repeat=0"])).toBeUndefined();
+  expect(repeatOf(["--repeat=two"])).toBeUndefined();
+  expect(withoutRepeat(["-t", "a name", "--repeat=3", "test/a.test.ts"])).toEqual([
+    "-t",
+    "a name",
+    "test/a.test.ts",
+  ]);
 });

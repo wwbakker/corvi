@@ -65,8 +65,10 @@ export function ActionsMenu({
         }}
       >
         {/* The chevron is the button's, not part of the label: a trigger is a name and the shape
-            that says it opens. Callers that still spell the arrow in the label keep working. */}
-        {label.replace(/\s*▾\s*$/, "")}
+            that says it opens. Callers that still spell the arrow in the label keep working. The
+            name is its own box so a narrow row shortens it instead of pushing the trigger past the
+            row's edge (the sidebar's workspace pill is the narrow case). */}
+        <span className="menu-label">{label.replace(/\s*▾\s*$/, "")}</span>
         <span className="caret" aria-hidden="true">
           <ChevronDownIcon title="opens a menu" />
         </span>

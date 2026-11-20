@@ -38,6 +38,7 @@
     "test:e2e:rest": "bun scripts/test-run.ts e2e-rest",
     "test:coverage": "trap 'status=$?; bun scripts/clean-test.ts --kill; exit $status' EXIT; CORVI_ROOT=\"${TMPDIR:-/tmp}/corvi-test-root\" CORVI_ARCHIVE_ROOT=\"${TMPDIR:-/tmp}/corvi-test-archive\" CORVI_CONFIG=\"${TMPDIR:-/tmp}/corvi-test-config.json\" XDG_STATE_HOME=\"${TMPDIR:-/tmp}/corvi-test-state\" bun run build:web && bun test --coverage --timeout 30000",
     "test:clean": "bun scripts/clean-test.ts",
+    "flakes": "bun scripts/ci-flakes.ts",
     "typecheck": "tsc --noEmit",
     "boundaries": "bun scripts/architecture.ts",
     "outline": "bun scripts/outline.ts",

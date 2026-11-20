@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import type { AddressInfo } from "node:net";
-import { mkdir, mkdtemp, realpath } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { cpus, loadavg } from "node:os";
 import { join } from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
@@ -376,23 +376,197 @@ export const waitFor = async (
   }
 };
 
-/** Close every page the browser still has open — and screenshot each one first when
+/** The console and page errors of each watched page. A failure is often explained by what the
+ * page said before the expect, and `page` reads nothing from the past unless it listened. */
+const consoleLines = new WeakMap<Page, string[]>();
+
+/** Start recording a page's console errors and page errors for the failure record. Idempotent, so
+ * every creation path can call it without knowing whether another already did. */
+export const watchPage = (page: Page): Page => {
+  if (consoleLines.has(page)) return page;
+  const lines: string[] = [];
+  consoleLines.set(page, lines);
+  page.on("console", (message) => {
+    if (message.type() === "error" || message.type() === "warning") {
+      if (lines.length < 200) lines.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on("pageerror", (error) => {
+    if (lines.length < 200) lines.push(`pageerror: ${error.message}`);
+  });
+  return page;
+};
+
+/** One artifact's file-system stem: the page's path, made safe and recognisable. */
+const artifactStem = (label: string, page: Page): string => {
+  let path = "";
+  try {
+    const url = new URL(page.url());
+    path = url.protocol === "http:" || url.protocol === "https:" ? url.pathname : "";
+  } catch {
+    path = "";
+  }
+  const slug = `${label}-${path}`
+    .replace(/[^a-z0-9]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase()
+    .slice(0, 80);
+  return slug === "" ? "page" : slug;
+};
+
+/** What a page looked like: the measurements a failing layout expect would otherwise have to
+ * restate, and the metrics that say which box is overflowing which. Computed styles are read for
+ * the properties the shell's flex chain depends on. */
+const pageRecord = async (page: Page): Promise<Record<string, unknown>> => {
+  const selectors = [
+    ".app",
+    ".app-body",
+    ".content",
+    ".page",
+    ".change-chrome",
+    ".change-tabs",
+    ".window-tabs",
+    ".widgets",
+    ".column",
+    ".widget",
+    ".md-editor",
+  ];
+  const layout = await page
+    .evaluate((wanted: string[]) => {
+      const boxOf = (element: Element): Record<string, unknown> => {
+        const box = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return {
+          tag: element.tagName.toLowerCase(),
+          class: element.className,
+          x: box.x,
+          y: box.y,
+          width: box.width,
+          height: box.height,
+          scrollWidth: (element as HTMLElement).scrollWidth,
+          scrollHeight: (element as HTMLElement).scrollHeight,
+          clientWidth: (element as HTMLElement).clientWidth,
+          clientHeight: (element as HTMLElement).clientHeight,
+          display: style.display,
+          position: style.position,
+          overflowY: style.overflowY,
+          minHeight: style.minHeight,
+          heightStyle: style.height,
+          flex: style.flex,
+        };
+      };
+      return wanted.map((selector) => {
+        const element = document.querySelector(selector);
+        return element === null
+          ? { selector, present: false }
+          : { selector, present: true, ...boxOf(element) };
+      });
+    }, selectors as string[])
+    .catch(() => []);
+
+  return {
+    url: page.url(),
+    viewport: page.viewportSize(),
+    document: await page
+      .evaluate(() => ({
+        innerWidth: window.innerWidth,
+        innerHeight: window.innerHeight,
+        scrollWidth: document.documentElement.scrollWidth,
+        scrollHeight: document.documentElement.scrollHeight,
+        scrollX: window.scrollX,
+        scrollY: window.scrollY,
+        contentScrollTop: document.querySelector<HTMLElement>(".content")?.scrollTop ?? null,
+        activeElement:
+          document.activeElement === null
+            ? null
+            : `${document.activeElement.tagName.toLowerCase()}.${document.activeElement.className}`,
+      }))
+      .catch(() => null),
+    layout,
+    console: consoleLines.get(page) ?? [],
+  };
+};
+
+/** Write the screenshot, the DOM and the measurements under `CORVI_TEST_ARTIFACTS`, where CI
+ * uploads them on a failed run. Used both for a page a test threw on and for the pages left open
+ * at the end of a file. */
+const recordPage = async (page: Page, stem: string): Promise<void> => {
+  const directory = process.env.CORVI_TEST_ARTIFACTS;
+  if (directory === undefined) return;
+  const base = join(directory, stem);
+  const record = await pageRecord(page).catch(() => ({
+    url: page.url(),
+    console: consoleLines.get(page) ?? [],
+  }));
+  await writeFile(`${base}.json`, JSON.stringify(record, null, 2)).catch(() => undefined);
+  await page.screenshot({ path: `${base}.png` }).catch(() => undefined);
+  await page
+    .content()
+    .then((html) => writeFile(`${base}.html`, html))
+    .catch(() => undefined);
+};
+
+/** Leave evidence for a page a test threw on, without replacing that test's own failure. */
+export const capturePageFailure = async (page: Page, error: unknown): Promise<void> => {
+  const directory = process.env.CORVI_TEST_ARTIFACTS;
+  if (directory === undefined) return;
+  try {
+    await mkdir(directory, { recursive: true });
+    const stem = `${artifactStem("failure", page)}-${Date.now()}`;
+    await recordPage(page, stem);
+    const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
+    await writeFile(join(directory, `${stem}-error.txt`), `${message}\n`).catch(() => undefined);
+  } catch {
+    // Evidence must never replace the failure it is evidence of.
+  }
+};
+
+/** Close every page the browser still has open — and record each one first when
  * `CORVI_TEST_ARTIFACTS` names a directory (CI uploads it on failure), so a failed test leaves
  * what it saw behind it rather than only what its expects could say. A test that fails mid-way
  * often skips its own `page.close()`: the pages still open at this moment are exactly the ones
  * worth keeping and closing, because a page left open keeps its pty attached and the next
  * test's client-count gates could never be satisfied. */
 export const closePages = async (browser: Browser | undefined, label: string): Promise<void> => {
-  const shots = process.env.CORVI_TEST_ARTIFACTS;
+  const directory = process.env.CORVI_TEST_ARTIFACTS;
   const pages = (browser?.contexts() ?? []).flatMap((context) => context.pages());
-  if (shots !== undefined && pages.length > 0) {
-    await mkdir(shots, { recursive: true });
+  if (directory !== undefined && pages.length > 0) {
+    await mkdir(directory, { recursive: true });
     for (const [index, page] of pages.entries()) {
-      const name = `${label}-${Date.now()}-${index}.png`;
-      await page.screenshot({ path: join(shots, name) }).catch(() => undefined);
+      await recordPage(page, `${artifactStem(label, page)}-${Date.now()}-${index}`);
     }
   }
   for (const page of pages) await page.close().catch(() => undefined);
+};
+
+/** Wait until the page has stopped laying itself out: fonts are loaded, and the document and the
+ * scrollable content keep the same size for a quiet window. A single read after `waitForSelector`
+ * can land before a sibling card's first answer or a font's swap, which is what turns a layout
+ * assertion into a flaky one. */
+export const settleLayout = async (page: Page, budgetMs = budget(5_000)): Promise<void> => {
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+  await page.waitForFunction(
+    (quietMs: number) => {
+      const state = window as unknown as { __corviSettle?: { key: string; since: number } };
+      const content = document.querySelector<HTMLElement>(".content");
+      const key = [
+        window.innerWidth,
+        window.innerHeight,
+        document.documentElement.scrollWidth,
+        document.documentElement.scrollHeight,
+        content?.scrollWidth ?? -1,
+        content?.scrollHeight ?? -1,
+        content?.clientWidth ?? -1,
+        content?.clientHeight ?? -1,
+      ].join(":");
+      const now = performance.now();
+      const since = state.__corviSettle?.key === key ? state.__corviSettle.since : now;
+      state.__corviSettle = { key, since };
+      return now - since >= quietMs;
+    },
+    budget(300),
+    { polling: "raf", timeout: budgetMs },
+  );
 };
 
 /** The newest mtime among the files under a directory; 0 when there is nothing there. */
@@ -467,9 +641,13 @@ export const withPage = async <T>(
   body: (page: Page) => Promise<T>,
   viewport: { readonly width: number; readonly height: number } = VIEWPORT,
 ): Promise<T> => {
-  const page = await browser.newPage({ viewport });
+  const page = watchPage(await browser.newPage({ viewport }));
   try {
     return await body(page);
+  } catch (error) {
+    // The page is closed below; without this the failure leaves only the expect's numbers.
+    await capturePageFailure(page, error);
+    throw error;
   } finally {
     await page.close().catch(() => undefined);
   }

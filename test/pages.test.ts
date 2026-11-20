@@ -8,6 +8,7 @@ import {
   openEngine,
   runSh,
   serverEnv,
+  settleLayout,
   stopRunHost,
   testTempDir,
   startTestServer,
@@ -808,8 +809,10 @@ test.skipIf(!usable)(
   "the unsaved marker does not resize the notes card",
   async () => {
     // The marker sits in the heading's flex line and comes and goes as you type, so any size or
-    // margin it contributes changes the height of the heading — and the whole card — on every
-    // keystroke. It must be smaller than the title and take no space of its own.
+    // margin it contributes changes the height of the heading — and of what the card contains —
+    // on every keystroke. It must be smaller than the title and take no space of its own. The
+    // card's outer height is the dashboard column's leftover (it is the last card, and grows to
+    // fill), so the boxes measured are the ones the marker can move: the heading and the editor.
     await withPage(
       browser,
       async (page) => {
@@ -817,16 +820,23 @@ test.skipIf(!usable)(
         const card = page.locator(".widget:has(.md-editor)");
         await card.waitFor();
         const heading = card.locator("h3");
-        const height = (): Promise<number> => heading.evaluate((h) => h.getBoundingClientRect().height);
-        const cardHeight = (): Promise<number> =>
-          card.evaluate((section) => section.getBoundingClientRect().height);
+        const editor = card.locator(".md-editor");
+        await editor.locator(".cm-content").waitFor();
+        // A sibling card's first read, or the bundled font, can settle after the card appears;
+        // measuring the marker against that would be measuring the page, not the marker.
+        await settleLayout(page);
+        const headingHeight = (): Promise<number> =>
+          heading.evaluate((h) => h.getBoundingClientRect().height);
+        const editorHeight = (): Promise<number> =>
+          editor.evaluate((section) => section.getBoundingClientRect().height);
 
-        const before = { heading: await height(), card: await cardHeight() };
-        await fillEditor(card.locator(".md-editor"), "a note");
+        const before = { heading: await headingHeight(), editor: await editorHeight() };
+        await fillEditor(editor, "a note");
         await card.locator("h3 .summary", { hasText: "unsaved" }).waitFor();
+        await settleLayout(page);
 
-        expect(await height()).toBe(before.heading);
-        expect(await cardHeight()).toBe(before.card);
+        expect(await headingHeight()).toBe(before.heading);
+        expect(await editorHeight()).toBe(before.editor);
         const sizes = await heading.evaluate((h) => ({
           title: parseFloat(getComputedStyle(h).fontSize),
           marker: parseFloat(getComputedStyle(h.querySelector(".summary")!).fontSize),
@@ -1001,12 +1011,15 @@ test.skipIf(!usable)(
                   textOverflow: style.textOverflow,
                 };
               };
+              // The page itself is clipped to the window, so the content column is what says
+              // whether anything inside it is wider than the room it has.
+              const content = document.querySelector<HTMLElement>(".content");
               return {
                 prose: layout(prose),
                 identity: layout(identityLabel),
                 cardStaysInPage: card.getBoundingClientRect().right <= document.documentElement.clientWidth,
-                pageScrollWidth: document.documentElement.scrollWidth,
-                layoutWidth: document.documentElement.clientWidth,
+                pageScrollWidth: content?.scrollWidth ?? document.documentElement.scrollWidth,
+                layoutWidth: content?.clientWidth ?? document.documentElement.clientWidth,
               };
             },
             { title: cardTitle, identity: identityLabel },
@@ -1260,15 +1273,24 @@ test.skipIf(!usable)(
         expect(await tabsRow.evaluate((el) => getComputedStyle(el).position)).toBe("relative");
         expect(await tabsRow.evaluate((el) => getComputedStyle(el).top)).toBe("0px");
 
-        // Both stay put while the page scrolls: they are the window's chrome, not part of what you read.
-        await page.evaluate(() => window.scrollTo(0, 400));
-        expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+        // Both stay put while the cards scroll under them: they are the window's chrome, not part
+        // of what you read. The dashboard's page does not scroll — its columns do.
+        const resting = await Promise.all([titleRow.boundingBox(), tabsRow.boundingBox()]);
+        const scrolled = await page.evaluate(() => {
+          const scroller = [...document.querySelectorAll<HTMLElement>(".column, .content")].find(
+            (element) => element.scrollHeight > element.clientHeight + 1,
+          );
+          if (scroller === undefined) return false;
+          scroller.scrollBy(0, 400);
+          return scroller.scrollTop > 0;
+        });
+        expect(scrolled).toBe(true);
         const [stoppedTitle, stoppedTabs] = await Promise.all([
           titleRow.boundingBox(),
           tabsRow.boundingBox(),
         ]);
-        expect(stoppedTitle!.y).toBe(0);
-        expect(Math.abs(stoppedTabs!.y - TITLE_BAR_HEIGHT)).toBeLessThanOrEqual(1);
+        expect(stoppedTitle!.y).toBe(resting[0]!.y);
+        expect(Math.abs(stoppedTabs!.y - (stoppedTitle!.y + stoppedTitle!.height))).toBeLessThanOrEqual(1);
 
         // The navigation column: one line per change, its name, and no id of its own. The branch — the id
         // with a slug after it — is the entry's tooltip. Scoped to this change's own entry, since the
@@ -1285,9 +1307,9 @@ test.skipIf(!usable)(
   30_000,
 );
 
-/** A change with `count` terminal windows, created idempotently: `--retry=2` re-runs a body that
- * may already have made some. `name` gives every window a long title, which is what makes the
- * strip wrap at the shared viewport. */
+/** A change with `count` terminal windows, created idempotently, so a test body can run again
+ * without making a duplicate window. `name` gives every window a long title, which is what makes
+ * the strip wrap at the shared viewport. */
 const terminalWindows = async (change: string, count: number, name?: string): Promise<void> => {
   const created = await fetch(`${url}/api/changes`, {
     method: "POST",
@@ -1385,12 +1407,19 @@ test.skipIf(!usable)(
 
         // The regression the shared sticky wrapper exists to prevent: with two rows, a hard-coded
         // second offset would leave the tab row at one title bar instead of under the taller row.
-        await page.evaluate(() => window.scrollTo(0, 400));
-        expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+        const scrolled = await page.evaluate(() => {
+          const scroller = [...document.querySelectorAll<HTMLElement>(".column, .content")].find(
+            (element) => element.scrollHeight > element.clientHeight + 1,
+          );
+          if (scroller === undefined) return false;
+          scroller.scrollBy(0, 400);
+          return scroller.scrollTop > 0;
+        });
+        expect(scrolled).toBe(true);
         const stoppedTitle = await titleRow.boundingBox();
         const stoppedTabs = await tabsRow.boundingBox();
         if (!stoppedTitle || !stoppedTabs) throw new Error("the chrome did not lay out");
-        expect(stoppedTitle.y).toBe(0);
+        expect(stoppedTitle.y).toBe(title.y);
         expect(Math.abs(stoppedTabs.y - (stoppedTitle.y + stoppedTitle.height))).toBeLessThanOrEqual(1);
 
         // The change's Actions menu is the title row's: it opens below its button, over the tab row,
@@ -1431,6 +1460,14 @@ test.skipIf(!usable)(
           .locator(".window-tab")
           .evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)));
         expect(new Set(tops).size).toBeGreaterThanOrEqual(2);
+
+        // The window is the height authority at any chrome height, not only the height this
+        // machine's font metrics happen to produce: grow the rows beyond the wrapped case before
+        // measuring, so the assertion holds where the CI's fonts wrap further than a Mac's.
+        await page.addStyleTag({
+          content: ".change-tabs .tab, .change-tabs .window-tab { padding-block: 40px; }",
+        });
+        await settleLayout(page);
 
         // Nothing is pushed past the window: no phantom scrollbar from the chrome.
         const [scrollHeight, innerHeight] = await page.evaluate(() => [
@@ -1613,11 +1650,18 @@ test.skipIf(!usable)(
         const logo = await brand.locator(".brand-logo").boundingBox();
         const switcher = page.locator(".sidebar button.workspace");
         const switcherBox = await switcher.boundingBox();
-        const sidebar = await page.locator(".sidebar").boundingBox();
-        if (!logo || !switcherBox || !sidebar) throw new Error("the sidebar did not lay out");
+        const [sidebar, band] = await Promise.all([
+          page.locator(".sidebar").boundingBox(),
+          brand.boundingBox(),
+        ]);
+        if (!logo || !switcherBox || !sidebar || !band) throw new Error("the sidebar did not lay out");
         expect((await brand.locator(".brand-name").innerText()).trim()).toBe("Corvi");
         expect(logo.x).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset);
-        expect(sidebar.x + sidebar.width - (switcherBox.x + switcherBox.width)).toBeLessThanOrEqual(12);
+        // At the row's right, inside it. The exact gutter is the stylesheet's (the sidebar's and
+        // the band's padding), so derive it from the band rather than restating a pixel count
+        // that font metrics or a scrollbar would make wrong.
+        expect(switcherBox.x + switcherBox.width).toBeLessThanOrEqual(band.x + band.width + 1);
+        expect(switcherBox.x).toBeGreaterThan(band.x + band.width / 2);
         expect(switcherBox.width).toBeLessThan(sidebar.width / 2);
         expect(switcherBox.x).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset);
         expect(sidebar.width).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset + 160);
