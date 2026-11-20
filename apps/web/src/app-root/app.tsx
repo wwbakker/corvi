@@ -728,10 +728,16 @@ function App(): JSX.Element {
 applyStoredTheme();
 // The monospace face this device chose, likewise before anything monospace is drawn.
 applyStoredMonoFont();
-// The icon font, fetched now rather than when the first icon needs it: Chromium keeps the boxes
-// it drew for text laid out while the font was still loading (seen in the editor), so the font
-// should be there before the first plan or terminal is.
-void loadSymbolsFont();
+// The icon font, before the first render rather than when the first icon needs it. Chromium keeps
+// the boxes it drew for text laid out while the font was still loading (seen in the editor), and a
+// font that lands after the render makes CodeMirror re-measure, so the page shifts under the
+// reader. Locally it takes milliseconds; a slow remote link waits at most this long, then the
+// page renders and the font arrives late.
+const SYMBOLS_FONT_WAIT_MS = 1000;
+await Promise.race([
+  loadSymbolsFont(),
+  new Promise<void>((resolve) => setTimeout(resolve, SYMBOLS_FONT_WAIT_MS)),
+]);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
