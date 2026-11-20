@@ -15,6 +15,23 @@
   initial-value: transparent;
 }
 
+/* The Nerd Fonts icons (U+E000–F8FF and a few symbols) that programs in a terminal print. No system
+   font draws them; `bun install` fetches this one (apps/web/src/node/fonts.ts) and the server
+   serves it from the build. Without it the request fails and the stack below carries on. */
+@font-face {
+  font-family: "Symbols Nerd Font Mono";
+  src: url("/fonts/SymbolsNerdFontMono-Regular.ttf") format("truetype");
+}
+
+/* Every monospace surface — terminal, editor, identifiers — reads `--font-mono`, so they cannot
+   drift apart. The symbols font sits after the text faces, which keep the letters, and before the
+   generic family. A font chosen in Settings → Appearance goes in front of the base
+   (app-root/monoFont.ts); xterm reads the resolved value, since it takes a string, not CSS. */
+:root {
+  --font-mono-base: ui-monospace, SFMono-Regular, Menlo, "Symbols Nerd Font Mono", monospace;
+  --font-mono: var(--font-mono-base);
+}
+
 /* The page's colours, and the only place a colour is written down: a rule that wants something
    between two of these mixes here (see docs/guides/style.md).
 
@@ -397,6 +414,15 @@ body {
     system-ui,
     -apple-system,
     sans-serif;
+}
+
+/* Code in hints, docs and transcripts uses the same face as the terminal, rather than the
+   browser's own monospace default. */
+code,
+pre,
+kbd,
+samp {
+  font-family: var(--font-mono);
 }
 
 /* The backdrop, and the hills sitting on it. Both are fixed, so the sky does not scroll with the
@@ -1274,7 +1300,7 @@ body.drawer-open {
 
 .change-id {
   flex: none;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   color: var(--muted);
 }
@@ -1289,7 +1315,7 @@ body.drawer-open {
   gap: 5px;
   flex: 1 1 0;
   min-width: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   color: var(--muted);
 }
@@ -2970,7 +2996,7 @@ dialog progress {
   padding: 0;
   list-style: none;
   color: var(--muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
 }
 
@@ -3049,7 +3075,7 @@ dialog progress {
 
 .commits .sha {
   color: var(--muted);
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
@@ -3158,7 +3184,7 @@ dialog .hint.error {
 /* A branch name is an identifier and reads as one; a summary is a sentence. */
 .change-card .branch {
   color: var(--muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -3339,7 +3365,7 @@ dialog .hint.error {
 
 /* git's own letter, coloured by what it means. */
 .local .file .mark {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   width: 12px;
   color: var(--warn); /* modified */
@@ -3483,7 +3509,7 @@ dialog .hint.error {
 }
 
 .transcripts details.entry .tool-name {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   color: var(--text);
 }
 
@@ -3561,7 +3587,7 @@ dialog .hint.error {
 
 .diff {
   margin: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -3601,7 +3627,7 @@ dialog .hint.error {
    on one row without a horizontal scrollbar. */
 .table.deployments td a,
 .table.deployments td .version {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
@@ -3710,7 +3736,7 @@ dialog .versions {
 }
 
 dialog .versions .what {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
@@ -4092,6 +4118,65 @@ button.danger:disabled {
   color: var(--muted);
   font-size: 11px;
   font-weight: 400;
+}
+
+/* The monospace font: its name with an info button beside it, whose tip says where a system lists
+   its fonts. The tip shows on hover and on keyboard focus alike. */
+.mono-font .label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mono-font input {
+  font-family: var(--font-mono);
+}
+
+.info-tip {
+  position: relative;
+  display: inline-flex;
+  padding: 2px;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  cursor: help;
+}
+
+.info-tip:hover:not(:disabled),
+.info-tip:focus-visible {
+  background: none;
+  color: var(--text);
+}
+
+/* Above the icon: below it, the tip would cover the field it is about. */
+.info-tip .tip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: -8px;
+  z-index: 35;
+  width: max-content;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 8px 10px;
+  background: var(--terminal-chrome);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+  cursor: default;
+  visibility: hidden;
+}
+
+.info-tip:hover .tip,
+.info-tip:focus-visible .tip {
+  visibility: visible;
+}
+
+.mono-font small.warn {
+  color: var(--warn);
 }
 
 /* Several controls under one heading. A <label> would name only the first of them — and would

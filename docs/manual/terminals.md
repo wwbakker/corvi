@@ -170,7 +170,8 @@ extensions fall back to stderr. The agent's own output is never touched.
   terminal convention Ctrl-Insert; paste with Ctrl-Shift-V or Cmd-V / Super-V, or Shift-Insert.
   Ctrl-C remains the shell's interrupt shortcut.
 - Cmd/Ctrl-F finds in the terminal, Cmd/Ctrl +/-/0 changes the font size, and Cmd/Ctrl-click opens
-  a link.
+  a link. The font itself, and the Nerd Fonts icons programs print, are described under
+  [Monospace font](interface.md#monospace-font).
 
 ## Attention notifications
 

@@ -48,6 +48,8 @@
     "effect:lint": "effect-language-service diagnostics --project tsconfig.json --format text",
     "shot": "bun scripts/shot.ts",
     "icons": "bun scripts/icons.ts",
+    "fonts": "bun apps/web/src/node/fonts.ts",
+    "postinstall": "bun run fonts",
     "extension:install:pi": "bun scripts/extension.ts install:pi",
     "extension:uninstall:pi": "bun scripts/extension.ts uninstall:pi",
     "extension:install:opencode": "bun scripts/extension.ts install:opencode",

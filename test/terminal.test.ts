@@ -1893,6 +1893,18 @@ test.skipIf(!usable)(
     await page.keyboard.press("Control+Minus");
     await page.keyboard.press("Control+Digit0");
     await until(() => terminalFontSize(page), 13, budget(5_000));
+
+    // The size is this device's: a reload keeps it. A cookie, so a restart on a new port does too.
+    await page.keyboard.press("Control+Minus");
+    await until(() => terminalFontSize(page), 12, budget(5_000));
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await until(() => terminalFontSize(page), 12, budget(20_000));
+    expect((await page.context().cookies()).find((c) => c.name === "corvi:terminal-font-size")?.value).toBe(
+      "12",
+    );
+    await page.locator(".terminal-screen").click();
+    await page.keyboard.press("Control+Digit0");
+    await until(() => terminalFontSize(page), 13, budget(5_000));
     await page.close();
   },
   budget(60_000),

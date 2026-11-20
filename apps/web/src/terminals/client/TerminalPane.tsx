@@ -19,6 +19,8 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { csiuFor, isNewWindowKey, type Platform } from "@corvi/terminals/model";
 import type { RemoteAvailabilityReasonDto } from "@corvi/contracts/availability";
 import { shouldKeepSocket } from "./socketTarget.ts";
+import { monoFontStack, loadSymbolsFont } from "../../app-root/monoFont.ts";
+import { getPref, setPref } from "../../app-root/prefs.ts";
 
 /** How much scrollback the page keeps: as much as the server serializes, so a resume is whole. */
 const SCROLLBACK = 5000;
@@ -139,21 +141,18 @@ class QuietClipboardProvider extends BrowserClipboardProvider {
   }
 }
 
-/** The font size is a page preference, kept across reloads; a terminal that remembers the size
- * you set is the least a native-feeling one does. */
-const FONT_SIZE_KEY = "corvi.terminal.fontSize";
+/** The font size is a page preference, kept across reloads and restarts; a terminal that remembers
+ * the size you set is the least a native-feeling one does. A cookie (`prefs.ts`), since the app
+ * serves itself from a new port every launch and localStorage is forgotten with the port. */
+const FONT_SIZE_KEY = "corvi:terminal-font-size";
 const FONT_SIZE_DEFAULT = 13;
 const FONT_SIZE_MIN = 8;
 const FONT_SIZE_MAX = 32;
 const readFontSize = (): number => {
-  try {
-    const value = Number(localStorage.getItem(FONT_SIZE_KEY));
-    return Number.isInteger(value) && value >= FONT_SIZE_MIN && value <= FONT_SIZE_MAX
-      ? value
-      : FONT_SIZE_DEFAULT;
-  } catch {
-    return FONT_SIZE_DEFAULT;
-  }
+  const value = Number(getPref(FONT_SIZE_KEY));
+  return Number.isInteger(value) && value >= FONT_SIZE_MIN && value <= FONT_SIZE_MAX
+    ? value
+    : FONT_SIZE_DEFAULT;
 };
 
 /**
@@ -269,6 +268,9 @@ export function TerminalPane({
       // xterm owns the screen now: the scrollback is real, and the scrollbar comes with it.
       scrollback: SCROLLBACK,
       fontSize: readFontSize(),
+      // The page's monospace stack, resolved: xterm takes a string rather than CSS. A face chosen
+      // in Settings → Appearance is in it, since that page unmounts every terminal.
+      fontFamily: monoFontStack(),
       // A cursor you can find: xterm draws an outline when the terminal is not focused and takes
       // the cursor colour from the foreground, which disappears over a like-coloured cell. A
       // filled block in both states, in the sheet's text colour with the well under it, is visible
@@ -322,6 +324,13 @@ export function TerminalPane({
     } catch {
       // no WebGL: the default renderer is correct, only busier
     }
+    // The WebGL renderer caches every glyph it draws, and an icon drawn before the icon font
+    // arrived is cached as a box: redraw once it has. A build without the font never redraws, and
+    // the terminal is usable all the same.
+    let disposed = false;
+    void loadSymbolsFont().then((loaded) => {
+      if (loaded && !disposed) term.clearTextureAtlas();
+    });
     // Input goes out through whatever socket is open, so a reconnected pane keeps typing.
     const input = term.onData((chunk) => {
       const ws = socket.current;
@@ -363,6 +372,7 @@ export function TerminalPane({
     (element as HTMLElement & { corviTerminal?: Terminal }).corviTerminal = term;
     setGeneration((n) => n + 1);
     return () => {
+      disposed = true;
       followTheme.disconnect();
       input.dispose();
       binary.dispose();
@@ -415,11 +425,7 @@ export function TerminalPane({
       // the pty directly or the shell keeps wrapping at the old width.
       if (term.cols !== before.cols || term.rows !== before.rows) sendSize(term);
     }
-    try {
-      localStorage.setItem(FONT_SIZE_KEY, String(fontSize));
-    } catch {
-      // private mode: the size is just not remembered
-    }
+    setPref(FONT_SIZE_KEY, String(fontSize));
   }, [fontSize, sendSize]);
 
   // One socket, when the terminal is first shown and the URL is known. The fit happens before

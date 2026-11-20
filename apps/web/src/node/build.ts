@@ -3,17 +3,18 @@
  *
  * The browser application lives in `apps/web/src`; this is the one place that knows how it is
  * put together: the entry and styles are bundled, the HTML's two local references are rewritten,
- * and the icons and manifest are copied beside them. The server only serves the result
+ * and the icons, manifest and fonts are copied beside them. The server only serves the result
  * (`apps/server/src/app-root/pages.ts`), so a production instance never runs a bundler and a
  * missing bundle is a build problem, not a page problem.
  *
  * `bun run build:web` runs this once; `--watch` rebuilds when a source file changes.
  */
 import { build } from "esbuild";
-import { watch } from "node:fs";
+import { existsSync, watch } from "node:fs";
 import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { fontsDir, SYMBOLS_FONT_FILE } from "./fonts.ts";
 
 /** Where the browser sources live: `apps/web/src/app-root`. */
 const sourceDir = fileURLToPath(new URL("../app-root", import.meta.url));
@@ -32,6 +33,9 @@ async function bundle(entrypoint: string, outfile: string): Promise<void> {
     target: "es2022",
     logLevel: "silent",
     write: false,
+    // The stylesheet's fonts are files the server serves from the build (`/fonts/:file`), not
+    // sources to bundle.
+    external: ["/fonts/*"],
   });
   for (const file of result.outputFiles) {
     const temporary = `${file.path}.tmp-${process.pid}`;
@@ -56,7 +60,23 @@ export async function buildWeb(options: { outDir?: string } = {}): Promise<strin
   await writeFile(join(outDir, "index.html"), html);
   await cp(join(sourceDir, "manifest.webmanifest"), join(outDir, "manifest.webmanifest"));
   await cp(join(sourceDir, "icons"), join(outDir, "icons"), { recursive: true });
+  await copyFonts(outDir);
   return outDir;
+}
+
+/** The fonts `bun install` fetched (`fonts.ts`). Without them the build still succeeds: the page's
+ * `@font-face` request then fails and the browser uses the rest of the stack, so only the icons
+ * are missing. Stale fonts from an earlier build are removed, so `dist` says what this build has. */
+async function copyFonts(outDir: string): Promise<void> {
+  const target = join(outDir, "fonts");
+  await rm(target, { recursive: true, force: true });
+  if (!existsSync(join(fontsDir, SYMBOLS_FONT_FILE))) {
+    console.warn(
+      "web: no symbols font in apps/web/fonts; terminal icons will show as boxes. Run `bun run fonts`.",
+    );
+    return;
+  }
+  await cp(fontsDir, target, { recursive: true });
 }
 
 /** Build once, then rebuild whenever a source file changes. */

@@ -424,3 +424,23 @@ export function ReviewIcon({ title }: { title: string }): JSX.Element {
     </svg>
   );
 }
+
+/** More about the thing beside it: an "i" in a circle. Decorative — the control it sits in carries
+ * the name, and a `<title>` here would add the browser's own tooltip on top of the page's. */
+export function InfoIcon(): JSX.Element {
+  return (
+    <svg
+      {...size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="8" cy="8" r="6.2" />
+      <path d="M8 7.3v4" />
+      <path d="M8 4.8v.01" />
+    </svg>
+  );
+}

@@ -104,7 +104,9 @@ export const editorChrome = EditorView.theme({
     height: "100%",
   },
   ".cm-scroller": {
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+    // The page's one monospace stack (`styles.css`), which carries the icon font and the face
+    // chosen in Settings → Appearance.
+    fontFamily: "var(--font-mono)",
     lineHeight: "1.5",
   },
   ".cm-content": {

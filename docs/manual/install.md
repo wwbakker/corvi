@@ -17,7 +17,8 @@ Development serves `http://127.0.0.1:4000`. The page is built ahead of time: `bu
 builds it first (`bun run build:web`, into `apps/web/dist`), and `bun run dev:web` watches the
 page's sources and rebuilds as you edit. The server itself only serves the built files.
 
-Electron and node-pty are installed with the project. The pinned node-pty version includes
+Electron and node-pty are installed with the project, and `bun install` fetches the Nerd Fonts
+symbols the terminals draw icons with ([Monospace font](interface.md#monospace-font)). The pinned node-pty version includes
 prebuilds for supported macOS/Linux x64/arm64 platforms. Do not assume unsupported platforms can
 build it without additional tools. An installed Electron app runs its server on Electron's Node,
 not Bun.

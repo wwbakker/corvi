@@ -40,6 +40,7 @@ import { SessionGate } from "./SessionGate.tsx";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../domain/chrome.ts";
 import { coloursOf, CORVI_COLOURS } from "../domain/theme.ts";
 import { applyChangeColours, applyStoredTheme } from "./theme.ts";
+import { applyStoredMonoFont, loadSymbolsFont } from "./monoFont.ts";
 import type { SettingsView } from "../settings/model.ts";
 import { ActionsPage } from "../actions/ActionsPage.tsx";
 import { SubagentsPage } from "../subagents/SubagentsPage.tsx";
@@ -725,6 +726,12 @@ function App(): JSX.Element {
 // ahead of the first paint; this applies it again for what a small script trusts and this module
 // validates, and puts the sky's follow and the browser chrome on it.
 applyStoredTheme();
+// The monospace face this device chose, likewise before anything monospace is drawn.
+applyStoredMonoFont();
+// The icon font, fetched now rather than when the first icon needs it: Chromium keeps the boxes
+// it drew for text laid out while the font was still loading (seen in the editor), so the font
+// should be there before the first plan or terminal is.
+void loadSymbolsFont();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
