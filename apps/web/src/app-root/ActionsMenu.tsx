@@ -1,6 +1,7 @@
-import { type JSX, useEffect, useRef, useState } from "react";
+import { type JSX, useEffect, useRef, useState, type RefObject } from "react";
 
 import { ChevronDownIcon } from "./icons.tsx";
+import { useLeaderMenu } from "./leader.tsx";
 
 export type Action = {
   label: string;
@@ -19,15 +20,31 @@ export function ActionsMenu({
   label = "Actions ▾",
   className = "primary",
   onOpen,
+  triggerRef,
 }: {
   actions: Action[];
   label?: string;
   className?: string;
   /** Called when the menu opens — where a list is fetched fresh rather than kept in the page. */
   onOpen?: () => void;
+  /** The trigger's element, for a caller that puts the leader's keycap on it and presses it. */
+  triggerRef?: RefObject<HTMLButtonElement | null>;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const itemsRef = useRef<HTMLDivElement>(null);
+
+  // An open menu is the leader's list: its items are numbered, the arrows walk them and Enter
+  // presses one (app-root/leader.tsx). The mode stays on when this opens, so the numbers are what
+  // comes next.
+  useLeaderMenu(open, () => ({
+    items: () =>
+      itemsRef.current === null
+        ? []
+        : [...itemsRef.current.querySelectorAll<HTMLElement>("button")].map((element) => ({ element })),
+    outline: () => itemsRef.current,
+    close: () => setOpen(false),
+  }));
 
   useEffect(() => {
     if (!open) return;
@@ -55,6 +72,7 @@ export function ActionsMenu({
   return (
     <div className="menu" ref={ref}>
       <button
+        ref={triggerRef}
         className={className}
         aria-expanded={open}
         // Keeps the focus where it was: on the terminal tab this button sits above a terminal.
@@ -74,7 +92,7 @@ export function ActionsMenu({
         </span>
       </button>
       {open && (
-        <div className="menu-items">
+        <div className="menu-items" ref={itemsRef} data-leader-menu>
           {actions.map((action) => (
             <button
               key={action.label}

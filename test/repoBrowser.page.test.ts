@@ -15,8 +15,8 @@ import {
 
 /**
  * The repository browser as a keyboard drives it: it opens in the filter with a row selected, the
- * arrows walk the list and wrap, Enter goes in, Alt+↑ comes back out, and Alt+Enter presses the
- * row's Add. What the server answers for a listing is pinned in repos.browse.test.ts; this is the
+ * arrows walk the list and wrap, Enter goes in, Alt+↑ comes back out, and Shift+Enter presses
+ * the row's Add. What the server answers for a listing is pinned in repos.browse.test.ts; this is the
  * way through the dialog, which is where the keys live.
  */
 let browser: Browser;
@@ -137,7 +137,7 @@ test.skipIf(!usable)(
 );
 
 test.skipIf(!usable)(
-  "Alt+Enter presses the row's Add, and only where the button could be pressed",
+  "Shift+Enter presses the row's Add, and only where the button could be pressed",
   async () => {
     await withPage(
       browser,
@@ -149,7 +149,7 @@ test.skipIf(!usable)(
 
         // A directory that is not a repository: the Add button is disabled, and so is the key.
         await filter(page).fill("plain");
-        await page.keyboard.press("Alt+Enter");
+        await page.keyboard.press("Shift+Enter");
         expect(await chosen(page)).toBe(0);
         expect(
           await page.locator("dialog[open] .selected-pane").getByText("no repositories selected").count(),
@@ -157,7 +157,7 @@ test.skipIf(!usable)(
 
         // A repository: the key adds it, and the row says so — one Add, not a toggle.
         await filter(page).fill("alpha");
-        await page.keyboard.press("Alt+Enter");
+        await page.keyboard.press("Shift+Enter");
         await page.locator("dialog[open] .selected-pane .selection").first().waitFor();
         expect(await chosen(page)).toBe(1);
         const add = listing(page).locator(".entries li", { hasText: "alpha" }).getByRole("button", {
@@ -167,7 +167,7 @@ test.skipIf(!usable)(
         expect(await add.isDisabled()).toBe(true);
 
         // The same key on the same row is a disabled button: nothing happens, nothing is removed.
-        await page.keyboard.press("Alt+Enter");
+        await page.keyboard.press("Shift+Enter");
         expect(await chosen(page)).toBe(1);
 
         // The keymap names what this pane can do, including the chord it just used.

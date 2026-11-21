@@ -1,4 +1,4 @@
-import { type JSX, useEffect, useState } from "react";
+import { type JSX, useEffect, useRef, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
 import {
   type ChangeState,
@@ -32,6 +32,7 @@ import { TranscriptsPage } from "./TranscriptsPage.tsx";
 import { useTerminalActions } from "../../actions/terminalActions.ts";
 import { TabHost, type WidgetInfo } from "../../integrations/client.tsx";
 import { DashboardIcon, PageIcon, PlanIcon, ReviewIcon } from "../../app-root/icons.tsx";
+import { useLeaderGroup, type LeaderTarget } from "../../app-root/leader.tsx";
 
 /** The message to show for whatever a request threw: typed client errors and plain errors both
  * carry one. */
@@ -408,6 +409,39 @@ export function ChangeView({
   const active = resolveChangePage(page, tabs ?? [], { finished });
   const activeId = active.kind === "tab" ? active.tab.id : active.kind;
 
+  // The row's controls, in the order the leader reads them: the views, then the terminals and
+  // their "+", then the title row's two menus — which sit above the row but come last, so the
+  // views keep the keys nearest the row's start (app-root/leader.tsx).
+  const tabRefs = useRef(new Map<string, HTMLButtonElement>());
+  const tabRowRef = useRef<HTMLDivElement>(null);
+  const newWindowRef = useRef<HTMLButtonElement>(null);
+  const statusRef = useRef<HTMLButtonElement>(null);
+  const actionsRef = useRef<HTMLButtonElement>(null);
+  const windowTabs = (): readonly LeaderTarget[] => {
+    const strip = tabRowRef.current?.querySelector<HTMLElement>("nav.window-tabs") ?? null;
+    return strip === null
+      ? []
+      : [...strip.querySelectorAll<HTMLElement>("[data-window-index]")].map((element) => ({ element }));
+  };
+  // The view row's keys. The wizard registers the same letters under its own id: the two surfaces
+  // never mount together, so one row serves both and a key means the same position in each.
+  useLeaderGroup("view", "asdfghjkl", () => {
+    const terminalTabs = windowTabs();
+    const first = terminalTabs[0]?.element ?? null;
+    return [
+      ...nav.map((tab) => ({
+        kind: "target" as const,
+        element: tabRefs.current.get(tab.id) ?? null,
+      })),
+      // The selector's keycap sits on the strip's first tab — its leading edge — and numbers the
+      // tabs it starts; the group's outline is the union of the tabs' own boxes.
+      { kind: "selector", element: first, align: "start", items: windowTabs },
+      { kind: "target", element: newWindowRef.current },
+      { kind: "target", element: statusRef.current, keep: true },
+      { kind: "target", element: actionsRef.current, keep: true },
+    ];
+  });
+
   /** The pane the terminal shows: the active window's focused pane, so the socket attaches to
    * that pane's own pty and switching windows or panes reconnects. A split window's other panes
    * are composed in 5b; the page renders the active one for now. */
@@ -418,11 +452,15 @@ export function ChangeView({
    * and a window are both one click away, and the separator is what says they are different kinds
    * of thing. The key reference belongs to the terminal alone. */
   const changeTabs = (
-    <div className="change-tabs">
+    <div className="change-tabs" ref={tabRowRef}>
       <nav className="tabs views">
         {nav.map((tab) => (
           <button
             key={tab.id}
+            ref={(element) => {
+              if (element === null) tabRefs.current.delete(tab.id);
+              else tabRefs.current.set(tab.id, element);
+            }}
             className={activeId === tab.id ? "tab current" : "tab"}
             onClick={() => onOpenPage(tab.id)}
           >
@@ -443,6 +481,7 @@ export function ChangeView({
       </nav>
       <span className="tab-separator" aria-hidden="true" />
       <WindowTabs
+        leaderNewRef={newWindowRef}
         terminals={active.kind === "terminals"}
         windows={windows}
         platform={platform}
@@ -475,6 +514,8 @@ export function ChangeView({
           height. The title row is the window's in the app; the row under it is the change's. */}
       <div className="change-chrome">
         <ChangeControls
+          statusRef={statusRef}
+          actionsRef={actionsRef}
           change={change}
           blocked={blocked}
           actions={[...actions, ...terminalActions.actions]}

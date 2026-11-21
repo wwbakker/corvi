@@ -10,6 +10,14 @@ const KEYS: [string, string][] = [
   ["middle-click", "paste the system clipboard"],
 ];
 
+/** The app's own keys, the same on every platform: leader mode lays a keycap on each control and
+ * the next key goes there (apps/web/src/app-root/leader.tsx). */
+const APP_CHORDS: [string, string][] = [
+  ["ctrl+space", "show every control's key, then press the one you want"],
+  ["esc", "put the keys away — once for an open menu, again for the whole mode"],
+  ["[ / ]", "back / forward, while the keys are showing"],
+];
+
 /** Chords the page takes, which differ by platform the way the rest of the app's do. */
 const CHORDS_MAC: [string, string][] = [
   ["⌘T", "new window"],
@@ -61,6 +69,17 @@ export function CheatSheet({
       <table className="keys">
         <tbody>
           {KEYS.map(([key, what]) => (
+            <tr key={key}>
+              <td>
+                <code>{key}</code>
+              </td>
+              <td>{what}</td>
+            </tr>
+          ))}
+          <tr>
+            <th colSpan={2}>The app&apos;s keys</th>
+          </tr>
+          {APP_CHORDS.map(([key, what]) => (
             <tr key={key}>
               <td>
                 <code>{key}</code>

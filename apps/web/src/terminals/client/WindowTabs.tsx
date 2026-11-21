@@ -1,4 +1,11 @@
-import { type JSX, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  type JSX,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type RefObject,
+} from "react";
 import { AgentIcon, PlusIcon, TerminalIcon } from "../../app-root/icons.tsx";
 import type { Platform } from "@corvi/terminals/model";
 import { WINDOW_TITLE_MAX, type TerminalWindow } from "../../domain/terminal.ts";
@@ -16,6 +23,7 @@ export function WindowTabs({
   onMoveWindow,
   onRenameWindow,
   onRenameClosed,
+  leaderNewRef,
 }: {
   /** Whether the terminal is the surface on screen: only then is a window tab the current one.
    * While a view shows, the view's tab is what says where you are. */
@@ -38,6 +46,8 @@ export function WindowTabs({
   onRenameWindow: (windowId: string, title: string) => void;
   /** The rename dialog has closed (committed or not): the keyboard belongs to the page again. */
   onRenameClosed: () => void;
+  /** The new-terminal tab, where the leader's keycap for it sits (app-root/leader.tsx). */
+  leaderNewRef?: RefObject<HTMLButtonElement | null>;
 }): JSX.Element {
   // Which window tab a drag is carrying, and which one it is over: "new" is the row's fixed end
   // and takes no part in either.
@@ -183,6 +193,7 @@ export function WindowTabs({
       {/* A session that has not started yet has nothing to add a window to; opening the
           terminal starts it, with the first window. */}
       <button
+        ref={leaderNewRef}
         className="window-tab new"
         disabled={disabled}
         aria-label="new terminal"

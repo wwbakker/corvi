@@ -206,10 +206,10 @@ test.skipIf(!usable)(
       const keymap = dialog.locator(".keymap");
       await keymap.waitFor();
       expect(await keymap.locator("li").count()).toBe(3);
-      expect(await keymap.innerText()).not.toContain("Alt+Enter");
+      expect(await keymap.innerText()).not.toContain("Shift+Enter");
       const title = await dialog.locator("button.keys").getAttribute("title");
       expect(title).toContain("Alt+\u2191 up");
-      expect(title).not.toContain("Alt+Enter");
+      expect(title).not.toContain("Shift+Enter");
 
       // Leaving the map open is remembered, so it is still open the next time the picker opens.
       await page.reload({ waitUntil: "domcontentloaded" });

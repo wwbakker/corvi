@@ -4,8 +4,9 @@
 
 ## Navigation
 
-At the top of the left column is the brand row: the raven, **Corvi**, and the workspace switcher.
-Below it are the change overview, ideas, active changes and their terminal windows. A waiting
+At the top of the left column is the brand row: the raven and **Corvi**. Below it are the change
+overview, ideas, active changes and their terminal windows. The workspace switcher sits beside the
+**Workspace** heading, with the pages that belong to that context. A waiting
 agent shows as the change's dot in the list and on its terminal tab, not as an entry of its own.
 At the bottom sit Settings — a gear — the power control (see [Power down when
 done](terminals.md#power-down-when-done)), the terminal host's restart icon, and the update icon:
@@ -42,6 +43,38 @@ the selected workspace's label suffix it **(Unavailable)**, while its retained c
 and subagent entries stay in the navigation column without a suffix of their own. Its last known
 data is what you see until it recovers (see
 [configuration](configuration.md#remote-workspaces-that-are-unavailable)).
+
+## Keyboard
+
+Everything the column offers, and the controls of a change and of the wizard, can be reached from
+the keyboard without memorizing a list: press `Ctrl+Space` and each of those controls grows a small
+keycap — the column's entries along `Q W E R T Y U I O P` from the top down, the current view's
+controls along `A S D F G H J` from the left, and the column's bottom row on `Z X C V`. The keys
+follow where the controls are, not what they are called, so they move with the layout and a control
+that is not there takes no key. Press one and it does what the control does. On the pages with no
+keys of their own — the overview, Actions, Subagents, Settings — the column's keys are still the
+way around.
+
+The groups are picked from a key on the group: `E` sits on the **Ideas** heading, `R` on
+**Changes**, and `F` at the start of a change's terminal tabs (an open menu is numbered as soon as
+it appears). A group with one item goes straight to it; a longer one is numbered `1`–`9` and `0`,
+with the arrows to walk it and `Enter` to choose.
+
+`Escape` puts a layer away at a time — a number selection, then an open menu, then the keycaps
+themselves — and `Ctrl+Space` leaves the mode outright. `[` and `]` are Back and Forward while the
+keys are showing. A key that has nothing mapped does nothing. The mode does not open while a dialog
+is: that dialog's own keys are the whole surface then. On a narrow window the column opens as the
+drawer while the keys are up.
+
+The terminal's own chords — new window, find, font size, copy and paste — are on its cheat sheet,
+which carries this section's keys too (see [terminals](terminals.md)).
+
+`Ctrl+Space` is the whole app's, terminals included, so it never reaches a shell. An input method
+may claim it first: on macOS the system offers it for **Select the previous input source** when
+more than one input source is installed (turn it off in System Settings → Keyboard → Keyboard
+Shortcuts → Input Sources), and on Linux fcitx5 and IBus commonly use it to switch the input
+method. With either one holding the key, the mode never opens: rebind the trigger, or turn it off,
+in the input method's own settings.
 
 ## Settings
 

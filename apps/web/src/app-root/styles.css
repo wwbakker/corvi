@@ -935,6 +935,14 @@ body.resizing {
   margin-bottom: 8px;
 }
 
+/* Ideas and the active changes are two blocks of the same list, each with its own heading and its
+   own box for the leader to outline. The gap is the list's, so a group is not a gap of its own. */
+.sidebar .list-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .sidebar .list .hint {
   margin: 2px 10px 0 18px;
   font-size: 12px;
@@ -1360,8 +1368,7 @@ body.drawer-open {
 .hosted .page > .change-chrome > header a,
 .hosted .wizard > header button,
 .hosted .wizard > header select,
-.hosted .wizard > header input,
-.hosted .sidebar > .band button {
+.hosted .wizard > header input {
   -webkit-app-region: no-drag;
 }
 
@@ -3780,30 +3787,69 @@ button.danger:disabled {
   color: var(--muted);
 }
 
-/* Which client's world this is, above everything that belongs to it. */
 .sidebar .menu {
   margin-bottom: 8px;
 }
 
-.sidebar button.workspace {
-  width: 100%;
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid var(--nav-line);
-  border-radius: 0;
-  padding: 6px 10px 10px;
-  color: var(--nav-text);
-  text-align: left;
-  font-weight: 600;
+/* Which client's world this is, beside the Workspace heading: the entries under it are what that
+   context contains. The heading and the pill share one line, and the pill is a compact control at
+   the column's right edge rather than the full-width heading it used to be — so the column reads
+   top to bottom and the leader's keys follow it (app-root/leader.tsx). */
+.sidebar .workspace-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 9px 5px;
 }
 
-/* The switcher is a control in the column's first row rather than the heading it was: a compact pill
-   at the column's right edge, about half the width it had when it spanned the column. The row is the
-   window's own in the app (below) and the column's own elsewhere; in both, the menu opens from the
-   box this sits in and is anchored to its right edge, so the pill's right edge is what keeps the list
-   inside the window. */
-/* The brand row: the raven, the app's name, and the workspace switcher at the column's right —
-   the row the window's title bar is in the app. */
+.sidebar .workspace-row .group-label {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.sidebar .workspace-row .menu {
+  display: flex;
+  flex: none;
+  min-width: 0;
+  margin-bottom: 0;
+  /* The list opens from the row, not from the pill: the pill sits at the column's right edge, and
+     a list anchored to its right edge would hang off the window. */
+  position: static;
+}
+
+.sidebar .workspace-row .menu-items {
+  left: 0;
+  right: auto;
+  width: 100%;
+  min-width: 0;
+}
+
+.sidebar .workspace-row .menu > button {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* The pill: the column's quiet tone on its own background, one size smaller than the entries — a
+   context, not a destination. It shortens with the column rather than pushing past it. */
+.sidebar button.workspace {
+  width: auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 3px 6px 3px 9px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--nav-muted);
+  background: color-mix(in srgb, var(--nav-text) 8%, transparent);
+  text-align: left;
+}
+
+/* The brand row: the raven and the app's name — the row the window's title bar is in the app. */
 .sidebar > .band {
   display: flex;
   flex-direction: row;
@@ -3825,44 +3871,6 @@ button.danger:disabled {
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--nav-text);
-}
-
-.sidebar > .band .spacer {
-  flex: 1;
-  min-width: 0;
-}
-
-.sidebar > .band .menu {
-  margin-bottom: 0;
-  /* The row's last item: it may shorten to the row's edge rather than push past it. A flex box
-     of its own is what lets the trigger inside shrink with it; an inline-flex button in a block
-     keeps its content width and overflows instead. */
-  display: flex;
-  min-width: 0;
-}
-
-.sidebar > .band .menu > button {
-  flex: 0 1 auto;
-  min-width: 0;
-}
-
-/* The switcher is a chip in the row's right: the column's quiet tone on its own background, one
-   size smaller than the entries — a context, not a destination. */
-.sidebar > .band button.workspace {
-  width: auto;
-  /* The row is narrower on Linux, where the column's scrollbar takes width; let the pill shorten
-     rather than push its right edge past the row. */
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  padding: 3px 6px 3px 9px;
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--nav-muted);
-  background: color-mix(in srgb, var(--nav-text) 8%, transparent);
 }
 
 .menu > button .menu-label {
@@ -4746,4 +4754,82 @@ select,
   .remote-unavailable {
     padding-left: 46px;
   }
+}
+
+/* Leader mode (app-root/leader.tsx): the keycaps over the controls, the box around the group a
+   selector is numbering, and the one the arrows are on. The layer floats over the page and takes
+   no pointer events — the control under a cap is still the control. */
+.leader-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+}
+
+.leader-key {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 600 11px/1 var(--font-mono);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.5);
+}
+
+/* A number is the same cap in the app's own colour: it picks from a group rather than going to a
+   control, and the two should not read as the same kind of key. */
+.leader-key.number {
+  background: var(--corvi-b);
+  color: #1b1206;
+}
+
+.leader-outline {
+  position: fixed;
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+}
+
+/* The item the arrows are on: a wash as well as the ring, so it reads over the outline the whole
+   group has. */
+.leader-current {
+  position: fixed;
+  border: 2px solid var(--accent);
+  border-radius: 7px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+/* A key named on a button — Ctrl+Enter on a dialog's confirm, Ctrl+Enter on Create idea. Quiet
+   enough to be a reminder rather than a label. */
+.key-hint {
+  margin-left: 8px;
+  padding: 1px 4px;
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-radius: 4px;
+  font: 500 10px/1.3 var(--font-mono);
+  vertical-align: middle;
+  opacity: 0.75;
+}
+
+/* The keyboard's place on the page: the same ring for everything that can be reached, on the
+   platform's own terms (`:focus-visible`), so a click never draws one and Tab always does. The
+   ring sits inside a row or a tab, where two neighbouring controls touch. */
+button:focus-visible,
+select:focus-visible,
+input:not(.xterm-helper-textarea):focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sidebar .entry:focus-visible,
+.sidebar .bottom-row .icon-entry:focus-visible,
+.menu-items button:focus-visible,
+.tabs .tab:focus-visible,
+.window-tab:focus-visible,
+.change-tabs .tab:focus-visible {
+  outline-offset: -2px;
 }

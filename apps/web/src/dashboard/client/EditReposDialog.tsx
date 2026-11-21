@@ -4,6 +4,7 @@ import { type Change, type ProvisionResult, type RepoState, type Selection } fro
 import { useChangeClient } from "../../app-root/sources.ts";
 import { RepoBrowser } from "../../workspace/client/RepoBrowser.tsx";
 import { forceQuestion } from "../../change-page/client/refusals.ts";
+import { useConfirmShortcut } from "../../app-root/confirmShortcut.ts";
 
 /**
  * Edits the repository list of a change as a draft: nothing is created or removed until OK.
@@ -103,6 +104,11 @@ export function EditReposDialog({
   const dropped = current.filter((r) => !has(r.path));
   // A repository whose spec changed counts as added: it is set up again the new way.
   const added = draft.filter((d) => !current.some((r) => r.path === d.path && sameSpec(r, d)));
+  // Ctrl+Enter is OK: the same answer the button gives, and only when the button can give it.
+  const saveable = !busy && (added.length > 0 || dropped.length > 0) && (question === null || acked);
+  useConfirmShortcut(ref, open, () => {
+    if (saveable) save(question !== null);
+  });
 
   return (
     <dialog ref={ref} className="wide" onCancel={onClose} onClose={onClose}>
@@ -170,6 +176,9 @@ export function EditReposDialog({
           onClick={() => save(question !== null)}
         >
           {busy ? "Applying…" : "OK"}
+          <kbd className="key-hint" aria-hidden="true">
+            Ctrl+Enter
+          </kbd>
         </button>
       </div>
     </dialog>
