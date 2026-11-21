@@ -103,17 +103,23 @@ test.skipIf(!usable)(
       browser,
       async (page) => {
         await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
-        await page.waitForSelector("nav.tabs");
+        await page.waitForSelector(".settings-tree");
 
-        // Add a context and make it remote. Anchored label regexes: a wrapping label's name includes
-        // its hint, and "Name" would otherwise also match "This device's name".
+        // Add a context from the Contexts view, which is the workspace-only section that owns them.
+        // Anchored label regexes: a wrapping label's name includes its hint, and "Name" would
+        // otherwise also match "This device's name".
+        await page.locator(".settings-tree").getByRole("button", { name: "Contexts", exact: true }).click();
         await page.getByRole("button", { name: "+ add a context" }).click();
         await page.getByLabel(/^Name/).fill("Remote client");
         await page.getByLabel(/^Id/).fill("remote-client");
         await page.getByLabel(/^Hosted on another server/).check();
 
-        // A remote workspace has no settings of its own here, so those sections are gone.
-        expect(await page.getByRole("button", { name: "Locations" }).count()).toBe(0);
+        // A remote workspace's settings live on the server that hosts it: the scoped section says
+        // so instead of drawing local fields, and the sticky scope stays on this workspace.
+        await page.locator(".settings-tree").getByRole("button", { name: "Locations", exact: true }).click();
+        await page.getByText("live on the server that hosts it").waitFor();
+        expect(await page.getByLabel("Changes root").count()).toBe(0);
+        await page.locator(".settings-tree").getByRole("button", { name: "Contexts", exact: true }).click();
 
         await page.getByLabel(/^Remote address/).fill(remote.url);
         await page.getByLabel(/^Remote workspace/).fill("client");
@@ -143,6 +149,8 @@ test.skipIf(!usable)(
 
         // A reload shows the stored workspace with its token masked, not the raw token.
         await page.reload({ waitUntil: "domcontentloaded" });
+        await page.waitForSelector(".settings-tree");
+        await page.locator(".settings-tree").getByRole("button", { name: "Contexts", exact: true }).click();
         await page.getByRole("button", { name: "Remote client" }).click();
         const reloaded = page.getByLabel(/^Device token/);
         await reloaded.waitFor();

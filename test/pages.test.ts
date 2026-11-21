@@ -1,7 +1,7 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { type Browser, type Page } from "playwright";
+import { type Browser, type Locator, type Page } from "playwright";
 import {
   budget,
   checkoutsOf,
@@ -113,16 +113,20 @@ const writeNotes = (change: string, text: string): Promise<Response> =>
     body: JSON.stringify({ text }),
   });
 
+/** The settings tree's row for one section, by its label. */
+const settingsNode = (page: Page, label: string): Locator =>
+  page.locator(".settings-tree").getByRole("button", { name: label, exact: true });
+
 /** Make one unsaved edit on the open settings page: the Jira transition, filled and not saved. */
 const editField = async (page: Page, value: string): Promise<void> => {
-  await page.locator(".tabs.sections .tab", { hasText: "Jira" }).click();
+  await settingsNode(page, "Jira").click();
   await page.getByLabel("Transition on completing one").fill(value);
 };
 
 /** Open the settings page and make one unsaved edit on it. */
 async function editSettings(page: Page, value: string): Promise<void> {
   await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector("nav.tabs");
+  await page.waitForSelector(".settings-tree");
   await editField(page, value);
 }
 
@@ -133,7 +137,7 @@ test.skipIf(!usable)(
       ["/", ".change-card"],
       ["/new", ".wizard"],
       ["/azure-devops", ".page"],
-      ["/settings", ".tabs"],
+      ["/settings", ".settings-tree"],
       ["/actions", ".actions-page"],
       [`/changes/${id}`, ".plan-page"],
       [`/changes/${id}/dashboard`, ".widget"],
@@ -616,16 +620,19 @@ test.skipIf(!usable)(
     const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
-      await page.waitForSelector("nav.tabs");
+      await page.waitForSelector(".settings-tree");
       expect(await page.locator(".error-banner").count()).toBe(0);
 
-      // One section at a time: the page opens on the first tab, and the Jira field is not there
-      // until its tab is chosen. The scope bar (Global and the workspaces) is its own tab row above.
-      expect((await page.locator(".tabs.sections .tab.current").innerText()).trim()).toBe("Locations");
+      // One section at a time: the page opens on Locations, and the Jira field is not there
+      // until its row in the tree is chosen. The scope bar (Global and the workspaces) sits
+      // inside the detail view, above the fields.
+      expect((await page.locator(".settings-detail .breadcrumb").innerText()).trim()).toBe(
+        "Workspace \u203a Locations",
+      );
       expect(await page.getByLabel("Transition on completing one").count()).toBe(0);
 
-      // The extension's settings are on its own tab now, so the page has to be asked for it.
-      await page.locator(".tabs.sections .tab", { hasText: "Jira" }).click();
+      // The extension's settings are on its own tree row now, so the page has to be asked for it.
+      await settingsNode(page, "Jira").click();
       await page.getByLabel("Transition on completing one").fill("Ready for release");
       await page.getByRole("button", { name: "Save" }).click();
       await page.waitForSelector(".hint.saved", { timeout: 10_000 });
@@ -633,7 +640,7 @@ test.skipIf(!usable)(
       // The window's own section, whose one setting so far is the right-click menu: taking it away is
       // the decision that gets written down, since a menu is the default.
       const box = page.getByLabel("Right-click menu");
-      await page.locator(".tabs.sections .tab", { hasText: "Window" }).click();
+      await settingsNode(page, "Window").click();
       await box.uncheck();
       await page.getByRole("button", { name: "Save" }).click();
       await page.waitForSelector(".hint.saved", { timeout: 10_000 });
@@ -733,13 +740,13 @@ test.skipIf(!usable)(
       browser,
       async (page) => {
         await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
-        await page.waitForSelector("nav.tabs");
+        await page.waitForSelector(".settings-tree");
         // A clean visit away and back first, so Back has somewhere to go.
         await page.getByRole("button", { name: "Changes", exact: true }).click();
         await page.waitForFunction(() => location.pathname === "/");
         await page.getByRole("button", { name: "Settings", exact: true }).click();
         await page.waitForFunction(() => location.pathname === "/settings");
-        await page.waitForSelector("nav.tabs");
+        await page.waitForSelector(".settings-tree");
         await editField(page, "typed and left behind");
 
         await page.goBack();
@@ -754,7 +761,7 @@ test.skipIf(!usable)(
         // where the answer left off.
         await page.goBack();
         await page.waitForFunction(() => location.pathname === "/settings");
-        await page.waitForSelector("nav.tabs");
+        await page.waitForSelector(".settings-tree");
         expect(await prompt.count()).toBe(0);
         await page.goForward();
         await page.waitForFunction(() => location.pathname === "/");

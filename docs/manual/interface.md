@@ -46,37 +46,54 @@ data is what you see until it recovers (see
 ## Settings
 
 The settings page edits the config file directly; [configuration](configuration.md) documents the
-keys and the scopes. Its scope bar holds **Global** and one tab per workspace, and the sections
-below the tabs depend on the scope. Four sections behave differently from the settings around
-them:
+keys and the scopes. Its sections sit in a tree on the left:
 
-- **Appearance** (global scope): the five themes and the monospace font, applied as soon as they
-  are chosen. Both belong to this device, not to the config file, so this section has no
-  **Save**; see [Themes](#themes) and [Monospace font](#monospace-font).
-- **Remote access** (global scope): **Enable remote access** and the listener's **Port** ride the
-draft and are written by **Save**. The Tailscale block publishes the listener to the tailnet —
-**Publish to Tailscale** / **Stop publishing** — shows the published URL, and says why it cannot
-publish (not installed, not connected, 443 already in use, or a 443 tree shared with another
-handler, in which case it spells out the manual `tailscale serve --https=443 off`). See
-[remote access](install.md#remote-access).
-- **Devices** (global scope): create a short-lived, single-use **pairing code** — shown with its
-countdown — and list the paired devices with **Revoke**. No token is ever displayed. See
-[remote access](install.md#remote-access).
-- A **remote workspace**'s **Context** tab (one workspace scope): ticking **Hosted on another
-server** drops that workspace's local settings and shows its **Remote address**, **Remote
-workspace** and **Device token** fields, a **Pair** control (a pairing code and a device name)
-that runs the pairing against that server and fills the token, and — once paired — a picker of the
-remote's workspaces. Changing the address or the remote workspace id while a token is stored warns
-that the stored token no longer applies, and **Save** drops it, so the new target has to be paired
-again. A remote workspace has no other sections, because its settings live on the server that
-hosts it. Unticking the box switches it back to local; **Remove this context** deletes it. See
-[workspaces](configuration.md#workspaces).
+- **Workspace**: **Contexts**, **Locations**, **Worktrees**, **Ideation** and **Environment**.
+- **Appearance & Behavior**: **Appearance**, **Window** and **Notifications**.
+- **Extensions**: one row per extension that declares settings, in the order they loaded.
+- **Remote**: **Remote access** and **Devices**.
+
+A filter above the tree narrows it by name. Every group starts open, and its `−`/`+` control
+closes and opens it; while a filter is active the matching groups open, so a match is never hidden.
+The group rows are selectable too: a pure group says there are no settings at that level, while
+**Extensions** shows the enable/disable switches for the scope. The chosen section opens on the
+right under its breadcrumb — `Appearance & Behavior › Window` — and the scope tabs live inside that
+detail view: **Global** and one tab per workspace. The scope is sticky, so walking the tree never
+changes it. Sections that belong to no workspace — **Appearance**, **Remote access**, **Devices** —
+have no scope tabs, and **Workspace → Contexts** is workspace-only: it shows the workspace tabs and
+**+ add a context**, and with **Global** selected it says that contexts are workspace-specific.
+
+Four sections behave differently from the settings around them:
+
+- **Appearance & Behavior → Appearance** (global scope): the five themes and the monospace font,
+  applied as soon as they are chosen. Both belong to this device, not to the config file, so this
+  section has no **Save**; see [Themes](#themes) and [Monospace font](#monospace-font).
+- **Remote → Remote access** (global scope): **Enable remote access** and the listener's **Port**
+  ride the draft and are written by **Save**. The Tailscale block publishes the listener to the
+  tailnet — **Publish to Tailscale** / **Stop publishing** — shows the published URL, and says why
+  it cannot publish (not installed, not connected, 443 already in use, or a 443 tree shared with
+  another handler, in which case it spells out the manual `tailscale serve --https=443 off`). See
+  [remote access](install.md#remote-access).
+- **Remote → Devices** (global scope): create a short-lived, single-use **pairing code** — shown
+  with its countdown — and list the paired devices with **Revoke**. No token is ever displayed. See
+  [remote access](install.md#remote-access).
+- **Workspace → Contexts** (workspace-only): a workspace's Name and Id, and ticking **Hosted on
+  another server** drops that workspace's local settings and shows its **Remote address**,
+  **Remote workspace** and **Device token** fields, a **Pair** control (a pairing code and a device
+  name) that runs the pairing against that server and fills the token, and — once paired — a picker
+  of the remote's workspaces. Changing the address or the remote workspace id while a token is
+  stored warns that the stored token no longer applies, and **Save** drops it, so the new target
+  has to be paired again. Unticking the box switches it back to local; **Remove this context**
+  deletes it. See [workspaces](configuration.md#workspaces).
+
+A remote workspace still appears in the scope tabs of the other scoped sections, but selecting it
+shows a note that its settings live on the server that hosts it, rather than drawing local fields.
 
 ## Themes
 
-![The themes in Settings → Appearance](../images/themes.png)
+![The themes in Settings → Appearance & Behavior → Appearance](../images/themes.png)
 
-Corvi ships five dark themes, chosen in **Settings → Appearance**:
+Corvi ships five dark themes, chosen in **Settings → Appearance & Behavior → Appearance**:
 
 - **Dusk** (the default): the dusk sky behind frosted panels.
 - **Ultramarine**: a solid ultramarine navigation column, a deep-navy page and translucent blue
@@ -103,11 +120,11 @@ paints its colour instead of animating it.
 ## Monospace font
 
 Terminals, the plan editor, diffs and identifiers share one monospace font. By default it is the
-system's (SF Mono or Menlo on macOS). **Settings → Appearance → Monospace font** puts an installed
-font in front of it: type the family name as the system lists it — Font Book on macOS, `fc-list :
-family` on Linux; the info icon beside the field says the same. A name that is not installed falls
-back to the default. Like the theme, the choice is kept in a cookie for this device and applies at
-once; a terminal picks it up when it is next shown.
+system's (SF Mono or Menlo on macOS). **Settings → Appearance & Behavior → Appearance → Monospace
+font** puts an installed font in front of it: type the family name as the system lists it — Font
+Book on macOS, `fc-list : family` on Linux; the info icon beside the field says the same. A name
+that is not installed falls back to the default. Like the theme, the choice is kept in a cookie for
+this device and applies at once; a terminal picks it up when it is next shown.
 
 Programs in a terminal often print [Nerd Fonts](https://www.nerdfonts.com) icons — pi's footer,
 prompts, file listings. Those are private-use characters no system font draws, so Corvi serves the

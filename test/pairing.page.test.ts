@@ -221,8 +221,8 @@ test.skipIf(!usable)(
       browser,
       async (page) => {
         await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
-        await page.waitForSelector("nav.tabs");
-        await page.getByRole("button", { name: "Devices" }).click();
+        await page.waitForSelector(".settings-tree");
+        await page.locator(".settings-tree").getByRole("button", { name: "Devices", exact: true }).click();
 
         // No code yet, and no devices beyond whatever earlier tests paired.
         await page.getByRole("button", { name: "Create a pairing code" }).click();
@@ -238,8 +238,8 @@ test.skipIf(!usable)(
         expect(paired.status).toBe(201);
 
         // Leaving and returning remounts the section, which refetches the list.
-        await page.getByRole("button", { name: "Locations" }).click();
-        await page.getByRole("button", { name: "Devices" }).click();
+        await page.locator(".settings-tree").getByRole("button", { name: "Locations", exact: true }).click();
+        await page.locator(".settings-tree").getByRole("button", { name: "Devices", exact: true }).click();
         const row = page.locator("tr", { hasText: "Listed device" });
         await row.waitFor();
         await row.getByRole("button", { name: "Revoke" }).click();
@@ -271,8 +271,8 @@ test.skipIf(!usable)(
       browser,
       async (page) => {
         await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
-        await page.waitForSelector("nav.tabs");
-        await page.getByRole("button", { name: "Devices" }).click();
+        await page.waitForSelector(".settings-tree");
+        await page.locator(".settings-tree").getByRole("button", { name: "Devices", exact: true }).click();
         const row = page.locator("tr", { hasText: "Seed device" });
         await row.waitFor();
 

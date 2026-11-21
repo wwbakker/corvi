@@ -103,7 +103,7 @@ test.skipIf(!usable)(
   async () => {
     await withPage(browser, async (page) => {
       await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
-      await page.waitForSelector("nav.tabs");
+      await page.waitForSelector(".settings-tree");
 
       const field = page
         .locator(".settings .field")
@@ -145,7 +145,7 @@ test.skipIf(!usable)(
       await page.getByRole("button", { name: "Save" }).click();
       await page.waitForSelector(".hint.saved", { timeout: 10_000 });
       await page.reload({ waitUntil: "domcontentloaded" });
-      await page.waitForSelector("nav.tabs");
+      await page.waitForSelector(".settings-tree");
       const after = await page.getByLabel("Repositories directory").inputValue();
       expect(after).toBe(globalDir);
     });
@@ -158,7 +158,7 @@ test.skipIf(!usable)(
   async () => {
     await withPage(browser, async (page) => {
       await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
-      await page.waitForSelector("nav.tabs");
+      await page.waitForSelector(".settings-tree");
 
       const field = page
         .locator(".settings .field")
@@ -213,7 +213,7 @@ test.skipIf(!usable)(
 
       // Leaving the map open is remembered, so it is still open the next time the picker opens.
       await page.reload({ waitUntil: "domcontentloaded" });
-      await page.waitForSelector("nav.tabs");
+      await page.waitForSelector(".settings-tree");
       const again = page
         .locator(".settings .field")
         .filter({ has: page.getByLabel("Repositories directory") });

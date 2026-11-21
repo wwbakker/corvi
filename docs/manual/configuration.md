@@ -60,7 +60,7 @@ at `/settings` edits the same file. This page describes current configuration na
 ## Settings and scopes
 
 The theme is not a setting in this file: it is a per-device browser preference, chosen in
-**Settings → Appearance** (see [themes](interface.md#themes)).
+**Settings → Appearance & Behavior → Appearance** (see [themes](interface.md#themes)).
 
 Every setting exists at two scopes: at the top level of the file (the global level) and inside a
 workspace's `settings`, where it overrides the global one key by key. The settings are:
@@ -92,7 +92,7 @@ Top-level and machine-level — not settings, and with no workspace override —
   (default `4110`). It is a second loopback listener an authenticated client on the tailnet can
   reach; see [local and remote access](#local-and-remote-access).
 - `devices`: the devices paired to this machine, each with only a hash of its token. A device is
-  this machine's trust, so it is not a workspace's; manage them under Settings → Devices.
+  this machine's trust, so it is not a workspace's; manage them under Settings → Remote → Devices.
 
 One chain decides what applies to a piece of work:
 
@@ -349,4 +349,4 @@ There are two loopback listeners, and the difference between them is trust:
 Trust is therefore a property of the listener, not of the peer address: through `tailscale serve`
 the server sees every connection from `127.0.0.1`. A paired device acts as you — full access,
 the same trust the local listener already has — so pair only devices you control, and revoke one
-under Settings → Devices when it is lost. See [install](install.md#remote-access) for the setup.
+under Settings → Remote → Devices when it is lost. See [install](install.md#remote-access) for the setup.
