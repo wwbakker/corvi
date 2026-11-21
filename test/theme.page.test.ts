@@ -124,8 +124,8 @@ test.skipIf(!usable)(
   async () => {
     await withPage(browser, async (page) => {
       await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
-      await page.waitForSelector("nav.tabs");
-      await page.getByRole("button", { name: "Appearance" }).click();
+      await page.waitForSelector(".settings-tree");
+      await page.locator(".settings-tree").getByRole("button", { name: "Appearance", exact: true }).click();
       await page.waitForSelector(".theme-choices");
 
       // All four, with Dusk marked as the default and on screen.
@@ -160,7 +160,7 @@ test.skipIf(!usable)(
 
       // The choice is this device's: it is still Raven Black on a fresh visit.
       await page.reload({ waitUntil: "domcontentloaded" });
-      await page.waitForSelector("nav.tabs");
+      await page.waitForSelector(".settings-tree");
       await onScreen(page, "raven");
     });
   },

@@ -4048,7 +4048,187 @@ button.danger:disabled {
   white-space: nowrap;
 }
 
-/* Settings: one long form, in the same sections the config file has. */
+/* Settings: a fixed header and one compact line over a split body — the tree of sections on the
+   left, the chosen section's fields on the right. Each column scrolls on its own, so a long form
+   never takes the tree off screen. The page takes the height the window gives it rather than the
+   height of its content. */
+.content:has(> .page.settings) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.page.settings {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The header is the page's own first row and bleeds to the window's edges as everywhere else; in
+   the split it keeps its height and gives the rest to the two columns. */
+.page.settings > header {
+  flex: none;
+}
+
+/* A note about the file rather than a section: the size of the field hints inside the forms it
+   introduces, and no larger. */
+.page.settings > .hint.intro {
+  flex: none;
+  margin: 0 0 12px;
+  font-size: smaller;
+  line-height: 1.5;
+}
+
+.page.settings .settings-body {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+
+/* The tree column: the filter stays at its top, and the tree below it scrolls on its own. */
+.page.settings .settings-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 0 14px 0 0;
+  border-right: 1px solid var(--line);
+}
+
+.page.settings .settings-filter {
+  flex: none;
+  padding: 5px 8px;
+  font-size: 12.5px;
+}
+
+/* The tree is the scroll container, not the column: a long tree must not take the filter with
+   it. */
+.page.settings .tree-scroll {
+  flex: 1;
+  min-height: 0;
+  padding-bottom: 24px;
+  overflow-y: auto;
+}
+
+.page.settings .tree,
+.page.settings .tree .children {
+  display: grid;
+  gap: 1px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Indentation is the nesting: a section sits under its group without a rule of its own. */
+.page.settings .tree .children {
+  padding-left: 16px;
+}
+
+.page.settings .tree .row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 6px;
+}
+
+.page.settings .tree .row:hover {
+  background: var(--raise);
+}
+
+/* The expand/collapse control: a square just big enough to hit, its symbol drawn in the
+   monospace stack so it centres in the square. */
+.page.settings .tree .toggle,
+.page.settings .tree .toggle-space {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
+.page.settings .tree .toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.page.settings .tree .toggle:hover:not(:disabled) {
+  background: none;
+  border-color: var(--line);
+  color: var(--text);
+}
+
+.page.settings .tree .node {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.page.settings .tree .node:hover:not(:disabled) {
+  background: none;
+}
+
+.page.settings .tree .group > .row > .node {
+  color: var(--muted);
+}
+
+.page.settings .tree .node.current,
+.page.settings .tree .group > .row > .node.current {
+  background: var(--selection);
+  color: var(--text);
+}
+
+/* The detail pane: the breadcrumb, the scope tabs and the form scroll together. */
+.page.settings .settings-detail {
+  min-height: 0;
+  padding: 0 0 48px 24px;
+  overflow-y: auto;
+}
+
+.page.settings .breadcrumb {
+  margin: 0 0 4px;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.page.settings .settings-detail .tabs.scopes {
+  margin: 8px 0 14px;
+}
+
+.page.settings .settings-detail .tabs.scopes .add {
+  min-height: var(--tab-row-height, 40px);
+  padding: 0 10px;
+  border-color: transparent;
+}
+
+.page.settings .settings-detail .tabs.scopes .add:hover {
+  border-color: var(--line);
+}
+
+.page.settings .detail-note {
+  max-width: 680px;
+  margin: 16px 0 0;
+}
+
+/* One long form, in the same sections the config file has. */
 .page.settings .form {
   max-width: 680px;
 }

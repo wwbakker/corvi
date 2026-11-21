@@ -47,8 +47,8 @@ const openTerminal = async (page: Page): Promise<void> => {
 
 const openAppearance = async (page: Page): Promise<void> => {
   await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector("nav.tabs");
-  await page.getByRole("button", { name: "Appearance" }).click();
+  await page.waitForSelector(".settings-tree");
+  await page.locator(".settings-tree").getByRole("button", { name: "Appearance", exact: true }).click();
   await page.waitForSelector(".theme-choices");
 };
 

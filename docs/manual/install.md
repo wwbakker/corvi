@@ -84,17 +84,17 @@ Prerequisites: [Tailscale](https://tailscale.com) installed and logged in on thi
 tailnet DNS name. Tailscale issues the TLS certificate, so the published origin is a secure
 context and the clipboard, notifications and terminal APIs work there. Then, in Settings:
 
-1. **Remote access** → **Enable remote access**, set the **Port** (the loopback port the external
-   listener binds, default `4110`; `tailscale serve` publishes that port at https 443), and
-   **Save**. The section reports whether the listener actually bound.
+1. **Remote → Remote access** → **Enable remote access**, set the **Port** (the loopback port
+   the external listener binds, default `4110`; `tailscale serve` publishes that port at https
+   443), and **Save**. The section reports whether the listener actually bound.
 2. **Publish to Tailscale.** Corvi runs `tailscale serve --bg <port>` and shows the published
    `https://<machine>.<tailnet>.ts.net` link. **Stop publishing** removes only Corvi's own mapping
    and never resets the machine's serve configuration. If 443 already serves something else Corvi
    refuses with the reason; if 443 is *shared* with another handler it says so and leaves the
    manual `tailscale serve --https=443 off` to you, because it will not clear a tree it shares.
    The manual command is the fallback for all of this.
-3. **Devices** → **Create a pairing code**. It is short-lived (five minutes) and single-use; copy
-   it to the other machine.
+3. **Remote → Devices** → **Create a pairing code**. It is short-lived (five minutes) and
+   single-use; copy it to the other machine.
 4. On the other machine, open the published URL. An unpaired page shows a **Pair this device**
    screen; enter the code and a name. The device is paired, and its token goes into an `HttpOnly`
    cookie so page JavaScript never sees it.
@@ -103,13 +103,13 @@ That other machine then runs Corvi's page against this server: its terminals, ch
 integrations and CLI run *here*. The published URL opens in a **browser** — an installed desktop
 app only ever loads its own loopback server, so it cannot be pointed at the tailnet URL. To see
 this server's work in a desktop app instead, add this server as a remote workspace to that app's
-own Corvi — settings → a context → **Hosted on another server**, or the
+own Corvi: **Settings → Workspace → Contexts**, then **Hosted on another server**; or use the
 [workspaces](configuration.md#workspaces) file format.
 
-Manage paired devices under Settings → Devices: the list shows each device's name, when it paired
-and last authenticated, and **Revoke**. Revoking ends that device's access on its next request and
-invalidates any outstanding pairing code. A device token grants full access as you, so revoke a
-lost device promptly.
+Manage paired devices under Settings → Remote → Devices: the list shows each device's name, when
+it paired and last authenticated, and **Revoke**. Revoking ends that device's access on its next
+request and invalidates any outstanding pairing code. A device token grants full access as you, so
+revoke a lost device promptly.
 
 ## The command line
 

@@ -71,9 +71,12 @@ test.skipIf(!usable)(
             }),
         );
         await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
-        await page.waitForSelector("nav.tabs");
+        await page.waitForSelector(".settings-tree");
 
-        await page.getByRole("button", { name: "Remote access" }).click();
+        await page
+          .locator(".settings-tree")
+          .getByRole("button", { name: "Remote access", exact: true })
+          .click();
         const enabled = page.getByLabel("Enable remote access");
         await enabled.waitFor();
         expect(await enabled.isChecked()).toBe(false);
@@ -121,8 +124,11 @@ test.skipIf(!usable)(
           (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(status) }),
         );
         await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
-        await page.waitForSelector("nav.tabs");
-        await page.getByRole("button", { name: "Remote access" }).click();
+        await page.waitForSelector(".settings-tree");
+        await page
+          .locator(".settings-tree")
+          .getByRole("button", { name: "Remote access", exact: true })
+          .click();
 
         // The mixed state: our handler beside another's. The reason is shown, the manual command is
         // spelled out, and Publish is refused.
@@ -140,8 +146,11 @@ test.skipIf(!usable)(
           error: "port 443 already serves 8080; remove that mapping before publishing",
         };
         await page.reload({ waitUntil: "domcontentloaded" });
-        await page.waitForSelector("nav.tabs");
-        await page.getByRole("button", { name: "Remote access" }).click();
+        await page.waitForSelector(".settings-tree");
+        await page
+          .locator(".settings-tree")
+          .getByRole("button", { name: "Remote access", exact: true })
+          .click();
         await page.getByText("port 443 already serves 8080").waitFor();
         expect(await page.getByText("tailscale serve --https=443 off").count()).toBe(0);
         expect(await page.getByRole("button", { name: "Publish to Tailscale" }).isDisabled()).toBe(true);

@@ -10,21 +10,22 @@ import {
 // The settings vocabulary lives in the module's model.ts, so the browser bundle gets none of
 // the server's file handling with it.
 import type { Settings, SettingsView } from "../model.ts";
-import type { ExtensionSetting } from "@corvi/contracts/integration";
-import {
-  CheckField,
-  DirectoryField,
-  EnvEditor,
-  ExtensionToggles,
-  Field,
-  ListEditor,
-  MarkdownField,
-  type KnownExtension,
-} from "./SettingsFields.tsx";
+import { ExtensionToggles } from "./SettingsFields.tsx";
 import { RemoteAccessSection } from "./RemoteAccessSection.tsx";
 import { DevicesSection } from "./DevicesSection.tsx";
-import { RemoteWorkspaceSection } from "./RemoteWorkspaceSection.tsx";
 import { AppearanceSection } from "./AppearanceSection.tsx";
+import { ContextsSection } from "./ContextsSection.tsx";
+import { ExtensionSettingsSection } from "./ExtensionSettingsSection.tsx";
+import {
+  EnvironmentSection,
+  IdeationSection,
+  LocationsSection,
+  NotificationsSection,
+  WindowSection,
+  WorktreesSection,
+} from "./CoreSections.tsx";
+import { SettingsTree, type SettingsTreeNode } from "./SettingsTree.tsx";
+import type { Overrides, SettingsScope } from "./settingsScope.ts";
 
 /**
  * Everything that lives in the config file, edited here rather than in an editor.
@@ -33,9 +34,11 @@ import { AppearanceSection } from "./AppearanceSection.tsx";
  * puts it into effect at once. Which is why the page is a thin thing: it knows the shape of the
  * settings and nothing about what they mean.
  *
- * The page has two axes: the scope (Global, or one workspace) across the top, and the settings
- * down the side as section tabs. Both scopes hold the same settings — a workspace overrides the
- * global level key by key — so the sections below are drawn once, from one shape.
+ * The page has two axes: the sections as a tree on the left, and the scope (Global, or one
+ * workspace) inside the detail view on the right. Both scopes hold the same settings — a
+ * workspace overrides the global level key by key — so each section is drawn once, from one
+ * shape. The scope is sticky: walking the tree never changes which scope you were reading, and
+ * a section that cannot be edited in that scope says so rather than switching under you.
  *
  * Three conventions run through it. An empty field is "not set", and shows the value that applies
  * anyway as its placeholder, so the difference between a default and a decision stays visible:
@@ -55,11 +58,15 @@ import { AppearanceSection } from "./AppearanceSection.tsx";
 /** The draft as the page holds it: the file's contents, edited. */
 type Draft = Settings;
 
-/** A workspace's settings: the same shape as the top level, overriding it key by key. Writable,
- * so the draft's edits copy-and-drop keys freely. */
-type Overrides = {
-  -readonly [K in keyof NonNullable<WorkspaceDto["settings"]>]: NonNullable<WorkspaceDto["settings"]>[K];
-};
+/** The labels from a group down to a node, for the detail pane's breadcrumb. */
+function trailTo(nodes: readonly SettingsTreeNode[], id: string): readonly string[] {
+  for (const node of nodes) {
+    if (node.id === id) return [node.label];
+    const child = trailTo(node.children ?? [], id);
+    if (child.length) return [node.label, ...child];
+  }
+  return [];
+}
 
 export function SettingsPage({
   onSaved,
@@ -75,9 +82,10 @@ export function SettingsPage({
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   // Which scope and which section are on screen. A view, not part of the draft: saving does not
-  // change them. `scope` is a workspace's index into the draft's list, or "global".
-  const [scope, setScope] = useState<"global" | number>("global");
-  const [tab, setTab] = useState("locations");
+  // change them. `selectedScope` is a workspace's index into the draft's list, or "global"; it
+  // stays put while the tree is walked.
+  const [selectedScope, setSelectedScope] = useState<"global" | number>("global");
+  const [selected, setSelected] = useState("locations");
 
   useEffect(() => {
     apiClient.settings
@@ -143,6 +151,12 @@ export function SettingsPage({
   // The scope on screen. A workspace that is not configured yet — the default one, when no
   // workspace exists — reads as DEFAULT_WORKSPACE and materializes into the draft on first edit.
   const list: WorkspaceDto[] = draft.workspaces ?? [];
+  // A workspace can disappear under the view — removed here, or by a hand edit to the file. An
+  // index outside the list would quietly read as the Default workspace, so an out-of-range scope
+  // is the global level. Index 0 is kept on an empty list: that is the synthetic Default
+  // workspace the page offers before any is configured.
+  const scope: "global" | number =
+    typeof selectedScope === "number" && selectedScope >= Math.max(list.length, 1) ? "global" : selectedScope;
   const workspace = scope === "global" ? undefined : (list[scope] ?? DEFAULT_WORKSPACE);
   const own: Overrides = workspace?.settings ?? {};
   // A remote workspace's settings live on the server that hosts it: it has no settings fields
@@ -179,6 +193,17 @@ export function SettingsPage({
     setWorkspaces(scope, { ...workspace, settings });
   };
 
+  // The one view of the scope a section form gets: what it sets, what it inherits and the writes
+  // that change it. The page resolves the chain; a form never does.
+  const sectionScope: SettingsScope = {
+    at: scope,
+    value,
+    inherited,
+    set: setSetting,
+    drop: dropSetting,
+    lock,
+  };
+
   // The extensions' settings live in the bag, under the extension's own name, at both scopes. A
   // value is one string or a list of them; the save prunes the empties — empty means unset.
   const bag = scope === "global" ? draft.extensionSettings : own.extensionSettings;
@@ -208,55 +233,73 @@ export function SettingsPage({
     const settings = { ...own, extensionSettings };
     setWorkspaces(scope, { ...workspace, settings });
   };
-  const asString = (value: string | string[] | undefined): string | undefined =>
-    typeof value === "string" ? value : undefined;
-  const asList = (value: string | string[] | undefined): string[] => (Array.isArray(value) ? value : []);
 
-  // Which extensions this scope has anything to edit for. Inside a workspace an extension that
-  // is disabled there has no settings to show — the switches on the Extensions section say so.
-  const enabledHere = (name: string): boolean => {
-    const selected = value("extensions") ?? inherited("extensions");
-    return selected ? selected.includes(name) : true;
-  };
-  const shown = view.extensions.filter(
-    (extension) => extension.settings.length && (scope === "global" || enabledHere(extension.name)),
-  );
+  // The extensions with a page of their own, in the order they loaded. They sit in the tree at
+  // every scope: whether one is enabled in a workspace decides what its page says, not whether
+  // the page can be found.
+  const extensionPages = view.extensions.filter((extension) => extension.settings.length);
 
-  // The settings, one section each: the fixed ones, the extensions' own in the order they
-  // loaded. The tab carries the heading, so the content below omits it. Stable ids, so a save
-  // that reloads the view leaves you where you were. A workspace scope adds Context first.
-  // The settings sections a local scope holds. A remote workspace has none of them — its
-  // settings are the remote server's — so only its Context, with the remote target, is shown.
-  const settingsTabs = [
-    { id: "locations", label: "Locations" },
-    { id: "worktrees", label: "Worktrees" },
-    ...shown.map((extension) => ({ id: `extension:${extension.name}`, label: extension.title })),
-    { id: "notifications", label: "Notifications" },
-    { id: "window", label: "Window" },
-    { id: "ideation", label: "Ideation" },
-    { id: "environment", label: "Environment" },
-    // Devices and remote access are machine-level, not a workspace's: global scope only. The
-    // theme is per device, and applies without a save.
-    ...(scope === "global"
-      ? [
-          { id: "appearance", label: "Appearance" },
-          { id: "devices", label: "Devices" },
-          { id: "remoteAccess", label: "Remote access" },
-        ]
-      : []),
-    { id: "extensions", label: "Extensions" },
+  // The tree: every section, grouped the way the settings divide. The order is deliberate —
+  // workspace first, then how the app looks and behaves, then what extends it, then the network.
+  const treeNodes: SettingsTreeNode[] = [
+    {
+      id: "workspace",
+      label: "Workspace",
+      children: [
+        { id: "contexts", label: "Contexts" },
+        { id: "locations", label: "Locations" },
+        { id: "worktrees", label: "Worktrees" },
+        { id: "ideation", label: "Ideation" },
+        { id: "environment", label: "Environment" },
+      ],
+    },
+    {
+      id: "behavior",
+      label: "Appearance & Behavior",
+      children: [
+        { id: "appearance", label: "Appearance" },
+        { id: "window", label: "Window" },
+        { id: "notifications", label: "Notifications" },
+      ],
+    },
+    {
+      id: "extensions",
+      label: "Extensions",
+      children: extensionPages.map((extension) => ({
+        id: `extension:${extension.name}`,
+        label: extension.title,
+      })),
+    },
+    {
+      id: "remote",
+      label: "Remote",
+      children: [
+        { id: "remoteAccess", label: "Remote access" },
+        { id: "devices", label: "Devices" },
+      ],
+    },
   ];
-  const tabs = [
-    ...(scope === "global" ? [] : [{ id: "context", label: "Context" }]),
-    ...(remoteWorkspace ? [] : settingsTabs),
-  ];
-  // An extension can be unloaded between saves; fall back to the first tab rather than to an
-  // empty page.
-  const active = tabs.some((one) => one.id === tab) ? tab : tabs[0]!.id;
 
-  // The scope bar: Global, then the workspaces, then the one that adds. Removing the last
-  // configured workspace leaves the draft empty and the Default workspace takes its place —
-  // that one is not in the file, so its Context has no Remove.
+  // An extension can be unloaded between saves; fall back to the first section rather than to an
+  // empty pane. The scope is never touched by a fallback.
+  const selectedTrail = trailTo(treeNodes, selected);
+  const selectedId = selectedTrail.length ? selected : "locations";
+  const trail = selectedTrail.length ? selectedTrail : trailTo(treeNodes, selectedId);
+  const groupLevel = selectedId === "workspace" || selectedId === "behavior" || selectedId === "remote";
+  // Machine-level sections: they belong to no workspace, so they have no scope tabs at all.
+  const globalOnly = selectedId === "appearance" || selectedId === "remoteAccess" || selectedId === "devices";
+  // The one workspace-only section.
+  const contexts = selectedId === "contexts";
+  // Everything else — the sections a workspace can override, and the extensions' own pages.
+  const scoped = !groupLevel && !globalOnly && !contexts;
+  const extensionName = selectedId.startsWith("extension:")
+    ? selectedId.slice("extension:".length)
+    : undefined;
+  const selectedExtension = extensionPages.find((extension) => extension.name === extensionName);
+
+  // The scope bar's entries: Global, then the workspaces, then — in Contexts — the one that
+  // adds. Removing the last configured workspace leaves the draft empty and the Default
+  // workspace takes its place — that one is not in the file, so its Context has no Remove.
   const workspaces = [
     ...list.map((one, index) => ({
       index,
@@ -265,6 +308,47 @@ export function SettingsPage({
     })),
     ...(list.length ? [] : [{ index: 0, label: DEFAULT_WORKSPACE.name, removable: false }]),
   ];
+  const workspaceLabel = (index: number): string =>
+    workspaces.find((one) => one.index === index)?.label ?? "this workspace";
+
+  // The extensions a scope runs, concretely: its own selection, else the global draft's, else the
+  // effective one (an environment variable or a default), else all of them. One chain, so the
+  // scope tabs, the disabled note and the Extensions switches cannot disagree.
+  const extensionsIn = (at: "global" | number): string[] => {
+    const own = at === "global" ? undefined : list[at]?.settings?.extensions;
+    return (
+      own ?? draft.extensions ?? effective.extensions ?? view.extensions.map((extension) => extension.name)
+    );
+  };
+  const extensionEnabledIn = (index: number, name: string): boolean => extensionsIn(index).includes(name);
+
+  // What the detail pane says when the sticky scope cannot edit this section. Nothing here
+  // changes the scope: the reader put it there, and only the reader moves it.
+  const note = groupLevel
+    ? "There are no settings at the group level — choose one of its sections in the tree."
+    : contexts && scope === "global"
+      ? "Contexts are workspace-specific — pick a workspace above, or add a context."
+      : scoped && remoteWorkspace
+        ? `The settings of ${workspaceLabel(scope as number)} live on the server that hosts it; edit them there.`
+        : scoped &&
+            selectedExtension &&
+            typeof scope === "number" &&
+            !extensionEnabledIn(scope, selectedExtension.name)
+          ? `${selectedExtension.title} is disabled in ${workspaceLabel(
+              scope,
+            )}; enable it under Extensions to edit its settings here.`
+          : undefined;
+
+  // Which workspaces the extension page can show: the ones that run it. A workspace where it is
+  // disabled has no settings to edit for it, so it is not offered as a scope.
+  const scopeChoices = workspaces.filter(
+    (one) => extensionName === undefined || extensionEnabledIn(one.index, extensionName),
+  );
+
+  const addContext = (): void => {
+    set({ workspaces: [...list, { id: "", name: "" }] });
+    setSelectedScope(list.length);
+  };
 
   const toggleExtensions = (names: string[]): void => {
     const known = view.extensions.map((e) => e.name);
@@ -292,323 +376,147 @@ export function SettingsPage({
           {saving ? "Saving…" : "Save"}
         </button>
       </header>
-      <p className="hint">
+      <p className="hint intro">
         Written to <code>{view.path}</code>, which stays hand-editable. Saving takes effect at once — no
         restart.
       </p>
       {error && <div className="error-banner">{error}</div>}
 
-      {/* The scopes: the global level and one per workspace, each holding the same settings
-          below. A workspace overrides the global level key by key. */}
-      <nav className="tabs scopes">
-        <button
-          className={scope === "global" ? "tab current" : "tab"}
-          onClick={() => {
-            setScope("global");
-            setTab("locations");
-          }}
-        >
-          Global
-        </button>
-        {workspaces.map((one) => (
-          <button
-            key={one.index}
-            className={scope === one.index ? "tab current" : "tab"}
-            onClick={() => {
-              setScope(one.index);
-              setTab("context");
-            }}
-          >
-            {one.label}
-          </button>
-        ))}
-        <button
-          className="add"
-          onClick={() => {
-            set({ workspaces: [...list, { id: "", name: "" }] });
-            setScope(list.length);
-            setTab("context");
-          }}
-        >
-          + add a context
-        </button>
-      </nav>
+      {/* The two columns: the tree of sections, and the chosen one's fields. Each scrolls on its
+          own, so a long form never takes the tree off screen. */}
+      <div className="settings-body">
+        <SettingsTree nodes={treeNodes} selected={selectedId} onSelect={setSelected} />
 
-      {/* The sections as tabs rather than one long scroll, in the same tab bar the change pages
-          use. Extensions with settings of their own get their own tab; the ones without have
-          nothing to show and no tab. */}
-      <nav className="tabs sections">
-        {tabs.map((one) => (
-          <button
-            key={one.id}
-            className={one.id === active ? "tab current" : "tab"}
-            onClick={() => setTab(one.id)}
-          >
-            {one.label}
-          </button>
-        ))}
-      </nav>
+        <section className="settings-detail" aria-label="Settings detail">
+          <h3 className="breadcrumb">{trail.join(" \u203a ")}</h3>
 
-      {active === "context" && workspace && (
-        <div className="form">
-          <Field
-            label="Name"
-            hint="What this context is called: a client, or your own projects."
-            placeholder="Client"
-            value={workspace.name}
-            onChange={(name) => setWorkspaces(scope as number, { ...workspace, name })}
-          />
-          <Field
-            label="Id"
-            hint="Recorded in every change made here, and never changed afterwards: renaming it orphans them."
-            value={workspace.id}
-            onChange={(id) => setWorkspaces(scope as number, { ...workspace, id })}
-          />
-          <CheckField
-            label="Hosted on another server"
-            hint="A workspace another Corvi server hosts. Its settings live there; this machine is a client for it."
-            checked={remoteWorkspace}
-            onChange={(on) => {
-              if (on) {
-                // Its settings live on the host, so the local ones go. The target starts on this
-                // workspace's own id — the usual answer, and easy to change.
-                const { settings: _settings, ...rest } = workspace;
-                setWorkspaces(scope as number, {
-                  ...rest,
-                  remote: { url: "", workspace: workspace.id || DEFAULT_WORKSPACE.id },
-                });
-              } else {
-                const { remote: _remote, ...rest } = workspace;
-                setWorkspaces(scope as number, { ...rest });
-              }
-            }}
-          />
-          {workspace.remote && (
-            <RemoteWorkspaceSection
-              remote={workspace.remote}
-              onChange={(remote) => setWorkspaces(scope as number, { ...workspace, remote })}
-            />
+          {/* The scope belongs to the view, not to the navigation: switching sections leaves it
+              where it was. A section that no scope can edit — a group, or a machine-level one —
+              has no bar at all. */}
+          {!groupLevel && !globalOnly && (
+            <nav className="tabs scopes">
+              {!contexts && (
+                <button
+                  className={scope === "global" ? "tab current" : "tab"}
+                  onClick={() => setSelectedScope("global")}
+                >
+                  Global
+                </button>
+              )}
+              {scopeChoices.map((one) => (
+                <button
+                  key={one.index}
+                  className={scope === one.index ? "tab current" : "tab"}
+                  onClick={() => setSelectedScope(one.index)}
+                >
+                  {one.label}
+                </button>
+              ))}
+              {contexts && (
+                <button className="add" onClick={addContext}>
+                  + add a context
+                </button>
+              )}
+            </nav>
           )}
-          {workspaces.find((one) => one.index === scope)?.removable && (
-            <button
-              className="remove"
-              onClick={() => {
-                set({ workspaces: list.filter((_, i) => i !== scope) });
-                setScope("global");
-                setTab("locations");
-              }}
-            >
-              Remove this context
-            </button>
-          )}
-        </div>
-      )}
 
-      {active === "locations" && (
-        <div className="form">
-          <DirectoryField
-            label="Changes root"
-            hint="One directory per change: its worktrees and its change.json."
-            value={value("changesRoot")}
-            placeholder={inherited("changesRoot")}
-            locked={lock("changesRoot")}
-            workspace={workspace?.id}
-            onChange={(changesRoot) => setSetting("changesRoot", changesRoot)}
-          />
-          <DirectoryField
-            label="Archive root"
-            hint="Where completed changes are moved, so the changes root holds the work in flight."
-            value={value("archiveRoot")}
-            placeholder={inherited("archiveRoot")}
-            locked={lock("archiveRoot")}
-            workspace={workspace?.id}
-            onChange={(archiveRoot) => setSetting("archiveRoot", archiveRoot)}
-          />
-          <DirectoryField
-            label="Repositories directory"
-            hint="Where the repository browser opens. From there it can walk anywhere on the machine — the setting picks the starting point, it does not fence anything in."
-            value={value("repositoriesDirectory")}
-            placeholder={inherited("repositoriesDirectory")}
-            locked={lock("repositoriesDirectory")}
-            workspace={workspace?.id}
-            onChange={(repositoriesDirectory) => setSetting("repositoriesDirectory", repositoriesDirectory)}
-          />
-        </div>
-      )}
-
-      {active === "worktrees" && (
-        <div className="form">
-          <ListEditor
-            label="Copied from the repository"
-            hint="IDE and build-tool state, with the paths inside it rewritten to the worktree. Not build output: recreating that is a build, and a stale copy is worse than none."
-            values={value("worktreeCopy") ?? inherited("worktreeCopy") ?? []}
-            placeholder=".idea"
-            locked={lock("worktreeCopy")}
-            note={
-              scope !== "global" && value("worktreeCopy") === undefined ? "inherited from Global" : undefined
-            }
-            onInherit={
-              scope !== "global" && value("worktreeCopy") !== undefined
-                ? () => dropSetting("worktreeCopy")
-                : undefined
-            }
-            onChange={(worktreeCopy) => setSetting("worktreeCopy", worktreeCopy)}
-          />
-          {scope === "global" && !lock("worktreeCopy") && (
-            <button className="link" onClick={() => set({ worktreeCopy: view.toolingDefault })}>
-              restore the defaults ({view.toolingDefault.join(" ")})
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* The settings each extension declares, rendered generically from the declaration: the
-          page knows the shape of the settings and nothing about what they mean. Stored under
-          extensionSettings[name][key] at both scopes, where the extension reads them back down
-          the precedence chain. */}
-      {shown.map((extension: KnownExtension) =>
-        active === `extension:${extension.name}` ? (
-          <div className="form" key={extension.name}>
-            {extension.settings.map((field: ExtensionSetting) => {
-              const placeholder = asString(inheritedBagValue(extension.name, field.key)) ?? field.placeholder;
-              const listed = asList(bagValue(extension.name, field.key));
-              const inheritedList = asList(inheritedBagValue(extension.name, field.key));
-              const ownList = bagValue(extension.name, field.key) !== undefined;
-              return field.list ? (
-                <ListEditor
-                  key={field.key}
-                  label={field.label}
-                  hint={field.hint}
-                  placeholder={field.placeholder}
-                  values={listed.length || ownList ? listed : inheritedList}
-                  locked={view.overriddenExtensions?.[extension.name]?.[field.key]}
-                  note={scope !== "global" && !ownList ? "inherited from Global" : undefined}
-                  onInherit={
-                    scope !== "global" && ownList ? () => dropBagValue(extension.name, field.key) : undefined
+          {note !== undefined ? (
+            <p className="hint detail-note">{note}</p>
+          ) : (
+            <>
+              {selectedId === "contexts" && workspace && (
+                <ContextsSection
+                  workspace={workspace}
+                  onChange={(next) => setWorkspaces(scope as number, next)}
+                  onRemove={
+                    workspaces.find((one) => one.index === scope)?.removable
+                      ? () => {
+                          set({ workspaces: list.filter((_, index) => index !== scope) });
+                          setSelectedScope("global");
+                        }
+                      : undefined
                   }
-                  onChange={(values) => setBagValue(extension.name, field.key, values)}
                 />
-              ) : (
-                <Field
-                  key={field.key}
-                  label={field.label}
-                  hint={field.hint}
-                  placeholder={placeholder}
-                  secret={field.secret}
-                  value={asString(bagValue(extension.name, field.key))}
-                  locked={view.overriddenExtensions?.[extension.name]?.[field.key]}
-                  onChange={(next) => setBagValue(extension.name, field.key, next)}
+              )}
+
+              {selectedId === "locations" && (
+                <LocationsSection scope={sectionScope} workspaceId={workspace?.id} />
+              )}
+
+              {selectedId === "worktrees" && (
+                <WorktreesSection
+                  scope={sectionScope}
+                  toolingDefault={view.toolingDefault}
+                  onRestoreDefaults={() => set({ worktreeCopy: view.toolingDefault })}
                 />
-              );
-            })}
-          </div>
-        ) : null,
-      )}
+              )}
 
-      {active === "notifications" && (
-        <div className="form">
-          <CheckField
-            label="Play a sound"
-            hint="When a window starts waiting for you. Whether a notification appears at all is the app's own permission, in System Settings."
-            // The flags are written as they are (see the note at the top of this file: an
-            // `undefined` would be dropped by JSON and the merge would keep the old answer). In a
-            // workspace the flag is one decision more than the global level's, and "use Global's"
-            // takes it back.
-            checked={value("notificationSound") ?? inherited("notificationSound") ?? true}
-            note={scope !== "global" && value("notificationSound") === undefined ? "inherited" : undefined}
-            onInherit={
-              scope !== "global" && value("notificationSound") !== undefined
-                ? () => dropSetting("notificationSound")
-                : undefined
-            }
-            onChange={(sound) => setSetting("notificationSound", sound)}
-          />
-        </div>
-      )}
+              {selectedExtension && (
+                <ExtensionSettingsSection
+                  extension={selectedExtension}
+                  scopeAt={scope}
+                  access={{
+                    value: (key) => bagValue(selectedExtension.name, key),
+                    inherited: (key) => inheritedBagValue(selectedExtension.name, key),
+                    set: (key, next) => setBagValue(selectedExtension.name, key, next),
+                    drop: (key) => dropBagValue(selectedExtension.name, key),
+                    locked: (key) => view.overriddenExtensions?.[selectedExtension.name]?.[key],
+                  }}
+                />
+              )}
 
-      {active === "window" && (
-        <div className="form">
-          <CheckField
-            label="Right-click menu"
-            hint="The browser's own menu over the page: copy, paste, and — in a checkout — the inspector. Off leaves right-click to the page, which is what a browser would then not show either. The terminal's own menu (copy, paste, find, links) follows this too."
-            // Shown is the default, so an absent key reads as on (see the note at the top of this
-            // file on flags and JSON).
-            checked={value("contextMenu") ?? inherited("contextMenu") ?? true}
-            note={scope !== "global" && value("contextMenu") === undefined ? "inherited" : undefined}
-            onInherit={
-              scope !== "global" && value("contextMenu") !== undefined
-                ? () => dropSetting("contextMenu")
-                : undefined
-            }
-            onChange={(on) => setSetting("contextMenu", on)}
-          />
-        </div>
-      )}
+              {selectedId === "notifications" && <NotificationsSection scope={sectionScope} />}
 
-      {/* The plan template keeps the tab (the brief's text is the Actions page's own now):
-          what a new idea starts as is still the idea's beginnings. */}
-      {active === "ideation" && (
-        <div className="form wide">
-          <MarkdownField
-            label="Plan template"
-            hint="The starting text of a new idea's PLAN.md, in the wizard's plan editor. Literal Markdown — nothing is filled in. Clearing this leaves new plans empty."
-            value={value("planTemplate")}
-            placeholder={inherited("planTemplate")}
-            onChange={(planTemplate) => setSetting("planTemplate", planTemplate)}
-          />
-        </div>
-      )}
+              {selectedId === "window" && <WindowSection scope={sectionScope} />}
 
-      {active === "environment" && (
-        <div className="form">
-          <EnvEditor
-            env={value("env") ?? {}}
-            inherited={scope === "global" ? {} : (draft.env ?? effective.env)}
-            onChange={(env) => setSetting("env", Object.keys(env).length ? env : undefined)}
-          />
-        </div>
-      )}
+              {selectedId === "ideation" && <IdeationSection scope={sectionScope} />}
 
-      {active === "devices" && scope === "global" && <DevicesSection />}
+              {selectedId === "environment" && (
+                <EnvironmentSection scope={sectionScope} inheritedEnv={draft.env ?? effective.env} />
+              )}
 
-      {active === "remoteAccess" && scope === "global" && (
-        <RemoteAccessSection
-          enabled={draft.remoteAccess?.enabled ?? false}
-          port={draft.remoteAccess?.port ?? DEFAULT_REMOTE_ACCESS_PORT}
-          bindStatus={view.remoteAccessStatus}
-          onEnabledChange={(enabled) =>
-            set({
-              remoteAccess: { enabled, port: draft.remoteAccess?.port ?? DEFAULT_REMOTE_ACCESS_PORT },
-            })
-          }
-          onPortChange={(port) =>
-            set({ remoteAccess: { enabled: draft.remoteAccess?.enabled ?? false, port } })
-          }
-        />
-      )}
+              {selectedId === "devices" && <DevicesSection />}
 
-      {/* The theme is a per-device browser preference, not part of this file: it applies as it is
-          picked, outside the draft and the save below. */}
-      {active === "appearance" && <AppearanceSection />}
+              {selectedId === "remoteAccess" && (
+                <RemoteAccessSection
+                  enabled={draft.remoteAccess?.enabled ?? false}
+                  port={draft.remoteAccess?.port ?? DEFAULT_REMOTE_ACCESS_PORT}
+                  bindStatus={view.remoteAccessStatus}
+                  onEnabledChange={(enabled) =>
+                    set({
+                      remoteAccess: { enabled, port: draft.remoteAccess?.port ?? DEFAULT_REMOTE_ACCESS_PORT },
+                    })
+                  }
+                  onPortChange={(port) =>
+                    set({ remoteAccess: { enabled: draft.remoteAccess?.enabled ?? false, port } })
+                  }
+                />
+              )}
 
-      {active === "extensions" && (
-        <div className="form">
-          <ExtensionToggles
-            known={view.extensions}
-            selected={(
-              value("extensions") ??
-              inherited("extensions") ??
-              view.extensions.map((e) => e.name)
-            ).filter((name) => view.extensions.some((e) => e.name === name))}
-            onInherit={
-              scope !== "global" && value("extensions") !== undefined
-                ? () => dropSetting("extensions")
-                : undefined
-            }
-            onChange={toggleExtensions}
-          />
-        </div>
-      )}
+              {/* The theme is a per-device browser preference, not part of this file: it applies
+                  as it is picked, outside the draft and the save below. */}
+              {selectedId === "appearance" && <AppearanceSection />}
+
+              {selectedId === "extensions" && (
+                <div className="form">
+                  <ExtensionToggles
+                    known={view.extensions}
+                    selected={extensionsIn(scope).filter((name) =>
+                      view.extensions.some((extension) => extension.name === name),
+                    )}
+                    onInherit={
+                      scope !== "global" && value("extensions") !== undefined
+                        ? () => dropSetting("extensions")
+                        : undefined
+                    }
+                    onChange={toggleExtensions}
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
