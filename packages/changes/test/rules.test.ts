@@ -6,6 +6,7 @@ import { branchFor, checkoutSpecProblem, isFinished, targetOf } from "../src/rec
 import {
   allowedTransition,
   checkoutLocationOf,
+  freshnessTargetOf,
   repositoryFromSpec,
   specFromRepository,
   stateOf,
@@ -34,17 +35,27 @@ const link = (
     branch,
   });
 
-test("only Ideation leaves for Implementation or Cancelled, and terminal phases are final", () => {
+test("the manual phases move among themselves, and terminal phases are final", () => {
+  // Ideation is an ordinary manual phase: it leaves for every other one, and every other one
+  // comes back to it.
   expect(allowedTransition("Ideation", "Implementation")).toBe(true);
+  expect(allowedTransition("Ideation", "Verification")).toBe(true);
+  expect(allowedTransition("Ideation", "Blocked")).toBe(true);
   expect(allowedTransition("Ideation", "Cancelled")).toBe(true);
-  expect(allowedTransition("Ideation", "Completed")).toBe(false);
-  expect(allowedTransition("Ideation", "Blocked")).toBe(false);
+  expect(allowedTransition("Ideation", "Completed")).toBe(true);
+  expect(allowedTransition("Implementation", "Ideation")).toBe(true);
+  expect(allowedTransition("Verification", "Ideation")).toBe(true);
+  expect(allowedTransition("Blocked", "Ideation")).toBe(true);
   expect(allowedTransition("Implementation", "Verification")).toBe(true);
   expect(allowedTransition("Verification", "Blocked")).toBe(true);
   expect(allowedTransition("Blocked", "Implementation")).toBe(true);
   expect(allowedTransition("Implementation", "Completed")).toBe(true);
+  // Nothing leaves a terminal phase, and staying put is not a transition.
   expect(allowedTransition("Completed", "Implementation")).toBe(false);
+  expect(allowedTransition("Completed", "Ideation")).toBe(false);
+  expect(allowedTransition("Cancelled", "Ideation")).toBe(false);
   expect(allowedTransition("Cancelled", "Cancelled")).toBe(false);
+  expect(allowedTransition("Ideation", "Ideation")).toBe(false);
 });
 
 test("finished means done in either direction", () => {
@@ -63,6 +74,35 @@ test("the row state projects the change phase", () => {
   expect(stateOf(change("Blocked"))).toBe("Active");
   expect(stateOf(change("Completed"))).toBe("Archived");
   expect(stateOf(change("Cancelled"))).toBe("Archived");
+});
+
+test("the freshness target is chosen by branch kind, from the caller's reads", () => {
+  // An adopted branch is never refreshed, whatever its base says.
+  expect(
+    freshnessTargetOf({
+      branch: { kind: "current" },
+      base: "ignored",
+      defaultBranch: "origin/main",
+      existingRemoteRef: "origin/feature",
+    }),
+  ).toBeUndefined();
+  // A named existing branch is fresh against its own remote counterpart, not the default.
+  expect(
+    freshnessTargetOf({
+      branch: { kind: "existing", name: "feature" },
+      defaultBranch: "origin/main",
+      existingRemoteRef: "origin/feature",
+    }),
+  ).toBe("origin/feature");
+  // A local-only existing branch has nothing to be fresh against.
+  expect(freshnessTargetOf({ branch: { kind: "existing", name: "feature" } })).toBeUndefined();
+  // A change branch takes the base it was given, else the repository default.
+  expect(
+    freshnessTargetOf({ branch: { kind: "change" }, base: "release", defaultBranch: "origin/main" }),
+  ).toBe("release");
+  expect(freshnessTargetOf({ branch: { kind: "change" }, defaultBranch: "origin/main" })).toBe("origin/main");
+  // Neither read available: nothing to measure against, not a guess.
+  expect(freshnessTargetOf({ branch: { kind: "change" } })).toBeUndefined();
 });
 
 test("the checkout location follows the location facet", () => {

@@ -2,8 +2,11 @@ import { basename, join } from "node:path";
 import { symlink, lstat, unlink } from "node:fs/promises";
 import { Effect } from "effect";
 import type { Change, CheckoutSpec } from "@corvi/changes/record";
+import type { ExistingBranch } from "@corvi/repositories";
 import { effectiveBranchOf, specFor, targetOf } from "@corvi/changes/record";
+import { freshnessTargetOf } from "@corvi/changes/rules";
 import type {
+  WidgetActionDto as WidgetAction,
   WidgetDto as Widget,
   WidgetItemDto as WidgetItem,
   WidgetStateDto as WidgetState,
@@ -198,15 +201,25 @@ export const integrated = (repo: string, branch: string, base: string): Effect.E
     return answer;
   });
 
+/** An existing branch, resolved once: what it attaches as and the remote ref it is fresh
+ * against. `selected: undefined` is a resolution that found nothing — an answer a caller shares
+ * rather than asking again. */
+type ResolvedBranch = { readonly selected: ExistingBranch | undefined };
+
 /** The branch this change's checkout of `repo` is on: the change's own, the existing branch the
- * spec named, or — adopted as it is — whatever the checkout has checked out now. */
+ * spec named, or — adopted as it is — whatever the checkout has checked out now. `resolved` is a
+ * selection the caller already made, so one read of a repository resolves it once. */
 export const branchNameOf = (
   change: Change,
   repo: string,
   spec: CheckoutSpec | undefined = specFor(change, repo),
+  resolved?: ResolvedBranch,
 ): Effect.Effect<string | undefined> => {
   if (spec?.branch.kind === "existing")
-    return existingBranch(repo, spec.branch.name).pipe(Effect.map((selected) => selected?.branch));
+    return Effect.map(
+      resolved ? Effect.succeed(resolved.selected) : existingBranch(repo, spec.branch.name),
+      (selected) => selected?.branch,
+    );
   const effective = effectiveBranchOf(change.branch, spec?.branch ?? { kind: "change" });
   return effective._tag === "Recorded" ? Effect.succeed(effective.name) : currentBranch(repo);
 };
@@ -230,38 +243,91 @@ const baseDivergence = (
     return { own, behind, base };
   });
 
+/** The Local changes card's Fast-forward action id: the same freshness move provisioning makes,
+ * on the checkout that is there. */
+export const FAST_FORWARD = "fast-forward";
+
+/** The ref a fresh checkout is advanced to, selected exactly as the checkout policy selects it:
+ * the spec's own base (or the repository's default branch, read without guessing) for a change
+ * branch, the selected branch's remote counterpart for an existing one, and nothing for a branch
+ * adopted as checked out. The card measures against this ref, so it can never offer a move the
+ * policy would not make on the same refs. */
+const refreshTargetFor = (
+  change: Change,
+  repo: string,
+  spec: CheckoutSpec | undefined = specFor(change, repo),
+  resolved?: ResolvedBranch,
+): Effect.Effect<string | undefined> =>
+  Effect.gen(function* () {
+    if (spec === undefined) return undefined;
+    const existingRemoteRef =
+      spec.branch.kind === "existing"
+        ? (resolved ? resolved.selected : yield* existingBranch(repo, spec.branch.name))?.remoteRef
+        : undefined;
+    // The policy's read, not the display one: a measurement must not be healed or guessed.
+    const defaultBranch =
+      spec.branch.kind === "change" && spec.base === undefined ? yield* policyDefaultBranch(repo) : undefined;
+    return freshnessTargetOf({ branch: spec.branch, base: spec.base, existingRemoteRef, defaultBranch });
+  });
+
 /** The worktree holding this change's branch in `repo`, with everything the dashboard says
  * about it. Undefined when the change has no worktree there. */
-export const entryFor = (change: Change, repo: string): Effect.Effect<WorktreeEntry | undefined> =>
+export const entryFor = (
+  change: Change,
+  repo: string,
+  resolved?: ResolvedBranch,
+): Effect.Effect<WorktreeEntry | undefined> =>
   Effect.gen(function* () {
+    const spec = specFor(change, repo);
+    // An existing branch is resolved once for this read: its local name (which worktree to look
+    // for) and its remote counterpart (what a refresh measures against) come from the same answer.
+    // A caller that already resolved it — `inPlaceItem` needs the name before asking for the row —
+    // hands its answer over rather than paying for a second read.
+    const selection: ResolvedBranch | undefined =
+      spec?.branch.kind === "existing"
+        ? (resolved ?? { selected: yield* existingBranch(repo, spec.branch.name) })
+        : undefined;
     const worktrees = parseWorktrees(
       (yield* shSoft(["git", "worktree", "list", "--porcelain"], repo)).stdout,
     );
-    const branch = yield* branchNameOf(change, repo);
+    const branch = yield* branchNameOf(change, repo, spec, selection);
     const found = branch ? worktrees.find((w) => w.branch === branch) : undefined;
     if (!found) return undefined;
 
-    const [status, base] = yield* Effect.all([
+    const [status, target, freshnessTarget] = yield* Effect.all([
       shSoft(["git", "status", "--porcelain=v2", "--branch"], found.path),
-      defaultBranch(repo),
+      landingRefFor(change, repo),
+      refreshTargetFor(change, repo, spec, selection),
     ]);
     const tree = parseStatus(status.stdout);
-    // Whether the default branch already has everything on this branch, which is how a merged
-    // change is spotted — the cheap proofs only, because this is painted on every refresh and the
-    // simulated merge that catches a squash (`integrated`) writes into the repository. A lookup
-    // that cannot be read is unknown rather than diverged, and the card says so.
-    const proven = base ? yield* cheaplyIntegrated(repo, found.branch, base) : undefined;
-    const base_state = base ? yield* baseDivergence(found.path, base, found.branch) : undefined;
+    // Whether the branch's work is already where it lands — the change's target, else its base,
+    // else the repository default, read without guessing — which is how a merged change is
+    // spotted. The cheap proofs only, because this is painted on every refresh and the simulated
+    // merge that catches a squash (`integrated`) writes into the repository. A lookup that cannot
+    // be read is unknown rather than diverged, and the card says so.
+    //
+    // A target that is the branch itself — its own name, its own remote counterpart, or
+    // `origin/<its branch>` — proves nothing: the comparison would be its tip with itself, which
+    // reads "merged" for work that never left. That is no proof either way, so it is unknown.
+    const ownRefs = new Set([found.branch, `origin/${found.branch}`, selection?.selected?.remoteRef]);
+    const provesSomething = target !== undefined && !ownRefs.has(target);
+    const proven = provesSomething ? yield* cheaplyIntegrated(repo, found.branch, target) : undefined;
+    // The freshness measurement is the policy's own target: the row's Fast-forward action must
+    // never offer a move the policy would not make on the same refs.
+    const base_state = freshnessTarget
+      ? yield* baseDivergence(found.path, freshnessTarget, found.branch)
+      : undefined;
     return {
       branch: found.branch,
       path: found.path,
       working_tree: { staged: tree.staged, modified: tree.modified, untracked: tree.untracked },
       remote: tree.upstream ? { branch: tree.upstream, ahead: tree.ahead, behind: tree.behind } : null,
       ...(base_state ? { base_state } : {}),
-      // "diverged" for commits the default branch does not have, which is what makes them worth
-      // warning about before a removal. Unknown — no default branch to compare with, or a failed
-      // lookup — stays undefined, and every reader treats that as "not in main". Patch-identical
-      // content counts as integrated: a squash merge lands the content without the ancestry.
+      // "diverged" for commits the branch's landing ref does not have, which is what makes them
+      // worth warning about before a removal. Unknown — no target to compare with, a target that
+      // is the branch itself, or a failed lookup — stays undefined, and every reader treats that
+      // as "not landed". Patch-identical content counts as integrated: a squash merge lands the
+      // content without the ancestry.
       main_state: proven === undefined ? undefined : proven ? "integrated" : "diverged",
       is_main: found.path === repo,
     };
@@ -285,7 +351,8 @@ export function describe(entry: WorktreeEntry): { detail: string; state: WidgetS
   const parts = [dirty ? "uncommitted changes" : "clean"];
   if (!entry.remote?.branch) parts.push("no upstream");
   if (ahead) parts.push(`${ahead} unpushed`);
-  if (behind) parts.push(`${behind} behind`);
+  // Named "upstream" so it cannot be confused with the base measurement below when both apply.
+  if (behind) parts.push(`${behind} behind upstream`);
   if (entry.main_state === "integrated") parts.push("merged");
   // Diverged from the base the checkout should be fresh against: a fast-forward-only refresh
   // leaves this alone rather than rewrite it, and the row says so — the work sits on old ground
@@ -295,11 +362,38 @@ export function describe(entry: WorktreeEntry): { detail: string; state: WidgetS
   if (base && diverged)
     // The verdict leads: a card row is scanned for problems, and this is the row's point.
     parts.unshift(`left alone: ${base.own} of its own, ${base.behind} behind ${base.base}`);
+  // Nothing of its own and behind the base is the one case a fast-forward is both safe and
+  // useful, so the row says where it stands and offers the action that closes the gap.
+  if (base !== undefined && behindBaseOnly(base)) parts.push(`${base.behind} behind base ${base.base}`);
   return {
     detail: parts.join(", "),
     state: diverged ? "warn" : dirty || ahead || !entry.remote?.branch ? "pending" : "ok",
   };
 }
+
+/** The base measurement a fast-forward can close: nothing of its own, and behind. One predicate
+ * for the row's sentence and the row's button, so they cannot drift. */
+// Pure and synchronous: nothing for an Effect to wrap.
+const behindBaseOnly = (base: { readonly own: number; readonly behind: number }): boolean =>
+  base.own === 0 && base.behind > 0;
+
+/** The one case a fast-forward is safe and useful: a clean checkout with no commits of its own
+ * that is behind the base it is measured against. A branch adopted as checked out is never
+ * refreshed at all, so it is never offered. */
+// Pure and synchronous: nothing for an Effect to wrap.
+const fastForwardable = (spec: CheckoutSpec | undefined, entry: WorktreeEntry): boolean => {
+  if (spec?.branch.kind === "current") return false;
+  const tree = entry.working_tree ?? {};
+  const dirty = Boolean(tree.staged || tree.modified || tree.untracked);
+  const base = entry.base_state;
+  return !dirty && base !== undefined && behindBaseOnly(base);
+};
+
+const fastForwardAction = (repo: string): WidgetAction => ({
+  id: FAST_FORWARD,
+  label: "Fast-forward",
+  arg: repo,
+});
 
 export const repoItem = (change: Change, repo: string): Effect.Effect<WidgetItem> =>
   Effect.gen(function* () {
@@ -316,8 +410,15 @@ export const repoItem = (change: Change, repo: string): Effect.Effect<WidgetItem
       };
     }
     const { detail, state } = describe(entry);
-    // Adding and removing repositories happens in the edit dialog, not per row.
-    return { label, detail: `${detail} · ${entry.path}`, state, menu: openMenu(repo) };
+    // Adding and removing repositories happens in the edit dialog; a fast-forward is the row's
+    // own, because it is about this checkout's place against its base.
+    return {
+      label,
+      detail: `${detail} · ${entry.path}`,
+      state,
+      ...(fastForwardable(spec, entry) ? { actions: [fastForwardAction(repo)] } : {}),
+      menu: openMenu(repo),
+    };
   });
 
 /** One shared memoized ask per repository: a remote's default branch changes about as often as
@@ -341,6 +442,34 @@ const askDefaultBranch = (repo: string): Effect.Effect<string | undefined, CliEr
     return (yield* read()) ?? "origin/main";
   });
 
+/** One memoized ask per repository: the effect is created once and shared, so a read costs its
+ * processes only the first time. `keep` decides whether the answer may be remembered — anything
+ * that can become true later ("no remote yet", a local fallback where remote metadata may
+ * appear) is not cached, so the next read asks again. */
+const memoizeByRepo = <A>(
+  cache: Map<string, Effect.Effect<A>>,
+  repo: string,
+  ask: Effect.Effect<A>,
+  keep: (answer: A) => boolean,
+): Effect.Effect<A> =>
+  Effect.suspend(() => {
+    const known = cache.get(repo);
+    if (known) return known;
+    const asking = Effect.runSync(
+      Effect.cached(
+        ask.pipe(
+          Effect.tap((answer) =>
+            Effect.sync(() => {
+              if (!keep(answer)) cache.delete(repo);
+            }),
+          ),
+        ),
+      ),
+    );
+    cache.set(repo, asking);
+    return asking;
+  });
+
 /** The remote's default branch, e.g. `origin/main`, or undefined for a repository without a
  * remote. New branches start here rather than at a local main that may be days behind, and this
  * is the remote-only half of `defaultBranch`; GitHub's pull-request base reads it directly and
@@ -353,25 +482,14 @@ const askDefaultBranch = (repo: string): Effect.Effect<string | undefined, CliEr
  *
  * Never fails: a timed-out `git` reads as "no default branch", and that tolerance is explicit
  * here rather than surfacing the timeout through every caller. */
+
 export const remoteDefaultBranch = (repo: string): Effect.Effect<string | undefined> =>
-  Effect.suspend(() => {
-    const known = defaultBranches.get(repo);
-    if (known) return known;
-    const asking = Effect.runSync(
-      Effect.cached(
-        askDefaultBranch(repo).pipe(
-          Effect.orElseSucceed(() => undefined),
-          Effect.tap((found) =>
-            Effect.sync(() => {
-              if (found === undefined) defaultBranches.delete(repo); // do not cache "no remote"
-            }),
-          ),
-        ),
-      ),
-    );
-    defaultBranches.set(repo, asking);
-    return asking;
-  });
+  memoizeByRepo(
+    defaultBranches,
+    repo,
+    askDefaultBranch(repo).pipe(Effect.orElseSucceed(() => undefined)),
+    (found) => found !== undefined,
+  );
 
 /** The repository's own default branch, for one without a remote: `main`, then `master` — what
  * `wt switch` fell back to, and the branch a worktree should grow out of just the same. It has
@@ -389,23 +507,7 @@ const askLocalDefaultBranch = (repo: string): Effect.Effect<string | undefined> 
   });
 
 const localDefaultBranch = (repo: string): Effect.Effect<string | undefined> =>
-  Effect.suspend(() => {
-    const known = localDefaultBranches.get(repo);
-    if (known) return known;
-    const asking = Effect.runSync(
-      Effect.cached(
-        askLocalDefaultBranch(repo).pipe(
-          Effect.tap((found) =>
-            Effect.sync(() => {
-              if (found === undefined) localDefaultBranches.delete(repo); // do not cache "neither"
-            }),
-          ),
-        ),
-      ),
-    );
-    localDefaultBranches.set(repo, asking);
-    return asking;
-  });
+  memoizeByRepo(localDefaultBranches, repo, askLocalDefaultBranch(repo), (found) => found !== undefined);
 
 /** The branch this repository's work starts from and is measured against: the remote's default
  * (`origin/main`), or — a repository with no remote — its own `main`/`master`. Undefined only when
@@ -415,6 +517,34 @@ export const defaultBranch = (repo: string): Effect.Effect<string | undefined> =
     const remote = yield* remoteDefaultBranch(repo);
     return remote ?? (yield* localDefaultBranch(repo));
   });
+
+/** The default branch read the way the checkout policy reads it: the remote's symbolic HEAD,
+ * else a local `main`/`master` — no `set-head` healing and no `origin/main` guess. It exists
+ * because a contributed effect cannot reach the `Repositories` capability (the host gives it
+ * `Capabilities`), and the card must measure against the same ref the policy advances to.
+ *
+ * Only the remote-derived answer is memoized: a local fallback is re-asked every read, because a
+ * remote added later (with an `origin/HEAD`) would otherwise leave the card measuring `main`
+ * while the click advances to `origin/main`. */
+const policyDefaultBranches = new Map<string, Effect.Effect<string | undefined>>();
+
+const askPolicyDefaultBranch = (repo: string): Effect.Effect<string | undefined> =>
+  Effect.gen(function* () {
+    const head = yield* shSoft(["git", "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"], repo);
+    const prefix = "refs/remotes/origin/";
+    const ref = head.code === 0 ? head.stdout.trim() : "";
+    if (ref.startsWith(prefix)) return `origin/${ref.slice(prefix.length)}`;
+    return yield* askLocalDefaultBranch(repo);
+  });
+
+const policyDefaultBranch = (repo: string): Effect.Effect<string | undefined> =>
+  memoizeByRepo(
+    policyDefaultBranches,
+    repo,
+    askPolicyDefaultBranch(repo),
+    // A remote-derived answer is stable metadata; the local fallback may stop being the answer.
+    (found) => found !== undefined && found.startsWith("origin/"),
+  );
 
 /** The branch this repository's work starts from: what the change chose for it, or the
  * repository's default branch — the remote's, or its own main/master when there is no remote. */
@@ -426,12 +556,24 @@ export const baseFor = (change: Change, repo: string): Effect.Effect<string | un
 
 /** What a pull request merges into: the spec's `target`, else the `base` its branch started
  * from — one field served both roles before they were split, so a spec without `target` still
- * means it — else the repository's default branch. */
+ * means it — else the repository's default branch. The fallback is the display read on purpose:
+ * the create action compares it with `remoteDefaultBranch` to decide whether to name a base at
+ * all, and both are remote-qualified on the same repository. */
 export const targetFor = (change: Change, repo: string): Effect.Effect<string | undefined> =>
   Effect.suspend(() => {
     const spec = specFor(change, repo);
     const chosen = spec ? targetOf(spec) : undefined;
     return chosen !== undefined ? Effect.succeed(chosen) : defaultBranch(repo);
+  });
+
+/** The ref a branch's work lands in, for a verdict that decides something — the card's "merged".
+ * `targetFor`'s selection, with the default read the way the checkout policy reads it: the label
+ * must not rest on a ref that was healed or guessed into existence. */
+const landingRefFor = (change: Change, repo: string): Effect.Effect<string | undefined> =>
+  Effect.suspend(() => {
+    const spec = specFor(change, repo);
+    const chosen = spec ? targetOf(spec) : undefined;
+    return chosen !== undefined ? Effect.succeed(chosen) : policyDefaultBranch(repo);
   });
 
 /**
@@ -565,7 +707,13 @@ const inPlaceItem = (change: Change, repo: string, spec: CheckoutSpec): Effect.E
         actions: [{ id: "add", label: `Switch to ${change.branch}`, arg: repo }],
       };
     }
-    const expected = spec.branch.kind === "existing" ? yield* branchNameOf(change, repo, spec) : undefined;
+    // Resolved once: the row's own check and the entry it goes on to build share the answer.
+    const resolved: ResolvedBranch | undefined =
+      spec.branch.kind === "existing"
+        ? { selected: yield* existingBranch(repo, spec.branch.name) }
+        : undefined;
+    const expected =
+      spec.branch.kind === "existing" ? yield* branchNameOf(change, repo, spec, resolved) : undefined;
     if (spec.branch.kind === "existing" && (!expected || branch !== expected)) {
       return {
         label,
@@ -579,7 +727,7 @@ const inPlaceItem = (change: Change, repo: string, spec: CheckoutSpec): Effect.E
     }
     // On the right branch: the main checkout is a worktree like any other as far as git is
     // concerned, so the same reading describes it.
-    const entry = yield* entryFor(change, repo);
+    const entry = yield* entryFor(change, repo, resolved);
     const described = entry
       ? describe(entry)
       : {
@@ -591,6 +739,7 @@ const inPlaceItem = (change: Change, repo: string, spec: CheckoutSpec): Effect.E
       label,
       detail: `${way} · ${described.detail} · ${repo}`,
       state: described.state,
+      ...(entry && fastForwardable(spec, entry) ? { actions: [fastForwardAction(repo)] } : {}),
       menu: openMenu(repo),
     };
   });

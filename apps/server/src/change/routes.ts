@@ -11,15 +11,16 @@ import {
   PLAN_FILE,
   prDescription,
   progressOf,
+  readChange,
   readSidecar,
   refreshTitles,
   reopenChange,
-  startChangeWithWorkflow,
-  writeChange,
+  writeChangeAt,
   writeSidecar,
 } from "../change/server/index.ts";
 import { ChangeId } from "@corvi/contracts/changes";
 import {
+  ChangeStateSchema,
   CreateChangeBodySchema,
   ForceBodySchema,
   PlanWriteBodySchema,
@@ -37,10 +38,11 @@ import {
 import { AbsolutePath } from "@corvi/contracts/paths";
 import { AgentTranscripts, TRANSCRIPTS_DIRECTORY } from "@corvi/agents/transcripts";
 import { agentTranscriptsLayer } from "./lifecycle-layer.ts";
-import { ChangeFormatTooNew } from "@corvi/changes/errors";
+import { ChangeConflict, ChangeFormatTooNew } from "@corvi/changes/errors";
 import { ChangeAlreadyExists, InvalidChangeDraft, InvalidChangeEdit } from "./errors.ts";
 import { messageOf } from "../capabilities/effect/support.ts";
 import { textRevision } from "../capabilities/files.ts";
+import { isFinished } from "@corvi/changes/record";
 import type { Change } from "@corvi/changes/record";
 import type { Changes } from "../integrations/api/capabilities.ts";
 import { announce } from "../capabilities/bus.ts";
@@ -49,7 +51,7 @@ import { guard } from "../capabilities/web.ts";
 import { workspaceOf } from "../workspace/server/index.ts";
 import { bodyAs, json, withChange } from "../capabilities/web.ts";
 import { provisionRepositories, setRepos } from "./provisioning.ts";
-import { assignTicketOnCreate } from "./tickets.ts";
+import { assignTicketOnCreate, finishTicket, startTicket } from "./tickets.ts";
 
 // The request bodies, decoded at the boundary: the schema is the contract, and a body that does
 // not fit is the caller's 400 naming the field rather than a cast the compiler cannot check. The
@@ -61,6 +63,7 @@ import { assignTicketOnCreate } from "./tickets.ts";
 const changeError = (error: unknown): CorviError => {
   if (error instanceof ChangeAlreadyExists) return new ConflictError({ message: error.message });
   if (error instanceof ChangeFormatTooNew) return new ConflictError({ message: error.message });
+  if (error instanceof ChangeConflict) return new ConflictError({ message: error.message });
   if (error instanceof InvalidChangeDraft) return new BadRequestError({ message: error.message });
   if (error instanceof InvalidChangeEdit) {
     return error.conflict
@@ -85,15 +88,17 @@ const transcriptsDirOf = (id: string): Effect.Effect<AbsolutePath, NotFoundError
   );
 
 const PatchBody = Schema.Struct({
-  state: Schema.optional(Schema.String),
+  // The wire shape of the phase, not a free string: an unknown word — an empty one included — is
+  // the caller's 400 at the boundary, before any write, stamp or ticket move.
+  state: Schema.optional(ChangeStateSchema),
   title: Schema.optional(Schema.String),
 });
 
 export const changeRoutes = guard({
   "/api/changes": {
     GET: () => runRoute(Effect.map(listChanges(), json)),
-    // Creates the change, then gives it its presence: the checkouts (worktrees and branches from
-    // the start, so an agent works in them while the change is an idea) and the ticket assigned
+    // Creates the change, then gives it its presence: the checkouts (worktrees and branches made
+    // at creation, so an agent works in them while the change is an idea) and the ticket assigned
     // to me. The change is written first, so a failing component leaves something to fix, not
     // nothing.
     POST: (req) =>
@@ -112,9 +117,9 @@ export const changeRoutes = guard({
           // Your own action lands on the stream at once, not within a tick.
           yield* Effect.sync(() => announce("changes"));
           // `changeDir` is the creation location: where a brand-new record is written. A change
-          // that already exists stays where it was made when a root is overridden, so if
-          // `start`/`repos` ever populate this they must use the stored directory (`existingDir`),
-          // not `changeDir`.
+          // that already exists stays where it was made when a root is overridden, so anything
+          // that populates this for an existing change must use the stored directory
+          // (`existingDir`), not `changeDir`.
           return json(
             {
               change,
@@ -134,21 +139,6 @@ export const changeRoutes = guard({
     GET: () => runRoute(Effect.map(refreshTitles(), json)),
   },
 
-  // Starting an idea's work: the state moves to Implementation, then the checkouts are
-  // provisioned and refreshed (anything missing is created, everything is fast-forwarded when
-  // it can be) and the ticket moves. Written first, like creation, so a failing component
-  // leaves something to fix rather than nothing.
-  "/api/changes/:id/start": {
-    POST: (req) =>
-      withChange(req.params.id, (c) =>
-        Effect.gen(function* () {
-          const started = yield* startChangeWithWorkflow(c);
-          yield* Effect.sync(() => announce("changes"));
-          return json(started);
-        }),
-      ),
-  },
-
   "/api/changes/:id": {
     // Just the change: instant, no CLI calls, so the header renders immediately.
     GET: (req) => withChange(req.params.id, (c) => Effect.succeed(json(c))),
@@ -156,16 +146,7 @@ export const changeRoutes = guard({
     // own endpoint, and the rest is either derived or the change's identity.
     PATCH: (req) =>
       withChange(req.params.id, (c) =>
-        Effect.gen(function* () {
-          const body = yield* bodyAs(req, PatchBody);
-          const updated = yield* Effect.try({
-            try: () => applyPatch(c, body),
-            catch: changeError,
-          });
-          yield* writeChange(updated);
-          yield* Effect.sync(() => announce("changes"));
-          return json(updated);
-        }),
+        Effect.flatMap(bodyAs(req, PatchBody), (body) => Effect.map(patchChange(c, body), json)),
       ),
   },
 
@@ -217,8 +198,8 @@ export const changeRoutes = guard({
           const body = yield* bodyAs(req, ReposBodySchema);
           const result = yield* setRepos(c, body.checkouts, body.force).pipe(Effect.mapError(changeError));
           // 409: nothing was changed, the browser should ask about the work left behind first.
-          // Otherwise the answer is the same shape a create or a start gives: the change, and
-          // what its checkouts reported.
+          // Otherwise the answer is the same shape a create or a repository edit gives: the
+          // change, and what its checkouts reported.
           return result._tag === "NeedsForce"
             ? json({ needsForce: result.needsForce, reasons: result.reasons }, 409)
             : json({ change: result.change, provision: result.provision, refresh: result.refresh });
@@ -320,6 +301,82 @@ export const changeRoutes = guard({
       ),
   },
 });
+
+/** A hand edit's work, apart from the request plumbing: the change the caller observed and the
+ * patch. The write is conditional on the revision that read saw — inside the one record lock —
+ * so an edit that loses a race is a 409 conflict and writes nothing, and an edit that wins is the
+ * only one whose side effects run. Exported so a test can run two edits against the same observed
+ * record and see the loser refused.
+ *
+ * The phase and the name are one write, deliberately: routing the phase half through
+ * `ChangeService.transitionTo` would mix two stores writing the same file under two locks, and a
+ * title that conflicted after the phase landed would leave the PATCH half applied. */
+export const patchChange = (
+  observed: Change,
+  body: { state?: string; title?: string },
+): Effect.Effect<Change, CorviError> =>
+  Effect.gen(function* () {
+    // Naming the phase the change is already in is a no-op, and so is an empty body: either would
+    // otherwise bump the revision and let the stamp below run for nothing.
+    const stateChanges = body.state !== undefined && body.state !== (observed.state ?? "Implementation");
+    if (!stateChanges && body.title === undefined) return observed;
+    const updated = yield* Effect.try({
+      try: () => applyPatch(observed, stateChanges ? body : { title: body.title }),
+      catch: changeError,
+    });
+    // The first departure from Ideation is the one that starts the work: `startedAt` is recorded
+    // with the write, so a later return to Ideation and out again is a plain phase change — it
+    // does not reassign the ticket or drag an advanced one backwards.
+    const leavesIdeation = observed.state === "Ideation" && updated.state !== "Ideation";
+    const firstStart = leavesIdeation && observed.startedAt === undefined;
+    // A record that already stands outside Ideation has started, whatever it says: stamping the
+    // fact on the way through covers records written before this field existed (and changes
+    // created directly in a working phase), so a later round-trip cannot run the ticket move.
+    // A finished record is not proof of anything: a change cancelled while still an idea must
+    // keep its empty stamp, or reopening it to Ideation would suppress the ticket move for good.
+    const needsStamp =
+      observed.startedAt === undefined &&
+      !isFinished(observed) &&
+      (observed.state !== "Ideation" || leavesIdeation);
+    const next = needsStamp ? { ...updated, startedAt: new Date().toISOString() } : updated;
+    // The answer is the record that won on disk (with the revision it was given), never the
+    // snapshot this edit was decided on.
+    const winning = yield* writeChangeAt(next, observed.revision ?? 0).pipe(Effect.mapError(changeError));
+    if (firstStart) {
+      // After the write won and outside any checkout lock: a slow Jira never holds up the change,
+      // and a failure is logged rather than thrown, so the phase change stands and the ticket
+      // can be corrected from the Jira card. The response does wait for the move, though.
+      const moved = yield* startTicket(winning);
+      for (const result of moved)
+        if (!result.ok)
+          console.error(
+            `could not move the ticket for ${winning.id}: ${result.error ?? result.detail ?? "failed"}`,
+          );
+      // The change may have finished while the move was in flight: the completion moved the
+      // ticket to done, and this late start move puts it back. The record is authoritative, so
+      // re-read it and put the done move back on top. Cancelling deliberately leaves the ticket
+      // alone, so the only repair there is a line naming what to correct by hand.
+      const after = yield* readChange(winning.id);
+      if (after !== null && isFinished(after)) {
+        if ((after.state ?? "Implementation") === "Cancelled") {
+          console.error(
+            `the ticket for ${winning.id} was moved to its start status after the change was ` +
+              `cancelled: correct it in Jira`,
+          );
+        } else {
+          const repaired = yield* finishTicket(after);
+          for (const result of repaired)
+            if (!result.ok)
+              console.error(
+                `could not move the ticket for ${winning.id} back to its done status: ` +
+                  `${result.error ?? result.detail ?? "failed"}`,
+              );
+        }
+      }
+    }
+    yield* Effect.sync(() => announce("changes"));
+    return winning;
+  });
 
 /** The completion POST's work, apart from the request plumbing: run the completion, map a
  * `NotReady` verdict to the 409 the override dialog reads. Exported so a test can run it with a

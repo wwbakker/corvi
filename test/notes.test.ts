@@ -3,7 +3,6 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect } from "effect";
 import {
-  archiveChange,
   archiveDir,
   changeDir,
   createChange,
@@ -15,7 +14,7 @@ import { resolveChangePage } from "../apps/web/src/change-page/client/changeTabs
 import { Changes } from "../apps/server/src/integrations/api/capabilities.ts";
 import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "@corvi/changes/record";
-import { checkoutsOf, runEffect, useOwnChangeRoot } from "./helpers.ts";
+import { archiveViaStore, checkoutsOf, runEffect, useOwnChangeRoot } from "./helpers.ts";
 /**
  * The notes extension: a dashboard widget backed by `ExtensionStore`, plus the one migration it
  * needed — notes written before the store existed, as a `notes.md` sidecar in the change root,
@@ -90,7 +89,7 @@ test("notes written before the store still show, and the first write lands under
   const reread = await ext(`changes/${change.id}/notes`);
   expect(await reread.json()).toEqual({ text: "answered: keep it\n" });
   // Archiving moves the whole change directory: both the store's file and the legacy one travel.
-  await runEffect(archiveChange(change.id));
+  await runEffect(archiveViaStore(change.id));
   const archived = await ext(`changes/${change.id}/notes`);
   expect(await archived.json()).toEqual({ text: "answered: keep it\n" });
   expect(await textAt(join(archiveDir(change), "extensions", "notes", "notes.md"))).toBe(

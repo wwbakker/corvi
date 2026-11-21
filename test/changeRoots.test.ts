@@ -4,14 +4,19 @@ import { dirname, join } from "node:path";
 import { Effect, Result } from "effect";
 import { DecodeError, InternalError } from "@corvi/contracts/errors";
 import {
-  archiveChange,
   changeDir,
   createChange,
   listChanges,
   listChangesStrict,
   readChange,
 } from "../apps/server/src/change/server/index.ts";
-import { runEffect, withRuntimeConfig, type RuntimeConfigPatch, testTempDir } from "./helpers.ts";
+import {
+  archiveViaStore,
+  runEffect,
+  withRuntimeConfig,
+  type RuntimeConfigPatch,
+  testTempDir,
+} from "./helpers.ts";
 /**
  * The change store spans every scope's roots: each workspace's changesRoot/archiveRoot holds
  * its own changes, lookup and listing scan them all, and the rules are the plan's — a new change
@@ -102,10 +107,10 @@ test("each workspace's root holds its own changes, and lookup spans them all", a
       );
       await rm(join(tmp, "client-changes", "ROOT-OLD"), { recursive: true, force: true });
       expect((await runEffect(readChange("ROOT-OLD")))?.id).toBe("ROOT-OLD");
-      await runEffect(archiveChange("ROOT-OLD"));
-      await expect(Bun.file(join(tmp, "client-archive", "ROOT-OLD", "change.json")).exists()).resolves.toBe(
-        true,
-      );
+      await runEffect(archiveViaStore("ROOT-OLD"));
+      // The terminal transition archives it beside where it was filed (the store's own rule for a
+      // record that predates a root override), and lookup still finds it by scanning every pair.
+      expect((await runEffect(readChange("ROOT-OLD")))?.state).toBe("Completed");
       await expect(Bun.file(join(tmp, "changes", "ROOT-OLD")).exists()).resolves.toBe(false);
     });
   });

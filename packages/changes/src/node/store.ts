@@ -12,9 +12,10 @@
  * first pair's root (the application creates changes through its own store, which routes by
  * the change's workspace).
  *
- * Writes replace the file atomically (temp file plus rename) and are serialized in-process.
- * Cross-process locking is not provided yet; that is why `ChangeConflict` exists but is not
- * raised here.
+ * Writes replace the file atomically (temp file plus rename) and are serialized in-process:
+ * every writer in this process — the capability's own store and the application's, which writes
+ * the same file — holds `changeRecordLock`, so a revision check and the write it guards cannot
+ * interleave. Cross-process locking is not provided.
  */
 import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -86,11 +87,21 @@ interface Located {
   readonly dir: string;
 }
 
+/** The one lock every writer of change.json holds in this process. A store layer is built per
+ * operation — a lifecycle run, a route — so a lock created inside the layer would serialize that
+ * operation only against itself. This one serializes all of them, and the application's own store
+ * (which writes the same file) takes it too, so its revision check and a write here cannot
+ * interleave. Reads (`read`, `list`) take it as well: a read must not interleave with the write
+ * it is compared against — the expected revision a transition later writes with — and a list must
+ * not mix records from before and after one write. The lock is held for the length of a file
+ * operation, not a lifecycle, so the serialization costs nothing anyone waits on. */
+export const changeRecordLock: Semaphore.Semaphore = Semaphore.makeUnsafe(1);
+
 export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.Layer<ChangeStore> =>
   Layer.effect(
     ChangeStore,
     Effect.gen(function* () {
-      const lock = yield* Semaphore.make(1);
+      const lock = changeRecordLock;
 
       const writeAt = (dir: string, record: StoredRecord): Effect.Effect<void, ChangeStoreError> => {
         const path = join(dir, "change.json");

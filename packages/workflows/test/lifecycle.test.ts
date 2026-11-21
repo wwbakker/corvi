@@ -286,13 +286,11 @@ const assessment = (
     }),
   );
 
-test("an idea cannot be completed", async () => {
+test("an idea is assessed like any other manual phase", async () => {
+  // Ideation has no special refusal: with nothing outstanding there is nothing to stop it.
   const result = await assessment(script({ change: change("Ideation") }), "completion");
   expect(Result.isSuccess(result)).toBe(true);
-  if (Result.isSuccess(result)) {
-    expect(result.success._tag).toBe("Blocked");
-    if (result.success._tag === "Blocked") expect(result.success.reasons[0]?.code).toBe("idea");
-  }
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Ready");
 });
 
 test("an unready pull request needs an acknowledgement", async () => {

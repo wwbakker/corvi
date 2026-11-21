@@ -132,6 +132,21 @@ test("a forbidden workspace edge fails even when declared", async () => {
   expect(problemsOf(root)).toContain("workspace dependency not allowed: @corvi/contracts -> @corvi/changes");
 });
 
+test("a module that writes change.json must import the record lock", async () => {
+  const withServer: FixtureGraph = {
+    packages: { ...graph.packages, "@corvi/server": { dependsOn: [], node: true } },
+  };
+  const root = await writeFixture("record-lock", withServer, [
+    contractsPackage({ "changes.ts": "export const x = 1;\n" }),
+    changesPackage({ "index.ts": "export const y = 1;\n" }),
+    serverPackage({
+      "store.ts":
+        'import { writeFile } from "node:fs/promises";\nexport const w = () => writeFile("change.json", "{}");\n',
+    }),
+  ]);
+  expect(problemsOf(root)).toContain("writes change.json without importing the record lock");
+});
+
 test("a workspace subpath that is not exported fails", async () => {
   const root = await writeFixture("deep", graph, [
     contractsPackage({ "changes.ts": "export const x = 1;\n" }),

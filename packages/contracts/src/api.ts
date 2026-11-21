@@ -22,8 +22,8 @@ export const RepositoryViewSchema = Schema.Struct({
 });
 export type RepositoryViewDto = typeof RepositoryViewSchema.Type;
 
-/** What one provisioning target reported, shown after a create or a start: the integration,
- * whether it worked, and the first error when it did not. */
+/** What one provisioning target reported, shown after a create or a repository edit: the
+ * integration, whether it worked, and the first error when it did not. */
 export const ProvisionResultSchema = Schema.Struct({
   integration: Schema.String,
   ok: Schema.Boolean,
@@ -32,8 +32,9 @@ export const ProvisionResultSchema = Schema.Struct({
 });
 export type ProvisionResultDto = typeof ProvisionResultSchema.Type;
 
-/** What one repository's freshness step reported after a create or a start: the checkout is
- * advanced only by fast-forward, and everything else says why it stands where it does. */
+/** What one repository's freshness step reported after a create, a repository edit or the
+ * card's Fast-forward action: the checkout is advanced only by fast-forward, and everything else
+ * says why it stands where it does. */
 export const RefreshOutcomeSchema = Schema.Struct({
   repositoryId: RepositoryId,
   directoryName: DirectoryName,
@@ -84,6 +85,12 @@ export const ChangeWireSchema = Schema.Struct({
   completedAt: Schema.optional(Schema.String),
   /** The phase a cancelled change was cancelled from: what reopening returns it to. */
   cancelledFrom: Schema.optional(ChangeStateSchema),
+  /** When the change first left `Ideation`: the moment its work — and its ticket's start move —
+   * began. The Jira start move runs once per change, so returning to `Ideation` and leaving again
+   * neither reassigns the ticket nor drags an advanced one backwards. For records written
+   * before this field existed, the value is stamped on the first edit that writes one for the
+   * change outside `Ideation`, so it is an approximate work-started fact, not an exact one. */
+  startedAt: Schema.optional(Schema.String),
   /** How many times the record has been written; absent on records written before revisioning,
    * which count as 0. Used for the lifecycle's optimistic concurrency check. */
   revision: Schema.optional(Schema.Number),
@@ -483,14 +490,14 @@ export const WindowActionBodySchema = Schema.Struct({
 });
 export type WindowActionBodyDto = typeof WindowActionBodySchema.Type;
 
-/** A change with what its checkout run reported: the create, start and repository-edit
+/** A change with what its checkout run reported: the create and repository-edit
  * responses all answer in this one shape. */
 export const ProvisionedChangeSchema = Schema.Struct({
   change: ChangeWireSchema,
   provision: Schema.mutable(Schema.Array(ProvisionResultSchema)),
   refresh: Schema.mutable(Schema.Array(RefreshOutcomeSchema)),
   // Where the change lives on disk: its workspace's changes root joined with its id. Optional
-  // because `start` and the repository edit share this shape and do not derive it.
+  // because only creation produces it; a repository edit answers in the same shape without one.
   changeDir: Schema.optional(Schema.String),
 });
 export type ProvisionedChangeDto = typeof ProvisionedChangeSchema.Type;

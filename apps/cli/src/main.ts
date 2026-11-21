@@ -41,7 +41,6 @@ usage: corvi [--json] [--change <id>] [--server <url>] <group> <command> [args]
   change create <id> --title <title> [--branch <name>] [--workspace <id>]
                                        make a new idea, then print the next steps
   change show                          this change's record
-  change start                         start its work (worktrees, tickets)
   change complete [--force]            merge and close it
   change cancel [--force]              abandon it, keeping what others can see
   change phase <Ideation|Implementation|Verification|Blocked>
@@ -96,7 +95,6 @@ usage: corvi change <command> [args]
   create <id> --title <title> [--branch <name>] [--workspace <id>]
                                 make a new idea, then print the next steps
   show                          this change's record
-  start                         start its work (worktrees, tickets)
   complete [--force]            merge and close it
   cancel [--force]              abandon it, keeping what others can see
   phase <Ideation|Implementation|Verification|Blocked>
@@ -189,7 +187,7 @@ const requireChange = (changeId: string | undefined): ChangeId => {
 /** The command shapes, checked before discovery: a typo is a usage error (2) and must not pay a
  * round of probes first (or be reported as "no server"). */
 export const COMMANDS: Readonly<Record<string, readonly string[]>> = {
-  change: ["list", "create", "show", "start", "complete", "cancel", "phase", "repository"],
+  change: ["list", "create", "show", "complete", "cancel", "phase", "repository"],
   action: ["list", "run", "profile"],
   subagent: ["list", "show", "create", "open", "close", "send", "await", "result", "next", "turn", "profile"],
   status: ["working", "waiting", "clear"],
@@ -251,7 +249,7 @@ const changeCommand = async (
       const next = [
         `write ${dir}/PLAN.md — the change's plan document`,
         `corvi change repository add <path> --change ${id}`,
-        `corvi change start --change ${id}`,
+        `corvi change phase Implementation --change ${id}`,
       ];
       emit(io, json, {
         value: { ...created, next },
@@ -278,12 +276,6 @@ const changeCommand = async (
       });
       return;
     }
-    case "start": {
-      const id = requireChange(changeId);
-      const started = await client.changes.start(id);
-      emit(io, json, { value: started, human: () => `started ${id}` });
-      return;
-    }
     case "complete": {
       const id = requireChange(changeId);
       const completed = await client.changes.complete(
@@ -305,8 +297,8 @@ const changeCommand = async (
     }
     case "phase": {
       const id = requireChange(changeId);
-      const phase = rest[0];
-      if (phase === undefined || !PHASES.includes(phase as ChangePhase)) {
+      const phase = rest[0] as ChangePhase | undefined;
+      if (phase === undefined || !PHASES.includes(phase)) {
         throw new CliFailure(`change phase needs one of: ${PHASES.join(", ")}`, EXIT.usage);
       }
       const updated = await client.changes.rename(id, { state: phase });
@@ -381,7 +373,7 @@ const changeCommand = async (
     default:
       throw new CliFailure(
         command === undefined
-          ? "change needs a command: list, create, show, start, complete, cancel, phase, repository"
+          ? "change needs a command: list, create, show, complete, cancel, phase, repository"
           : `unknown change command: ${command}`,
         EXIT.usage,
       );

@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { Change } from "@corvi/changes/record";
-import { listChanges, writeChange } from "./store.ts";
+import { listChanges, writeChangeAt } from "./store.ts";
 import { includedTitleSources } from "../../integrations/overview.ts";
 import { capabilitiesLayer } from "../../integrations/services.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";
@@ -66,8 +66,18 @@ export const refreshTitles = (): Effect.Effect<Record<string, string>, unknown> 
           // worth following, a broken CLI is not worth forgetting a name over.
           const summary = change.titleEdited ? change.title : (known.get(change.id) ?? change.title);
           if (!summary) return;
-          titles[change.id] = summary;
-          if (summary !== change.title) yield* writeChange({ ...change, title: summary });
+          if (summary === change.title) {
+            titles[change.id] = summary;
+            return;
+          }
+          // Conditional on the revision the list saw: a title refresh that races a phase change
+          // (or a rename) loses rather than overwriting it, and the next refresh picks the name
+          // up. A lost refresh is not a failed page — and it is not reported either, because the
+          // name it would report is the one the winner replaced.
+          const written = yield* writeChangeAt({ ...change, title: summary }, change.revision ?? 0).pipe(
+            Effect.result,
+          );
+          if (written._tag === "Success") titles[change.id] = written.success.title ?? summary;
         }),
       { concurrency: "unbounded" },
     );

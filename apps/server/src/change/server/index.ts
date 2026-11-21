@@ -19,13 +19,13 @@ export {
   readChange,
   currentDirOf,
   writeChange,
+  writeChangeAt,
   readSidecar,
   writeSidecar,
   listExtensionFiles,
   readExtensionFile,
   writeExtensionFile,
   setExtensionData,
-  archiveChange,
   listChanges,
   listChangesStrict,
 } from "./store.ts";
@@ -33,8 +33,6 @@ export {
 export { factsFor, type ChangeFacts } from "./facts.ts";
 
 export { createChange, type CreateChangeInput } from "./create.ts";
-
-export { startChangeWithWorkflow, type Started } from "./start.ts";
 
 export {
   completeChange,

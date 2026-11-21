@@ -2,17 +2,12 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm, realpath } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { Effect } from "effect";
-import {
-  createChange,
-  archiveChange,
-  changeDir,
-  readChange,
-} from "../apps/server/src/change/server/index.ts";
+import { createChange, changeDir, readChange } from "../apps/server/src/change/server/index.ts";
 import { checkoutFor } from "../apps/server/src/vendors/git.ts";
 import { provisionRepositories } from "../apps/server/src/change/provisioning.ts";
 import { dispatchIntegrationRoute } from "../apps/server/src/integrations/index.ts";
 import type { Leftover } from "@corvi/contracts/integrations/leftovers";
-import { checkoutsOf, runEffect, runSh, useOwnChangeRoot } from "./helpers.ts";
+import { archiveViaStore, checkoutsOf, runEffect, runSh, useOwnChangeRoot } from "./helpers.ts";
 /**
  * The leftovers extension, through the dispatcher the server uses: `/api/ext/leftovers/…` is
  * the only door to it now, so the list and the guarded removal are exercised here rather than
@@ -47,7 +42,7 @@ test("the extension lists directories left by finished changes, and only those",
   const active = await runEffect(createChange({ id: "PROJ-ALIVE", checkouts: checkoutsOf([repo]) }));
   // A change that was completed: change.json moved to the archive, the directory stayed.
   const done = await runEffect(createChange({ id: "PROJ-DONE", checkouts: checkoutsOf([repo]) }));
-  await runEffect(archiveChange(done.id));
+  await runEffect(archiveViaStore(done.id));
   await Bun.write(join(changeDir(done), "target", "build.jar"), "artifact\n");
   const leftovers = await list();
   const names = leftovers.map((l) => l.name);

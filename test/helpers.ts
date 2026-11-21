@@ -34,7 +34,10 @@ import { toResponse } from "../apps/server/src/capabilities/effect/http.ts";
 import { swr } from "../apps/server/src/capabilities/cache.ts";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "@corvi/changes/record";
-import { cancelChange } from "../apps/server/src/change/server/index.ts";
+import { cancelChange, changePairs } from "../apps/server/src/change/server/index.ts";
+import { ChangeStore } from "@corvi/changes/store";
+import { storeLayer } from "@corvi/changes/node";
+import { ChangeId } from "@corvi/contracts/changes";
 import { fileDiff, localChanges } from "../apps/server/src/integrations/review/server.ts";
 import type { LocalStatus } from "@corvi/contracts/integrations/review";
 import { deploy, versionsFor, type Buildable } from "@corvi/azure-devops/server";
@@ -972,3 +975,18 @@ export const runVersionsFor = (...args: Parameters<typeof versionsFor>): Promise
 /** Triggering a deploy, Promise-shaped for the tests. */
 export const runDeploy = (...args: Parameters<typeof deploy>): Promise<{ runId: number; url?: string }> =>
   runEffect(deploy(...args));
+
+/** Move a change to the archive the way the lifecycle does: a terminal transition through the
+ * capability store, which sets `completedAt` and renames the directory. The store accepts any
+ * phase, so a fixture does not need a change that could pass the completion's readiness checks. */
+export const archiveViaStore = (id: string): Effect.Effect<void, unknown> =>
+  Effect.gen(function* () {
+    const store = yield* ChangeStore;
+    const current = yield* store.read(ChangeId.make(id));
+    if (!current) return;
+    yield* store.patch(ChangeId.make(id), {
+      phase: "Completed",
+      completedAt: new Date().toISOString(),
+      expectedRevision: current.revision ?? 0,
+    });
+  }).pipe(Effect.provide(storeLayer({ roots: changePairs() })), Effect.asVoid);

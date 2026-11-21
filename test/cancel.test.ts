@@ -156,15 +156,15 @@ test("a change cannot be declared finished by hand", async () => {
   expect(() => applyPatch(change, { state: "Completed" })).toThrow(/completing or cancelling/);
   expect(() => applyPatch(change, { state: "Cancelled" })).toThrow(/completing or cancelling/);
   expect(() => applyPatch(change, { state: "Nonsense" })).toThrow(/unknown state/);
-  // Ideation is the other end of the same rule: set by creating an idea, left by starting work.
-  expect(() => applyPatch(change, { state: "Ideation" })).toThrow(/start work/);
-  // The transition matrix the lifecycle workflow uses, enforced here too: an idea may only start
-  // its work or be abandoned, not jump to a manual phase.
+  // Ideation is an ordinary manual phase: it is entered from any other one, and left for any
+  // other one, by hand.
+  expect(applyPatch(change, { state: "Ideation" }).state).toBe("Ideation");
   const idea = await runEffect(
     createChange({ id: "PROJ-IDEATION", branch: "PROJ-IDEATION-x", state: "Ideation" }),
   );
-  expect(() => applyPatch(idea, { state: "Verification" })).toThrow(/cannot move from Ideation/);
-  expect(() => applyPatch(idea, { state: "Blocked" })).toThrow(/cannot move from Ideation/);
+  expect(applyPatch(idea, { state: "Verification" }).state).toBe("Verification");
+  expect(applyPatch(idea, { state: "Blocked" }).state).toBe("Blocked");
+  expect(applyPatch(idea, { state: "Implementation" }).state).toBe("Implementation");
   // The states you work in are still yours to set, and so is the name.
   expect(applyPatch(change, { state: "Blocked" }).state).toBe("Blocked");
   expect(applyPatch(change, { title: "Something I called it" })).toMatchObject({

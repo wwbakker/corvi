@@ -4,15 +4,10 @@ import { join } from "node:path";
 import { Effect } from "effect";
 import { ExtensionStore } from "../apps/server/src/integrations/api/capabilities.ts";
 import { extensionStoreLayer } from "../apps/server/src/integrations/services.ts";
-import {
-  archiveChange,
-  changeDir,
-  createChange,
-  readChange,
-} from "../apps/server/src/change/server/index.ts";
+import { changeDir, createChange, readChange } from "../apps/server/src/change/server/index.ts";
 import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "@corvi/changes/record";
-import { checkoutsOf, runEffect, useOwnChangeRoot } from "./helpers.ts";
+import { archiveViaStore, checkoutsOf, runEffect, useOwnChangeRoot } from "./helpers.ts";
 /**
  * The single-writer `ExtensionStore`: the namespaced files and the bag entry an extension
  * keeps inside a change, resolved through the change's current location.
@@ -85,6 +80,25 @@ test("two updates through separate ExtensionStore layers both survive", async ()
     second: { two: true },
   });
 });
+test("an update to a record that cannot be read is refused, not merged onto the caller's snapshot", async () => {
+  const change = await runEffect(
+    createChange({ id: "PROJ-5c", checkouts: checkoutsOf(["/r"]), extensions: { keep: { a: 1 } } }),
+  );
+  const path = join(changeDir(change), "change.json");
+  const corrupt = "{ not json";
+  await Bun.write(path, corrupt);
+  await expect(
+    runStore(
+      "mine",
+      Effect.gen(function* () {
+        const store = yield* ExtensionStore;
+        return yield* store.update(change, { nope: true });
+      }),
+    ),
+  ).rejects.toThrow();
+  // The file it could not read is left exactly as it was.
+  expect(await Bun.file(path).text()).toBe(corrupt);
+});
 test("store files land under extensions/<name>/ and are still readable after the change is archived", async () => {
   const change = await runEffect(createChange({ id: "PROJ-6", checkouts: checkoutsOf(["/r"]) }));
   await runStore(
@@ -107,7 +121,7 @@ test("store files land under extensions/<name>/ and are still readable after the
       }),
     ),
   ).toEqual(["notes/one.md"]);
-  await runEffect(archiveChange("PROJ-6"));
+  await runEffect(archiveViaStore("PROJ-6"));
   // The change's current location moved, and the store resolves through it, so the same read
   // still finds the file in the archive rather than failing on the old path.
   expect(

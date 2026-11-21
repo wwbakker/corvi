@@ -146,7 +146,7 @@ test("the write operations decode their responses", async () => {
       const url = String(input);
       calls.push({ url, method: init?.method });
       if (url.endsWith("/complete")) return Response.json({ change: change("a"), notes: ["done"] });
-      // The checkout run's answer, in the one shape create, start and the repository edit share.
+      // The checkout run's answer, in the one shape create and the repository edit share.
       if (url.endsWith("/repos"))
         return Response.json({
           change: change("a"),
@@ -162,7 +162,6 @@ test("the write operations decode their responses", async () => {
   });
 
   expect((await client.changes.complete(ChangeId.make("a"), { force: true })).notes).toEqual(["done"]);
-  expect((await client.changes.start(ChangeId.make("a"))).provision[0]?.integration).toBe("git");
   const edited = await client.changes.setRepositories(ChangeId.make("a"), {
     checkouts: [{ path: "/r", location: "new", branch: { kind: "change" } }],
   });

@@ -857,10 +857,13 @@ test("completeChange: force still refuses uncommitted work", async () => {
   );
   expect((await runEffect(readChange(change.id)))?.state).toBe("Implementation");
 });
-test("completeChange: force still refuses an idea", async () => {
+test("completeChange: an idea completes like any other phase", async () => {
+  // Nothing is special about Ideation: with no checkouts there is nothing unready, so the
+  // completion runs its normal steps and archives the change.
   const idea = await runEffect(createChange({ id: "PROJ-FORCEIDEA", state: "Ideation" }));
-  await expect(runEffect(completeChange(idea, true))).rejects.toThrow(/still an idea/);
-  expect((await runEffect(readChange(idea.id)))?.state).toBe("Ideation");
+  const outcome = await runEffect(completeChange(idea));
+  expect(outcome._tag).toBe("Done");
+  expect((await runEffect(readChange(idea.id)))?.state).toBe("Completed");
 });
 test("CompleteAnywayDialog: every reason needs its own acknowledge", async () => {
   const { createElement } = await import("react");
@@ -942,11 +945,10 @@ test("CancelDialog: the confirm waits for the acknowledge the server names", asy
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { CancelDialog } = await import("../apps/web/src/change-page/client/CancelDialog.tsx");
-  const render = (props: { reasons: string[]; acked: boolean; idea?: boolean }): string =>
+  const render = (props: { reasons: string[]; acked: boolean }): string =>
     renderToStaticMarkup(
       createElement(CancelDialog, {
         changeId: "PROJ-x",
-        idea: props.idea ?? false,
         reasons: props.reasons,
         acked: props.acked,
         busy: false,
@@ -965,8 +967,8 @@ test("CancelDialog: the confirm waits for the acknowledge the server names", asy
   expect(render({ reasons, acked: true })).not.toContain("disabled");
   // Nothing to warn about: the confirm is available without an acknowledge.
   expect(render({ reasons: [], acked: false })).not.toContain("disabled");
-  // An idea is discarded, not cancelled.
-  expect(render({ reasons: [], acked: false, idea: true })).toContain("Discard");
+  // One wording for every change: cancelling is what it does, idea or not.
+  expect(render({ reasons: [], acked: false })).toContain("Cancel change");
 });
 test("overrideNote: only a finished forced completion says it completed with overrides", async () => {
   const { overrideNote } = await import("../apps/web/src/dashboard/client/CompletionCard.tsx");
@@ -995,6 +997,14 @@ test("overrideNote: only a finished forced completion says it completed with ove
   expect(overrideNote({ startedAt: "t", finishedAt: "t", overridden: ["x"], steps: [step] })).toBeUndefined();
   expect(overrideNote({ startedAt: "t", finishedAt: "t", forced: true, steps: [step] })).toBeUndefined();
 });
+test("isConflict: a plain 409 is the record moving, not a dialog", async () => {
+  const { isConflict } = await import("../apps/web/src/change-page/client/refusals.ts");
+  expect(isConflict({ status: 409, body: {} })).toBe(true);
+  expect(isConflict({ status: 400, body: {} })).toBe(false);
+  expect(isConflict(undefined)).toBe(false);
+  expect(isConflict("boom")).toBe(false);
+});
+
 test("completionRefusal/forceQuestion: only a structured 409 opens a dialog", async () => {
   const { completionRefusal, forceQuestion } = await import("../apps/web/src/change-page/client/refusals.ts");
   const failure = (status: number, body: unknown): { status: number; body: unknown } => ({
@@ -1056,7 +1066,7 @@ test("completeChange: the readiness check runs once per call", async () => {
   expect(asked.filter((line) => line.startsWith("gh pr list"))).toHaveLength(1);
   expect(asked.filter((line) => line === "git fetch --quiet origin")).toHaveLength(1);
 });
-test("the complete route answers a 409 with the tagged reasons, and force still refuses an idea", async () => {
+test("the complete route completes an idea without a special refusal", async () => {
   const { changeRoutes } = await import("../apps/server/src/change/routes.ts");
   const idea = await runEffect(createChange({ id: "PROJ-ROUTEIDEA", state: "Ideation" }));
   const route = changeRoutes["/api/changes/:id/complete"] as unknown as {
@@ -1073,18 +1083,12 @@ test("the complete route answers a 409 with the tagged reasons, and force still 
       ),
       undefined,
     );
-  // Without force: the structured refusal the dialog renders, from server truth.
-  const refused = await call({});
-  expect(refused.status).toBe(409);
-  expect(await refused.json()).toEqual({
-    reasons: [{ text: "still an idea: start the work before completing it", kind: "hard" }],
-    toMerge: [],
-  });
-  // With force the 409 is skipped, and the hard refusal stands as a failure — the change is
-  // untouched, still an idea.
-  const forced = await call({ force: true });
-  expect(forced.status).toBe(400);
-  expect((await runEffect(readChange(idea.id)))?.state).toBe("Ideation");
+  // No Ideation guard: nothing is outstanding, so the completion runs and the change lands.
+  const done = await call({});
+  expect(done.status).toBe(200);
+  const body = (await done.json()) as { change: Change };
+  expect(body.change.state).toBe("Completed");
+  expect((await runEffect(readChange(idea.id)))?.state).toBe("Completed");
 });
 test("the complete route drives readiness through the scripted CLI", async () => {
   const { withChangeEffect } = await import("../apps/server/src/capabilities/web.ts");
@@ -1122,43 +1126,43 @@ test("the complete route drives readiness through the scripted CLI", async () =>
   expect(body.notes).toEqual([`completed with overrides: ${basename(repo)}: not approved (review required)`]);
   expect((shell.calls as ShellCall[]).some((c) => c.cmd.join(" ").startsWith("gh pr merge"))).toBe(false);
 });
-test("changeActions: the endings are last and apart, and an idea ends by discarding", () => {
+test("changeActions: one menu for every change, with the endings last and apart", () => {
   const noop = (): void => {};
   const base = {
-    starting: false,
     completing: false,
     cancelling: false,
     completion: undefined,
     onRename: noop,
-    onStart: noop,
     onCopyDescription: noop,
     onComplete: noop,
     onCancel: noop,
   };
-  // A started change: the name, the copy, then the two endings — Complete and Cancel. The
-  // menu's one dividing line is not here: it separates these from the window's actions, which
-  // follow them (apps/web/src/actions/terminalActions.ts).
-  const active = changeActions({ ...base, idea: false });
-  expect(active.map((a) => a.label)).toEqual([
+  // The name, the copy, then the two endings — Complete and Cancel — whatever phase the change
+  // is in. The menu's one dividing line is not here: it separates these from the window's
+  // actions, which follow them (apps/web/src/actions/terminalActions.ts).
+  const actions = changeActions(base);
+  expect(actions.map((a) => a.label)).toEqual([
     "Rename change",
     "Copy PR description",
     "Complete change",
     "Cancel change",
   ]);
-  expect(active.filter((a) => a.separated)).toEqual([]);
-  expect(active.at(-1)?.title).toContain("nothing is merged");
+  expect(actions.filter((a) => a.separated)).toEqual([]);
+  expect(actions.at(-1)?.title).toContain("nothing is merged");
   // The readiness poll is the hover's orientation; the click re-checks.
-  const ready = changeActions({
-    ...base,
-    idea: false,
-    completion: { ready: true, reasons: [], tagged: [], toMerge: [] },
-  });
+  const ready = changeActions({ ...base, completion: { ready: true, reasons: [], tagged: [], toMerge: [] } });
   expect(ready.find((a) => a.label === "Complete change")?.title).toBe("Ready to complete");
-  // An idea has a third way — starting the work — and its one ending is discarding it.
-  const idea = changeActions({ ...base, idea: true });
-  expect(idea.map((a) => a.label)).toEqual(["Rename change", "Start work", "Discard idea"]);
+  // A phase write in flight holds Complete back: its answer decides whether completing is even
+  // possible, so the completion must not race it.
+  const moving = changeActions({ ...base, moving: true });
+  expect(moving.find((action) => action.label === "Complete change")?.disabled).toBe(true);
   // The busy words follow the flags.
-  const busy = changeActions({ ...base, idea: true, starting: true, cancelling: true });
-  expect(busy.map((a) => a.label)).toEqual(["Rename change", "Starting…", "Discarding…"]);
-  expect(busy.find((a) => a.label === "Discarding…")?.disabled).toBe(true);
+  const busy = changeActions({ ...base, completing: true, cancelling: true });
+  expect(busy.map((a) => a.label)).toEqual([
+    "Rename change",
+    "Copy PR description",
+    "Completing…",
+    "Cancelling…",
+  ]);
+  expect(busy.find((a) => a.label === "Cancelling…")?.disabled).toBe(true);
 });

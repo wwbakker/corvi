@@ -270,6 +270,26 @@ export const checkArchitecture = (root: string): readonly string[] => {
     }
   }
 
+  // Writing change.json has one lock, and it lives with the store (`@corvi/changes/node`): a
+  // module that writes the record itself must import it, or its writes are outside the revisions
+  // every conditional writer relies on. The node adapter is the lock's home and needs no import.
+  const writesRecord = (text: string): boolean =>
+    text.includes('"change.json"') && /\b(writeAtomic|writeFile|rename|write)\(/.test(text);
+  for (const pkg of packages) {
+    for (const file of pkg.sources) {
+      if (pkg.name === "@corvi/changes" && relative(pkg.dir, file).startsWith(`src${sep}node${sep}`))
+        continue;
+      if (!writesRecord(readFileSync(file, "utf8"))) continue;
+      const importsLock = collectImports(file).some(
+        (imported) => imported.specifier === "@corvi/changes/node",
+      );
+      if (!importsLock)
+        problems.push(
+          `${relative(root, file)}: writes change.json without importing the record lock from @corvi/changes/node`,
+        );
+    }
+  }
+
   return problems;
 };
 

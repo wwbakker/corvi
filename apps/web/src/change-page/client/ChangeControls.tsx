@@ -1,5 +1,5 @@
 import { type JSX } from "react";
-import { CHANGE_STATES, IDEATION, type Change, type ChangeState } from "../../app-root/api.ts";
+import { CHANGE_STATES, type Change, type ChangeState } from "../../app-root/api.ts";
 import { ActionsMenu, type Action } from "../../app-root/ActionsMenu.tsx";
 import { BranchIcon } from "../../app-root/icons.tsx";
 import { StaleMarker } from "../../app-root/RemoteAvailability.tsx";
@@ -17,7 +17,6 @@ import { isFinished } from "../../domain/change.ts";
  */
 export function ChangeControls({
   change,
-  idea,
   blocked,
   actions,
   onActionsOpen,
@@ -25,13 +24,12 @@ export function ChangeControls({
   onDraft,
   onRename,
   onState,
+  moving = false,
   reopening = false,
   onReopen,
 }: {
   /** The record, while it is still on its way: the row shows the page's shape, the fields wait. */
   change: Change | undefined;
-  /** Whether this change is still an idea: its state is not yours to pick. */
-  idea: boolean;
   /** The workspace is unavailable: the state select and an already-open rename are held back —
    * the transport gate would refuse them, and the UI must not offer a mutation it cannot make. */
   blocked?: boolean;
@@ -45,18 +43,20 @@ export function ChangeControls({
   onRename: (title: string) => void;
   /** Move the change to another state. */
   onState: (state: ChangeState) => void;
+  /** A phase write is in flight: its options wait for the answer rather than sending a second. */
+  moving?: boolean;
   reopening?: boolean;
   /** Undo a cancellation; only a cancelled change offers it. */
   onReopen?: () => void;
 }): JSX.Element {
   const name = change?.title ?? change?.branch ?? "";
-  // The states a started change may move between: the ones it is in, not the ones it ends in (a
-  // word is not a merge), and not Ideation (there is no going back over a branch that exists).
+  // The states a change may move between: every manual phase, `Ideation` included, and never
+  // one it ends in (a word is not a merge or an abandonment).
   const states: ChangeState[] =
     change === undefined
       ? []
       : [
-          ...CHANGE_STATES.filter((s) => s !== IDEATION && !isFinished({ ...change, state: s })),
+          ...CHANGE_STATES.filter((s) => !isFinished({ ...change, state: s })),
           // A change that has already ended still shows its own state, because a menu cannot
           // display what it does not offer.
           ...(isFinished(change) ? [change.state ?? "Completed"] : []),
@@ -97,9 +97,9 @@ export function ChangeControls({
         <>
           {/* The state is a menu, not a native select: the list has to look like the page's other
               menus, and a select's dropdown is the platform's to paint. Where the state is not
-              yours to pick — an idea, or a workspace that cannot be written — it is a chip with
-              no menu behind it. */}
-          {idea || blocked === true ? (
+              yours to pick — a workspace that cannot be written — it is a chip with no menu
+              behind it. */}
+          {blocked === true ? (
             <span className={`state-chip ${stateClass(change.state)}`}>{change.state}</span>
           ) : (
             <ActionsMenu
@@ -108,8 +108,8 @@ export function ChangeControls({
               actions={states.map((state) => ({
                 label: state,
                 // The state you are in is not something to move to: it would be a write that
-                // changes nothing.
-                disabled: state === change.state,
+                // changes nothing. Nor is another write sent while one is in flight.
+                disabled: state === change.state || moving,
                 onSelect: () => onState(state),
               }))}
             />

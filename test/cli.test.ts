@@ -284,34 +284,35 @@ test("change list and show answer with the change record", async () => {
   expect((JSON.parse(show.out.join("")) as { state: string }).state).toBe("Ideation");
 });
 
-test("change phase sets the state, and the transition rules still refuse the illegal ones", async () => {
-  // The seeded change is an idea: its only way out is starting the work, so the matrix refuses
-  // a jump straight to Verification (the same `allowedTransition` the lifecycle workflow uses).
-  const illegal = capture();
+test("change phase moves freely among the manual phases, and terminal ones stay shut", async () => {
+  const to = async (phase: string): Promise<number> => {
+    const out = capture();
+    return run(["--server", baseUrl, "--change", CHANGE_ID, "change", "phase", phase, "--json"], out.io);
+  };
+  // The seeded change is an idea. Ideation is an ordinary manual phase: a jump straight to
+  // Verification is a phase change like any other (the same `allowedTransition` the lifecycle
+  // workflow uses), and so is coming back.
+  expect(await to("Verification")).toBe(0);
+  expect(await to("Ideation")).toBe(0);
+  const phase = await to("Implementation");
+  expect(phase).toBe(0);
+  expect(await to("Blocked")).toBe(0);
+  expect(await to("Ideation")).toBe(0);
+  // Retrying the phase a change is already in is a no-op, not a conflict: `change create` prints
+  // exactly this step, and an agent may run it twice.
+  const again = capture();
   expect(
     await run(
-      ["--server", baseUrl, "--change", CHANGE_ID, "change", "phase", "Verification", "--json"],
-      illegal.io,
-    ),
-  ).toBe(4);
-
-  const phase = capture();
-  expect(
-    await run(
-      ["--server", baseUrl, "--change", CHANGE_ID, "change", "phase", "Implementation", "--json"],
-      phase.io,
-    ),
-  ).toBe(0);
-  expect((JSON.parse(phase.out.join("")) as { state: string }).state).toBe("Implementation");
-
-  // From Implementation the manual phases move among themselves.
-  const verify = capture();
-  expect(
-    await run(
-      ["--server", baseUrl, "--change", CHANGE_ID, "change", "phase", "Verification", "--json"],
-      verify.io,
+      ["--server", baseUrl, "--change", CHANGE_ID, "change", "phase", "Ideation", "--json"],
+      again.io,
     ),
   ).toBe(0);
+  expect((JSON.parse(again.out.join("")) as { state: string }).state).toBe("Ideation");
+
+  // A terminal phase is what completing or cancelling sets, never a word: the command refuses
+  // it before any request (usage, 2), and the server refuses it behind that.
+  expect(await to("Completed")).toBe(2);
+  expect(await to("Cancelled")).toBe(2);
 
   const bad = capture();
   expect(
@@ -361,7 +362,7 @@ test("change create maps argv to the body, always as an idea, with the recipe", 
   expect(body.next).toEqual([
     `write ${dir}/PLAN.md — the change's plan document`,
     "corvi change repository add <path> --change CLI-NEW",
-    "corvi change start --change CLI-NEW",
+    "corvi change phase Implementation --change CLI-NEW",
   ]);
 });
 

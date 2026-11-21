@@ -6,7 +6,6 @@ import type {
   CompletionReason,
   CompletionRefusal,
 } from "@corvi/changes/record";
-import { isIdeation } from "@corvi/changes/record";
 import type { MergeReadiness } from "@corvi/github/client";
 import { cachedReadiness, refreshReadiness, forgetPrs, REPOSITORY_CONCURRENCY } from "@corvi/github/client";
 import type { Cache, GitFacts } from "@corvi/contracts/capabilities";
@@ -42,8 +41,8 @@ import { lifecycleLayer } from "../lifecycle-layer.ts";
 export type { Completion, CompletionReason, CompletionRefusal };
 
 /** What a completion request produced: it ran to the end, or it was not ready and the page must
- * acknowledge why first. An unmet hard reason (an idea, uncommitted work) is neither — it fails,
- * because no acknowledgement can make it go away. */
+ * acknowledge why first. An unmet hard reason (uncommitted work, a token at its limit) is
+ * neither — it fails, because no acknowledgement can make it go away. */
 export type CompletionResult =
   { _tag: "Done"; change: Change; notes: string[] } | { _tag: "NotReady"; refusal: CompletionRefusal };
 
@@ -111,34 +110,19 @@ export const completionOf = (
   change: Change,
   fresh = false,
 ): Effect.Effect<Completion, CliError | BadRequestError, Changes | GitFacts | Cache> =>
-  // An idea has nothing to complete: no pull requests, no checkouts. Answered without the CLI
-  // lookups, which would find nothing and cost a call per repository. Hard: starting the work
-  // is the only way out of Ideation, and no override waives it.
-  isIdeation(change)
-    ? Effect.succeed({
-        ready: false,
-        reasons: ["still an idea: start the work before completing it"],
-        tagged: [
-          {
-            text: "still an idea: start the work before completing it",
-            kind: "hard" as const,
-          },
-        ],
-        toMerge: [],
-      })
-    : Effect.gen(function* () {
-        // Forget the cached pull-request reads once for the change, before any repository is
-        // asked: an action just made them wrong, and the dialog must not list what has already
-        // resolved. Per-change, not per-repository, so a click path pays for it once.
-        if (fresh) yield* forgetPrs(change);
-        const results = yield* Effect.forEach(
-          change.checkouts ?? [],
-          (spec) => completionOfRepo(change, spec.path, fresh),
-          // The same cap the integration's own fan-outs use, and for the same reason.
-          { concurrency: REPOSITORY_CONCURRENCY },
-        );
-        return verdict(results);
-      });
+  Effect.gen(function* () {
+    // Forget the cached pull-request reads once for the change, before any repository is asked:
+    // an action just made them wrong, and the dialog must not list what has already resolved.
+    // Per-change, not per-repository, so a click path pays for it once.
+    if (fresh) yield* forgetPrs(change);
+    const results = yield* Effect.forEach(
+      change.checkouts ?? [],
+      (spec) => completionOfRepo(change, spec.path, fresh),
+      // The same cap the integration's own fan-outs use, and for the same reason.
+      { concurrency: REPOSITORY_CONCURRENCY },
+    );
+    return verdict(results);
+  });
 
 const PROGRESS = "completion.json";
 

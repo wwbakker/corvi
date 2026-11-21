@@ -34,7 +34,7 @@ edits](decisions/unsaved-changes.md).
 
 [Repository capabilities and change workflows](design/repositories-and-changes.md) documents the
 contracts as implemented: links owned by `changes`, checkout work in `repositories`, the read and
-start workflows, the transport contract, and the behavior-test map.
+checkout workflows, the transport contract, and the behavior-test map.
 
 ## For users
 

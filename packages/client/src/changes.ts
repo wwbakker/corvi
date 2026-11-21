@@ -60,7 +60,6 @@ export interface ChangesApi {
     options?: RequestOptions,
   ) => Promise<CompletionProgressDto | null>;
   readonly create: (body: CreateChangeBodyDto) => Promise<ProvisionedChangeDto>;
-  readonly start: (changeId: ChangeId) => Promise<ProvisionedChangeDto>;
   readonly complete: (changeId: ChangeId, options?: ForceBodyDto) => Promise<CompletedResponseDto>;
   readonly cancel: (changeId: ChangeId, options?: ForceBodyDto) => Promise<CancelledResponseDto>;
   /** Undo a cancellation: the change, its checkouts and its shelved work come back. */
@@ -73,7 +72,7 @@ export interface ChangesApi {
   readonly transcript: (changeId: ChangeId, id: string, options?: RequestOptions) => Promise<TranscriptDto>;
   readonly rename: (
     changeId: ChangeId,
-    patch: { readonly state?: string; readonly title?: string },
+    patch: { readonly state?: NonNullable<ChangeWireDto["state"]>; readonly title?: string },
   ) => Promise<ChangeWireDto>;
   /** The covered repositories and their checkout states: the read half of `setRepositories`. */
   readonly repoStates: (changeId: ChangeId, options?: RequestOptions) => Promise<RepoStateDto[]>;
@@ -108,7 +107,6 @@ export const makeChangesApi = (send: Send): ChangesApi => {
         options,
       ),
     create: async (body) => request(send, "POST", "/changes", ProvisionedChangeSchema, { body }),
-    start: async (changeId) => request(send, "POST", `${change(changeId)}/start`, ProvisionedChangeSchema),
     complete: async (changeId, options) =>
       request(send, "POST", `${change(changeId)}/complete`, CompletedResponseSchema, { body: options ?? {} }),
     cancel: async (changeId, options) =>

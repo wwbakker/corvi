@@ -1,4 +1,4 @@
-import { CHANGE_STATES, IDEATION, isFinished, type Change, type ChangeState } from "@corvi/changes/record";
+import { CHANGE_STATES, isFinished, type Change, type ChangeState } from "@corvi/changes/record";
 import { allowedTransition } from "@corvi/changes/rules";
 import { InvalidChangeEdit } from "./errors.ts";
 
@@ -8,42 +8,43 @@ import { InvalidChangeEdit } from "./errors.ts";
  * Here rather than in the route, so what is allowed can be tested without a server — and so the
  * one rule that matters is stated once: a change ends by being completed or cancelled, which
  * merge, remove worktrees and archive. Setting the word by hand would do none of that and claim
- * it had happened. `Ideation` is the same shape at the other end: it is set by creating an idea,
- * and leaving it is starting the work, which provisions the checkouts and moves the ticket.
+ * it had happened. Every manual phase — `Ideation` included — moves freely to any other.
  *
  * Purely synchronous, so no Effect wrapper: the validation throws the change domain's own
  * refusals (`InvalidChangeEdit`); the route boundary decides the status and lifts the throw into
  * the Effect channel.
  */
 export function applyPatch(change: Change, patch: { state?: string; title?: string }): Change {
-  if (patch.state && !CHANGE_STATES.includes(patch.state as ChangeState)) {
+  // `undefined` is "leave the phase alone"; every other value must be a phase, the empty string
+  // included — treating it as absent would write a blank phase from a raw caller.
+  if (patch.state !== undefined && !CHANGE_STATES.includes(patch.state as ChangeState)) {
     throw new InvalidChangeEdit({ message: `unknown state: ${patch.state}`, conflict: false });
   }
-  if (patch.state && isFinished({ ...change, state: patch.state as ChangeState })) {
+  // Naming the phase a change is already in is a no-op, not a conflict: `change phase` is printed
+  // as a next step, and a retry must succeed. The capability store keeps its own refusal of
+  // `from === to` for transitions.
+  const requested =
+    patch.state !== undefined && patch.state !== (change.state ?? "Implementation")
+      ? (patch.state as ChangeState)
+      : undefined;
+  if (requested !== undefined && isFinished({ ...change, state: requested })) {
     throw new InvalidChangeEdit({
-      message: `${patch.state} is what completing or cancelling a change sets`,
+      message: `${requested} is what completing or cancelling a change sets`,
       conflict: true,
     });
   }
-  if (patch.state === IDEATION) {
+  // The matrix the lifecycle workflow uses, so an edit by hand cannot reach where completing or
+  // cancelling would not: a terminal phase is entered by its workflow, never by a word.
+  if (requested !== undefined && !allowedTransition(change.state ?? "Implementation", requested)) {
     throw new InvalidChangeEdit({
-      message: "Ideation is what creating an idea sets: use start work to leave it",
-      conflict: true,
-    });
-  }
-  // The matrix the lifecycle workflow uses, so an edit by hand cannot reach where starting,
-  // completing or cancelling would not. `Ideation` is the case that matters: its only way out is
-  // starting the work, which the UI's disabled select already encodes and this makes authoritative.
-  if (patch.state && !allowedTransition(change.state ?? "Implementation", patch.state as ChangeState)) {
-    throw new InvalidChangeEdit({
-      message: `a change cannot move from ${change.state ?? "Implementation"} to ${patch.state}`,
+      message: `a change cannot move from ${change.state ?? "Implementation"} to ${requested}`,
       conflict: true,
     });
   }
   const title = patch.title?.trim();
   return {
     ...change,
-    state: (patch.state as ChangeState) ?? change.state,
+    state: requested ?? change.state,
     // An empty title hands the name back to the ticket; anything else is yours to keep.
     ...(patch.title === undefined
       ? {}

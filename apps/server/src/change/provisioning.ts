@@ -3,7 +3,7 @@
  * The checkout work itself (fetch, provision, fast-forward-only) is the `ChangeWork` policy, and
  * this module gives it the presence the change directory needs around it: a browse link left at
  * a worktree's destination is dropped before, the configured tooling is copied and the in-place
- * links restored after. Creation, the repository list's edit, the row's action and Start work all
+ * links restored after. Creation, the repository list's edit and the row's own actions all
  * arrive here, so they cannot disagree about what a checkout is. Reads and removal live in
  * `../vendors/git.ts`; this module never sits in its import chain, so nothing cycles.
  */
@@ -11,8 +11,9 @@ import { basename } from "node:path";
 import { Effect } from "effect";
 
 import { ChangeId } from "@corvi/contracts/changes";
-import { BadRequestError, type CliError } from "@corvi/contracts/errors";
+import { BadRequestError, DecodeError, type CliError } from "@corvi/contracts/errors";
 import type {
+  ChangeConflict,
   ChangeFormatTooNew,
   ChangeNotFound,
   ChangeStoreError,
@@ -20,6 +21,7 @@ import type {
   RepositoryStoreError,
 } from "@corvi/changes/errors";
 import { repositoryFromSpec } from "@corvi/changes/rules";
+import { specFor } from "@corvi/changes/record";
 import {
   ChangeWork,
   describeCheckout,
@@ -40,6 +42,7 @@ import { runtimeConfig } from "../workspace/server/index.ts";
 import {
   browseRepo,
   checkoutFor,
+  FAST_FORWARD,
   openers,
   removeWorktree,
   unlinkRepo,
@@ -47,7 +50,7 @@ import {
   worktreePath,
 } from "../vendors/git.ts";
 import { changeWorkLayer } from "./lifecycle-layer.ts";
-import { changePairs, writeChange } from "./server/store.ts";
+import { changePairs, writeChangeAt } from "./server/store.ts";
 
 /** What one repository's freshness step reported: advanced (fast-forward only), current,
  * left alone with git's own reason, a fetch that would not answer, or nothing to refresh. */
@@ -239,7 +242,10 @@ export const setRepos = (
   change: Change,
   specs: CheckoutSpec[],
   force = false,
-): Effect.Effect<SetReposResult, CliError | BadRequestError | CheckoutRunError> =>
+): Effect.Effect<
+  SetReposResult,
+  CliError | BadRequestError | ChangeConflict | DecodeError | CheckoutRunError
+> =>
   Effect.gen(function* () {
     // Whitespace is nothing, and the same path twice is a double click rather than two
     // repositories: the first mention wins.
@@ -303,15 +309,35 @@ export const setRepos = (
     }
 
     // Teardown, record write and the checkout run are one per-change critical section: a
-    // creation or a start racing this edit must not meet a half-torn repository. What the
+    // creation racing this edit must not meet a half-torn repository. What the
     // checkouts then reported rides along with the edit — a failed repository is the caller's
     // to show, never a silent "Done".
     return yield* withCheckoutLock(
       ChangeId.make(change.id),
       Effect.gen(function* () {
-        for (const spec of teardown) yield* removeWorktree(change, spec.path);
-        const updated: Change = { ...change, checkouts: wanted };
-        yield* writeChange(updated);
+        // The record first: a write that loses to a phase change is a conflict before anything is
+        // torn down, so a snapshot read before a PATCH cannot revert the phase or drop
+        // `startedAt`. Tearing down first would leave the worktrees gone and the record untouched;
+        // this way the cost of a failing teardown is an orphan checkout to remove by hand.
+        const updated = yield* writeChangeAt({ ...change, checkouts: wanted }, change.revision ?? 0);
+        // The old record decides how each departing checkout is removed (in place, and whether
+        // its branch is Corvi's to delete); the new one is what the checkout run provisions. A
+        // removal that fails is reported with the record's new state rather than thrown: the
+        // write already won, so failing the request would show a list the page does not have and
+        // skip the other removals and every setup. The page names what was left behind, and
+        // nothing will retry the removal by itself.
+        const leftBehind: ProvisionResult[] = [];
+        for (const spec of teardown) {
+          const removal = yield* removeWorktree(change, spec.path).pipe(Effect.result);
+          if (removal._tag === "Failure")
+            leftBehind.push({
+              integration: "git",
+              ok: false,
+              error:
+                `${basename(spec.path)} was left behind: ${removal.failure.message} — remove the ` +
+                `checkout yourself, or add the repository back and remove it again`,
+            });
+        }
         const run = yield* runCheckouts(
           updated,
           setup.map((spec) => spec.path),
@@ -319,11 +345,37 @@ export const setRepos = (
         return {
           _tag: "Done",
           change: updated,
-          provision: run.provision,
+          provision: [...leftBehind, ...run.provision],
           refresh: run.refresh,
         } satisfies SetReposResult;
       }),
     );
+  });
+
+/** The card's Fast-forward action: one repository's freshness move, under this change's checkout
+ * lock and through the same policy provisioning runs. Every outcome that is not an advance is the
+ * caller's refusal, named — a row the page no longer offers cannot claim success. */
+const fastForward = (change: Change, repo: string): Effect.Effect<void, BadRequestError | CheckoutRunError> =>
+  Effect.gen(function* () {
+    const spec = specFor(change, repo);
+    if (spec === undefined)
+      return yield* new BadRequestError({
+        message: `${basename(repo)} is not one of this change's repositories`,
+      });
+    const link = repositoryFromSpec(ChangeId.make(change.id), spec);
+    const report = yield* withCheckoutLock(
+      ChangeId.make(change.id),
+      Effect.gen(function* () {
+        const work = yield* ChangeWork;
+        return yield* work.refreshRepository(link.changeId, link.repositoryId);
+      }).pipe(Effect.provide(changeWorkLayer(changePairs()))),
+    );
+    // Nothing to move is the wanted end state: a stale click on a current branch is idempotent.
+    if (report._tag === "Advanced" || report._tag === "Current") return;
+    const reason = report._tag === "FetchFailed" ? `fetch failed: ${report.reason}` : report.reason;
+    return yield* new BadRequestError({
+      message: `could not fast-forward ${basename(repo)}: ${reason}`,
+    });
   });
 
 /** The `git` integration's action runner, in Effect. */
@@ -347,6 +399,13 @@ export const gitRun = (
         });
       return;
     }
+
+    // Fast-forward: the refresh half of the one checkout policy, on demand and on the checkout
+    // that is there. Fetching first means the click advances to the latest remote ref, and the
+    // policy never rewrites a branch — behind and nothing of its own, or nothing happens and the
+    // row says why. It provisions nothing, so a stale click on a checkout that is gone fails
+    // instead of quietly creating one.
+    if (action === FAST_FORWARD) return yield* fastForward(change, repo);
 
     // Opening: the worktree when there is one, the repository itself when it is used in place.
     const opener = openers.find((o) => o.id === action);

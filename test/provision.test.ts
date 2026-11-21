@@ -1,13 +1,15 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { rm } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, rm } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { Effect } from "effect";
 import {
   describe,
+  entryFor,
   findWorktree,
   openers,
   parseWorktrees,
   parseStatus,
+  repoItem,
   type WorktreeEntry,
 } from "../apps/server/src/vendors/git.ts";
 import { isMac } from "../apps/server/src/capabilities/os.ts";
@@ -17,7 +19,16 @@ import { readiness, headRef, waitingOnYou } from "@corvi/github/client";
 import { presentWindow, type PresentedWindow } from "../apps/server/src/terminals/server/index.ts";
 import type { RawWindow } from "../apps/server/src/integrations/types.ts";
 import type { Change } from "@corvi/changes/record";
-import { checkoutsOf, runDeploy, runEffect, runSetRepos, testTempDir } from "./helpers.ts";
+import {
+  checkoutsOf,
+  fakeShell,
+  runDeploy,
+  runEffect,
+  runSetRepos,
+  runWithShell,
+  testTempDir,
+} from "./helpers.ts";
+import { createChange } from "../apps/server/src/change/server/index.ts";
 /**
  * A changes root of its own, because some of what is tested here writes one. A change may be
  * emptied, and without this the test writes into whatever changes root the machine is configured
@@ -47,12 +58,89 @@ test("a worktree entry describes what it holds", () => {
   const entry = findWorktree(entries, "PROJ-1-thing");
   expect(entry?.path).toBe("/r/.worktrees/PROJ-1-thing");
   expect(describe(entry!)).toEqual({
-    detail: "uncommitted changes, 2 unpushed, 1 behind",
+    detail: "uncommitted changes, 2 unpushed, 1 behind upstream",
     state: "pending",
   });
   expect(describe(entries[0]!)).toEqual({ detail: "clean", state: "ok" });
   expect(findWorktree(entries, "absent")).toBeUndefined();
 });
+test("a repository read resolves an existing branch once, and shares it", async () => {
+  const repo = join(tmp, "entry-repo");
+  await mkdir(repo, { recursive: true });
+  const shell = fakeShell((cmd) => {
+    const line = cmd.join(" ");
+    if (line === "git worktree list --porcelain")
+      return `worktree ${repo}\nHEAD abc\nbranch refs/heads/feature\n`;
+    if (line.startsWith("git for-each-ref"))
+      return "refs/heads/feature\t\t\nrefs/remotes/origin/feature\t\t\n";
+    if (line === "git remote") return "origin\n";
+    if (line.startsWith("git symbolic-ref --quiet refs/remotes/origin/HEAD"))
+      return "refs/remotes/origin/main\n";
+    if (line.startsWith("git rev-list --left-right --count")) return "0\t0\n";
+    if (line.startsWith("git rev-list --count")) return "1\n";
+    if (line.startsWith("git cherry")) return "+ abc\n";
+    return undefined;
+  });
+  const existing: Change = {
+    ...change,
+    checkouts: [{ path: repo, location: "new", branch: { kind: "existing", name: "feature" } }],
+  };
+  const entry = await runWithShell(shell, entryFor(existing, repo));
+  expect(entry?.branch).toBe("feature");
+  // The branch name and the freshness target come from one resolution of the existing branch;
+  // asking twice would be two `for-each-ref` reads.
+  const lines = shell.calls.map((call) => call.cmd.join(" "));
+  expect(lines.filter((line) => line.startsWith("git for-each-ref")).length).toBe(1);
+  // The freshness measurement is the branch's own remote counterpart, from that same answer.
+  expect(lines).toContain("git rev-list --left-right --count origin/feature...feature");
+  expect(entry?.base_state).toEqual({ own: 0, behind: 0, base: "origin/feature" });
+  // The merged proof asks the repository's landing ref, not the healing display read.
+  expect(lines).toContain("git rev-list --count origin/main..feature");
+
+  // An in-place row resolves it once too: the row's own branch check and the entry it builds
+  // from the same answer share it.
+  const inPlace: Change = {
+    ...change,
+    checkouts: [{ path: repo, location: "original", branch: { kind: "existing", name: "feature" } }],
+  };
+  shell.calls.length = 0;
+  const row = await runWithShell(shell, repoItem(inPlace, repo));
+  expect(row.label).toBe(basename(repo));
+  expect(row.detail).toContain("in place");
+  const inPlaceLines = shell.calls.map((call) => call.cmd.join(" "));
+  expect(inPlaceLines.filter((line) => line.startsWith("git for-each-ref")).length).toBe(1);
+});
+
+test("the card's default-branch read does not pin a local fallback", async () => {
+  const repo = join(tmp, "policy-fallback-repo");
+  await mkdir(repo, { recursive: true });
+  // The remote has no symbolic HEAD at first, then gains one: the first answer is a local
+  // fallback and must not be remembered, or the card would keep measuring `main` while the policy
+  // advances to `origin/main`.
+  let originHead: string | undefined;
+  const shell = fakeShell((cmd) => {
+    const line = cmd.join(" ");
+    if (line === "git worktree list --porcelain")
+      return `worktree ${repo}\nHEAD abc\nbranch refs/heads/PROJ-1-thing\n`;
+    if (line === "git symbolic-ref --quiet refs/remotes/origin/HEAD")
+      return originHead === undefined ? { code: 1, stdout: "", stderr: "" } : originHead;
+    if (line.startsWith("git show-ref --verify --quiet refs/heads/main")) return "";
+    if (line.startsWith("git status ")) return "";
+    if (line.startsWith("git rev-list --count")) return "0\n";
+    if (line.startsWith("git rev-list --left-right --count")) return "0\t0\n";
+    return undefined;
+  });
+  const byChange: Change = {
+    ...change,
+    checkouts: [{ path: repo, location: "new", branch: { kind: "change" } }],
+  };
+  const before = await runWithShell(shell, entryFor(byChange, repo));
+  expect(before?.base_state?.base).toBe("main");
+  originHead = "refs/remotes/origin/main";
+  const after = await runWithShell(shell, entryFor(byChange, repo));
+  expect(after?.base_state?.base).toBe("origin/main");
+});
+
 test("a checkout the refresh left alone says why", () => {
   // Commits of its own while the base moved on: a fast-forward-only refresh never rewrites
   // that, and the row warns — the work sits on old ground.
@@ -70,13 +158,13 @@ test("a checkout the refresh left alone says why", () => {
       "remote":{"branch":"PROJ-1-thing","ahead":0,"behind":0},"base_state":{"own":0,"behind":0,"base":"main"}}`,
   ) as WorktreeEntry;
   expect(describe(fresh)).toEqual({ detail: "clean", state: "ok" });
-  // Behind the base with nothing of its own is not "left alone" — a refresh would take it —
-  // and a fresh checkout with commits of its own is ordinary work, not a warning.
+  // Behind the base with nothing of its own is not "left alone" — a refresh would take it, so
+  // the row says how far behind it stands and the card offers Fast-forward.
   const behindOnly = JSON.parse(
     `{"branch":"PROJ-1-thing","path":"/r/PROJ-1-thing","working_tree":{},
       "remote":{"branch":"PROJ-1-thing","ahead":0,"behind":0},"base_state":{"own":0,"behind":3,"base":"main"}}`,
   ) as WorktreeEntry;
-  expect(describe(behindOnly)).toEqual({ detail: "clean", state: "ok" });
+  expect(describe(behindOnly)).toEqual({ detail: "clean, 3 behind base main", state: "ok" });
   const ownOnly = JSON.parse(
     `{"branch":"PROJ-1-thing","path":"/r/PROJ-1-thing","working_tree":{},
       "remote":{"branch":"PROJ-1-thing","ahead":2,"behind":0},"base_state":{"own":2,"behind":0,"base":"main"}}`,
@@ -110,12 +198,17 @@ test("a pull request says what it is waiting for", () => {
 });
 test("blank entries are not repositories, and a repository is not listed twice", async () => {
   // The list arrives from a browser: whitespace is nothing, and adding the same path twice is a
-  // double click rather than two repositories.
-  const emptied = await runSetRepos({ ...change, checkouts: checkoutsOf([]) }, checkoutsOf(["  ", ""]));
-  expect(((emptied as { change: Change }).change.checkouts ?? []).map((spec) => spec.path)).toEqual([]);
+  // double click rather than two repositories. The edit is conditional on the record it read, so
+  // the change exists on disk first.
+  const seeded = await runEffect(
+    createChange({ id: change.id, state: "Ideation", checkouts: checkoutsOf([]) }),
+  );
+  const emptied = await runSetRepos(seeded, checkoutsOf(["  ", ""]));
+  const afterEmpty = (emptied as { change: Change }).change;
+  expect((afterEmpty.checkouts ?? []).map((spec) => spec.path)).toEqual([]);
   // Listed twice, and already there: nothing is created, so this needs no repository on disk.
   const once = await runSetRepos(
-    { ...change, checkouts: checkoutsOf(["/r/a"]) },
+    { ...afterEmpty, checkouts: checkoutsOf(["/r/a"]) },
     checkoutsOf(["/r/a", "/r/a"]),
   );
   expect(((once as { change: Change }).change.checkouts ?? []).map((spec) => spec.path)).toEqual(["/r/a"]);

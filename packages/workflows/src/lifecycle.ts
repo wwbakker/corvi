@@ -59,7 +59,7 @@ export class TerminalError extends Schema.TaggedError<TerminalError>()("Terminal
 export type AcknowledgementCode =
   "review-pending" | "unpushed" | "untracked" | "ownership-unverified" | "shared-worktree" | "provider-veto";
 
-export type LifecycleReasonCode = AcknowledgementCode | "idea" | "dirty-worktree" | "finished";
+export type LifecycleReasonCode = AcknowledgementCode | "dirty-worktree" | "finished";
 
 export type LifecycleReason = {
   readonly code: LifecycleReasonCode;
@@ -236,13 +236,6 @@ export interface Interface {
 export class ChangeLifecycle extends Context.Service<ChangeLifecycle, Interface>()(
   "corvi/workflows/ChangeLifecycle",
 ) {}
-
-const ideaReason = (change: Change): LifecycleReason => ({
-  code: "idea",
-  kind: "hard",
-  text: "still an idea: start the work before completing it",
-  facts: `idea:${change.changeId}`,
-});
 
 const finishedReason = (change: Change): LifecycleReason => ({
   code: "finished",
@@ -551,8 +544,6 @@ export const layer = Layer.effect(
       options?: { readonly fresh?: boolean },
     ) {
       const change = yield* changes.getChange(changeId);
-      if (change.phase === "Ideation")
-        return { _tag: "Blocked", reasons: [ideaReason(change)], toMerge: [] } satisfies Readiness;
       if (isTerminal(change.phase))
         return { _tag: "Blocked", reasons: [finishedReason(change)], toMerge: [] } satisfies Readiness;
       const sourceLinks = yield* links.listRepositories(changeId);
@@ -579,13 +570,6 @@ export const layer = Layer.effect(
         input.changeId,
         Effect.gen(function* () {
           const change = yield* changes.getChange(input.changeId);
-          if (change.phase === "Ideation")
-            return {
-              _tag: "Blocked",
-              operation: "complete",
-              reasons: [ideaReason(change)],
-              toMerge: [],
-            } satisfies LifecycleOutcome;
           if (isTerminal(change.phase))
             return {
               _tag: "Blocked",

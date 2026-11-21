@@ -4,6 +4,7 @@ import { baseName } from "@corvi/contracts/paths";
 import { DirectoryName, Repository, RepositoryId } from "@corvi/contracts/changes";
 import type {
   AddRepositoryInput,
+  BranchPlan,
   Change,
   ChangeId,
   ChangePhase,
@@ -12,13 +13,13 @@ import type {
 
 export const isTerminal = (phase: ChangePhase): boolean => phase === "Completed" || phase === "Cancelled";
 
-/** `Ideation` leaves for `Implementation` (starting the work) or `Cancelled` (abandoning the
- * idea); the manual phases move among themselves, and the complete/cancel workflows enter the
- * terminal phases. */
+/** The manual phases — `Ideation` included — move among themselves, and nothing leaves a
+ * terminal phase. Terminal *targets* are allowed because the complete/cancel workflows enter them
+ * through `ChangeService.transitionTo`; a hand edit is filtered separately (`applyPatch` refuses a
+ * finished state), so a caller that must not reach a terminal phase guards it itself. */
 export const allowedTransition = (from: ChangePhase, to: ChangePhase): boolean => {
   if (from === to) return false;
   if (isTerminal(from)) return false;
-  if (from === "Ideation") return to === "Implementation" || to === "Cancelled";
   return true;
 };
 
@@ -29,6 +30,28 @@ export const reopenPhaseOf = (change: Pick<Change, "phase" | "cancelledFrom">): 
   if (change.phase !== "Cancelled") return undefined;
   const from = change.cancelledFrom;
   return from === undefined || isTerminal(from) ? "Implementation" : from;
+};
+
+/** Which ref a checkout is fresh against, chosen purely from its branch plan and the values its
+ * caller resolved. A branch adopted as checked out has no freshness source at all; a named
+ * existing branch is fresh against its remote counterpart; a change branch is fresh against the
+ * base it was given, else the repository's default branch. The callers supply their own reads —
+ * the dashboard card over plain git, the checkout workflow over the capability — so only the
+ * choice lives here, and the two can never select different kinds of ref. */
+export const freshnessTargetOf = (input: {
+  readonly branch: BranchPlan;
+  readonly base?: string;
+  readonly defaultBranch?: string;
+  readonly existingRemoteRef?: string;
+}): string | undefined => {
+  switch (input.branch.kind) {
+    case "current":
+      return undefined;
+    case "existing":
+      return input.existingRemoteRef;
+    case "change":
+      return input.base ?? input.defaultBranch;
+  }
 };
 
 /** The row's state is a projection of the change, not a stored field. */
