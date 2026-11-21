@@ -76,8 +76,9 @@ workspace's `settings`, where it overrides the global one key by key. The settin
   value uses the shipped `brief` action's text; a `brief.md` action file replaces the whole
   briefing.
 - `planTemplate`: the starting text of a new idea's `PLAN.md`, seeded into the wizard's plan
-  editor. Literal Markdown, nothing substituted — the scaffold you edit away. An empty value
-  leaves new plans empty.
+  editor. Literal Markdown, nothing substituted — the scaffold you edit away. The shipped default
+  is a lone `# `: a heading with no title, which the keyboard opens on. An empty value leaves new
+  plans empty.
 - `notificationSound`: whether a notification plays the system sound. Absent means yes.
 - `contextMenu`: whether right-clicking shows the browser's own menu. Absent means yes. The
   terminal's own menu and a window tab's menu follow this setting too.

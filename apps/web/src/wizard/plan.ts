@@ -12,13 +12,28 @@
  * looks inside fenced code — the heading that names a change sits at the top of its plan. */
 const HEADING = /^#(?:[ \t]+(.*?))?[ \t]*$/;
 
+/** The document's first heading, as positions in the document: where its text starts (past the
+ * `#` and the whitespace after it) and ends. `firstHeading` is that text. */
+export type HeadingRange = { readonly from: number; readonly to: number };
+
+/** The first heading's text, with its positions — `null` when the document has no heading line. */
+export const firstHeadingRange = (text: string): HeadingRange | null => {
+  let at = 0;
+  for (const line of text.split("\n")) {
+    if (HEADING.test(line)) {
+      const prefix = /^#[ \t]*/.exec(line)?.[0].length ?? 1;
+      const content = line.slice(prefix).replace(/[ \t]+$/, "");
+      return { from: at + prefix, to: at + prefix + content.length };
+    }
+    at += line.length + 1;
+  }
+  return null;
+};
+
 /** The document's first heading — `""` when it has none or it is empty. */
 export const firstHeading = (text: string): string => {
-  for (const line of text.split("\n")) {
-    const found = HEADING.exec(line);
-    if (found) return (found[1] ?? "").trim();
-  }
-  return "";
+  const range = firstHeadingRange(text);
+  return range === null ? "" : text.slice(range.from, range.to).trim();
 };
 
 /** The document with its heading set: the first heading line rewritten, or `# <heading>` at the

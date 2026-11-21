@@ -332,8 +332,9 @@ test.skipIf(!usable)(
       await page.goto(`${url}/new`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".wizard-plan .md-editor");
 
-      await page.locator(".wizard-plan .md-editor .cm-content").click();
-      await page.keyboard.type("# Starting **plan**");
+      // Writing over the scaffold: the plan starts as a lone `# ` heading (config.ts), and the
+      // person replaces it with their own.
+      await fillEditor(page.locator(".wizard-plan .md-editor"), "# Starting **plan**");
 
       expect(await editorText(page.locator(".wizard-plan .md-editor"))).toBe("# Starting **plan**");
       const spans = await painted(page);
@@ -366,10 +367,11 @@ test.skipIf(!usable)(
     await withPage(browser, async (page) => {
       await page.goto(`${url}/new`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".wizard-plan .md-editor");
-      await page.locator(".wizard-plan .md-editor .cm-content").click();
+      // A line of the writer's own, over the seeded `# ` heading: what this test is about is where
+      // a tab goes, not what the scaffold says.
+      await fillEditor(page.locator(".wizard-plan .md-editor"), "one");
 
       // A tab goes into the text, and the keystroke is consumed: the focus stays the editor's.
-      await page.keyboard.type("one");
       await page.keyboard.press("Tab");
       expect(await editorText(page.locator(".wizard-plan .md-editor"))).toBe("one\t");
       expect(await page.evaluate(() => document.activeElement?.closest(".md-editor") !== null)).toBe(true);

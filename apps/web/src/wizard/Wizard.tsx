@@ -7,8 +7,8 @@ import { RepoBrowser } from "../workspace/client/RepoBrowser.tsx";
 import { StepHost, type StepContext, type StepInfo, type StepPick } from "../integrations/client.tsx";
 import type { Workspace } from "../workspace/client/workspaces.ts";
 import { planPatch, seedPatch, stepContext, toChangeDraft, type Draft, type DraftPatch } from "./draft.ts";
-import { firstHeading } from "./plan.ts";
-import { MarkdownEditor } from "../editor/client/MarkdownEditor.tsx";
+import { firstHeading, firstHeadingRange } from "./plan.ts";
+import { MarkdownEditor, type MarkdownEditorKeyboard } from "../editor/client/MarkdownEditor.tsx";
 import { useLeaderActive, useLeaderConfirm, useLeaderGroup, type LeaderEntry } from "../app-root/leader.tsx";
 import { isConfirmChord, modalOpen, useConfirmShortcut } from "../app-root/confirmShortcut.ts";
 
@@ -107,6 +107,21 @@ export function Wizard({
   const issueSteps = (steps ?? []).filter((s) => s.phase === "issue");
   const repoSteps = (steps ?? []).filter((s) => s.phase === "repos");
 
+  const planKeyboard = useRef<MarkdownEditorKeyboard | null>(null);
+  // A new idea opens on its plan: the keyboard in the editor and the selection on the heading
+  // that names the change. While that heading is still the template's its text is selected, so the
+  // first thing typed replaces the placeholder; a title you wrote yourself is left alone, with the
+  // caret at its end. Nothing before the template has seeded the draft: the document is empty then
+  // and about to be replaced under the caret.
+  const heading = draft.planSeeded ? firstHeadingRange(plan) : null;
+  const initialFocus = !draft.planSeeded
+    ? undefined
+    : heading === null
+      ? { from: 0 }
+      : firstHeading(plan) === draft.headingSeed
+        ? { from: heading.from, to: heading.to }
+        : { from: heading.to };
+
   // The wizard's own controls, in the order they read: create, discard, the plan, then each
   // section's Edit… (app-root/leader.tsx). The plan is a target that puts the caret in it rather
   // than one that clicks the frame around it.
@@ -133,7 +148,7 @@ export function Wizard({
     {
       kind: "target",
       element: planFrame.current,
-      run: () => planFrame.current?.querySelector<HTMLElement>(".cm-content")?.focus(),
+      run: () => planKeyboard.current?.focus(),
     },
     ...sectionEdits(),
   ]);
@@ -232,6 +247,8 @@ export function Wizard({
         <div className="wizard-plan" ref={planFrame}>
           <MarkdownEditor
             fill
+            keyboardRef={planKeyboard}
+            initialFocus={initialFocus}
             value={plan}
             onChange={editPlan}
             placeholder="What this change is, and how it might work. Stored as PLAN.md, for you and the agent to shape."

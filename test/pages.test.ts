@@ -1759,6 +1759,49 @@ test.skipIf(!usable)(
 );
 
 test.skipIf(!usable)(
+  "a new idea opens on its plan, with the title the first thing to type",
+  async () => {
+    // Starting an idea should cost no click: the wizard opens with the keyboard in the plan, on
+    // the heading that names the change (apps/web/src/wizard/Wizard.tsx). The shipped template is
+    // a lone `# ` — a heading with no title — so what is typed next is the title.
+    await withPage(
+      browser,
+      async (page) => {
+        await page.goto(`${url}/new`, { waitUntil: "domcontentloaded" });
+        await page.waitForSelector(".wizard-body");
+        const editor = page.locator(".wizard-plan .md-editor");
+        await page.waitForFunction(() => document.activeElement?.classList.contains("cm-content"));
+        expect(await editorText(editor)).toBe("# ");
+
+        await page.keyboard.type("Typed without a click");
+        await page.waitForFunction(
+          () =>
+            document.querySelector(".sidebar .entry.change.state-ideation .subject")?.textContent ===
+            "Typed without a click",
+        );
+        expect(await page.locator(".wizard-sections .form").getByLabel("Title").inputValue()).toBe(
+          "Typed without a click",
+        );
+        expect(await editorText(editor)).toBe("# Typed without a click");
+
+        // Back into the same draft: the keyboard is in the plan again, and the title you wrote is
+        // left as it is — not selected, so the next keystroke adds to it rather than replacing it.
+        await page.locator(".sidebar > button.entry", { hasText: "Changes" }).click();
+        await page.waitForSelector(".change-card");
+        await page.locator(".sidebar .ideas-row .create").click();
+        await page.waitForSelector(".wizard-body");
+        await page.waitForFunction(() => document.activeElement?.classList.contains("cm-content"));
+        expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).toBe("");
+        await page.keyboard.type("!");
+        expect(await editorText(editor)).toBe("# Typed without a click!");
+      },
+      VIEWPORT,
+    );
+  },
+  30_000,
+);
+
+test.skipIf(!usable)(
   "a half-filled idea is still there after leaving the wizard",
   async () => {
     // The promise this change is about: leaving /new loses nothing. The form lives in the App

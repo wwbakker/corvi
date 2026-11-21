@@ -19,6 +19,12 @@ import { isConfirmChord, modalOpen, type Keyish } from "./confirmShortcut.ts";
  * are positional: each group of controls reads in the order it is laid out, so a control's key is
  * where it sits rather than what it is.
  *
+ * A group can name the lane its caps line up on (`Group.rail`), for a column whose entries do not
+ * all reach the same edge. A control that picks from a group (`LeaderSelector`) is drawn with the
+ * group: its box is outlined for as long as the caps are up, and its cap sits on that box rather
+ * than on an element of its own. A pick from a group that says so leaves the mode on — going
+ * somewhere is not the end of the mode the way pressing a control is.
+ *
  * The page takes the chord ahead of everything else, in the capture phase on `document`: inside a
  * terminal xterm would otherwise encode it as NUL (the shell's `set-mark`) and the mode would
  * never open where it is most useful. On macOS the system can take `Ctrl+Space` for itself
@@ -76,20 +82,26 @@ export type LeaderTarget = {
 };
 
 /** A control that selects one of a group of items: its letter picks the only item, or numbers the
- * group so a number or the arrows can pick one. */
+ * group so a number or the arrows can pick one. The cap is placed on the group's own box — the
+ * element `outline` names, or the union of the items — so a title above a list is not what the key
+ * looks like it belongs to. */
 export type LeaderSelector = {
   readonly kind: "selector";
-  readonly element: HTMLElement | null;
   /** Read when the key is pressed, not when it is registered: the list changes while the mode is
    * on, and an empty group is a key that does nothing. */
   readonly items: () => readonly LeaderTarget[];
   /** The control drawn around the whole group; the items' own union when it is absent. */
   readonly outline?: () => HTMLElement | null;
   readonly align?: Alignment;
+  /** Going somewhere rather than doing something: a pick leaves the mode on, with its numbers
+   * gone, so the next key can be the view or the terminal the pick was on the way to. */
+  readonly stay?: boolean;
 };
 
-/** Where a keycap sits on its control. */
-export type Alignment = "start" | "end" | "above";
+/** Where a keycap sits on its control. `rail` and `middle` are for a group that names its lane
+ * (`Group.rail`); `middle` sits on the group's own box, at the vertical middle of the part that is
+ * on screen. */
+export type Alignment = "start" | "end" | "above" | "rail" | "middle";
 
 /** One slot in a group: a control, a selector, or nothing (the key stays where it is). */
 export type LeaderEntry = ({ readonly kind: "target" } & LeaderTarget) | LeaderSelector;
@@ -104,6 +116,9 @@ export type LeaderMenu = {
 type Group = {
   readonly keys: string;
   readonly entries: () => readonly (LeaderEntry | null)[];
+  /** The lane the group's caps line up on, for the entries anchored `rail`: the cap's centre sits
+   * on its trailing edge. A column reads as one rail even though its rows do not share an edge. */
+  readonly rail?: () => HTMLElement | null;
 };
 
 /** Which items the mode is numbering: one selector's, or an open menu's. */
@@ -125,14 +140,16 @@ const LeaderContext = createContext<LeaderApi | null>(null);
 export const useLeaderActive = (): boolean => useContext(LeaderContext)?.active ?? false;
 
 /** Register one group of controls: the keys, and a factory that reads them in visual order. The
- * factory runs at press time, so a list that changes under the mode is read as it is then. */
+ * factory runs at press time, so a list that changes under the mode is read as it is then. `rail`
+ * names the lane its `rail`-anchored caps line up on. */
 export function useLeaderGroup(
   id: string,
   keys: string,
   entries: () => readonly (LeaderEntry | null)[],
+  rail?: () => HTMLElement | null,
 ): void {
   const api = useContext(LeaderContext);
-  useEffect(() => api?.registerGroup(id, { keys, entries }));
+  useEffect(() => api?.registerGroup(id, { keys, entries, rail }));
 }
 
 /** Offer the page's `Ctrl+Enter` to the mode: while the keycaps are up, the chord is the page's
@@ -186,6 +203,26 @@ const unionOf = (boxes: readonly Box[]): Box | null => {
   );
 };
 
+/** A selector's box: the control it named, or the union of the items it picks from. */
+const selectorBoxOf = (selector: LeaderSelector, items: readonly LeaderTarget[]): Box | null => {
+  const named = boxOf(selector.outline?.());
+  if (named !== null) return named;
+  const boxes = items.flatMap((item) => {
+    const box = boxOf(item.element);
+    return box === null ? [] : [box];
+  });
+  return unionOf(boxes);
+};
+
+/** The vertical middle of the part of a box that is in the window: a list taller than the column
+ * would otherwise put its cap below the fold, and a box wholly outside the window has no middle
+ * — it is not on screen to point at. */
+const visibleMiddle = (box: Box, viewportHeight: number): number | null => {
+  const top = Math.max(box.top, 0);
+  const bottom = Math.min(box.bottom, viewportHeight);
+  return bottom <= top ? null : top + (bottom - top) / 2;
+};
+
 const disabledAt = (target: LeaderTarget | undefined): boolean =>
   target?.element instanceof HTMLButtonElement && target.element.disabled;
 
@@ -194,23 +231,55 @@ const disabledAt = (target: LeaderTarget | undefined): boolean =>
 const numbered = (items: readonly LeaderTarget[]): readonly { item: LeaderTarget; index: number }[] =>
   items.flatMap((item, index) => (disabledAt(item) ? [] : [{ item, index }])).slice(0, 10);
 
-/** The items a selection numbers, and the box drawn around them. */
+/** The items a selection numbers, the box drawn around them, and whether a pick from them leaves
+ * the mode on. */
 type Resolved = {
   readonly items: () => readonly LeaderTarget[];
   readonly outline?: () => HTMLElement | null;
+  readonly stay: boolean;
 };
 
+/** One keycap, where it sits already worked out: the coordinates are read from the page at render
+ * time, and an anchor can land a cap nowhere (a lane that is gone, a box below the fold). */
 type Placement = {
   readonly label: string;
+  readonly left: number;
+  readonly top: number;
+};
+
+/** A box drawn around a group: quiet while the caps are up, the accent's full weight while it is
+ * being numbered. */
+type Outline = {
   readonly box: Box;
-  readonly anchor: Alignment;
+  readonly resting: boolean;
 };
 
 type LeaderLayout = {
   readonly keys: readonly Placement[];
   readonly numbers: readonly Placement[];
-  readonly outline: Box | null;
+  readonly outlines: readonly Outline[];
   readonly highlight: Box | null;
+};
+
+const KEY_SIZE = 18;
+
+/** Where a cap sits on a box, for the anchors that name a place on the control itself. */
+const placeOn = (
+  box: Box,
+  anchor: Alignment,
+  rail: Box | null,
+  viewportHeight: number,
+): { readonly left: number; readonly top: number } | null => {
+  if (anchor === "above") return { left: box.right - KEY_SIZE / 2, top: box.top - KEY_SIZE / 2 };
+  if (anchor === "start") return { left: box.left + 2, top: box.top + 2 };
+  if (anchor === "rail") {
+    return rail === null ? null : { left: rail.right - KEY_SIZE / 2, top: box.top + 2 };
+  }
+  if (anchor === "middle") {
+    const middle = visibleMiddle(box, viewportHeight);
+    return middle === null ? null : { left: box.right - KEY_SIZE / 2, top: middle - KEY_SIZE / 2 };
+  }
+  return { left: box.right - KEY_SIZE - 2, top: box.top + 2 };
 };
 
 /** What the layer draws, read from the registered groups: every key a control answers to, and,
@@ -221,10 +290,13 @@ const layoutOf = (
   selection: Selection | null,
 ): LeaderLayout => {
   const keys: Placement[] = [];
+  const outlines: Outline[] = [];
+  const viewportHeight = window.innerHeight;
   // A numbered group is the only thing a letter reaches then, so the letters are not shown: a cap
   // on a dead key is the same lie as a cap on a disabled control.
   for (const [groupId, group] of selection === null ? groups : []) {
     const entries = group.entries();
+    const rail = boxOf(group.rail?.());
     keysFor(group.keys, entries.length).forEach((key, index) => {
       const entry = entries[index];
       if (key === undefined || entry === null || entry === undefined) return;
@@ -234,15 +306,22 @@ const layoutOf = (
       // A disabled control cannot be pressed, so it gets no key of its own: the slot stays where
       // it is, and the key does nothing rather than looking like it works.
       if (entry.kind === "target" && disabledAt(entry)) return;
-      const box = boxOf(entry.element);
+      // A group with nothing to pick is not drawn at all: a cap on it would be a key that does
+      // nothing, the same lie as a cap on a disabled control.
+      const items = entry.kind === "selector" ? entry.items() : [];
+      if (entry.kind === "selector" && items.length === 0) return;
+      const box = entry.kind === "selector" ? selectorBoxOf(entry, items) : boxOf(entry.element);
       if (box === null) return;
-      keys.push({ label: key.toUpperCase(), box, anchor: entry.align ?? "end" });
+      if (entry.kind === "selector") outlines.push({ box, resting: true });
+      const at = placeOn(box, entry.align ?? "end", rail, viewportHeight);
+      if (at === null) return;
+      keys.push({ label: key.toUpperCase(), ...at });
     });
   }
 
-  if (selection === null) return { keys, numbers: [], outline: null, highlight: null };
+  if (selection === null) return { keys, numbers: [], outlines, highlight: null };
   const chosen = resolve(selection);
-  if (chosen === null) return { keys, numbers: [], outline: null, highlight: null };
+  if (chosen === null) return { keys, numbers: [], outlines, highlight: null };
 
   const items = chosen.items();
   const boxes = items.map((item) => boxOf(item.element));
@@ -250,20 +329,19 @@ const layoutOf = (
   numbered(items).forEach(({ item }, position) => {
     const box = boxOf(item.element);
     if (box === null) return;
-    numbers.push({ label: position === 9 ? "0" : String(position + 1), box, anchor: "end" });
+    const at = placeOn(box, "end", null, viewportHeight);
+    if (at === null) return;
+    numbers.push({ label: position === 9 ? "0" : String(position + 1), ...at });
   });
   const outlineElement = chosen.outline?.();
   const outline = boxOf(outlineElement) ?? unionOf(boxes.filter((box): box is Box => box !== null));
   const current = boxes[selection.index] ?? null;
-  return { keys, numbers, outline, highlight: current };
-};
-
-const KEY_SIZE = 18;
-
-const badgeStyle = (box: Box, anchor: Alignment): { readonly left: number; readonly top: number } => {
-  if (anchor === "above") return { left: box.right - KEY_SIZE / 2, top: box.top - KEY_SIZE / 2 };
-  if (anchor === "start") return { left: box.left + 2, top: box.top + 2 };
-  return { left: box.right - KEY_SIZE - 2, top: box.top + 2 };
+  return {
+    keys,
+    numbers,
+    outlines: outline === null ? [] : [{ box: outline, resting: false }],
+    highlight: current,
+  };
 };
 
 export function LeaderProvider({ children }: { readonly children: ReactNode }): JSX.Element {
@@ -303,19 +381,22 @@ export function LeaderProvider({ children }: { readonly children: ReactNode }): 
 
   const firstMenu = useCallback((): LeaderMenu | undefined => [...menus.current.values()][0], []);
 
-  /** What a selection numbers: its items and the box around them. The layer and the keys read the
-   * same answer, so a badge and the key that should reach it cannot disagree. */
+  /** What a selection numbers: its items, the box around them, and whether a pick from it leaves
+   * the mode on. The layer and the keys read the same answer, so a badge and the key that should
+   * reach it cannot disagree. */
   const resolve = useCallback(
     (chosen: Selection): Resolved | null => {
       if (chosen.source === "menu") {
         const menu = firstMenu();
-        return menu === undefined ? null : { items: menu.items, outline: menu.outline };
+        return menu === undefined ? null : { items: menu.items, outline: menu.outline, stay: false };
       }
       const group = groups.current.get(chosen.group);
       if (group === undefined) return null;
       const index = [...group.keys].indexOf(chosen.key);
       const entry = group.entries()[index];
-      return entry !== null && entry !== undefined && entry.kind === "selector" ? entry : null;
+      return entry !== null && entry !== undefined && entry.kind === "selector"
+        ? { items: entry.items, outline: entry.outline, stay: entry.stay === true }
+        : null;
     },
     [firstMenu],
   );
@@ -347,9 +428,10 @@ export function LeaderProvider({ children }: { readonly children: ReactNode }): 
   }, []);
 
   /** Do what a control does, and leave the mode — unless it opens a menu, which is the next
-   * layer of the same mode. */
+   * layer of the same mode, or the selection it was picked from is a place to go rather than an
+   * action, in which case the mode stays with the numbers gone and the letters back. */
   const activate = useCallback(
-    (target: LeaderTarget): void => {
+    (target: LeaderTarget, stay = false): void => {
       const element = target.element;
       if (element === null) return;
       // A disabled control swallows the click anyway; ending the mode for it would say the key
@@ -358,6 +440,10 @@ export function LeaderProvider({ children }: { readonly children: ReactNode }): 
       element.scrollIntoView({ block: "nearest", inline: "nearest" });
       if (target.run !== undefined) target.run();
       else element.click();
+      if (stay) {
+        setSelection(null);
+        return;
+      }
       if (target.keep !== true) finish(false);
     },
     [finish],
@@ -380,7 +466,7 @@ export function LeaderProvider({ children }: { readonly children: ReactNode }): 
         const firstReachable = reachable[0];
         if (firstReachable === undefined) return;
         if (reachable.length === 1) {
-          activate(firstReachable.item);
+          activate(firstReachable.item, entry.stay === true);
           return;
         }
         const first = items.findIndex((item) => !disabledAt(item));
@@ -412,8 +498,10 @@ export function LeaderProvider({ children }: { readonly children: ReactNode }): 
     const chosen = selectionRef.current;
     if (chosen === null) return;
     const item = itemsOf(chosen)[chosen.index];
-    if (item !== undefined && !disabledAt(item)) activate(item);
-  }, [activate, itemsOf]);
+    if (item !== undefined && !disabledAt(item)) {
+      activate(item, resolve(chosen)?.stay === true);
+    }
+  }, [activate, itemsOf, resolve]);
 
   const start = useCallback((): void => {
     // A modal dialog owns the keyboard: its own keys and buttons are the whole surface then.
@@ -530,7 +618,7 @@ export function LeaderProvider({ children }: { readonly children: ReactNode }): 
         const digit = digitOf(event.code);
         if (digit !== undefined) {
           const item = numbered(itemsOf(chosen))[digit]?.item;
-          if (item !== undefined) activate(item);
+          if (item !== undefined) activate(item, resolve(chosen)?.stay === true);
           return;
         }
         if (event.code === "ArrowDown" || event.code === "ArrowRight") step(1);
@@ -565,7 +653,7 @@ export function LeaderProvider({ children }: { readonly children: ReactNode }): 
       document.removeEventListener("keyup", onUp, true);
       window.removeEventListener("blur", onBlur);
     };
-  }, [activate, choose, chooseCurrent, finish, itemsOf, start, step, stop]);
+  }, [activate, choose, chooseCurrent, finish, itemsOf, resolve, start, step, stop]);
 
   // Clicking away is the pointer's way out: the click still goes where it was aimed, and a press
   // on a control hands the keyboard to that control. A press on empty space hands it back to where
@@ -673,7 +761,7 @@ export function LeaderProvider({ children }: { readonly children: ReactNode }): 
                 <span
                   key={`key-${String(index)}`}
                   className="leader-key"
-                  style={{ ...badgeStyle(key.box, key.anchor), width: KEY_SIZE, height: KEY_SIZE }}
+                  style={{ left: key.left, top: key.top, width: KEY_SIZE, height: KEY_SIZE }}
                 >
                   {key.label}
                 </span>
@@ -682,22 +770,23 @@ export function LeaderProvider({ children }: { readonly children: ReactNode }): 
                 <span
                   key={`number-${String(index)}`}
                   className="leader-key number"
-                  style={{ ...badgeStyle(number.box, number.anchor), width: KEY_SIZE, height: KEY_SIZE }}
+                  style={{ left: number.left, top: number.top, width: KEY_SIZE, height: KEY_SIZE }}
                 >
                   {number.label}
                 </span>
               ))}
-              {layer.outline !== null && (
+              {layer.outlines.map((outline, index) => (
                 <span
-                  className="leader-outline"
+                  key={`outline-${String(index)}`}
+                  className={outline.resting ? "leader-outline rest" : "leader-outline"}
                   style={{
-                    left: layer.outline.left - 4,
-                    top: layer.outline.top - 4,
-                    width: layer.outline.right - layer.outline.left + 8,
-                    height: layer.outline.bottom - layer.outline.top + 8,
+                    left: outline.box.left - 4,
+                    top: outline.box.top - 4,
+                    width: outline.box.right - outline.box.left + 8,
+                    height: outline.box.bottom - outline.box.top + 8,
                   }}
                 />
-              )}
+              ))}
               {layer.highlight !== null && (
                 <span
                   className="leader-current"
