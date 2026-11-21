@@ -51,14 +51,20 @@ the keyboard without memorizing a list: press `Ctrl+Space` and each of those con
 keycap — the column's entries along `Q W E R T Y U I O P` from the top down, the current view's
 controls along `A S D F G H J` from the left, and the column's bottom row on `Z X C V`. The keys
 follow where the controls are, not what they are called, so they move with the layout and a control
-that is not there takes no key. Press one and it does what the control does. On the pages with no
-keys of their own — the overview, Actions, Subagents, Settings — the column's keys are still the
+that is not there takes no key. In the column they share one lane, so the keys read as a single
+rail however far each entry reaches. Press one and it does what the control does. On the pages with
+no keys of their own — the overview, Actions, Subagents, Settings — the column's keys are still the
 way around.
 
-The groups are picked from a key on the group: `E` sits on the **Ideas** heading, `R` on
-**Changes**, and `F` at the start of a change's terminal tabs (an open menu is numbered as soon as
-it appears). A group with one item goes straight to it; a longer one is numbered `1`–`9` and `0`,
-with the arrows to walk it and `Enter` to choose.
+The groups are picked from a key on the group itself: `E` sits at the middle of the **Ideas** list,
+`R` at the middle of **Changes**, and `F` over the right end of a change's terminal tabs (an open
+menu is numbered as soon as it appears). A group is boxed while the keys are showing, and a group
+with nothing in it takes no key and no box. A group with one item goes straight to it; a longer one
+is numbered `1`–`9` and `0`, with the arrows to walk it and `Enter` to choose. Picking an idea or a
+change leaves the keys up — it is somewhere to go, so the next key is the view or terminal you were
+on your way to. A terminal or a menu item ends the mode, because that is where you type or where
+the action is. The view's own keys sit above their control's trailing corner, in the line over the
+tabs, where the label under them stays readable.
 
 `Escape` puts a layer away at a time — a number selection, then an open menu, then the keycaps
 themselves — and `Ctrl+Space` leaves the mode outright. `[` and `]` are Back and Forward while the

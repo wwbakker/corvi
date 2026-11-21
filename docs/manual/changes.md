@@ -10,9 +10,12 @@ configured archive.
 
 **New** opens the wizard: one screen, the plan on the left and everything else down the right.
 The left half is `PLAN.md`'s starting text in the Markdown editor, seeded from the `planTemplate`
-setting (see [configuration](configuration.md)). The change's name is the plan's first `#`
-heading — the title follows it as you write, one-way, and the id and branch follow the title
-until you edit either by hand.
+setting (see [configuration](configuration.md)). A new idea opens on that heading: the keyboard is
+in the plan, with the title the first thing to type. The shipped template is a lone `# `, so the
+heading is empty and takes the title you write; a template that puts a title there has that title
+selected, so typing replaces it. The change's name is the plan's first `#` heading — the title
+follows it as you write, one-way, and the id and branch follow the title until you edit either by
+hand.
 
 The right half holds the sections. Each enabled issue integration is collapsed to its pick: Jira
 tickets and GitHub issues alike are a single field with an **Edit…** that opens the board or the

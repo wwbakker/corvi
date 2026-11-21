@@ -187,13 +187,13 @@ export function Sidebar({
   const chosenWorkspace = workspaces.find((w) => w.id === chosen);
   // Where the leader mode's keycaps sit (app-root/leader.tsx). The column's keys are positional:
   // the entries below register in the order they are read down the column, and a slot for a
-  // heading that is not there is kept so the keys under it do not move.
+  // heading that is not there is kept so the keys under it do not move. Every cap sits on the
+  // column's lane, so the keys read as one rail however far each control reaches.
   const changesRef = useRef<HTMLButtonElement>(null);
   const newIdeaRef = useRef<HTMLButtonElement>(null);
-  const ideasHeadingRef = useRef<HTMLParagraphElement>(null);
   const ideasListRef = useRef<HTMLDivElement>(null);
-  const changesHeadingRef = useRef<HTMLParagraphElement>(null);
   const changesListRef = useRef<HTMLDivElement>(null);
+  const railRef = useRef<HTMLSpanElement>(null);
   const workspaceRef = useRef<HTMLButtonElement>(null);
   const actionsRef = useRef<HTMLButtonElement>(null);
   const subagentsRef = useRef<HTMLButtonElement>(null);
@@ -338,26 +338,40 @@ export function Sidebar({
           element,
         }));
 
-  useLeaderGroup("sidebar", "qwertyuiop", () => [
-    { kind: "target", element: changesRef.current },
-    { kind: "target", element: newIdeaRef.current },
-    {
-      kind: "selector",
-      element: ideasHeadingRef.current,
-      items: () => items("ideas", ideasListRef.current),
-      outline: () => ideasListRef.current,
-    },
-    {
-      kind: "selector",
-      element: changesHeadingRef.current,
-      items: () => items("changes", changesListRef.current),
-      outline: () => changesListRef.current,
-    },
-    { kind: "target", element: workspaceRef.current, keep: true },
-    { kind: "target", element: actionsRef.current },
-    { kind: "target", element: subagentsRef.current },
-    ...pages.map((p) => ({ kind: "target" as const, element: pageRefs.current.get(p.id) ?? null })),
-  ]);
+  // The column's keys are on one lane, and the two lists put theirs at the middle of the list they
+  // pick from. An idea or a change is somewhere to go, so picking one leaves the keys up for the
+  // view or the terminal that follows (leader.tsx — `LeaderSelector.stay`).
+  useLeaderGroup(
+    "sidebar",
+    "qwertyuiop",
+    () => [
+      { kind: "target", element: changesRef.current, align: "rail" },
+      { kind: "target", element: newIdeaRef.current, align: "rail" },
+      {
+        kind: "selector",
+        align: "middle",
+        stay: true,
+        items: () => items("ideas", ideasListRef.current),
+        outline: () => ideasListRef.current,
+      },
+      {
+        kind: "selector",
+        align: "middle",
+        stay: true,
+        items: () => items("changes", changesListRef.current),
+        outline: () => changesListRef.current,
+      },
+      { kind: "target", element: workspaceRef.current, keep: true, align: "rail" },
+      { kind: "target", element: actionsRef.current, align: "rail" },
+      { kind: "target", element: subagentsRef.current, align: "rail" },
+      ...pages.map((p) => ({
+        kind: "target" as const,
+        element: pageRefs.current.get(p.id) ?? null,
+        align: "rail" as const,
+      })),
+    ],
+    () => railRef.current,
+  );
 
   useLeaderGroup("bottom", "zxcv", () => [
     { kind: "target", element: settingsRef.current },
@@ -405,9 +419,7 @@ export function Sidebar({
             New button's home — it sits with the entries it adds to, and stays there with no
             ideas and no draft. */}
         <div className="ideas-row">
-          <p className="group-label" ref={ideasHeadingRef}>
-            Ideas
-          </p>
+          <p className="group-label">Ideas</p>
           <button
             ref={newIdeaRef}
             className="create"
@@ -440,11 +452,7 @@ export function Sidebar({
           )}
           {ideas.map((c) => entry(c, "ideas"))}
         </div>
-        {active.length > 0 && (
-          <p className="group-label" ref={changesHeadingRef}>
-            Changes
-          </p>
-        )}
+        {active.length > 0 && <p className="group-label">Changes</p>}
         <div className="list-group" ref={changesListRef}>
           {active.map((c) => entry(c, "changes"))}
         </div>
@@ -565,6 +573,10 @@ export function Sidebar({
           document.body.classList.add("resizing");
         }}
       />
+
+      {/* Where the column's keycaps line up: a hairline on the column's content edge, which only
+          the leader mode ever reads (app-root/leader.tsx — `Group.rail`). */}
+      <span className="leader-rail" ref={railRef} aria-hidden="true" />
 
       {power.open && <PowerDialog view={power} onClose={power.closeDialog} />}
     </nav>

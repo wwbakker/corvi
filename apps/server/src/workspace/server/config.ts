@@ -192,8 +192,10 @@ export function readConfig(): Config {
     // An empty value means the shipped `brief` action's body: the same "empty means the
     // default" rule the settings page shows, with the default living in one place now.
     ideationPrompt: resolveSetting({ global: file.ideationPrompt, fallback: builtinActionBody("brief") }),
-    // The plan template is literal Markdown with no default: empty means "a plan starts empty".
-    planTemplate: resolveSetting({ global: file.planTemplate, fallback: "" }),
+    // The plan template is literal Markdown. The shipped default is a lone `# `: a new idea opens
+    // on a heading line, so the first thing typed is the change's name. An empty value is a value
+    // — clearing the setting leaves new plans empty.
+    planTemplate: resolveSetting({ global: file.planTemplate, fallback: "# " }),
     workspaces: workspaces.length ? workspaces : [DEFAULT_WORKSPACE],
     // The extensions' own settings, passed through untouched: the core does not look inside.
     // Always a key, absent or not — the refill is Object.assign over the one config object, and

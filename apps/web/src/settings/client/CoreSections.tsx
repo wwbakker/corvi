@@ -95,7 +95,7 @@ export function IdeationSection({ scope }: { scope: SettingsScope }): JSX.Elemen
     <div className="form wide">
       <MarkdownField
         label="Plan template"
-        hint="The starting text of a new idea's PLAN.md, in the wizard's plan editor. Literal Markdown — nothing is filled in. Clearing this leaves new plans empty."
+        hint="The starting text of a new idea's PLAN.md, in the wizard's plan editor. Literal Markdown — nothing is filled in. The shipped default is a lone # line, so the first thing typed is the change's name; clearing this leaves new plans empty."
         value={scope.value("planTemplate")}
         placeholder={scope.inherited("planTemplate")}
         onChange={(planTemplate) => scope.set("planTemplate", planTemplate)}

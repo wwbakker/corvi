@@ -4756,6 +4756,18 @@ select,
   }
 }
 
+/* The column's lane: a hairline on its content edge, which only the leader mode reads, so every
+   keycap in the column shares an x (app-root/leader.tsx — `Group.rail`). */
+.sidebar .leader-rail {
+  position: absolute;
+  top: 0;
+  right: 10px;
+  width: 1px;
+  height: 1px;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 /* Leader mode (app-root/leader.tsx): the keycaps over the controls, the box around the group a
    selector is numbering, and the one the arrows are on. The layer floats over the page and takes
    no pointer events — the control under a cap is still the control. */
@@ -4789,6 +4801,13 @@ select,
   position: fixed;
   border: 2px solid var(--accent);
   border-radius: 10px;
+}
+
+/* A group's box while its key is showing, before it is numbered: the same geometry as the numbered
+   box, so pressing the key changes what is inside the box and its weight, not its place. */
+.leader-outline.rest {
+  border-width: 1px;
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
 /* The item the arrows are on: a wash as well as the ring, so it reads over the outline the whole

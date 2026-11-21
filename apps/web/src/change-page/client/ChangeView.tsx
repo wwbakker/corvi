@@ -424,23 +424,22 @@ export function ChangeView({
       : [...strip.querySelectorAll<HTMLElement>("[data-window-index]")].map((element) => ({ element }));
   };
   // The view row's keys. The wizard registers the same letters under its own id: the two surfaces
-  // never mount together, so one row serves both and a key means the same position in each.
-  useLeaderGroup("view", "asdfghjkl", () => {
-    const terminalTabs = windowTabs();
-    const first = terminalTabs[0]?.element ?? null;
-    return [
-      ...nav.map((tab) => ({
-        kind: "target" as const,
-        element: tabRefs.current.get(tab.id) ?? null,
-      })),
-      // The selector's keycap sits on the strip's first tab — its leading edge — and numbers the
-      // tabs it starts; the group's outline is the union of the tabs' own boxes.
-      { kind: "selector", element: first, align: "start", items: windowTabs },
-      { kind: "target", element: newWindowRef.current },
-      { kind: "target", element: statusRef.current, keep: true },
-      { kind: "target", element: actionsRef.current, keep: true },
-    ];
-  });
+  // never mount together, so one row serves both and a key means the same position in each. Each
+  // cap sits above its control's trailing corner: the tabs are 2px apart, so a cap to the right of
+  // one would land on the next, and the label under an inside cap reads as part of the key.
+  useLeaderGroup("view", "asdfghjkl", () => [
+    ...nav.map((tab) => ({
+      kind: "target" as const,
+      element: tabRefs.current.get(tab.id) ?? null,
+      align: "above" as const,
+    })),
+    // The terminal tabs are a group to pick from: boxed while the keys are up, with its key above
+    // the group's right end rather than on the first tab.
+    { kind: "selector", align: "above", items: windowTabs },
+    { kind: "target", element: newWindowRef.current, align: "above" },
+    { kind: "target", element: statusRef.current, keep: true },
+    { kind: "target", element: actionsRef.current, keep: true },
+  ]);
 
   /** The pane the terminal shows: the active window's focused pane, so the socket attaches to
    * that pane's own pty and switching windows or panes reconnects. A split window's other panes

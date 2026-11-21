@@ -1,4 +1,4 @@
-import { type JSX, useEffect, useRef } from "react";
+import { type JSX, type RefObject, useEffect, useRef } from "react";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentLess, insertTab } from "@codemirror/commands";
 import {
@@ -39,6 +39,13 @@ const readOnlyCompartment = new Compartment();
 const tabKeys = (view: EditorView): boolean => (view.state.readOnly ? false : insertTab(view));
 const shiftTabKeys = (view: EditorView): boolean => (view.state.readOnly ? false : indentLess(view));
 
+/** A caller's grip on the editor's keyboard, filled while the editor is on the page: a page that
+ * opens on the document takes the keyboard with it. */
+export type MarkdownEditorKeyboard = {
+  /** Take the keyboard, leaving the caret where it is. */
+  readonly focus: () => void;
+};
+
 /**
  * The Markdown source editor the plan, the notes and the wizard's description are written in: a
  * CodeMirror 6 view with the Markdown grammar, syntax coloring (theme.ts), and the monospace
@@ -64,6 +71,8 @@ export function MarkdownEditor({
   onBlur,
   onCaret,
   remember,
+  keyboardRef,
+  initialFocus,
 }: {
   /** The document; applied whenever it differs from what the editor holds. */
   value: string;
@@ -86,6 +95,12 @@ export function MarkdownEditor({
   /** Come back to this document where you left it: the key its scroll position is remembered
    * under (app-root/remember.ts — remembered while the page lives, forgotten by a restart). */
   remember?: DocumentKey;
+  /** Filled while the editor is mounted, for a page that opens on it (the wizard's new idea). */
+  keyboardRef?: RefObject<MarkdownEditorKeyboard | null>;
+  /** Where the keyboard goes when the editor arrives: that selection, and the keyboard with it.
+   * Taken once per view — React's development remount builds a new view and takes it again — and
+   * never after that, so a writer's caret stays theirs. */
+  initialFocus?: { readonly from: number; readonly to?: number };
 }): JSX.Element {
   const host = useRef<HTMLDivElement | null>(null);
   const editor = useRef<EditorView | null>(null);
@@ -228,6 +243,34 @@ export function MarkdownEditor({
       ]),
     });
   }, [readOnly]);
+
+  // The keyboard a caller can take, for the page's own key: the view keeps its own caret, so
+  // focusing it is enough.
+  useEffect(() => {
+    const view = editor.current;
+    if (view === null || keyboardRef === undefined) return;
+    const keyboard: MarkdownEditorKeyboard = { focus: () => view.focus() };
+    keyboardRef.current = keyboard;
+    return () => {
+      if (keyboardRef.current === keyboard) keyboardRef.current = null;
+    };
+  }, [keyboardRef]);
+
+  // The selection the page opens on, applied to the view that is there: a clamp, because the
+  // positions come from a render whose document may already have been replaced (a template
+  // arriving, a save landing). Once per view — a development remount is a new view — so the
+  // caret is the writer's from the first keystroke on.
+  const focusedView = useRef<EditorView | null>(null);
+  useEffect(() => {
+    const view = editor.current;
+    if (view === null || initialFocus === undefined || focusedView.current === view) return;
+    focusedView.current = view;
+    const length = view.state.doc.length;
+    const anchor = Math.max(0, Math.min(initialFocus.from, length));
+    const head = initialFocus.to === undefined ? anchor : Math.max(anchor, Math.min(initialFocus.to, length));
+    view.dispatch({ selection: { anchor, head }, scrollIntoView: true });
+    view.focus();
+  }, [initialFocus]);
 
   return (
     <div

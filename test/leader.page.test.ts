@@ -81,6 +81,55 @@ const waitForIdeas = (page: Page, count: number): Promise<unknown> =>
     { timeout: 15_000 },
   );
 
+/** The leader's layer as drawn: every cap by label and position, and the boxes around the groups,
+ * each saying whether it is the quiet one the caps come with or the numbered one. */
+type Layer = {
+  readonly keys: readonly { label: string; x: number; y: number; width: number; height: number }[];
+  readonly outlines: readonly {
+    resting: boolean;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }[];
+};
+
+const layer = (page: Page): Promise<Layer> =>
+  page.evaluate(() => {
+    const at = (element: Element): { x: number; y: number; width: number; height: number } => {
+      const box = element.getBoundingClientRect();
+      return {
+        x: Math.round(box.x),
+        y: Math.round(box.y),
+        width: Math.round(box.width),
+        height: Math.round(box.height),
+      };
+    };
+    return {
+      keys: [...document.querySelectorAll(".leader-key")].map((key) => ({
+        label: key.textContent ?? "",
+        ...at(key),
+      })),
+      outlines: [...document.querySelectorAll(".leader-outline")].map((outline) => ({
+        resting: outline.classList.contains("rest"),
+        ...at(outline),
+      })),
+    };
+  });
+
+/** One cap's placement, waiting until the render that puts it there has happened. */
+const capAt = async (page: Page, label: string): Promise<Layer["keys"][number]> => {
+  await page.waitForFunction(
+    (wanted) => [...document.querySelectorAll(".leader-key")].some((badge) => badge.textContent === wanted),
+    label,
+    { timeout: 8000 },
+  );
+  const drawn = await layer(page);
+  const cap = drawn.keys.find((key) => key.label === label);
+  if (cap === undefined) throw new Error(`no ${label} cap`);
+  return cap;
+};
+
 /** What the focused element is, by class: `<body>` has none and is the thing a lost keyboard
  * looks like. */
 const focused = (page: Page): Promise<string> =>
@@ -140,6 +189,67 @@ test("the column's keys sit on its controls, and the next key goes there", async
     await page.keyboard.press("w");
     await page.waitForSelector(".wizard");
     await page.waitForSelector(".leader-layer", { state: "detached" });
+  });
+}, 30_000);
+
+test("the column's keys share one rail, and each list wears its box", async () => {
+  if (!usable) return;
+  await withPage(browser, async (page) => {
+    await open(page);
+    await waitForIdeas(page, 1);
+    await page.keyboard.press("Control+Space");
+    await page.waitForSelector(".leader-layer");
+    await capAt(page, "O");
+
+    const boxes = await page.evaluate(() => {
+      const lists = [...document.querySelectorAll<HTMLElement>(".sidebar .list-group")].map((list) => {
+        const box = list.getBoundingClientRect();
+        return {
+          left: Math.round(box.left),
+          right: Math.round(box.right),
+          top: Math.round(box.top),
+          bottom: Math.round(box.bottom),
+        };
+      });
+      const sidebar = document.querySelector(".sidebar")!.getBoundingClientRect();
+      return { lists, sidebarRight: Math.round(sidebar.right), viewport: window.innerHeight };
+    });
+    // The lane is the column's content edge: its own 10px of padding inside the drag handle.
+    const rail = boxes.sidebarRight - 10 - 9;
+
+    // The column reads as one rail: every cap on it, however far its control reaches.
+    const drawn = await layer(page);
+    for (const label of ["Q", "W", "E", "R", "T", "Y", "U", "I", "O"]) {
+      const cap = drawn.keys.find((key) => key.label === label);
+      expect({ label, x: cap?.x }).toEqual({ label, x: rail });
+    }
+
+    // Each group's cap is at the middle of the part of its list that is on screen, and its box is
+    // drawn before anything is numbered.
+    expect(drawn.outlines.length).toBe(boxes.lists.length);
+    boxes.lists.forEach((list, index) => {
+      const middle = (Math.max(list.top, 0) + Math.min(list.bottom, boxes.viewport)) / 2;
+      const cap = drawn.keys.find((key) => key.label === ["E", "R"][index]);
+      expect(cap).toBeDefined();
+      // The cap is centred on that middle: its own top is half a cap above it.
+      expect(Math.abs((cap?.y ?? 0) + 9 - middle)).toBeLessThanOrEqual(1);
+      const outline = drawn.outlines[index];
+      expect(outline?.resting).toBe(true);
+      expect(outline?.x).toBe(list.left - 4);
+      expect(outline?.width).toBe(list.right - list.left + 8);
+    });
+
+    // Numbering a group keeps the same box and makes it the numbered one: what changes is what is
+    // inside it. (The changes' group, since a group with one item goes there instead.)
+    await page.keyboard.press("r");
+    await page.waitForSelector(".leader-key.number");
+    const numbered = await layer(page);
+    expect(numbered.outlines.length).toBe(1);
+    expect(numbered.outlines[0]?.resting).toBe(false);
+    expect({ x: numbered.outlines[0]?.x, width: numbered.outlines[0]?.width }).toEqual({
+      x: drawn.outlines[1]?.x,
+      width: drawn.outlines[1]?.width,
+    });
   });
 }, 30_000);
 
@@ -377,7 +487,7 @@ test("a menu opened by its key is numbered, and Escape unwinds one layer at a ti
   });
 }, 30_000);
 
-test("group keys are on the headings, and a group with one item goes there", async () => {
+test("a group with one item goes there, and the keys stay up for the next one", async () => {
   if (!usable) return;
   // One idea: E has a single item, so it goes to it instead of numbering the group.
   await withPage(browser, async (page) => {
@@ -387,13 +497,21 @@ test("group keys are on the headings, and a group with one item goes there", asy
     expect(await page.locator('[data-leader-item="ideas"]').count()).toBe(1);
     await page.keyboard.press("Control+Space");
     await page.waitForSelector(".leader-layer");
-    // The ideas heading carries E.
+    // The cap is on the list, not on the heading over it: one item is still a group.
     await page.waitForFunction(() =>
       [...document.querySelectorAll(".leader-key")].some((badge) => badge.textContent === "E"),
     );
 
+    // An idea is a place to go: it opens, and the keys stay up for the view or terminal next, with
+    // the view's own keys over the page that arrived.
     await page.keyboard.press("e");
     await page.waitForSelector(".change-chrome");
+    expect(await page.locator(".leader-layer").count()).toBe(1);
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll(".leader-key")].some((badge) => badge.textContent === "A"),
+    );
+
+    await page.keyboard.press("Escape");
     await page.waitForSelector(".leader-layer", { state: "detached" });
   });
 }, 30_000);
@@ -427,16 +545,19 @@ test("a numbered group is picked by a digit, or walked with the arrows", async (
     await page.keyboard.press("Escape");
     await page.waitForSelector(".leader-layer", { state: "detached" });
 
-    // The digit picks that item and the mode ends with the navigation.
+    // The digit picks that item; the idea opens and the keys stay up for the view next.
     await page.keyboard.press("Control+Space");
     await page.waitForSelector(".leader-layer");
     await page.keyboard.press("e");
     await page.waitForSelector(".leader-key.number");
     await page.keyboard.press("1");
     await page.waitForSelector(".change-chrome");
+    await page.waitForSelector(".leader-key.number", { state: "detached" });
+    expect(await page.locator(".leader-layer").count()).toBe(1);
+    await page.keyboard.press("Escape");
     await page.waitForSelector(".leader-layer", { state: "detached" });
 
-    // The arrows move the highlight and Enter takes it.
+    // The arrows move the highlight and Enter takes it — and, being a pick, leaves the mode on.
     await open(page);
     await waitForIdeas(page, 2);
     await page.keyboard.press("Control+Space");
@@ -446,6 +567,8 @@ test("a numbered group is picked by a digit, or walked with the arrows", async (
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
     await page.waitForSelector(".change-chrome");
+    expect(await page.locator(".leader-layer").count()).toBe(1);
+    await page.keyboard.press("Escape");
     await page.waitForSelector(".leader-layer", { state: "detached" });
   });
 }, 30_000);
@@ -467,6 +590,10 @@ test("R numbers the active changes, and a digit picks one", async () => {
     expect(await page.locator(".leader-key.number").count()).toBe(Math.min(changes, 10));
     await page.keyboard.press("2");
     await page.waitForSelector(".change-chrome");
+    // A change is somewhere to go: the keys stay up for its views and terminals.
+    await page.waitForSelector(".leader-key.number", { state: "detached" });
+    expect(await page.locator(".leader-layer").count()).toBe(1);
+    await page.keyboard.press("Escape");
     await page.waitForSelector(".leader-layer", { state: "detached" });
   });
 }, 30_000);
@@ -727,3 +854,92 @@ test("a window narrowing under the mode gives it the drawer", async () => {
     await page.waitForSelector(".sidebar.open", { state: "detached" });
   });
 }, 30_000);
+
+test("a list taller than the window keeps its key at the middle of what is on screen", async () => {
+  if (!usable) return;
+  // Enough ideas that the column scrolls in a short window: the whole list's middle is below the
+  // fold, and a cap there would be a key nobody can see.
+  for (let index = 0; index < 30; index += 1) {
+    const created = await fetch(`${url}/api/changes`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: `MANY-${index}`, title: `An idea, number ${index}`, state: "Ideation" }),
+    });
+    expect(created.status).toBe(201);
+  }
+
+  await withPage(
+    browser,
+    async (page) => {
+      await page.goto(url, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector(".sidebar .list");
+      await page.waitForFunction(
+        () => document.querySelectorAll('[data-leader-item="ideas"]').length >= 30,
+        null,
+        { timeout: 20_000 },
+      );
+      await page.keyboard.press("Control+Space");
+      await page.waitForSelector(".leader-layer");
+      const cap = await capAt(page, "E");
+      const list = await page.evaluate(() => {
+        const box = document.querySelector<HTMLElement>(".sidebar .list-group")!.getBoundingClientRect();
+        return { top: Math.round(box.top), bottom: Math.round(box.bottom), viewport: window.innerHeight };
+      });
+      // Taller than the window: the middle of the whole list would be off the bottom.
+      expect(list.bottom).toBeGreaterThan(list.viewport);
+      const middle = (Math.max(list.top, 0) + Math.min(list.bottom, list.viewport)) / 2;
+      expect(Math.abs(cap.y + 9 - middle)).toBeLessThanOrEqual(1);
+      expect(cap.y).toBeGreaterThanOrEqual(0);
+      expect(cap.y).toBeLessThanOrEqual(list.viewport - 18);
+    },
+    { width: 1280, height: 520 },
+  );
+}, 40_000);
+
+test("the terminal tabs wear their box, and their key sits over the whole group", async () => {
+  if (!usable) return;
+  await withPage(browser, async (page) => {
+    await page.goto(`${url}/changes/STARTED-2/terminals`, { waitUntil: "domcontentloaded" });
+    // The session starts with the page, and its first window is what the + adds beside: until then
+    // the + has nothing to add to.
+    await page.waitForSelector('.change-tabs [data-window-index="0"]', { timeout: 20_000 });
+    // A second window, so the group is a strip rather than one tab.
+    await page.locator(".change-tabs button.window-tab.new").click();
+    await page.waitForSelector('.change-tabs [data-window-index="1"]', { timeout: 20_000 });
+
+    await page.keyboard.press("Control+Space");
+    await page.waitForSelector(".leader-layer");
+    const cap = await capAt(page, "F");
+    const drawn = await layer(page);
+
+    const strip = await page.evaluate(() => {
+      const tabs = [...document.querySelectorAll<HTMLElement>(".change-tabs [data-window-index]")];
+      const first = tabs[0]!.getBoundingClientRect();
+      const last = tabs.at(-1)!.getBoundingClientRect();
+      return {
+        left: Math.round(first.left),
+        right: Math.round(last.right),
+        top: Math.round(first.top),
+        bottom: Math.round(first.bottom),
+      };
+    });
+
+    // The box is around the tabs, drawn before the group is numbered.
+    const box = drawn.outlines.find((outline) => Math.abs(outline.x - (strip.left - 4)) <= 1);
+    expect(box?.resting).toBe(true);
+    expect(Math.abs((box?.width ?? 0) - (strip.right - strip.left + 8))).toBeLessThanOrEqual(1);
+
+    // The key is centred on the group's trailing edge, and its own centre on the strip's top edge:
+    // over the whole strip rather than on the first tab, and clear of the tabs' labels. (The
+    // layer's coordinates are fractional; the tab boxes read here are rounded.)
+    expect(Math.abs(cap.x + 9 - strip.right)).toBeLessThanOrEqual(1);
+    expect(Math.abs(cap.y + 9 - strip.top)).toBeLessThanOrEqual(1);
+
+    // A window is where you type: picking one puts the keys away rather than leaving them over the
+    // shell.
+    await page.keyboard.press("f");
+    await page.waitForSelector(".leader-key.number");
+    await page.keyboard.press("1");
+    await page.waitForSelector(".leader-layer", { state: "detached" });
+  });
+}, 40_000);
