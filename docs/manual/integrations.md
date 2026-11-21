@@ -22,12 +22,15 @@ You can select an existing issue, create one, or skip the step. Jira and GitHub 
 be associated with a change.
 
 A linked issue is assigned to you from the moment it is linked — at creation and when the link is
-re-pointed — rather than at the start. Starting work moves the issue to the configured start
-transition and, when it waits in the backlog, onto the board's active sprint (with several active
-sprints, the one with the latest start date; an issue already in a sprint stays where it is).
-Completing moves it to the done transition. Corvi asks Jira which transitions are available; an
-unavailable transition reports the available choices instead of silently succeeding. Cancelling
-does not move or close the issue.
+re-pointed — rather than when work starts. The first time a change leaves `Ideation` for a manual
+phase, the issue moves to the configured start transition and, when it waits in the backlog, onto
+the board's active sprint (with several active sprints, the one with the latest start date; an
+issue already in a sprint stays where it is). That happens once per change: returning to
+`Ideation` and leaving again does not reassign the issue or move it back. Completing moves it to
+the done transition. Corvi asks Jira which transitions are available; an unavailable transition's
+error names the available choices instead of silently succeeding, and a failed move on leaving
+`Ideation` is logged without failing the phase change. Cancelling does not move or close the
+issue.
 
 Useful environment settings include:
 

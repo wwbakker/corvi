@@ -1,4 +1,5 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
+import { Effect, Result } from "effect";
 import { rm, lstat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import {
@@ -11,14 +12,16 @@ import {
   createChange,
   readChange,
   readSidecar,
-  startChangeWithWorkflow,
+  writeChange,
   writeSidecar,
 } from "../apps/server/src/change/server/index.ts";
+import { applyPatch } from "../apps/server/src/change/model.ts";
 import { gitRun, provisionRepositories, setRepos } from "../apps/server/src/change/provisioning.ts";
 import { checkoutFor } from "../apps/server/src/vendors/git.ts";
 import { isIdeation, slugFor } from "@corvi/changes/record";
 import type { Change } from "@corvi/changes/record";
 import {
+  callGuarded,
   checkoutsOf,
   runCancel,
   runEffect,
@@ -29,9 +32,9 @@ import {
   gitRepo,
 } from "./helpers.ts";
 /**
- * The ideation stage: an idea is created with a title and a plan and nothing else — no branch,
- * no worktree, no ticket transition — and starting it is the real transition that provisions
- * the work. These pin the create/start split and the git hook that distinguishes them.
+ * The ideation stage: an idea is created with a title and a plan, and its checkouts are cut
+ * straight away. Ideation is an ordinary manual phase — leaving it is a phase change like any
+ * other — so these pin what an idea *is*, not a separate workflow out of it.
  */
 let tmp: string;
 beforeAll(async () => {
@@ -64,14 +67,128 @@ test("an idea is created without repositories and carries a plan", async () => {
   await runEffect(writeSidecar(idea.id, PLAN_FILE, "# Plan\n\nSomething.\n"));
   expect(await runEffect(readSidecar(idea.id, PLAN_FILE))).toBe("# Plan\n\nSomething.\n");
 });
-test("starting is a real transition, and only from an idea", async () => {
+test("leaving Ideation is an ordinary phase change, in both directions", async () => {
   const idea = await runEffect(createChange({ id: "idea-start", state: "Ideation" }));
-  const started = await runEffect(startChangeWithWorkflow(idea));
-  expect(started.change.state).toBe("Implementation");
+  const started = applyPatch(idea, { state: "Implementation" });
+  await runEffect(writeChange(started));
   expect((await runEffect(readChange("idea-start")))?.state).toBe("Implementation");
-  // Starting twice would claim work that already happened (and provision a second time).
-  await expect(runEffect(startChangeWithWorkflow(started.change))).rejects.toThrow(/already started/);
+  // Back to Ideation, and out again to another manual phase: no workflow is needed, and no
+  // phase is a one-way door.
+  const back = applyPatch(started, { state: "Ideation" });
+  await runEffect(writeChange(back));
+  expect((await runEffect(readChange("idea-start")))?.state).toBe("Ideation");
+  expect(applyPatch(back, { state: "Blocked" }).state).toBe("Blocked");
 });
+test("a PATCH that names the phase a change is already in writes nothing", async () => {
+  const { patchChange } = await import("../apps/server/src/change/routes.ts");
+  const idea = await runEffect(createChange({ id: "idea-same-phase", state: "Ideation" }));
+  const observed = (await runEffect(readChange(idea.id)))!;
+  // `corvi change create` prints `change phase Implementation` as a next step; a retry must not
+  // be a conflict.
+  const same = await runEffect(patchChange(observed, { state: "Ideation" }));
+  expect(same).toEqual(observed);
+  expect((await runEffect(readChange(idea.id)))?.revision).toBe(observed.revision);
+});
+
+test("a PATCH can move the phase and rename in one write", async () => {
+  const { patchChange } = await import("../apps/server/src/change/routes.ts");
+  const idea = await runEffect(createChange({ id: "idea-both-at-once", state: "Ideation" }));
+  const observed = (await runEffect(readChange(idea.id)))!;
+  const moved = await runEffect(patchChange(observed, { state: "Implementation", title: "Both at once" }));
+  expect(moved.state).toBe("Implementation");
+  expect(moved.title).toBe("Both at once");
+  const after = (await runEffect(readChange(idea.id)))!;
+  expect(after.state).toBe("Implementation");
+  expect(after.title).toBe("Both at once");
+  expect(after.revision).toBe((observed.revision ?? 0) + 1);
+});
+
+test("a PATCH that loses to a concurrent finish is a conflict, not an overwrite", async () => {
+  const { patchChange } = await import("../apps/server/src/change/routes.ts");
+  const change = await runEffect(createChange({ id: "idea-race-finish", state: "Ideation" }));
+  const observed = (await runEffect(readChange(change.id)))!;
+  // The lifecycle finishes the change after this edit read it: the record moves to the archive
+  // and its revision moves on with it.
+  const completed = await runEffect(completeChange(observed));
+  expect(completed._tag).toBe("Done");
+
+  const result = await runEffect(patchChange(observed, { state: "Blocked" }).pipe(Effect.result));
+  expect(Result.isFailure(result)).toBe(true);
+  if (Result.isFailure(result)) expect(result.failure._tag).toBe("ConflictError");
+  // The finish stands: the stale edit neither resurrects the change nor clears its date.
+  const after = await runEffect(readChange(change.id));
+  expect(after?.state).toBe("Completed");
+  expect(after?.completedAt).toBe(completed._tag === "Done" ? completed.change.completedAt : undefined);
+});
+
+test("startedAt survives a cancel and reopen", async () => {
+  const { patchChange } = await import("../apps/server/src/change/routes.ts");
+  const { reopenChange } = await import("../apps/server/src/change/server/index.ts");
+  const idea = await runEffect(createChange({ id: "idea-started-reopen", state: "Ideation" }));
+  const observed = (await runEffect(readChange(idea.id)))!;
+  const started = await runEffect(patchChange(observed, { state: "Implementation" }));
+  expect(started.startedAt).toBeDefined();
+  // Back to Ideation, so cancelling remembers the phase reopening returns to.
+  const back = await runEffect(patchChange(started, { state: "Ideation" }));
+  expect(back.state).toBe("Ideation");
+  await runCancel(back);
+  expect((await runEffect(readChange(idea.id)))?.state).toBe("Cancelled");
+
+  // The fact the ticket move is guarded by outlives the archive round-trip: reopening must not
+  // re-arm it.
+  const reopened = await runEffect(reopenChange((await runEffect(readChange(idea.id)))!));
+  expect(reopened.change.state).toBe("Ideation");
+  expect(reopened.change.startedAt).toBe(started.startedAt);
+});
+
+test("a record already outside Ideation without startedAt is stamped on its next edit", async () => {
+  const { patchChange } = await import("../apps/server/src/change/routes.ts");
+  const idea = await runEffect(createChange({ id: "idea-legacy-started", state: "Ideation" }));
+  // An older record: written in a working phase before the fact existed.
+  const legacy = (await runEffect(readChange(idea.id)))!;
+  await runEffect(writeChange({ ...legacy, state: "Implementation", startedAt: undefined }));
+  const onDisk = (await runEffect(readChange(idea.id)))!;
+  expect(onDisk.startedAt).toBeUndefined();
+
+  // Nothing to edit is not a write: the record and its revision are untouched.
+  const untouched = await runEffect(patchChange(onDisk, {}));
+  expect(untouched).toEqual(onDisk);
+  expect((await runEffect(readChange(idea.id)))?.revision).toBe(onDisk.revision);
+
+  const moved = await runEffect(patchChange(onDisk, { state: "Verification" }));
+  expect(moved.startedAt).toBeDefined();
+  expect((await runEffect(readChange(idea.id)))?.startedAt).toBe(moved.startedAt);
+});
+
+test("a conditional write refuses a record it cannot read", async () => {
+  const { patchChange } = await import("../apps/server/src/change/routes.ts");
+  const change = await runEffect(createChange({ id: "idea-unreadable", state: "Ideation" }));
+  const observed = (await runEffect(readChange(change.id)))!;
+  const path = join(changeDir(change), "change.json");
+  const corrupt = "{ not json";
+  await Bun.write(path, corrupt);
+
+  const result = await runEffect(patchChange(observed, { state: "Implementation" }).pipe(Effect.result));
+  expect(Result.isFailure(result)).toBe(true);
+  if (Result.isFailure(result)) expect(result.failure._tag).toBe("DecodeError");
+  // A write cannot claim a revision the disk never confirmed: the file is left as it was.
+  expect(await Bun.file(path).text()).toBe(corrupt);
+});
+
+test("a blank phase is refused at the boundary, and nothing is written or moved", async () => {
+  const { changeRoutes } = await import("../apps/server/src/change/routes.ts");
+  const idea = await runEffect(createChange({ id: "idea-blank-phase", state: "Ideation" }));
+  const response = await callGuarded(changeRoutes, "PATCH", "/api/changes/:id", {
+    params: { id: idea.id },
+    body: { state: "" },
+  });
+  expect(response.status).toBe(400);
+  const after = (await runEffect(readChange(idea.id)))!;
+  expect(after.state).toBe("Ideation");
+  expect(after.startedAt).toBeUndefined();
+  expect(after.revision).toBe(1);
+});
+
 test("a change created ready to work still needs a repository", async () => {
   await expect(runEffect(createChange({ id: "no-repos" }))).rejects.toThrow("at least one repository");
   // A finished state is not something you create into; only Ideation and Implementation are.
@@ -100,10 +217,9 @@ test("an idea gets its worktree on the change branch at creation", async () => {
   );
   // The repository's own checkout is untouched.
   expect((await runSh(["git", "rev-parse", "--abbrev-ref", "HEAD"], repo)).stdout.trim()).toBe("main");
-  // Starting changes the state and keeps the same checkout.
-  const started = await runEffect(startChangeWithWorkflow(idea));
-  expect(started.change.state).toBe("Implementation");
-  expect(await runEffect(checkoutFor(started.change, repo))).toBe(worktree);
+  // Leaving Ideation keeps the same checkout: the phase is a word, not a provisioning step.
+  const started = applyPatch(idea, { state: "Implementation" });
+  expect(await runEffect(checkoutFor(started, repo))).toBe(worktree);
 });
 test("cancelling an idea takes its worktree away — and shelves its uncommitted work", async () => {
   const repo = await gitRepo(tmp, "ideation-cancel", { remote: true });
@@ -249,21 +365,46 @@ for (const selection of ["feature", "origin/feature"]) {
     expect(inWorktree).toBe(remoteTip);
   });
 }
-test("an idea cannot be completed, only started", async () => {
+test("an idea is completed by the ordinary completion, with no Ideation guard", async () => {
   const idea = await runEffect(createChange({ id: "idea-complete", state: "Ideation" }));
-  // No acknowledgement can make an idea completable: without force it is a structured refusal
-  // (the page's hard reason), and forcing it still fails.
-  const outcome = await runEffect(completeChange(idea));
-  expect(outcome._tag).toBe("NotReady");
-  if (outcome._tag !== "NotReady") throw new Error("expected a refusal");
-  expect(outcome.refusal.reasons).toEqual([
-    { text: "still an idea: start the work before completing it", kind: "hard" },
-  ]);
-  await expect(runEffect(completeChange(idea, true))).rejects.toThrow(/still an idea/);
-  // The readiness check answers without a vendor call, so the button can explain itself.
+  // With no repositories there is nothing outstanding, so the readiness check says ready.
   const completion = await runEffect(completionOf(idea));
-  expect(completion.ready).toBe(false);
-  expect(completion.reasons.join(" ")).toMatch(/still an idea/);
-  // Nothing was written: it is still an idea.
-  expect((await runEffect(readChange("idea-complete")))?.state).toBe("Ideation");
+  expect(completion.ready).toBe(true);
+  expect(completion.reasons).toEqual([]);
+  // And the completion runs its normal steps to the archive.
+  const outcome = await runEffect(completeChange(idea));
+  expect(outcome._tag).toBe("Done");
+  expect((await runEffect(readChange("idea-complete")))?.state).toBe("Completed");
+});
+test("an idea's page offers the same state menu and actions as any other change", async () => {
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { ChangeControls } = await import("../apps/web/src/change-page/client/ChangeControls.tsx");
+  const { changeActions } = await import("../apps/web/src/change-page/client/changeActions.ts");
+  const idea = await runEffect(createChange({ id: "idea-ui", state: "Ideation" }));
+  const html = renderToStaticMarkup(
+    createElement(ChangeControls, {
+      change: idea,
+      // The same menu every change gets: no idea branch, no Start work.
+      actions: changeActions({
+        completing: false,
+        cancelling: false,
+        completion: undefined,
+        onRename: () => {},
+        onCopyDescription: () => {},
+        onComplete: () => {},
+        onCancel: () => {},
+      }),
+      draft: null,
+      onDraft: () => {},
+      onRename: () => {},
+      onState: () => {},
+    }),
+  );
+  // The state is the dropdown, as for any other phase — not the static chip an unavailable
+  // workspace shows — and the actions are the change's own menu.
+  expect(html).toContain(`class="state `);
+  expect(html).toContain("Ideation");
+  expect(html).not.toContain("state-chip");
+  expect(html).toContain("Actions");
 });

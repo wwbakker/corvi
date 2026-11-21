@@ -2,10 +2,11 @@
  * cancelling shelved put back on them.
  *
  * Three steps, in the order a failure is easiest to stand in: the lifecycle moves the change back
- * (the record and its directory, nothing else), the checkout run every creation and start uses
- * provisions the worktrees on the kept branches, and the cancel shelves are applied to them. A
- * checkout that could not be made, or a shelf that does not apply cleanly, is reported on a change
- * that is already reopened — the shelf stays, and nothing is ever rebased or reset to fit it.
+ * (the record and its directory, nothing else); the checkout run that creation and a repository
+ * edit also use provisions the worktrees on the kept branches; and the cancel shelves are applied
+ * to them. A checkout that could not be made, or a shelf that does not apply cleanly, is reported
+ * on a change that is already reopened — the shelf stays, and nothing is ever rebased or reset to
+ * fit it.
  */
 import { Effect, Layer } from "effect";
 

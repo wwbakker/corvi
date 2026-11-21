@@ -73,8 +73,11 @@ export const createChange = (
       ...(title ? { title, titleEdited: true } : {}),
       state,
       createdAt: new Date().toISOString(),
+      // A change created ready to work has already started. Recording the fact here is what stops
+      // a later `Ideation` round-trip from running the ticket move for work that began at creation.
+      ...(state !== IDEATION ? { startedAt: new Date().toISOString() } : {}),
       formatVersion: FORMAT_VERSION,
     };
-    yield* writeChange(change);
-    return change;
+    // The record that was written, with the revision the write gave it, not the draft.
+    return yield* writeChange(change);
   });

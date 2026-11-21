@@ -8,7 +8,6 @@ import { type JSX, useEffect, useRef } from "react";
  */
 export function CancelDialog({
   changeId,
-  idea,
   reasons,
   acked,
   busy,
@@ -17,7 +16,6 @@ export function CancelDialog({
   onClose,
 }: {
   changeId: string;
-  idea: boolean;
   /** What would be discarded, one line per reason, once the server has named it; empty
    * beforehand. */
   reasons: string[];
@@ -41,14 +39,11 @@ export function CancelDialog({
 
   return (
     <dialog ref={ref} className="wide" onCancel={onClose} onClose={onClose}>
-      <h3>{idea ? `Discard ${changeId}?` : `Cancel ${changeId}?`}</h3>
+      <h3>Cancel {changeId}?</h3>
       <p className="hint">
-        {idea
-          ? "It is archived as cancelled; reopen it to pick it up again. Uncommitted work in its " +
-            "worktrees is shelved with it."
-          : "The worktrees and the terminal go; uncommitted work is shelved in the change, and " +
-            "reopening it puts everything back. The branches, pull requests and the ticket are " +
-            "left alone — you will be told what is left."}
+        The worktrees and the terminal go; uncommitted work is shelved in the change, and reopening it puts
+        everything back. The branches, pull requests and the ticket are left alone — you will be told what is
+        left.
       </p>
       {reasons.length > 0 && (
         <>
@@ -75,7 +70,7 @@ export function CancelDialog({
           Keep working
         </button>
         <button type="button" className="primary" disabled={busy || !ready} onClick={onConfirm}>
-          {busy ? (idea ? "Discarding…" : "Cancelling…") : idea ? "Discard" : "Cancel change"}
+          {busy ? "Cancelling…" : "Cancel change"}
         </button>
       </div>
     </dialog>

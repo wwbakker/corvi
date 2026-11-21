@@ -1,12 +1,12 @@
 import { join, dirname, isAbsolute, relative, resolve } from "node:path";
 import type { Dirent } from "node:fs";
-import { readdir, readFile, mkdir, rename } from "node:fs/promises";
+import { readdir, readFile, mkdir } from "node:fs/promises";
 import { Effect, Schema } from "effect";
-import { isNotFound } from "@corvi/changes/node";
+import { changeRecordLock, isNotFound } from "@corvi/changes/node";
 import type { Change } from "@corvi/changes/record";
 import { FORMAT_VERSION, PLAN_FILE } from "@corvi/changes/record";
 import { ChangeId } from "@corvi/contracts/changes";
-import { ChangeFormatTooNew, formatTooNew } from "@corvi/changes/errors";
+import { ChangeConflict, ChangeFormatTooNew, formatTooNew } from "@corvi/changes/errors";
 import { Change as ChangeSchema } from "./schema.ts";
 import { BadRequestError, DecodeError, InternalError, NotFoundError } from "@corvi/contracts/errors";
 import { decodePreserving, formatIssues } from "@corvi/contracts/body";
@@ -141,24 +141,101 @@ export const readChange = (id: string): Effect.Effect<Change | null, DecodeError
     return yield* decodeChange(text, dir);
   });
 
-/** The downgrade fence (see `guardFormat`): this writer holds the record, so it can read the
- * version off the value it is about to write. */
-export const writeChange = (change: Change): Effect.Effect<void, ChangeFormatTooNew> =>
-  Effect.gen(function* () {
-    const recordFormat = change.formatVersion ?? FORMAT_VERSION;
-    if (recordFormat > FORMAT_VERSION) return yield* formatTooNew(ChangeId.make(change.id), recordFormat);
-    const dir = (yield* existingDir(change.id)) ?? changeDir(change);
-    yield* fs(() => mkdir(dir, { recursive: true }));
-    // The record's revision moves on every write, whichever store writes it: the lifecycle's
-    // optimistic check compares it, so an edit that lands between a transition's read and its
-    // write makes that transition conflict rather than overwrite the edit. The revision on disk
-    // is authoritative; a fresh record starts at 1.
-    const prior = yield* readChange(change.id).pipe(
-      Effect.map((current) => Number((current as { revision?: unknown } | null)?.revision ?? 0)),
-      Effect.catch(() => Effect.succeed(Number((change as { revision?: unknown }).revision ?? 0))),
-    );
-    const record = { ...change, revision: prior + 1, formatVersion: FORMAT_VERSION };
-    yield* fs(() => writeAtomic(join(dir, "change.json"), JSON.stringify(record, null, 2) + "\n"));
+/** What the store found under the lock, for the caller's decision: the record as it stands (or
+ * why it could not be read), and the revision the write would go onto. */
+type BeforeWrite = {
+  /** The record as it stands, or `null` when it is missing or unreadable. */
+  readonly current: Change | null;
+  /** Why it could not be read; absent when the record is simply not there. */
+  readonly unreadable?: DecodeError;
+  /** The revision to write onto: the record's own, or — for an unconditional write on an
+   * unreadable record only — the caller's snapshot. */
+  readonly onto: number;
+};
+
+/** One write of change.json: the read of the record on disk, the caller's decision about what to
+ * write, the downgrade fence, and the write — all inside the process-wide record lock that the
+ * capability store's writer holds too. A decision and the write it guards therefore cannot
+ * interleave with another writer in this process.
+ *
+ * `decide` gets the record as it stands, so a read-modify-write (an extension's bag) merges inside
+ * the lock rather than CAS-ing a snapshot merged outside it. The revision moves on every write,
+ * whichever store writes it: the lifecycle's optimistic check compares it, so an edit that lands
+ * between a transition's read and its write makes that transition conflict rather than overwrite
+ * the edit. The revision on disk is authoritative; a fresh record starts at 1. The winning record
+ * — the one with the new revision — is the answer, so a caller never reports the snapshot it
+ * wrote from. */
+const writeRecord = <E>(
+  start: Change,
+  decide: (before: BeforeWrite) => Effect.Effect<Change, E>,
+): Effect.Effect<Change, ChangeFormatTooNew | E> =>
+  changeRecordLock.withPermits(1)(
+    Effect.gen(function* () {
+      const dir = (yield* existingDir(start.id)) ?? changeDir(start);
+      yield* fs(() => mkdir(dir, { recursive: true }));
+      const read = yield* readChange(start.id).pipe(Effect.result);
+      const before: BeforeWrite =
+        read._tag === "Success"
+          ? {
+              current: read.success,
+              onto: Number((read.success as { revision?: unknown } | null)?.revision ?? 0),
+            }
+          : {
+              current: null,
+              unreadable: read.failure,
+              onto: Number((start as { revision?: unknown }).revision ?? 0),
+            };
+      const record = yield* decide(before);
+      // The fence covers both the record about to be written and the one on disk: a newer format
+      // is never flattened, even when the caller's value does not carry its version.
+      const newest = Math.max(record.formatVersion ?? 0, before.current?.formatVersion ?? 0);
+      if (newest > FORMAT_VERSION) return yield* formatTooNew(ChangeId.make(start.id), newest);
+      const written = { ...record, revision: before.onto + 1, formatVersion: FORMAT_VERSION };
+      yield* fs(() => writeAtomic(join(dir, "change.json"), JSON.stringify(written, null, 2) + "\n"));
+      return written;
+    }),
+  );
+
+/** Write a record unconditionally — creation and a seeded fixture: the value is the whole record
+ * and there is no observed revision to be held to. An unreadable record falls back to the
+ * caller's revision here and only here; every other writer is conditional (`writeChangeAt`, or a
+ * read-modify-write through `writeRecord`'s `decide`). */
+export const writeChange = (change: Change): Effect.Effect<Change, ChangeFormatTooNew> =>
+  writeRecord(change, () => Effect.succeed(change));
+
+/** Write a record only onto the revision the caller read. The optimistic check that makes a
+ * hand edit safe: a PATCH that loses a race gets a `ChangeConflict` instead of overwriting the
+ * winner, and the caller runs its side effects (the ticket move) only after the write landed.
+ * A record that is gone or unreadable is refused too — a conditional write cannot claim to be
+ * onto a revision the disk never confirmed. */
+export const writeChangeAt = (
+  change: Change,
+  expectedRevision: number,
+): Effect.Effect<Change, ChangeFormatTooNew | ChangeConflict | DecodeError> =>
+  writeRecord(change, (before) => {
+    const changeId = ChangeId.make(change.id);
+    if (before.current === null)
+      return Effect.fail(
+        before.unreadable ??
+          new ChangeConflict({
+            changeId,
+            expected: expectedRevision,
+            actual: 0,
+            message: `${change.id} is no longer on disk: reload the change and try again`,
+          }),
+      );
+    return before.onto === expectedRevision
+      ? Effect.succeed(change)
+      : Effect.fail(
+          new ChangeConflict({
+            changeId,
+            expected: expectedRevision,
+            actual: before.onto,
+            message:
+              `${change.id} changed since it was read (expected revision ${expectedRevision}, ` +
+              `found ${before.onto}): reload the change and try again`,
+          }),
+        );
   });
 
 /** A file beside change.json — notes, completion progress — which therefore travels into the
@@ -176,12 +253,16 @@ export const writeSidecar = (
   name: string,
   text: string,
 ): Effect.Effect<void, ChangeFormatTooNew> =>
-  Effect.gen(function* () {
-    yield* guardFormat(id);
-    const dir = (yield* existingDir(id)) ?? changeDir({ id });
-    yield* fs(() => mkdir(dir, { recursive: true }));
-    yield* fs(() => write(join(dir, name), text));
-  });
+  // Under the record lock: the archive move renames the directory, and a write that resolved the
+  // old path would otherwise recreate an empty active change behind it.
+  changeRecordLock.withPermits(1)(
+    Effect.gen(function* () {
+      yield* guardFormat(id);
+      const dir = (yield* existingDir(id)) ?? changeDir({ id });
+      yield* fs(() => mkdir(dir, { recursive: true }));
+      yield* fs(() => write(join(dir, name), text));
+    }),
+  );
 
 /** Where one extension's files live inside a change: `extensions/<name>/`, resolved through
  * the change's current directory so they travel into the archive with it. Not created here;
@@ -243,53 +324,43 @@ export const writeExtensionFile = (
   path: string,
   text: string,
 ): Effect.Effect<void, BadRequestError | ChangeFormatTooNew> =>
-  Effect.gen(function* () {
-    yield* guardFormat(change.id);
-    const base = yield* extensionDir(change, name);
-    const target = yield* confinedPath(base, path);
-    yield* fs(() => mkdir(dirname(target), { recursive: true }));
-    yield* fs(() => write(target, text));
-  });
+  // Same lock as the record: an extension file belongs to the change directory the archive move
+  // renames, so the path and the write must be one step.
+  changeRecordLock.withPermits(1)(
+    Effect.gen(function* () {
+      yield* guardFormat(change.id);
+      const base = yield* extensionDir(change, name);
+      const target = yield* confinedPath(base, path);
+      yield* fs(() => mkdir(dirname(target), { recursive: true }));
+      yield* fs(() => write(target, text));
+    }),
+  );
 
 /** Replace one extension's entry in the change's `extensions` bag and write change.json once.
  * `undefined` removes the entry, matching the wizard's "nothing picked" payload.
  *
- * The current change is re-read inside the effect and the entry is merged onto it, not onto the
- * `change` the caller passed: cards and contributions run concurrently, and a caller's snapshot
- * can be older than another contribution's write. Merging on the latest value is what keeps two
- * updates in the same window from clobbering each other's bag entries. */
+ * The merge happens inside the record lock, onto the record as it stands there — never onto the
+ * `change` the caller passed, which can be older than another contribution's write. Two updates
+ * therefore both land, each on the other's bag entries; the only failure is a record that is
+ * missing or cannot be read, where there is nothing to merge onto. */
 export const setExtensionData = (
   change: Change,
   name: string,
   data: unknown,
-): Effect.Effect<Change, ChangeFormatTooNew | DecodeError> =>
-  Effect.gen(function* () {
-    const current = (yield* readChange(change.id)) ?? change;
+): Effect.Effect<Change, ChangeFormatTooNew | DecodeError | NotFoundError> =>
+  writeRecord(change, (before) => {
+    const current = before.current;
+    if (current === null)
+      return Effect.fail(before.unreadable ?? new NotFoundError({ message: `no such change: ${change.id}` }));
     const extensions = { ...(current.extensions ?? {}) };
     if (data === undefined) delete extensions[name];
     else extensions[name] = data;
-    const updated: Change = { ...current, extensions };
-    yield* writeChange(updated);
-    return updated;
+    return Effect.succeed({ ...current, extensions });
   });
 
 /** Move a completed change out of the way, into its workspace's archive root. Its worktrees are
  * gone by then, so nothing but change.json and whatever an extension left beside it travels.
  * A change already in an archive — or one no scope holds — is left alone. */
-export const archiveChange = (id: string): Effect.Effect<void, ChangeFormatTooNew> =>
-  Effect.gen(function* () {
-    const dir = yield* existingDir(id);
-    if (!dir) return;
-    const pairs = changePairs();
-    // The active copies win the lookup; reaching here under an archive root means it moved.
-    if (!pairs.some(({ root }) => dir === join(root, id))) return;
-    yield* guardFormat(id);
-    const change = yield* readChange(id).pipe(Effect.catch(() => Effect.succeed(null)));
-    const target = change ? archiveDir(change) : join(archiveRoot(), id);
-    yield* fs(() => mkdir(dirname(target), { recursive: true }));
-    yield* fs(() => rename(dir, target));
-  });
-
 const directoriesIn = (dir: string): Effect.Effect<string[]> =>
   Effect.tryPromise(() => readdir(dir, { withFileTypes: true })).pipe(
     Effect.map((entries) => entries.filter((e) => e.isDirectory()).map((e) => e.name)),

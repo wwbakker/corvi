@@ -1,4 +1,4 @@
-/** The dashboard read, checkout provisioning, and the start workflow over the capabilities.
+/** The dashboard read and checkout provisioning over the capabilities.
  *
  * Workflows are ordinary Effect programs: the route and a future status action call the same
  * function. They compose capabilities; they do not import Git, HTTP, or persistence.
@@ -8,11 +8,9 @@ import { Context, Effect, Layer, Semaphore } from "effect";
 import { ChangeRepositories } from "@corvi/changes/repositories";
 import { ChangeService } from "@corvi/changes/changes";
 import { OperationProgress, type OperationStep, type ProgressInterface } from "@corvi/changes/progress";
-import { checkoutLocationOf, stateOf } from "@corvi/changes/rules";
+import { checkoutLocationOf, freshnessTargetOf, stateOf } from "@corvi/changes/rules";
 import {
-  InvalidTransition,
   RepositoryNotFound,
-  type ChangeConflict,
   type ChangeFormatTooNew,
   type ChangeNotFound,
   type ChangeStoreError,
@@ -35,11 +33,6 @@ export type RepositoryView = {
   readonly checkout: CheckoutInspection;
 };
 
-type ProvisionFailure = {
-  readonly repositoryId: RepositoryId;
-  readonly error: NotARepository | CheckoutError;
-};
-
 /** What one repository's refresh did. The fast-forward outcomes come from the capability;
  * `FetchFailed` is the freshness step's own refusal — nothing was created or moved on refs that
  * may be stale — and `None` is the cases with nothing to refresh (adopted as checked out, no
@@ -58,21 +51,6 @@ export type CheckoutOutcome = {
   readonly refresh: RefreshReport;
 };
 
-export type StartOutcome =
-  | {
-      readonly _tag: "Started";
-      readonly change: Change;
-      readonly repositories: readonly Repository[];
-      readonly reports: readonly CheckoutOutcome[];
-    }
-  | {
-      readonly _tag: "PartiallyStarted";
-      readonly change: Change;
-      readonly repositories: readonly Repository[];
-      readonly failures: readonly ProvisionFailure[];
-      readonly reports: readonly CheckoutOutcome[];
-    };
-
 /** One journal entry of an operation that can stop half way. */
 export { OperationProgress, type OperationStep, type ProgressInterface } from "@corvi/changes/progress";
 
@@ -83,8 +61,8 @@ export interface Interface {
     readonly RepositoryView[],
     ChangeNotFound | ChangeStoreError | RepositoryStoreError | CheckoutError
   >;
-  /** One repository's checkout work, through the one policy creation, repository edits and
-   * Start work all run: fetch (when there is a remote), provision, then fast-forward-only. A
+  /** One repository's checkout work, through the one policy creation, repository edits and the
+   * row's retry all run: fetch (when there is a remote), provision, then fast-forward-only. A
    * checkout is never created or moved on refs that may be stale, and never rewritten.
    * Unserialized by design: the caller holds `withCheckoutLock` for its whole critical section,
    * as every server checkout operation does — a future caller must do the same. */
@@ -103,16 +81,16 @@ export interface Interface {
     readonly CheckoutOutcome[],
     ChangeNotFound | ChangeFormatTooNew | ChangeStoreError | RepositoryStoreError
   >;
-  readonly startChange: (
+  /** One repository's freshness move on the checkout that is already there: fetch the remote its
+   * target belongs to, then fast-forward-only to the same ref provisioning advances to. It
+   * creates and switches nothing, so a stale click reports instead of provisioning a checkout
+   * the row no longer offers. Unserialized like the other two: hold `withCheckoutLock`. */
+  readonly refreshRepository: (
     changeId: ChangeId,
+    repositoryId: RepositoryId,
   ) => Effect.Effect<
-    StartOutcome,
-    | ChangeNotFound
-    | InvalidTransition
-    | ChangeConflict
-    | ChangeFormatTooNew
-    | ChangeStoreError
-    | RepositoryStoreError
+    RefreshReport,
+    ChangeNotFound | RepositoryNotFound | ChangeStoreError | RepositoryStoreError
   >;
 }
 
@@ -145,7 +123,7 @@ export const describeCheckout = (outcome: CheckoutOutcome): string => {
 };
 
 /** One checkout run per change at a time — process-wide, because creation, a repository row's
- * retry and Start work arrive on separate requests, each building its own layer instance, and
+ * retry and a repository edit arrive on separate requests, each building its own layer instance, and
  * two of them racing would fight over one destination. The lock queues rather than refusing: the
  * second run finds the checkout the first one made and reports it as current. The map grows one
  * small semaphore per change this process has provisioned and is its sole owner.
@@ -198,27 +176,30 @@ export const layer = Layer.effect(
       );
     });
 
-    /** What a checkout's branch should be fresh against: the base the change chose for it, the
-     * repository's default for a change branch, or the remote counterpart of a named existing
-     * branch — when that counterpart exists. A branch adopted as checked out has no freshness
-     * source at all. */
+    /** What a checkout's branch should be fresh against, using this workflow's reads: the base the
+     * change chose for it, the repository's default for a change branch, or the remote counterpart
+     * of a named existing branch — when that counterpart exists. The choice itself is the shared
+     * pure `freshnessTargetOf`, so this and the dashboard card cannot select different kinds of ref. */
     const refreshTargetOf = (
       repository: Repository,
       source: AbsolutePath,
-    ): Effect.Effect<string | undefined, NotARepository | CheckoutError> => {
-      switch (repository.branch.kind) {
-        case "current":
-          // An absent freshness source is `undefined` in a `string | undefined` channel, which
-          // `Effect.void` would widen to `void`.
-          return Effect.sync(() => undefined);
-        case "change":
-          return repository.base ? Effect.succeed(repository.base) : repositories.defaultBranch(source);
-        case "existing":
-          return repositories
-            .resolveExistingBranch(source, repository.branch.name)
-            .pipe(Effect.map((selected) => selected.remoteRef));
-      }
-    };
+    ): Effect.Effect<string | undefined, NotARepository | CheckoutError> =>
+      Effect.gen(function* () {
+        const existingRemoteRef =
+          repository.branch.kind === "existing"
+            ? (yield* repositories.resolveExistingBranch(source, repository.branch.name)).remoteRef
+            : undefined;
+        const defaultBranch =
+          repository.branch.kind === "change" && repository.base === undefined
+            ? yield* repositories.defaultBranch(source)
+            : undefined;
+        return freshnessTargetOf({
+          branch: repository.branch,
+          base: repository.base,
+          existingRemoteRef,
+          defaultBranch,
+        });
+      });
 
     // The checkout policy belongs to the application: the link's location and branch kind map
     // to the capability's concrete inputs here, and nowhere else. Freshness is one sequence —
@@ -356,11 +337,7 @@ export const layer = Layer.effect(
         return outcome(forward.success);
       });
 
-    const provisionRepository = Effect.fn("ChangeWork.provisionRepository")(function* (
-      changeId: ChangeId,
-      repositoryId: RepositoryId,
-    ) {
-      const change = yield* changes.getChange(changeId);
+    const linkOf = Effect.fn("ChangeWork.linkOf")(function* (changeId: ChangeId, repositoryId: RepositoryId) {
       const repository = yield* links
         .listRepositories(changeId)
         .pipe(Effect.map((all) => all.find((entry) => entry.repositoryId === repositoryId)));
@@ -370,7 +347,15 @@ export const layer = Layer.effect(
           repositoryId,
           message: `repository ${repositoryId} is not part of change ${changeId}`,
         });
-      return yield* provisionLink(change, repository);
+      return repository;
+    });
+
+    const provisionRepository = Effect.fn("ChangeWork.provisionRepository")(function* (
+      changeId: ChangeId,
+      repositoryId: RepositoryId,
+    ) {
+      const change = yield* changes.getChange(changeId);
+      return yield* provisionLink(change, yield* linkOf(changeId, repositoryId));
     });
 
     const provisionChange = Effect.fn("ChangeWork.provisionChange")(function* (changeId: ChangeId) {
@@ -395,46 +380,102 @@ export const layer = Layer.effect(
       return outcomes;
     });
 
-    const startChange = Effect.fn("ChangeWork.startChange")(function* (changeId: ChangeId) {
+    /** The local branch the link expects and the remote its freshness ref belongs to: the
+     * change's own branch on origin, or the selected existing branch and the remote its
+     * counterpart is on. */
+    const checkoutTargetOf = (
+      change: Change,
+      repository: Repository,
+      source: AbsolutePath,
+    ): Effect.Effect<{ readonly branch: string; readonly remote: string }, NotARepository | CheckoutError> =>
+      repository.branch.kind === "existing"
+        ? Effect.map(repositories.resolveExistingBranch(source, repository.branch.name), (selected) => ({
+            branch: selected.branch,
+            remote: selected.remote ?? "origin",
+          }))
+        : Effect.succeed({ branch: change.branch, remote: "origin" });
+
+    /** The freshness move alone. It deliberately repeats the sequence instead of calling
+     * `provisionLink` with a "do not provision" flag: the action must never create or switch a
+     * checkout (a stale click cannot bring a deleted worktree back), it refuses a dirty checkout
+     * up front — including a worktree whose edits do not conflict with the incoming commits, which
+     * git itself would happily fast-forward over — and it reports a `RefreshReport` rather than a
+     * `CheckoutOutcome`. A flag would have to carry all three differences into provisioning. */
+    const refreshRepository = Effect.fn("ChangeWork.refreshRepository")(function* (
+      changeId: ChangeId,
+      repositoryId: RepositoryId,
+    ) {
       const change = yield* changes.getChange(changeId);
-      if (change.phase !== "Ideation")
-        return yield* new InvalidTransition({
-          changeId,
-          from: change.phase,
-          to: "Implementation",
-          message: `change ${changeId} cannot start: its phase is ${change.phase}`,
-        });
+      const repository = yield* linkOf(changeId, repositoryId);
+      const checkoutLocation = checkoutLocationOf(change, repository);
+      const source = AbsolutePath.make(repository.originalLocation);
 
-      // Persist first: the change survives provisioning that fails part way.
-      const started = yield* changes.transitionTo(changeId, "Implementation");
-      // Provisioning anything missing and refreshing what is there: a change whose worktree was
-      // made at creation still picks up the base commits that landed during ideation here.
-      const reports = yield* provisionChange(changeId);
+      // A branch adopted as checked out is never refreshed, so there is nothing to move.
+      if (repository.branch.kind === "current")
+        return {
+          _tag: "None",
+          reason: "a branch adopted as checked out is never refreshed",
+        } satisfies RefreshReport;
 
-      const provisioned: Repository[] = [];
-      const failures: ProvisionFailure[] = [];
-      for (const report of reports) {
-        if (report.error)
-          failures.push({ repositoryId: report.repository.repositoryId, error: report.error });
-        else provisioned.push(report.repository);
+      const expected = yield* checkoutTargetOf(change, repository, source).pipe(Effect.result);
+      if (expected._tag === "Failure")
+        return { _tag: "None", reason: "could not resolve the branch" } satisfies RefreshReport;
+
+      // The checkout has to be there and on its expected branch: a refresh moves whatever is
+      // checked out, so anything else is left alone rather than moved — and nothing is created.
+      const observed = yield* repositories
+        .inspectCheckout(AbsolutePath.make(checkoutLocation))
+        .pipe(Effect.result);
+      if (observed._tag === "Failure")
+        return { _tag: "None", reason: "could not read the checkout" } satisfies RefreshReport;
+      const on = observed.success._tag === "Present" ? observed.success.branch : undefined;
+      if (on !== expected.success.branch)
+        return {
+          _tag: "LeftAlone",
+          reason: on
+            ? `the checkout is on ${on}, not ${expected.success.branch}`
+            : `the checkout is not on ${expected.success.branch}`,
+        } satisfies RefreshReport;
+
+      // Uncommitted work is never moved over: a fast-forward that updates a file someone is
+      // editing would destroy it, and the policy leaves a dirty checkout alone everywhere else.
+      const dirty = yield* repositories
+        .workingTreeDirty(AbsolutePath.make(checkoutLocation))
+        .pipe(Effect.result);
+      if (dirty._tag === "Failure")
+        return { _tag: "None", reason: "could not read the checkout" } satisfies RefreshReport;
+      if (dirty.success)
+        return { _tag: "LeftAlone", reason: "uncommitted changes in the checkout" } satisfies RefreshReport;
+
+      const remote = yield* repositories.hasRemote(source, expected.success.remote).pipe(Effect.result);
+      if (remote._tag === "Failure")
+        return { _tag: "None", reason: "could not read the repository" } satisfies RefreshReport;
+      if (remote.success) {
+        const fetched = yield* repositories.fetchRemote(source, expected.success.remote).pipe(Effect.result);
+        if (fetched._tag === "Failure")
+          return {
+            _tag: "FetchFailed",
+            reason: fetched.failure.message,
+          } satisfies RefreshReport;
       }
 
-      if (failures.length > 0)
-        return {
-          _tag: "PartiallyStarted",
-          change: started,
-          repositories: provisioned,
-          failures,
-          reports,
-        } satisfies StartOutcome;
-      return {
-        _tag: "Started",
-        change: started,
-        repositories: provisioned,
-        reports,
-      } satisfies StartOutcome;
+      // Resolved after the fetch: the target ref must be the current one, not a stale one.
+      const target = yield* refreshTargetOf(repository, source).pipe(Effect.result);
+      if (target._tag === "Failure")
+        return { _tag: "None", reason: "could not read the base" } satisfies RefreshReport;
+      if (!target.success)
+        return { _tag: "None", reason: "nothing to fast-forward to" } satisfies RefreshReport;
+      const forward = yield* repositories
+        .fastForwardBranch({
+          directory: AbsolutePath.make(checkoutLocation),
+          to: target.success,
+        })
+        .pipe(Effect.result);
+      if (forward._tag === "Failure")
+        return { _tag: "LeftAlone", reason: forward.failure.message } satisfies RefreshReport;
+      return forward.success;
     });
 
-    return { inspectChangeRepositories, provisionRepository, provisionChange, startChange };
+    return { inspectChangeRepositories, provisionRepository, provisionChange, refreshRepository };
   }),
 );

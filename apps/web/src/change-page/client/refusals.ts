@@ -36,3 +36,11 @@ export function forceQuestion(e: unknown): string[] | undefined {
   );
   return lines.length ? lines : needsForce;
 }
+
+/** Whether a failure is a conflict at all: the record moved on since the server read it. The page
+ * re-reads the record and decides the next click on the winner; the banner still says what
+ * happened. A structured 409 (a completion refusal, a force question) is a conflict too — its own
+ * helper opens the dialog that explains it. */
+export function isConflict(e: unknown): boolean {
+  return typeof e === "object" && e !== null && (e as { status?: number }).status === 409;
+}

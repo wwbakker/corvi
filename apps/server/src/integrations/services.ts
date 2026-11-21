@@ -112,6 +112,8 @@ export const extensionStoreLayer = (extension: string | undefined): Layer.Layer<
     update: (change, data) =>
       extension
         ? setExtensionData(change, extension, data).pipe(
+            // A merge onto the record under the lock cannot conflict; only the format fence is
+            // translated here. Anything else (an unreadable record) is already a transport error.
             Effect.mapError((error): CorviError =>
               error instanceof ChangeFormatTooNew ? fenced(error.message) : error,
             ),

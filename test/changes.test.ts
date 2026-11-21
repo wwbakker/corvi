@@ -1,33 +1,46 @@
 import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { rm, realpath } from "node:fs/promises";
+import { lstat, rm, realpath } from "node:fs/promises";
 import { join, basename } from "node:path";
 import {
+  changePairs,
   createChange,
   listChanges,
   changeDir,
   archiveDir,
-  archiveChange,
   readChange,
   writeChange,
+  writeChangeAt,
 } from "../apps/server/src/change/server/index.ts";
-import { repoItem, checkoutFor, currentBranch, unsafeToRemove } from "../apps/server/src/vendors/git.ts";
+import { ChangeStore } from "@corvi/changes/store";
+import { storeLayer } from "@corvi/changes/node";
+import { ChangeId } from "@corvi/contracts/changes";
+import {
+  repoItem,
+  checkoutFor,
+  currentBranch,
+  entryFor,
+  unsafeToRemove,
+} from "../apps/server/src/vendors/git.ts";
 import { gitRun, provisionRepositories, setRepos } from "../apps/server/src/change/provisioning.ts";
-import { Effect, Schema } from "effect";
+import { Effect, Layer, Result, Schema } from "effect";
 import { ProvisionedChangeSchema, type ProvisionedChangeDto } from "@corvi/contracts/api";
 import type { Change } from "@corvi/changes/record";
 import type { RawWindow } from "../apps/server/src/integrations/types.ts";
 import type { PresentedWindow } from "../apps/server/src/terminals/server/index.ts";
 import {
+  archiveViaStore,
   checkoutsOf,
   runEffect,
   runSetRepos,
+  until,
   runSh,
   withRuntimeConfig,
   useOwnChangeRoot,
   gitRepo,
   withEnv,
   callGuarded,
+  commitIn,
 } from "./helpers.ts";
 let tmp: string;
 let repo: string;
@@ -139,17 +152,22 @@ test("completed changes move to the archive and stay listable", async () => {
   const change = await runEffect(createChange({ id: "PROJ-9", checkouts: checkoutsOf([repo]) }));
   // The record on disk carries the revision the write gave it; the created value is the draft.
   expect(await runEffect(listChanges())).toContainEqual({ ...change, revision: 1 });
-  await runEffect(archiveChange(change.id));
+  await runEffect(archiveViaStore(change.id));
   expect(await Bun.file(join(changeDir(change), "change.json")).exists()).toBe(false);
   expect(await Bun.file(join(archiveDir(change), "change.json")).exists()).toBe(true);
-  // Reading, writing and listing all still find it where it now lives.
-  expect(await runEffect(readChange(change.id))).toEqual({ ...change, revision: 1 });
-  const completed = { ...change, completedAt: new Date().toISOString() };
-  await runEffect(writeChange(completed));
-  // The write moved the record on again; the revision is why a transition decided on the old
-  // one would be refused instead of overwriting this.
-  expect(await runEffect(readChange(change.id))).toEqual({ ...completed, revision: 2 });
-  expect(await runEffect(listChanges())).toContainEqual({ ...completed, revision: 2 });
+  // The lifecycle's terminal write is on the archived record, and reading/listing find it there.
+  const completed = (await runEffect(readChange(change.id)))!;
+  expect(completed.state).toBe("Completed");
+  expect(completed.completedAt).toBeDefined();
+  expect(completed.revision).toBe(2);
+  expect(await runEffect(listChanges())).toContainEqual(completed);
+  // A write lands on the archived copy and moves the revision on again; the revision is why a
+  // transition decided on the old one would be refused instead of overwriting this.
+  await runEffect(writeChange({ ...completed, title: "renamed in the archive" }));
+  const reread = (await runEffect(readChange(change.id)))!;
+  expect(reread.title).toBe("renamed in the archive");
+  expect(reread.revision).toBe(3);
+  expect(await runEffect(listChanges())).toContainEqual(reread);
   expect(await runEffect(listChanges())).not.toContainEqual({ ...change, revision: 1 });
 });
 test("a new worktree branches from the remote default, not a stale local main", async () => {
@@ -310,7 +328,7 @@ test("a worktree starts from the base branch it was given, not the remote defaul
 });
 test("a completed change is listed once, even when its directory is left behind", async () => {
   const change = await runEffect(createChange({ id: "PROJ-TWICE", checkouts: checkoutsOf([repo]) }));
-  await runEffect(archiveChange(change.id));
+  await runEffect(archiveViaStore(change.id));
   // A terminal, or a build, writing into the change's original path recreates it after the
   // archive moved.
   await Bun.write(join(changeDir(change), "terminal.json"), "{}\n");
@@ -517,6 +535,48 @@ test("a window is named where its shell is, with what runs there in brackets", a
     "PROJ-TITLE (gradle) in corvi",
   );
 });
+test("a repository whose removal fails is reported, and the rest of the edit still runs", async () => {
+  const { changeRoutes } = await import("../apps/server/src/change/routes.ts");
+  const locked = await gitRepo(tmp, "repos-locked", { remote: true });
+  const dropped = await gitRepo(tmp, "repos-dropped", { remote: true });
+  const added = await gitRepo(tmp, "repos-added", { remote: true });
+  const change = await runEffect(
+    createChange({
+      id: "PROJ-REPOSLEFT",
+      branch: "PROJ-REPOSLEFT-x",
+      checkouts: checkoutsOf([locked, dropped]),
+    }),
+  );
+  await Effect.runPromise(provisionRepositories(change));
+  const lockedWorktree = (await runEffect(checkoutFor(change, locked)))!;
+  const droppedWorktree = (await runEffect(checkoutFor(change, dropped)))!;
+  // A locked worktree cannot be removed with git's single force.
+  await runSh(["git", "worktree", "lock", lockedWorktree, "--reason", "held for the test"], locked);
+
+  const response = await callGuarded(changeRoutes, "POST", "/api/changes/:id/repos", {
+    params: { id: change.id },
+    body: { checkouts: checkoutsOf([added]) },
+  });
+  // The write already won, so this is a 200 carrying the record the page must render — plus what
+  // was left behind. A 400 here would keep the editor showing a list the record no longer has.
+  expect(response.status).toBe(200);
+  const body = (await response.json()) as {
+    change: Change;
+    provision: { integration: string; ok: boolean; error?: string }[];
+  };
+  expect(body.change.checkouts?.map((spec) => spec.path)).toEqual([added]);
+  const failure = body.provision.find((entry) => !entry.ok);
+  expect(failure?.error).toContain(basename(locked));
+  expect(failure?.error).toContain("left behind");
+
+  // The other removal and the setup ran: only the locked checkout is still there.
+  expect(await Bun.file(join(droppedWorktree, "README.md")).exists()).toBe(false);
+  expect(await Bun.file(join(changeDir(change), basename(added), "README.md")).exists()).toBe(true);
+  expect(await Bun.file(join(lockedWorktree, "README.md")).exists()).toBe(true);
+  // And the record on disk is the one the response carried.
+  expect((await runEffect(readChange(change.id)))?.checkouts?.map((spec) => spec.path)).toEqual([added]);
+});
+
 test("a change may be blocked, which is active but not workable", async () => {
   const { CHANGE_STATES, isFinished } = await import("@corvi/changes/record");
   const { stateClass } = await import("../apps/web/src/app-root/stateClass.ts");
@@ -717,6 +777,78 @@ test("a change is named by its ticket, until you name it yourself", async () => 
     else process.env.JIRA_API_TOKEN = originalToken;
   }
 });
+test("a title refresh that loses the write keeps the winner and reports nothing", async () => {
+  const { refreshTitles } = await import("../apps/server/src/change/server/index.ts");
+  const { clearCache } = await import("../apps/server/src/capabilities/cache.ts");
+  const originalFetch = globalThis.fetch;
+  const originalWorkspaces = runtimeConfig().workspaces;
+  const originalToken = process.env.JIRA_API_TOKEN;
+  process.env.JIRA_API_TOKEN = "secret";
+  runtimeConfig().workspaces = [
+    {
+      id: "jira-titles",
+      name: "Jira titles",
+      settings: {
+        extensionSettings: {
+          jira: { server: "https://example.atlassian.net", email: "someone@example.com", project: "PROJ" },
+        },
+      },
+    },
+  ];
+  // The title lookup is held open so a phase write can land in the window between the list read
+  // and the conditional write.
+  let asked!: () => void;
+  const askedOnce = new Promise<void>((resolve) => {
+    asked = resolve;
+  });
+  let release!: (summary: string) => void;
+  const held = new Promise<string>((resolve) => {
+    release = resolve;
+  });
+  globalThis.fetch = ((input: RequestInfo | URL) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/rest/api/3/search/jql") {
+      asked();
+      return held.then(
+        (summary) =>
+          new Response(
+            JSON.stringify({ issues: [{ key: "PROJ-8", fields: { summary, status: { name: "To Do" } } }] }),
+            { status: 200 },
+          ),
+      );
+    }
+    return Promise.resolve(new Response("unexpected", { status: 404 }));
+  }) as typeof fetch;
+  try {
+    clearCache();
+    const change = await runEffect(
+      createChange({
+        id: "PROJ-LOSTTITLE",
+        checkouts: checkoutsOf([repo]),
+        workspace: "jira-titles",
+        extensions: { jira: { key: "PROJ-8" } },
+      }),
+    );
+    const pending = runEffect(refreshTitles());
+    await askedOnce;
+    // The record moves on while the lookup is in flight; its title refresh is now decided on a
+    // revision that no longer exists.
+    const observed = (await runEffect(readChange(change.id)))!;
+    await runEffect(writeChange({ ...observed, state: "Blocked" }));
+    release("A name that lost the race");
+    const titles = await pending;
+    expect(titles[change.id]).toBeUndefined();
+    const after = (await runEffect(readChange(change.id)))!;
+    expect(after.state).toBe("Blocked");
+    expect(after.title).not.toBe("A name that lost the race");
+  } finally {
+    globalThis.fetch = originalFetch;
+    runtimeConfig().workspaces = originalWorkspaces;
+    if (originalToken === undefined) delete process.env.JIRA_API_TOKEN;
+    else process.env.JIRA_API_TOKEN = originalToken;
+  }
+});
+
 test("a legacy write moves the record's revision", async () => {
   const change = await runEffect(createChange({ id: "revision-legacy", checkouts: checkoutsOf([repo]) }));
   const readRecord = async (): Promise<{ revision?: number }> =>
@@ -745,4 +877,496 @@ test("an unstamped record reads as the current shape and is not rewritten", asyn
   expect(read?.formatVersion).toBeUndefined();
   // Nothing was written back, so the record on disk is exactly as it was left.
   expect(await Bun.file(path).text()).toBe(stored);
+});
+
+/** A second clone that pushes a commit to `main` on the shared origin: how the base moves on
+ * while the change's checkout stands still. The content changes on every call, so the same file
+ * can be committed again. */
+const pushToBase = async (origin: string, otherDirectory: string, file: string): Promise<void> => {
+  const fresh = await Bun.file(join(otherDirectory, file)).exists();
+  if (!fresh) await runSh(["git", "clone", "-q", origin, otherDirectory]);
+  await Bun.write(join(otherDirectory, file), `${file} ${Date.now()}\n`);
+  await runSh(["git", "add", "."], otherDirectory);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", file], otherDirectory);
+  await runSh(["git", "push", "-q", "origin", "main"], otherDirectory);
+};
+
+test("the Local changes card offers Fast-forward only for a clean checkout with no work of its own", async () => {
+  const repo = await gitRepo(tmp, "ff-card", { remote: true });
+  const change = await runEffect(
+    createChange({ id: "PROJ-FFCARD", branch: "PROJ-FFCARD-work", checkouts: checkoutsOf([repo]) }),
+  );
+  await Effect.runPromise(provisionRepositories(change));
+  const worktree = (await runEffect(checkoutFor(change, repo)))!;
+
+  // Current against the base: nothing to offer.
+  expect((await Effect.runPromise(repoItem(change, repo))).actions ?? []).toEqual([]);
+
+  // The base moves on and the checkout has fetched it: behind, with nothing of its own, so the
+  // row offers the one action that closes the gap.
+  await pushToBase(join(tmp, "ff-card.git"), join(tmp, "ff-card-other"), "later.txt");
+  await runSh(["git", "fetch", "-q", "origin"], repo);
+  const offered = await Effect.runPromise(repoItem(change, repo));
+  expect(offered.actions?.map((action) => action.id)).toEqual(["fast-forward"]);
+  expect(offered.detail).toContain("1 behind base origin/main");
+
+  // Uncommitted work: a fast-forward could clobber it, so no action.
+  await Bun.write(join(worktree, "scratch.txt"), "half a thought\n");
+  expect((await Effect.runPromise(repoItem(change, repo))).actions ?? []).toEqual([]);
+  await runSh(["git", "clean", "-q", "-f", "scratch.txt"]);
+
+  // A commit of its own: the branch diverged, and reconciling that is the user's.
+  await Bun.write(join(worktree, "wip.txt"), "my work\n");
+  await runSh(["git", "add", "."], worktree);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "mine"], worktree);
+  expect((await Effect.runPromise(repoItem(change, repo))).actions ?? []).toEqual([]);
+});
+
+test("Fast-forward advances the checkout, and refuses when it cannot", async () => {
+  const repo = await gitRepo(tmp, "ff-run", { remote: true });
+  const change = await runEffect(
+    createChange({ id: "PROJ-FFRUN", branch: "PROJ-FFRUN-work", checkouts: checkoutsOf([repo]) }),
+  );
+  await Effect.runPromise(provisionRepositories(change));
+  const worktree = (await runEffect(checkoutFor(change, repo)))!;
+  await pushToBase(join(tmp, "ff-run.git"), join(tmp, "ff-run-other"), "later.txt");
+
+  // The action fetches first, so a click advances to the latest remote base even though the
+  // card's read was behind on local refs alone.
+  await Effect.runPromise(gitRun(change, "fast-forward", repo));
+  const tip = (await runSh(["git", "rev-parse", "HEAD"], worktree)).stdout.trim();
+  const baseTip = (await runSh(["git", "rev-parse", "origin/main"], repo)).stdout.trim();
+  expect(tip).toBe(baseTip);
+  expect(await Bun.file(join(worktree, "later.txt")).exists()).toBe(true);
+  // Nothing left to fast-forward, so the row stops offering it.
+  expect((await Effect.runPromise(repoItem(change, repo))).actions ?? []).toEqual([]);
+
+  // A stale click on an already current branch is idempotent: nothing moves, nothing fails.
+  await Effect.runPromise(gitRun(change, "fast-forward", repo));
+  expect((await runSh(["git", "rev-parse", "HEAD"], worktree)).stdout.trim()).toBe(tip);
+
+  // Uncommitted work on a file the base changed is a refusal, never a rewrite: git would have to
+  // overwrite it to advance.
+  await pushToBase(join(tmp, "ff-run.git"), join(tmp, "ff-run-other"), "later.txt");
+  await Bun.write(join(worktree, "later.txt"), "my unsaved edit\n");
+  await expect(Effect.runPromise(gitRun(change, "fast-forward", repo))).rejects.toThrow(/could not/);
+  expect(await Bun.file(join(worktree, "later.txt")).text()).toBe("my unsaved edit\n");
+});
+
+test("Fast-forward refuses a repository that is not the change's, and creates no missing checkout", async () => {
+  const repo = await gitRepo(tmp, "ff-scope", { remote: true });
+  const other = await gitRepo(tmp, "ff-scope-other", { remote: true });
+  const change = await runEffect(
+    createChange({ id: "PROJ-FFSCOPE", branch: "PROJ-FFSCOPE-work", checkouts: checkoutsOf([repo]) }),
+  );
+  // A repository this change does not own is not silently a 200: there is nothing to advance.
+  await expect(Effect.runPromise(gitRun(change, "fast-forward", other))).rejects.toThrow(
+    /is not one of this change's repositories/,
+  );
+
+  await Effect.runPromise(provisionRepositories(change));
+  const worktree = join(changeDir(change), basename(repo));
+  // The worktree goes (the row's own remove action), and a stale Fast-forward click must fail
+  // rather than quietly provisioning a new one.
+  await Effect.runPromise(gitRun(change, "remove", repo));
+  expect(await Bun.file(join(worktree, "README.md")).exists()).toBe(false);
+  await expect(Effect.runPromise(gitRun(change, "fast-forward", repo))).rejects.toThrow(/could not/);
+  expect(await Bun.file(join(worktree, "README.md")).exists()).toBe(false);
+});
+
+/** A commit pushed to one branch of the shared origin from a second clone. Reuses the clone
+ * directory, so a second call on the same branch adds a commit. */
+const pushToBranch = async (
+  origin: string,
+  otherDirectory: string,
+  branch: string,
+  file: string,
+): Promise<void> => {
+  const cloned = await Bun.file(join(otherDirectory, ".git", "HEAD")).exists();
+  if (!cloned) await runSh(["git", "clone", "-q", origin, otherDirectory]);
+  await runSh(["git", "checkout", "-q", branch], otherDirectory);
+  await Bun.write(join(otherDirectory, file), `${file} ${Date.now()}\n`);
+  await runSh(["git", "add", "."], otherDirectory);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", file], otherDirectory);
+  await runSh(["git", "push", "-q", "origin", branch], otherDirectory);
+};
+
+test("an existing branch is measured against its own remote counterpart, not the default branch", async () => {
+  const repo = await gitRepo(tmp, "ff-existing", { remote: true });
+  // The branch the user keeps, made and pushed here; the change's worktree attaches to it.
+  await runSh(["git", "checkout", "-q", "-b", "feature"], repo);
+  await Bun.write(join(repo, "feature.txt"), "feature\n");
+  await runSh(["git", "add", "."], repo);
+  await commitIn(repo, "feature work");
+  await runSh(["git", "push", "-q", "-u", "origin", "feature"], repo);
+  await runSh(["git", "checkout", "-q", "main"], repo);
+  const change = await runEffect(
+    createChange({
+      id: "PROJ-FFEXISTING",
+      checkouts: [{ path: repo, location: "new", branch: { kind: "existing", name: "feature" } }],
+    }),
+  );
+  await Effect.runPromise(provisionRepositories(change));
+  const worktree = (await runEffect(checkoutFor(change, repo)))!;
+
+  // The default branch moves while the selected branch does not: the policy advances to
+  // origin/feature, so there is nothing to offer and nothing to report as behind.
+  await pushToBase(join(tmp, "ff-existing.git"), join(tmp, "ff-existing-main"), "later.txt");
+  await runSh(["git", "fetch", "-q", "origin"], repo);
+  const unchanged = await Effect.runPromise(repoItem(change, repo));
+  expect(unchanged.actions ?? []).toEqual([]);
+  expect(unchanged.detail).not.toContain("behind");
+
+  // The selected branch moves: now it is behind its own counterpart, with nothing of its own.
+  await pushToBranch(join(tmp, "ff-existing.git"), join(tmp, "ff-existing-feature"), "feature", "more.txt");
+  await runSh(["git", "fetch", "-q", "origin"], repo);
+  const offered = await Effect.runPromise(repoItem(change, repo));
+  expect(offered.actions?.map((action) => action.id)).toEqual(["fast-forward"]);
+  expect(offered.detail).toContain("1 behind base origin/feature");
+
+  // The click advances to origin/feature — not to origin/main, which also moved.
+  await Effect.runPromise(gitRun(change, "fast-forward", repo));
+  const tip = (await runSh(["git", "rev-parse", "HEAD"], worktree)).stdout.trim();
+  const featureTip = (await runSh(["git", "rev-parse", "origin/feature"], repo)).stdout.trim();
+  expect(tip).toBe(featureTip);
+  expect(await Bun.file(join(worktree, "more.txt")).exists()).toBe(true);
+  expect(await Bun.file(join(worktree, "later.txt")).exists()).toBe(false);
+  expect((await Effect.runPromise(repoItem(change, repo))).actions ?? []).toEqual([]);
+
+  // Its own commit on top of the counterpart: diverged, so no fast-forward is offered.
+  await Bun.write(join(worktree, "mine.txt"), "mine\n");
+  await runSh(["git", "add", "."], worktree);
+  await commitIn(worktree, "mine");
+  await pushToBranch(join(tmp, "ff-existing.git"), join(tmp, "ff-existing-feature"), "feature", "theirs.txt");
+  await runSh(["git", "fetch", "-q", "origin"], repo);
+  expect((await Effect.runPromise(repoItem(change, repo))).actions ?? []).toEqual([]);
+});
+
+test("a Fast-forward whose fetch fails is refused, and moves nothing", async () => {
+  const repo = await gitRepo(tmp, "ff-fetchfail", { remote: true });
+  const change = await runEffect(
+    createChange({
+      id: "PROJ-FFFETCH",
+      branch: "PROJ-FFFETCH-work",
+      checkouts: checkoutsOf([repo]),
+    }),
+  );
+  await Effect.runPromise(provisionRepositories(change));
+  const worktree = (await runEffect(checkoutFor(change, repo)))!;
+  const before = (await runSh(["git", "rev-parse", "HEAD"], worktree)).stdout.trim();
+  // The remote stops answering after the checkout exists: the action fetches first, so it must
+  // report the fetch rather than advance against refs that may be stale.
+  await runSh(["git", "remote", "set-url", "origin", join(tmp, "gone.git")], repo);
+  await expect(Effect.runPromise(gitRun(change, "fast-forward", repo))).rejects.toThrow(/fetch failed/);
+  expect((await runSh(["git", "rev-parse", "HEAD"], worktree)).stdout.trim()).toBe(before);
+  expect((await runSh(["git", "rev-parse", "--abbrev-ref", "HEAD"], worktree)).stdout.trim()).toBe(
+    "PROJ-FFFETCH-work",
+  );
+});
+
+test("the card fetches in the background so Fast-forward is reachable, at most once per window", async () => {
+  const git = (await import("../apps/server/src/integrations/git/index.ts")).default;
+  const repo = await gitRepo(tmp, "ff-reachable", { remote: true });
+  const origin = join(tmp, "ff-reachable.git");
+  const other = join(tmp, "ff-reachable-other");
+  const change = await runEffect(
+    createChange({
+      id: "PROJ-FFREACH",
+      branch: "PROJ-FFREACH-work",
+      checkouts: checkoutsOf([repo]),
+    }),
+  );
+  await Effect.runPromise(provisionRepositories(change));
+  await pushToBase(origin, other, "later.txt");
+  const pushedTip = (await runSh(["git", "rev-parse", "main"], other)).stdout.trim();
+
+  // Before the card has fetched, the local measurement is honest — clean, no action — which is
+  // what the card read paints first (it never waits for the network).
+  expect((await Effect.runPromise(repoItem(change, repo))).actions ?? []).toEqual([]);
+
+  const card = (): Promise<{ actions?: { id: string }[]; detail?: string }[]> =>
+    runEffect(git.cards[0]!.repoStatus!(change, repo));
+  // The read kicks a background fetch; once it lands, the next poll offers the action.
+  await card();
+  expect(
+    await until(
+      () => runSh(["git", "rev-parse", "origin/main"], repo).then((result) => result.stdout.trim()),
+      pushedTip,
+    ),
+  ).toBe(pushedTip);
+  const offered = (await card())[0];
+  expect(offered?.actions?.map((action) => action.id)).toEqual(["fast-forward"]);
+  expect(offered?.detail).toContain("1 behind base origin/main");
+
+  // A second base commit within the window is not fetched: one fetch per repository per window,
+  // not one per poll. (Turnover below is driven by the override, not by waiting out the clock.)
+  await pushToBase(origin, other, "later.txt");
+  const secondTip = (await runSh(["git", "rev-parse", "main"], other)).stdout.trim();
+  expect((await card())[0]?.detail).toContain("1 behind base origin/main");
+  expect((await runSh(["git", "rev-parse", "origin/main"], repo)).stdout.trim()).toBe(pushedTip);
+
+  await withEnv({ CORVI_CARD_FETCH_MS: "1" }, async () => {
+    // The window is a millisecond now; let it pass so the next read fetches again.
+    await Bun.sleep(5);
+    await card();
+    expect(
+      await until(
+        () => runSh(["git", "rev-parse", "origin/main"], repo).then((result) => result.stdout.trim()),
+        secondTip,
+      ),
+    ).toBe(secondTip);
+    expect((await card())[0]?.detail).toContain("2 behind base origin/main");
+  });
+});
+
+test("the card's background fetch runs with the change's workspace env", async () => {
+  const git = (await import("../apps/server/src/integrations/git/index.ts")).default;
+  const repo = await gitRepo(tmp, "ws-env-fetch", { remote: true });
+  const origin = join(tmp, "ws-env-fetch.git");
+  const other = join(tmp, "ws-env-fetch-other");
+  // The origin URL is deliberately unusable; only the workspace's env (a global git config with
+  // a URL rewrite) can resolve it. `env` is how a workspace supplies git credentials, so a
+  // background fetch without it would fail silently and Fast-forward would never appear.
+  const configPath = join(tmp, "ws-env-fetch.gitconfig");
+  await Bun.write(
+    configPath,
+    `[url "file://${origin}"]\n\tinsteadOf = https://unreachable.example/ws-env-fetch.git\n`,
+  );
+  const workspace = { id: "ws-env", name: "ws-env", settings: { env: { GIT_CONFIG_GLOBAL: configPath } } };
+  await withRuntimeConfig({ workspaces: [workspace] }, async () => {
+    const change = await runEffect(
+      createChange({
+        id: "PROJ-WSENV",
+        branch: "PROJ-WSENV-work",
+        workspace: "ws-env",
+        checkouts: checkoutsOf([repo]),
+      }),
+    );
+    await Effect.runPromise(provisionRepositories(change));
+    await runSh(["git", "remote", "set-url", "origin", "https://unreachable.example/ws-env-fetch.git"], repo);
+    await pushToBase(origin, other, "later.txt");
+    const pushedTip = (await runSh(["git", "rev-parse", "main"], other)).stdout.trim();
+
+    const card = (): Promise<{ actions?: { id: string }[] }[]> =>
+      runEffect(git.cards[0]!.repoStatus!(change, repo));
+    await card();
+    const landed = await until(
+      () => runSh(["git", "rev-parse", "origin/main"], repo).then((result) => result.stdout.trim()),
+      pushedTip,
+    );
+    expect(landed).toBe(pushedTip);
+    expect((await card())[0]?.actions?.map((action) => action.id)).toEqual(["fast-forward"]);
+  });
+});
+
+test("the card's default-branch read agrees with the policy's when no remote names one", async () => {
+  // No remote means no `origin/HEAD` at all, so both reads have to fall back to the local default
+  // branch — and a fetch cannot recreate the metadata in between. The card's read and the one
+  // provisioning used must name the same ref.
+  const repo = await gitRepo(tmp, "no-origin-head", {});
+  const change = await runEffect(
+    createChange({ id: "PROJ-NOHEAD", branch: "PROJ-NOHEAD-work", checkouts: checkoutsOf([repo]) }),
+  );
+  await Effect.runPromise(provisionRepositories(change));
+  const entry = (await Effect.runPromise(entryFor(change, repo)))!;
+  expect(entry.base_state?.base).toBe("main");
+  // The worktree was cut from `main` by the capability's read: the same branch the card names.
+  expect((await runEffect(checkoutFor(change, repo))) !== undefined).toBe(true);
+  const mergeBase = (await runSh(["git", "merge-base", change.branch, "main"], repo)).stdout.trim();
+  const mainTip = (await runSh(["git", "rev-parse", "main"], repo)).stdout.trim();
+  expect(mergeBase).toBe(mainTip);
+});
+
+test("the merged proof follows the branch's target, not the repository default", async () => {
+  const repo = await gitRepo(tmp, "target-proof", { remote: true });
+  // A release branch beside main: this change's work lands there, not on the default branch.
+  await runSh(["git", "checkout", "-q", "-b", "release"], repo);
+  await Bun.write(join(repo, "release.txt"), "release\n");
+  await runSh(["git", "add", "."], repo);
+  await commitIn(repo, "the release branch");
+  await runSh(["git", "push", "-q", "-u", "origin", "release"], repo);
+  await runSh(["git", "checkout", "-q", "main"], repo);
+  const change = await runEffect(
+    createChange({
+      id: "PROJ-TARGETPROOF",
+      branch: "PROJ-TARGETPROOF-work",
+      checkouts: [{ path: repo, location: "new", branch: { kind: "change" }, base: "release" }],
+    }),
+  );
+  await Effect.runPromise(provisionRepositories(change));
+  const worktree = (await runEffect(checkoutFor(change, repo)))!;
+  await Bun.write(join(worktree, "work.txt"), "the work\n");
+  await runSh(["git", "add", "."], worktree);
+  await commitIn(worktree, "the work");
+
+  // The work reaches main, but the change's target is release: measuring against the repository
+  // default would call this merged; the branch's own landing ref says otherwise.
+  await runSh(["git", "merge", "-q", "--no-ff", "-m", "land it on main", change.branch], repo);
+  await runSh(["git", "push", "-q", "origin", "main"], repo);
+  const notMerged = (await Effect.runPromise(entryFor(change, repo)))!;
+  expect(notMerged.main_state).toBe("diverged");
+  expect((await Effect.runPromise(repoItem(change, repo))).detail).not.toContain("merged");
+
+  // It lands in release, the branch's actual target.
+  await runSh(["git", "checkout", "-q", "release"], repo);
+  await runSh(["git", "merge", "-q", "--no-ff", "-m", "land it on release", change.branch], repo);
+  await runSh(["git", "checkout", "-q", "main"], repo);
+  const merged = (await Effect.runPromise(entryFor(change, repo)))!;
+  expect(merged.main_state).toBe("integrated");
+  expect((await Effect.runPromise(repoItem(change, repo))).detail).toContain("merged");
+});
+
+test("a repos edit decided on a stale read cannot revert the phase", async () => {
+  const { patchChange } = await import("../apps/server/src/change/routes.ts");
+  const first = await gitRepo(tmp, "repos-race-a", { remote: true });
+  const second = await gitRepo(tmp, "repos-race-b", { remote: true });
+  const change = await runEffect(
+    createChange({
+      id: "PROJ-REPOSRACE",
+      state: "Ideation",
+      branch: "PROJ-REPOSRACE-x",
+      checkouts: checkoutsOf([first]),
+    }),
+  );
+  await Effect.runPromise(provisionRepositories(change));
+  const observed = (await runEffect(readChange(change.id)))!;
+  // The phase changes after the repos edit read the record.
+  const started = await runEffect(patchChange(observed, { state: "Implementation" }));
+  expect(started.startedAt).toBeDefined();
+
+  const result = await runEffect(setRepos(observed, checkoutsOf([second])).pipe(Effect.result));
+  expect(Result.isFailure(result)).toBe(true);
+  if (Result.isFailure(result)) expect(result.failure._tag).toBe("ChangeConflict");
+
+  // The phase and its `startedAt` stand, the repository list is unchanged, and nothing was torn
+  // down before the write was refused.
+  const after = (await runEffect(readChange(change.id)))!;
+  expect(after.state).toBe("Implementation");
+  expect(after.startedAt).toBe(started.startedAt);
+  expect(after.checkouts?.map((spec) => spec.path)).toEqual([first]);
+  expect((await lstat(join(changeDir(after), basename(first)))).isDirectory()).toBe(true);
+});
+
+test("a change branch whose target is its own remote name proves nothing", async () => {
+  const repo = await gitRepo(tmp, "target-self-change", { remote: true });
+  const branch = "PROJ-TARGETSELFCHANGE-work";
+  const change = await runEffect(
+    createChange({
+      id: "PROJ-TARGETSELFCHANGE",
+      branch,
+      checkouts: [
+        {
+          path: repo,
+          location: "new",
+          branch: { kind: "change" },
+          // A push makes `origin/<branch>` exist; treating it as the landing ref would compare
+          // the branch with its own remote tip and call it merged.
+          target: `origin/${branch}`,
+        },
+      ],
+    }),
+  );
+  await Effect.runPromise(provisionRepositories(change));
+  const worktree = (await runEffect(checkoutFor(change, repo)))!;
+  await Bun.write(join(worktree, "work.txt"), "the work\n");
+  await runSh(["git", "add", "."], worktree);
+  await commitIn(worktree, "the work");
+  await runSh(["git", "push", "-q", "-u", "origin", branch], worktree);
+
+  const entry = (await Effect.runPromise(entryFor(change, repo)))!;
+  expect(entry.main_state).toBeUndefined();
+  expect((await Effect.runPromise(repoItem(change, repo))).detail).not.toContain("merged");
+});
+
+test("a branch whose target is its own counterpart proves nothing", async () => {
+  const repo = await gitRepo(tmp, "target-self", { remote: true });
+  await runSh(["git", "checkout", "-q", "-b", "feature"], repo);
+  await Bun.write(join(repo, "feature.txt"), "feature\n");
+  await runSh(["git", "add", "."], repo);
+  await commitIn(repo, "feature work");
+  await runSh(["git", "push", "-q", "-u", "origin", "feature"], repo);
+  await runSh(["git", "checkout", "-q", "main"], repo);
+  const change = await runEffect(
+    createChange({
+      id: "PROJ-TARGETSELF",
+      checkouts: [
+        {
+          path: repo,
+          location: "new",
+          branch: { kind: "existing", name: "feature" },
+          // The branch names its own remote counterpart as the target: comparing it with itself
+          // would always read "merged" for work that never left.
+          target: "origin/feature",
+        },
+      ],
+    }),
+  );
+  await Effect.runPromise(provisionRepositories(change));
+  const entry = (await Effect.runPromise(entryFor(change, repo)))!;
+  expect(entry.main_state).toBeUndefined();
+  expect((await Effect.runPromise(repoItem(change, repo))).detail).not.toContain("merged");
+});
+
+test("an in-place checkout on its expected branch offers Fast-forward too", async () => {
+  const repo = await gitRepo(tmp, "ff-inplace-repo", { remote: true });
+  const change = await runEffect(
+    createChange({
+      id: "PROJ-FFINPLACE",
+      branch: "PROJ-FFINPLACE-work",
+      checkouts: [{ path: repo, location: "original" as const, branch: { kind: "change" as const } }],
+    }),
+  );
+  await Effect.runPromise(provisionRepositories(change));
+  expect((await Effect.runPromise(repoItem(change, repo))).actions ?? []).toEqual([]);
+
+  await pushToBase(join(tmp, "ff-inplace-repo.git"), join(tmp, "ff-inplace-other"), "later.txt");
+  await runSh(["git", "fetch", "-q", "origin"], repo);
+  const offered = await Effect.runPromise(repoItem(change, repo));
+  expect(offered.actions?.map((action) => action.id)).toEqual(["fast-forward"]);
+
+  await Effect.runPromise(gitRun(change, "fast-forward", repo));
+  const tip = (await runSh(["git", "rev-parse", "HEAD"], repo)).stdout.trim();
+  const baseTip = (await runSh(["git", "rev-parse", "origin/main"], repo)).stdout.trim();
+  expect(tip).toBe(baseTip);
+  expect((await Effect.runPromise(repoItem(change, repo))).actions ?? []).toEqual([]);
+
+  // Uncommitted work is a refusal even when the base moved: the action never advances under
+  // local edits, whether or not git would let the files it updates alone.
+  await pushToBase(join(tmp, "ff-inplace-repo.git"), join(tmp, "ff-inplace-other"), "later.txt");
+  await Bun.write(join(repo, "README.md"), "my unsaved edit\n");
+  await expect(Effect.runPromise(gitRun(change, "fast-forward", repo))).rejects.toThrow(
+    /uncommitted changes/,
+  );
+  expect((await runSh(["git", "rev-parse", "HEAD"], repo)).stdout.trim()).toBe(tip);
+  expect(await Bun.file(join(repo, "README.md")).text()).toBe("my unsaved edit\n");
+});
+
+test("the capability store and the app store serialize on the one record lock", async () => {
+  const change = await runEffect(createChange({ id: "PROJ-LOCKRACE", state: "Ideation" }));
+  const observed = (await runEffect(readChange(change.id)))!;
+  const expected = observed.revision ?? 0;
+  // Two writers, both decided on the same revision: the capability store's patch and the app
+  // store's conditional write. The process-wide record lock is what makes the pair one winner
+  // and one loser, not the revision check alone.
+  const capabilityPatch = Effect.gen(function* () {
+    const store = yield* ChangeStore;
+    return yield* store.patch(ChangeId.make(change.id), {
+      phase: "Verification",
+      expectedRevision: expected,
+    });
+  }).pipe(Effect.provide(storeLayer({ roots: changePairs() })));
+  const appWrite = writeChangeAt({ ...observed, title: "the app store won" }, expected);
+  const results = await Effect.runPromise(
+    Effect.all([Effect.result(capabilityPatch), Effect.result(appWrite)], { concurrency: "unbounded" }),
+  );
+  expect(results.filter((result) => result._tag === "Success")).toHaveLength(1);
+  const loser = results.find((result) => result._tag === "Failure");
+  expect(loser !== undefined && loser._tag === "Failure" ? loser.failure._tag : "").toBe("ChangeConflict");
+
+  // Exactly one edit landed, on the revision the winner wrote.
+  const after = (await runEffect(readChange(change.id)))!;
+  expect([after.state === "Verification", after.title === "the app store won"].filter(Boolean)).toHaveLength(
+    1,
+  );
+  expect(after.revision).toBe(expected + 1);
 });

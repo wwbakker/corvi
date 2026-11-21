@@ -1,7 +1,6 @@
 import { type JSX, useEffect, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
 import {
-  isIdeation,
   type ChangeState,
   type Change,
   type Completion,
@@ -20,7 +19,7 @@ import { CheatSheet } from "../../terminals/client/CheatSheet.tsx";
 import type { Platform } from "@corvi/terminals/model";
 import { CompleteAnywayDialog } from "./CompleteAnywayDialog.tsx";
 import { CancelDialog } from "./CancelDialog.tsx";
-import { forceQuestion, completionRefusal } from "./refusals.ts";
+import { forceQuestion, completionRefusal, isConflict } from "./refusals.ts";
 import { WindowTabs } from "../../terminals/client/WindowTabs.tsx";
 import type { Page } from "../../app-root/Sidebar.tsx";
 import { changeNav, resolveChangePage, type ChangeTabInfo } from "./changeTabs.ts";
@@ -120,7 +119,6 @@ export function ChangeView({
   const [widgets, setWidgets] = useCached<WidgetInfo[]>(`${cacheKey}:widgets`);
   const [completion, setCompletion] = useCached<Completion>(`${cacheKey}:completion`);
   const [completing, setCompleting] = useState(false);
-  const [starting, setStarting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [reopening, setReopening] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -142,9 +140,6 @@ export function ChangeView({
   // The refusal behind the override dialog: fresh, from the server, not the poll. Null when
   // no dialog is open.
   const [refusal, setRefusal] = useState<CompletionRefusal | null>(null);
-  // Whether this change is still an idea: its state is set by creation and left by starting, so
-  // the select shows the one word and the actions carry the transition.
-  const idea = change ? isIdeation(change) : false;
   // A finished change has a Transcripts tab: the agent sessions kept when it was archived.
   const finished = change ? isFinished(change) : false;
 
@@ -207,8 +202,8 @@ export function ChangeView({
     setChange(updated);
     onChanged();
     setGeneration((g) => g + 1);
-    // An edit provisions its new checkouts too; what they reported is the same banner a start
-    // leaves behind.
+    // An edit provisions its new checkouts too; what they reported is the same banner a
+    // checkout run leaves behind.
     if (provision?.length) setAfter([...provision]);
   };
 
@@ -246,26 +241,6 @@ export function ChangeView({
         setError(failureMessage(e));
       })
       .finally(() => setCompleting(false));
-  };
-
-  /**
-   * Start an idea's work: the state moves to In Progress, and the server's start hooks create
-   * the checkouts and move the ticket. The terminal stays where it is — the change directory and
-   * its agent session are unchanged, so the conversation continues.
-   */
-  const startWork = (): void => {
-    setStarting(true);
-    setError(null);
-    client.changes
-      .start(ChangeId.make(id))
-      .then(({ change: updated, provision }) => {
-        setChange(updated);
-        setGeneration((g) => g + 1);
-        setAfter(provision);
-        onChanged();
-      })
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setStarting(false));
   };
 
   // The cancel dialog's state: null when closed, otherwise what would be discarded — empty
@@ -343,6 +318,21 @@ export function ChangeView({
       .finally(() => setReopening(false));
   };
 
+  /** A conflict means this page's snapshot is stale: re-read the record that won, so the next
+   * click is decided on it rather than confusing the user with a second refusal. */
+  const refetchAfterConflict = (e: unknown): void => {
+    if (!isConflict(e)) return;
+    client.changes
+      .read(ChangeId.make(id))
+      .then((reread) => {
+        setChange(reread);
+        // The cards and the completion poll are decided on the same snapshot: a conflict means
+        // they are stale too.
+        setGeneration((g) => g + 1);
+      })
+      .catch(() => {}); // the banner already says what happened
+  };
+
   /** The name field's blur: a name the ticket suggested is not a fact — renaming it stops it
    * being refreshed from Jira, and clearing it hands the name back. */
   const commitRename = (next: string): void => {
@@ -357,32 +347,45 @@ export function ChangeView({
         setChange(updated);
         onChanged();
       })
-      .catch((e: Error) => setError(failureMessage(e)));
+      .catch((e: unknown) => {
+        setError(failureMessage(e));
+        refetchAfterConflict(e);
+      });
   };
 
-  /** The state select: your own view of where the change stands. */
+  // One phase write at a time: a second click arrives with the snapshot the first is about to
+  // replace, and would be refused for no reason the user can see.
+  const [moving, setMoving] = useState(false);
+
+  /** The state select: your own view of where the change stands. Leaving `Ideation` is where the
+   * ticket moves, so the cards re-read the world afterwards — the Jira card would otherwise show
+   * a ticket that has already moved. */
   const moveTo = (state: ChangeState): void => {
     // The select is disabled while blocked; this is the same rule at the handler, so a programmatic
     // or stale event cannot make the write.
-    if (blocked) return;
+    if (blocked || moving) return;
+    setMoving(true);
     client.changes
       .rename(ChangeId.make(id), { state })
       .then((updated) => {
         setChange(updated);
+        setGeneration((g) => g + 1);
         onChanged(); // the navigation column and the overview list states too
       })
-      .catch((e: Error) => setError(failureMessage(e)));
+      .catch((e: unknown) => {
+        setError(failureMessage(e));
+        refetchAfterConflict(e);
+      })
+      .finally(() => setMoving(false));
   };
 
   const actions = changeActions({
-    idea,
-    starting,
     completing,
+    moving,
     cancelling,
     completion,
     blocked,
     onRename: () => setDraft(change?.title ?? ""),
-    onStart: startWork,
     onCopyDescription: copyDescription,
     onComplete: () => complete(),
     onCancel: () => cancel(),
@@ -473,7 +476,6 @@ export function ChangeView({
       <div className="change-chrome">
         <ChangeControls
           change={change}
-          idea={idea}
           blocked={blocked}
           actions={[...actions, ...terminalActions.actions]}
           onActionsOpen={terminalActions.refresh}
@@ -481,6 +483,7 @@ export function ChangeView({
           onDraft={setDraft}
           onRename={commitRename}
           onState={moveTo}
+          moving={moving}
           reopening={reopening}
           onReopen={reopen}
         />
@@ -506,7 +509,6 @@ export function ChangeView({
       {cancelWarning !== null && (
         <CancelDialog
           changeId={id}
-          idea={idea}
           reasons={cancelWarning}
           acked={cancelAcked}
           busy={cancelling}

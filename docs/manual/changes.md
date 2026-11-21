@@ -43,11 +43,30 @@ wizard asks that server for its plan template, issue boards and repositories, an
 creates the change there — its terminals, its checkouts, its integrations — opening on its plan
 just like a local one. See [workspaces](configuration.md#workspaces).
 
-**Start work** is the transition out of `Ideation`: it moves the state to `Implementation`,
-brings every checkout up to date, and moves associated tickets (a backlog ticket comes onto the
-active sprint). It never blocks on the checkouts: a partial failure or a refresh that could not
-fast-forward is reported on the existing change so it can be addressed rather than losing the
-record.
+`Ideation` is an ordinary phase: pick `Implementation`, `Verification` or `Blocked` from the
+state menu to leave it, and pick `Ideation` again to come back. The **first** departure from
+`Ideation` is what starts the work: the associated ticket moves to its start status (a backlog
+ticket comes onto the active sprint). The change records that moment (`startedAt`), so moving
+back to `Ideation` and out again is a plain phase change — the ticket is not reassigned and an
+advanced ticket is not pulled back.
+
+The ticket move is never fatal: a slow or failing ticket system does not hold up the phase
+change — the record is written before the move is attempted — but the phase change's response
+does wait for it, so a slow Jira makes that one click slow. A failure is a line in the server log
+rather than a message on the page — the phase change stands, and the ticket is yours to correct
+from the Jira card. A change created directly in a
+working phase (rather than moved out of `Ideation`) never runs the start transition, so its ticket
+stays in whatever status it already had.
+
+Checkouts are not brought up to date by a phase change. The **Local changes** card offers
+**Fast-forward** on a repository row when that checkout is clean, has no commits of its own, and
+is behind the same ref the checkout policy advances to — the selected branch's remote counterpart
+for an existing branch, the base (or the repository's own default branch) for a new one. The
+action fetches first and then fast-forwards only, so it never rewrites a branch and never runs
+over uncommitted work; it advances the checkout that is there and never creates one. The card
+itself refreshes its repositories in the background at most once every five minutes (one fetch
+per repository per window, never waited on by the page), so a checkout that fell behind while the
+change sat shows the action on the next poll rather than only after a manual fetch.
 
 ## Repositories and checkouts
 
@@ -80,9 +99,10 @@ Which branch it uses:
 Two branch questions per repository, split on purpose:
 
 - **Starts from** (`base`) — where a new branch grows out of. Offered for *New branch* only.
-- **Merges into** (`target`) — what a pull request targets. Offered for every row; another
-  change's branch makes a stacked pull request. Unset means the repository's default. A record
-  written before the split has one field serving both, and keeps meaning both.
+- **Merges into** (`target`) — what a pull request targets, and the ref the dashboard measures
+  "merged" against. Offered for every row; another change's branch makes a stacked pull request.
+  Unset means the base, and then the repository's default. A record written before the split has
+  one field serving both, and keeps meaning both.
 
 Freshness is checked twice. Existing branches refresh from their selected remote ref or upstream;
 new branches use the chosen base. Corvi fetches the relevant remote before it creates or moves
@@ -90,8 +110,9 @@ anything — a fetch that will not answer stops that repository's checkout and i
 nothing is made from refs that may
 be stale — and it only ever fast-forwards a branch, never resets or rebases one. Where the base
 moved on and the branch has commits of its own, the checkout is left exactly as it is and the
-row says why. The check runs at creation and again at **Start work**, which is what brings an
-idea's checkout up to the base commits that landed while it sat.
+row says why. The check runs at creation, on a repository edit, and when the **Local changes**
+card's **Fast-forward** action is used — which is how a checkout picks up the base commits that
+landed while the change sat.
 
 A retry does not automatically repair a worktree that is detached or has been switched away from
 its expected branch. Inspect and preserve any work first, then explicitly switch to the intended
@@ -171,9 +192,16 @@ Blocked
 Ideas are grouped separately; active work is ordered by state and then newest first. Finished
 changes are listed separately as `Completed` or `Cancelled` and remain readable.
 
-State is chosen by the user rather than derived from ticket or pull-request status. `Ideation`
-is entered on creation and left through **Start work**, not the ordinary state selector.
-A record without a state is treated as `Implementation`.
+State is chosen by the user rather than derived from ticket or pull-request status. Every manual
+phase — `Ideation` included — moves to every other from the state menu; `Completed` and
+`Cancelled` are reached only by completing or cancelling. A record without a state is treated as
+`Implementation`.
+
+Each edit is written only onto the revision the server read for that request. If another write
+lands between that read and the edit's write — the lifecycle finishing the change, a title
+refresh or a background title refresh — the edit is refused with a conflict instead of
+overwriting it: reload and make the edit again. Edits made one after another do not conflict; the
+second reads the result of the first.
 
 A change's title can come from its associated issue. Provider failures leave the last stored title
 intact. Renaming through the change's Actions menu makes the title user-owned; clearing the edit
@@ -183,8 +211,9 @@ allows automatic naming again. Archived records retain their names.
 
 `change.json` holds the change's name, state, and one checkout spec per repository — where its
 checkout lives, which branch it uses, and what that branch starts from and merges into (see
-[Repositories and checkouts](#repositories-and-checkouts)). The record carries the format's
-version in `formatVersion`.
+[Repositories and checkouts](#repositories-and-checkouts)). Once the change first leaves
+`Ideation`, the record also holds `startedAt`: when its work began, which is what keeps the ticket
+move to one time. The record carries the format's version in `formatVersion`.
 
 Corvi upgrades the record in place: a record from before the format version is converted on its
 next read, and one written by a newer Corvi is opened read-only — every write is refused with an
@@ -244,7 +273,7 @@ The record remembers the state it was cancelled from (`cancelledFrom`).
 A cancelled change shows **Reopen** beside its badge. Reopening moves its directory back from the
 archive into its changes root, returns it to the state it was cancelled from (`Implementation`
 for a change cancelled before that was recorded), makes its worktrees again through the same
-checkout run creation and **Start work** use — the kept branch is attached, a deleted one is
+checkout run creation and a repository edit use — the kept branch is attached, a deleted one is
 created again from its base, and nothing is rebased — and applies the shelf cancelling made in
 each repository. A shelf that does not apply cleanly keeps its conflict markers and stays in the
 **Shelves** list; one whose checkout could not be made waits there too. The page says which.

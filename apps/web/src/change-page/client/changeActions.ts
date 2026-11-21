@@ -5,18 +5,17 @@ import type { Completion } from "../../app-root/api.ts";
 const UNAVAILABLE_REASON = "Unavailable: this workspace cannot be reached";
 
 /**
- * The change's actions menu: what it is called, how the work starts, and — last and apart — the
- * two ways a change ends. Everything above the endings is reversible. An idea has a third —
- * starting the work — which is the only way out of `Ideation` and the reason it is an action
- * rather than a word the state select offers.
+ * The change's actions menu: what it is called, and — last and apart — the two ways a change
+ * ends. Everything above the endings is reversible, and every change that is not finished gets
+ * the same menu, whichever phase it is in.
  *
  * Pure: the words, the order and the rules live here, and the page says what clicking one does.
  */
 export function changeActions(spec: {
-  /** Whether this change is still an idea: its endings are then Discard, not Complete and Cancel. */
-  idea: boolean;
-  starting: boolean;
   completing: boolean;
+  /** A phase write is in flight: its answer decides whether completing is even possible, so the
+   * completion waits for it rather than racing it. */
+  moving?: boolean;
   cancelling: boolean;
   /** The last readiness poll, for the hover: the click re-checks fresh, so this is orientation,
    * not the decision. */
@@ -26,12 +25,11 @@ export function changeActions(spec: {
    * this — only the calls are held back. */
   blocked?: boolean;
   onRename: () => void;
-  onStart: () => void;
   onCopyDescription: () => void;
   onComplete: () => void;
   onCancel: () => void;
 }): Action[] {
-  const { idea, starting, completing, cancelling, completion, blocked } = spec;
+  const { completing, moving, cancelling, completion, blocked } = spec;
   // Renaming sits in the menu rather than on the name itself: the row the name is in is the
   // window's title bar in the app, and a button there would be a hole in the region you drag
   // the window by (docs/manual/interface.md).
@@ -40,41 +38,24 @@ export function changeActions(spec: {
     title: "A name of your own; the ticket's summary is only a suggestion",
     onSelect: spec.onRename,
   };
-  const actions: Action[] = idea
-    ? [
-        rename,
-        {
-          label: starting ? "Starting…" : "Start work",
-          disabled: starting,
-          title: "Leave Ideation: create the worktrees and move the ticket",
-          onSelect: spec.onStart,
-        },
-        {
-          label: cancelling ? "Discarding…" : "Discard idea",
-          separated: true,
-          disabled: cancelling || starting,
-          title: "Archive this idea as cancelled; nothing was created",
-          onSelect: spec.onCancel,
-        },
-      ]
-    : [
-        rename,
-        { label: "Copy PR description", onSelect: spec.onCopyDescription },
-        {
-          label: completing ? "Completing…" : "Complete change",
-          disabled: completing,
-          title: completion?.ready
-            ? "Ready to complete"
-            : completion?.reasons.join("\n") || "Check whether the change is ready",
-          onSelect: spec.onComplete,
-        },
-        {
-          label: cancelling ? "Cancelling…" : "Cancel change",
-          disabled: cancelling || completing,
-          title: "Abandon this change: the worktrees go, nothing is merged",
-          onSelect: spec.onCancel,
-        },
-      ];
+  const actions: Action[] = [
+    rename,
+    { label: "Copy PR description", onSelect: spec.onCopyDescription },
+    {
+      label: completing ? "Completing…" : "Complete change",
+      disabled: completing || moving === true,
+      title: completion?.ready
+        ? "Ready to complete"
+        : completion?.reasons.join("\n") || "Check whether the change is ready",
+      onSelect: spec.onComplete,
+    },
+    {
+      label: cancelling ? "Cancelling…" : "Cancel change",
+      disabled: cancelling || completing,
+      title: "Abandon this change: the worktrees go, nothing is merged",
+      onSelect: spec.onCancel,
+    },
+  ];
   // Unavailable: the actions stay named and explain themselves, but none runs. The gate would
   // refuse it anyway; disabling with the reason is what keeps the click from looking like it did
   // nothing. The reason joins the action's own hover text rather than replacing it.

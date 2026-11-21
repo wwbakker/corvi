@@ -17,7 +17,7 @@ transport boundary.
 
 - `@corvi/contracts/paths`: `AbsolutePath`
 - `@corvi/contracts/changes`: `Change`, phases, `ChangeId`, repository link values
-- `@corvi/contracts/api`: `RepositoryView`/`StartOutcome` and the change record/page wire schemas
+- `@corvi/contracts/api`: `RepositoryView` and the change record/page wire schemas
   (`ChangeWireSchema`, summary, cards, tabs, widgets, repo states, text, settings view — including
   the external listener's `RemoteAccessStatus` — workspaces, and the remote-workspace pairing
   helper: `PairRemoteWorkspaceRequest`/`Response` and `RemoteWorkspaceRef`)

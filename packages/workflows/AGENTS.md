@@ -3,9 +3,10 @@
 ## Owns
 
 Application operations that compose capabilities: `inspectChangeRepositories`, the one checkout
-policy (`provisionRepository`, `provisionChange`), `startChange`, the change lifecycle
-(`assessCompletion`, `completeChange`, `assessCancellation`, `cancelChange`, `reopenChange`) with
-its provider ports and journaling, and shelving (`ChangeShelves`).
+policy (`provisionRepository`, `provisionChange`) and its freshness-only form
+(`refreshRepository`, the Local changes card's Fast-forward), the change lifecycle (`assessCompletion`,
+`completeChange`, `assessCancellation`, `cancelChange`, `reopenChange`) with its provider ports
+and journaling, and shelving (`ChangeShelves`).
 
 ## Does not own
 
@@ -34,10 +35,11 @@ and `effect`.
 - Checkout runs are serialized per change by the exported `withCheckoutLock` (process-wide),
   which every server checkout operation holds for its whole critical section; the policy itself
   does not take it, and callers must.
-- `startChange` persists `Implementation` before provisioning, continues past a failed repository,
-  and returns `PartiallyStarted` with the failures rather than losing them. A refresh that could
-  not fast-forward reports `LeftAlone` and never blocks the transition; a checkout not on its
-  expected branch is a provisioning failure.
+- A failed repository stays in the run's outcome rather than stopping it. A refresh that could
+  not fast-forward reports `LeftAlone`; a checkout not on its expected branch is a provisioning
+  failure and is never refreshed.
+- `refreshRepository` is the freshness half on its own: it fetches, then fast-forwards only, and
+  never creates or switches a checkout. A dirty checkout is left alone before the fetch.
 - The checkout-method enum is mapped here, not in the capabilities.
 - Lifecycle operations are serialized per change (`ChangeOperationInProgress`); acknowledgements
   are facts, not `force: true`; destructive steps recheck before acting; only Corvi-created

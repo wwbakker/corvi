@@ -138,7 +138,8 @@ session — and then to the nearest `change.json` at or above the working direct
 `corvi change create <id> --title <title> [--branch <name>] [--workspace <id>]` makes an
 `Ideation` change, with the title required; `--workspace` picks the workspace whose changes root
 the recipe's `PLAN.md` path names. Its response prints the next steps: write the change's
-`PLAN.md`, add repositories, then `change start`. Every `corvi` command in that recipe carries
+`PLAN.md`, add repositories, then `change phase Implementation`. Every `corvi` command in that
+recipe carries
 `--change <id>`, because the creating session usually belongs to a different change. `corvi change
 repository` gives a change its checkouts: `repository list` shows them and the names `remove`
 takes; `add <path>` takes `--location new|original`, `--branch change|current|existing` (an

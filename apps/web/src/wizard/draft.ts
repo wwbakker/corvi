@@ -150,7 +150,8 @@ export function toChangeDraft(draft: Draft, workspace?: string): ChangeDraft & {
     // ticket's summary. The core marks a named change's title the user's (titleEdited), so no
     // title source overwrites the heading's words later.
     ...(firstHeading(draft.plan) ? { title: firstHeading(draft.plan) } : {}),
-    // The wizard makes an idea: the work (branch, worktree, ticket) starts later, from its page.
+    // The wizard makes an idea: its checkouts are cut at creation, and the ticket moves when
+    // the change is taken out of Ideation — both from its page.
     state: "Ideation",
     // The starting text of PLAN.md, then the agent's and yours to shape.
     plan: draft.plan,

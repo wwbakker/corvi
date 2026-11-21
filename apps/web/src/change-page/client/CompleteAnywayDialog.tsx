@@ -38,9 +38,9 @@ export function CompleteAnywayDialog({
     setAcked(refusal.reasons.map(() => false));
   }, [refusal]);
 
-  // Hard reasons refuse outright, even with force: uncommitted work exists nowhere else, and
-  // an idea is left by starting, not by completing. The dialog then says why rather than
-  // offering a button that cannot work.
+  // Hard reasons refuse outright, even with force: uncommitted work exists nowhere else, and a
+  // provider fact no acknowledgement changes. The dialog then says why rather than offering a
+  // button that cannot work.
   const hard = refusal.reasons.filter((r) => r.kind === "hard");
   const allAcked = canCompleteAnyway(refusal.reasons, acked);
 

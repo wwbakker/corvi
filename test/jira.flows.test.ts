@@ -6,7 +6,13 @@ import { Cache, Settings } from "@corvi/contracts/capabilities";
 import type { Capabilities } from "../apps/server/src/integrations/api/capabilities.ts";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
 import { CacheLive, capabilitiesLayer } from "../apps/server/src/integrations/services.ts";
-import { createChange, readChange, writeChange } from "../apps/server/src/change/server/index.ts";
+import {
+  createChange,
+  completeChange,
+  readChange,
+  reopenChange,
+  writeChange,
+} from "../apps/server/src/change/server/index.ts";
 import { runtimeConfig, workspaceById, type Workspace } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "@corvi/changes/record";
 import jiraExtension from "@corvi/jira";
@@ -27,11 +33,11 @@ import {
   siteOfWorkspace,
   ticketOf,
 } from "@corvi/jira/jira";
-import { assignIssue, moveIssueOnStart } from "@corvi/jira";
+import { assignIssue, moveIssueOnComplete, moveIssueOnStart } from "@corvi/jira";
 import { assignTicketOnCreate, startTicket } from "../apps/server/src/change/tickets.ts";
 import { jiraFetch } from "@corvi/jira/jiraHttp";
 import { accountId } from "@corvi/jira/account";
-import { checkoutsOf, runEffect, testTempDir, failureOf } from "./helpers.ts";
+import { callGuarded, checkoutsOf, runCancel, runEffect, testTempDir, failureOf } from "./helpers.ts";
 
 /**
  * The Jira extension's server half, driven through a stubbed `fetch`. Every test states its site
@@ -1426,7 +1432,7 @@ test("the link route 404s an unknown change and refuses a body with no key", asy
 
 const ticketed = (): Change => change({ extensions: { jira: { key: "PROJ-1" } } });
 
-/** The endpoints starting work walks, scripted: the account, the assign, the status read and
+/** The endpoints the start move walks, scripted: the account, the assign, the status read and
  * transition, the backlog question, the active sprints, and the move into one. */
 const startStub = (options: {
   readonly backlog?: boolean;
@@ -1497,7 +1503,73 @@ test("creation reports a failed assignment instead of failing", async () => {
   expect(reports[0]!.error).toContain("assignee refused");
 });
 
-test("starting work takes a backlog ticket into the active sprint with the latest start date", async () => {
+test("a start move leaves a ticket that is already done alone", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  runtimeConfig().workspaces = [jiraWorkspace("done-guard-ws", { assignee: "" })];
+  stubFetch((url, init) => {
+    const method = init?.method ?? "GET";
+    if (url.pathname === "/rest/api/3/issue/PROJ-1" && method === "GET")
+      return json({ key: "PROJ-1", fields: { status: { name: "Done" }, summary: "Fix it" } });
+    if (url.pathname === "/rest/api/3/issue/PROJ-1/transitions" && method === "GET")
+      return json({ transitions: [{ id: "31", name: "Start work", to: { name: "In Progress" } }] });
+    if (url.pathname === "/rest/api/3/issue/PROJ-1/assignee" && method === "PUT") return noContent();
+    if (url.pathname === "/rest/api/3/search/jql") return json({ issues: [] });
+    if (url.pathname === "/rest/agile/1.0/board/169/sprint") return json({ values: [] });
+    return text(`unexpected ${method} ${url.pathname}`, 404);
+  });
+
+  const result = await runEffect(moveIssueOnStart(ticketed()));
+  expect(result.detail).toBe("Done · already done");
+  // Neither moved back nor reassigned: a late start move must not touch a finished ticket.
+  expect(
+    fetchCalls.some((call) => call.url.pathname.endsWith("/transitions") && call.init?.method === "POST"),
+  ).toBe(false);
+  expect(
+    fetchCalls.some((call) => call.url.pathname.endsWith("/assignee") && call.init?.method === "PUT"),
+  ).toBe(false);
+});
+
+test("a later start move does not undo a completed ticket's done move", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  runtimeConfig().workspaces = [jiraWorkspace("done-order-ws", { assignee: "" })];
+  let status = "To Do";
+  const posts: string[] = [];
+  stubFetch((url, init) => {
+    const method = init?.method ?? "GET";
+    if (url.pathname === "/rest/api/3/issue/PROJ-1" && method === "GET")
+      return json({ key: "PROJ-1", fields: { status: { name: status }, summary: "Fix it" } });
+    if (url.pathname === "/rest/api/3/issue/PROJ-1/assignee" && method === "PUT") return noContent();
+    if (url.pathname === "/rest/api/3/issue/PROJ-1/transitions" && method === "GET")
+      return json({
+        transitions: [
+          { id: "31", name: "Start work", to: { name: "In Progress" } },
+          { id: "41", name: "Done", to: { name: "Done" } },
+        ],
+      });
+    if (url.pathname === "/rest/api/3/issue/PROJ-1/transitions" && method === "POST") {
+      const id = (JSON.parse(String(init?.body)) as { transition: { id: string } }).transition.id;
+      posts.push(id);
+      status = id === "31" ? "In Progress" : id === "41" ? "Done" : status;
+      return noContent();
+    }
+    if (url.pathname === "/rest/api/3/search/jql") return json({ issues: [] });
+    if (url.pathname === "/rest/agile/1.0/board/169/sprint") return json({ values: [] });
+    return text(`unexpected ${method} ${url.pathname}`, 404);
+  });
+
+  // The completion's done move lands in the window before the record says so; the late start move
+  // must see the ticket as done and leave it there.
+  await runEffect(moveIssueOnComplete(ticketed()));
+  expect(status).toBe("Done");
+  const start = await runEffect(moveIssueOnStart(ticketed()));
+  expect(start.detail).toBe("Done · already done");
+  // Repeating the done move is a no-op, not a failure for a ticket that is already right.
+  await runEffect(moveIssueOnComplete(ticketed()));
+  expect(posts).toEqual(["41"]);
+  expect(status).toBe("Done");
+});
+
+test("leaving Ideation takes a backlog ticket into the active sprint with the latest start date", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
   runtimeConfig().workspaces = [jiraWorkspace("start-ws", { assignee: "" })];
   startStub({
@@ -1524,6 +1596,257 @@ test("starting work takes a backlog ticket into the active sprint with the lates
     (c) => c.url.pathname.endsWith("/transitions") && c.init?.method === "POST",
   )!;
   expect(JSON.parse(transition.init?.body as string)).toEqual({ transition: { id: "31" } });
+});
+
+test("leaving Ideation moves the ticket, and moving between other phases does not", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  runtimeConfig().workspaces = [jiraWorkspace("phase-ws", { assignee: "" })];
+  startStub({ sprints: [{ id: 2, name: "Sprint 2", state: "active" }] });
+  const { changeRoutes } = await import("../apps/server/src/change/routes.ts");
+  await runEffect(
+    createChange({
+      id: "PROJ-PHASE",
+      state: "Ideation",
+      workspace: "phase-ws",
+      extensions: { jira: { key: "PROJ-1" } },
+      checkouts: checkoutsOf([]),
+    }),
+  );
+  const patch = async (state: string): Promise<Response> =>
+    callGuarded(changeRoutes, "PATCH", "/api/changes/:id", {
+      params: { id: "PROJ-PHASE" },
+      body: { state },
+    });
+  const transitioned = (): boolean =>
+    fetchCalls.some((call) => call.url.pathname.endsWith("/transitions") && call.init?.method === "POST");
+
+  // Ideation leaving for *any* non-terminal phase is where the work starts: the ticket moves.
+  const blocked = await patch("Blocked");
+  expect(blocked.status).toBe(200);
+  expect(((await blocked.json()) as Change).state).toBe("Blocked");
+  expect(transitioned()).toBe(true);
+  // The departure is recorded as the durable fact that makes the move one-shot.
+  const startedAt = (await runEffect(readChange("PROJ-PHASE")))?.startedAt;
+  expect(startedAt).toBeDefined();
+
+  // Between the other manual phases the ticket stays exactly where it is.
+  fetchCalls.length = 0;
+  expect((await patch("Verification")).status).toBe(200);
+  expect(fetchCalls).toEqual([]);
+
+  // Coming back to Ideation and leaving again is a plain phase change: the ticket already
+  // started, so it is not reassigned and an advanced ticket is not dragged backwards. Asking
+  // Jira nothing at all is the strongest form of that.
+  expect((await patch("Ideation")).status).toBe(200);
+  fetchCalls.length = 0;
+  expect((await patch("Implementation")).status).toBe(200);
+  expect(fetchCalls).toEqual([]);
+  expect((await runEffect(readChange("PROJ-PHASE")))?.startedAt).toBe(startedAt!);
+});
+
+test("a PATCH that loses the race is refused and moves no ticket", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  runtimeConfig().workspaces = [jiraWorkspace("patch-race-ws", { assignee: "" })];
+  startStub({ sprints: [{ id: 2, name: "Sprint 2", state: "active" }] });
+  const { patchChange } = await import("../apps/server/src/change/routes.ts");
+  await runEffect(
+    createChange({
+      id: "PROJ-PATCHRACE",
+      state: "Ideation",
+      workspace: "patch-race-ws",
+      extensions: { jira: { key: "PROJ-1" } },
+      checkouts: checkoutsOf([]),
+    }),
+  );
+  // Both edits are decided on the same read, which is the state two concurrent PATCHes are in.
+  const observed = (await runEffect(readChange("PROJ-PATCHRACE")))!;
+  const winner = await runEffect(patchChange(observed, { state: "Implementation" }));
+  expect(winner.state).toBe("Implementation");
+  expect(winner.startedAt).toBeDefined();
+  // The answer is the record that won, carrying the revision the write gave it.
+  expect(winner.revision).toBe((observed.revision ?? 0) + 1);
+  expect((await runEffect(readChange("PROJ-PATCHRACE")))?.revision).toBe(winner.revision);
+  const afterWinner = fetchCalls.length;
+
+  const loser = await runEffect(patchChange(observed, { state: "Blocked" }).pipe(Effect.result));
+  expect(Result.isFailure(loser)).toBe(true);
+  if (Result.isFailure(loser)) {
+    expect(loser.failure._tag).toBe("ConflictError");
+    expect((loser.failure as { message: string }).message).toContain("changed since it was read");
+  }
+  // The losing edit wrote nothing and moved no ticket: no Jira call at all.
+  expect(fetchCalls.length).toBe(afterWinner);
+  const after = await runEffect(readChange("PROJ-PATCHRACE"));
+  expect(after?.state).toBe("Implementation");
+  expect(after?.startedAt).toBe(winner.startedAt);
+});
+
+test("a change created in a working phase never moves its ticket on an Ideation round-trip", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  runtimeConfig().workspaces = [jiraWorkspace("born-started-ws", { assignee: "" })];
+  startStub({ sprints: [{ id: 2, name: "Sprint 2", state: "active" }] });
+  const { patchChange } = await import("../apps/server/src/change/routes.ts");
+  const created = await runEffect(
+    createChange({
+      id: "PROJ-BORNSTARTED",
+      state: "Implementation",
+      workspace: "born-started-ws",
+      extensions: { jira: { key: "PROJ-1" } },
+      checkouts: checkoutsOf(["/repos/born-started"]),
+    }),
+  );
+  // The fact is recorded at creation: work created in a working phase has started.
+  expect(created.startedAt).toBeDefined();
+  fetchCalls.length = 0;
+
+  const idea = await runEffect(patchChange(created, { state: "Ideation" }));
+  expect(idea.state).toBe("Ideation");
+  expect(idea.startedAt).toBe(created.startedAt);
+  const working = await runEffect(patchChange(idea, { state: "Implementation" }));
+  expect(working.state).toBe("Implementation");
+  // Neither departure from Ideation asks Jira anything: the ticket is not reassigned, and an
+  // advanced one is not dragged back.
+  expect(fetchCalls).toEqual([]);
+});
+
+test("a change cancelled as an idea still moves its ticket when it finally starts", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  runtimeConfig().workspaces = [jiraWorkspace("cancel-idea-ws", { assignee: "" })];
+  startStub({ sprints: [{ id: 2, name: "Sprint 2", state: "active" }] });
+  const { patchChange } = await import("../apps/server/src/change/routes.ts");
+  const idea = await runEffect(
+    createChange({
+      id: "PROJ-CANCELIDEA",
+      state: "Ideation",
+      workspace: "cancel-idea-ws",
+      extensions: { jira: { key: "PROJ-1" } },
+      checkouts: checkoutsOf([]),
+    }),
+  );
+  const cancelled = await runCancel(idea);
+  expect("change" in cancelled).toBe(true);
+  const archived = (await runEffect(readChange("PROJ-CANCELIDEA")))!;
+  expect(archived.state).toBe("Cancelled");
+  expect(archived.cancelledFrom).toBe("Ideation");
+  expect(archived.startedAt).toBeUndefined();
+
+  // A title edit on the cancelled record must not stamp the fact: a finished record proves
+  // nothing about the work having started.
+  const renamed = await runEffect(patchChange(archived, { title: "Still just an idea" }));
+  expect(renamed.startedAt).toBeUndefined();
+
+  const reopened = await runEffect(reopenChange(renamed));
+  expect(reopened.change.state).toBe("Ideation");
+  expect(reopened.change.startedAt).toBeUndefined();
+
+  // Now the first real departure moves the ticket — exactly once.
+  fetchCalls.length = 0;
+  const started = await runEffect(patchChange(reopened.change, { state: "Implementation" }));
+  expect(started.state).toBe("Implementation");
+  const transitions = fetchCalls.filter(
+    (call) => call.url.pathname.endsWith("/transitions") && call.init?.method === "POST",
+  );
+  expect(transitions).toHaveLength(1);
+  const assigned = fetchCalls.filter(
+    (call) => call.url.pathname.endsWith("/assignee") && call.init?.method === "PUT",
+  );
+  expect(assigned).toHaveLength(1);
+});
+
+test("a start move that lands after a completion leaves the ticket in its done status", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  runtimeConfig().workspaces = [jiraWorkspace("move-race-ws", { assignee: "" })];
+  let status = "To Do";
+  const transitions: string[] = [];
+  let startPosted!: () => void;
+  const startInFlight = new Promise<void>((resolve) => {
+    startPosted = resolve;
+  });
+  let releaseStart!: () => void;
+  const startHeld = new Promise<void>((resolve) => {
+    releaseStart = resolve;
+  });
+  stubFetch((url, init) => {
+    const method = init?.method ?? "GET";
+    if (url.pathname === "/rest/api/3/myself") return json({ accountId: "acc-me" });
+    if (url.pathname === "/rest/api/3/issue/PROJ-1/assignee" && method === "PUT") return noContent();
+    if (url.pathname === "/rest/api/3/issue/PROJ-1" && method === "GET")
+      return json({ key: "PROJ-1", fields: { status: { name: status }, summary: "Fix it" } });
+    if (url.pathname === "/rest/api/3/issue/PROJ-1/transitions" && method === "GET")
+      return json({
+        transitions: [
+          { id: "31", name: "Start work", to: { name: "In Progress" } },
+          { id: "41", name: "Done", to: { name: "Done" } },
+        ],
+      });
+    if (url.pathname === "/rest/api/3/issue/PROJ-1/transitions" && method === "POST") {
+      const id = (JSON.parse(String(init?.body)) as { transition: { id: string } }).transition.id;
+      transitions.push(id);
+      if (id === "31") {
+        // The start move is in flight; the completion's done move lands while it is held.
+        startPosted();
+        return startHeld.then(() => {
+          status = "In Progress";
+          return noContent();
+        });
+      }
+      status = id === "41" ? "Done" : status;
+      return noContent();
+    }
+    if (url.pathname === "/rest/api/3/search/jql") return json({ issues: [] });
+    if (url.pathname === "/rest/agile/1.0/board/169/sprint") return json({ values: [] });
+    return text(`unexpected ${method} ${url.pathname}`, 404);
+  });
+  const { patchChange } = await import("../apps/server/src/change/routes.ts");
+  const idea = await runEffect(
+    createChange({
+      id: "PROJ-MOVERACE",
+      state: "Ideation",
+      workspace: "move-race-ws",
+      extensions: { jira: { key: "PROJ-1" } },
+      checkouts: checkoutsOf([]),
+    }),
+  );
+  const observed = (await runEffect(readChange("PROJ-MOVERACE")))!;
+  const moving = runEffect(patchChange(observed, { state: "Implementation" }));
+  await startInFlight;
+  // The phase write landed; the ticket move is still in flight. A completion lands meanwhile.
+  const current = (await runEffect(readChange("PROJ-MOVERACE")))!;
+  expect(current.state).toBe("Implementation");
+  const completed = await runEffect(completeChange(current));
+  expect(completed._tag).toBe("Done");
+
+  releaseStart();
+  await moving;
+  // The start move ran last in Jira's order, but the record was authoritative: the ticket ends in
+  // its done status, not in the start one.
+  expect(status).toBe("Done");
+  expect(transitions).toEqual(["31", "41", "41"]);
+  expect((await runEffect(readChange("PROJ-MOVERACE")))?.state).toBe("Completed");
+});
+
+test("a failing ticket system does not fail the phase change", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  runtimeConfig().workspaces = [jiraWorkspace("phase-fail-ws", { assignee: "" })];
+  stubFetch(() => text("boom", 500));
+  const { changeRoutes } = await import("../apps/server/src/change/routes.ts");
+  await runEffect(
+    createChange({
+      id: "PROJ-PHASEFAIL",
+      state: "Ideation",
+      workspace: "phase-fail-ws",
+      extensions: { jira: { key: "PROJ-1" } },
+      checkouts: checkoutsOf([]),
+    }),
+  );
+  const response = await callGuarded(changeRoutes, "PATCH", "/api/changes/:id", {
+    params: { id: "PROJ-PHASEFAIL" },
+    body: { state: "Implementation" },
+  });
+  // Non-fatal: the record moved, and the ticket trouble is logged rather than thrown.
+  expect(response.status).toBe(200);
+  expect(((await response.json()) as Change).state).toBe("Implementation");
+  expect((await runEffect(readChange("PROJ-PHASEFAIL")))?.state).toBe("Implementation");
 });
 
 test("only a backlog ticket moves: one already in a sprint stays put", async () => {

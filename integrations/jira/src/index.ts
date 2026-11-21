@@ -170,12 +170,12 @@ export const assignIssue = (
     return { detail: "assigned to me" };
   });
 
-/** What starting work did to the ticket, for the report the page shows. */
+/** What leaving `Ideation` did to the ticket, for the report the page shows. */
 type IssueStartResult = { readonly detail?: string };
 
-/** Starting the work: the ticket is (still) mine and moves to the start status; a ticket waiting
- * in the backlog also comes onto the board's active sprint. Exported so the start workflow's
- * adapter can call it without the hook registry. */
+/** The work starting: run the first time a change leaves `Ideation`. The ticket is (still) mine
+ * and moves to the start status; a ticket waiting in the backlog also comes onto the board's
+ * active sprint. Exported so the server's ticket adapter can call it without the hook registry. */
 export const moveIssueOnStart = (
   change: Change,
 ): Effect.Effect<IssueStartResult, BadRequestError, Capabilities> =>
@@ -186,9 +186,14 @@ export const moveIssueOnStart = (
     const settings = yield* Settings;
     const global = globalOf(settings, workspace);
     const site = siteOfWorkspace(settings, workspace);
+    // A ticket already at its done status is where it belongs: a start move that lands after a
+    // completion must not drag it back, and must not reassign it either. One read decides before
+    // anything is written.
+    const status = (yield* issueByKey(key, site))?.status?.toLowerCase();
+    if (status === global.doneTransition.toLowerCase())
+      return { detail: `${global.doneTransition} · already done` };
     yield* assignIssue(change);
-    const current = (yield* issueByKey(key, site))?.status;
-    if (current?.toLowerCase() !== global.startTransition.toLowerCase()) {
+    if (status !== global.startTransition.toLowerCase()) {
       yield* moveIssue(key, global.startTransition, site);
     }
     // The sprint move comes last and carries its failure in its message: the status move above
@@ -230,6 +235,10 @@ export const moveIssueOnComplete = (change: Change): Effect.Effect<void, BadRequ
     const workspace = yield* Workspace;
     const site = siteOfWorkspace(yield* Settings, workspace);
     const { doneTransition } = globalOf(yield* Settings, workspace);
+    // Already there is right: a board refuses the same transition, and reporting a failure for a
+    // ticket that needs nothing is worse than saying nothing.
+    const status = (yield* issueByKey(key, site))?.status;
+    if (status?.toLowerCase() === doneTransition.toLowerCase()) return;
     yield* moveIssue(key, doneTransition, site);
   });
 

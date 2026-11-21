@@ -5,7 +5,7 @@ import { ChangeService, layer as changesLayer } from "../changes.ts";
 import { ChangeRepositories, layer as changeRepositoriesLayer } from "../change-repositories.ts";
 import type { ChangeStore } from "../store.ts";
 
-export { isNotFound, layer as storeLayer, type RootPair } from "./store.ts";
+export { changeRecordLock, isNotFound, layer as storeLayer, type RootPair } from "./store.ts";
 export { layer as progressLayer } from "./progress.ts";
 export { layer as shelvesLayer } from "./shelves.ts";
 

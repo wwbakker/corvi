@@ -42,7 +42,11 @@ const changeWithLeftovers = async (id: string, repo: string): Promise<string> =>
     }),
   });
   expect(created.status).toBe(201);
-  const started = await fetch(`${url}/api/changes/${id}/start`, { method: "POST" });
+  // Leaving Ideation is an ordinary phase change: no separate start workflow.
+  const started = await fetch(`${url}/api/changes/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ state: "Implementation" }),
+  });
   expect(started.ok).toBe(true);
   const worktree = join(tmp, "changes", id, "app");
   await Bun.write(join(worktree, "__pycache__", "test.pyc"), "x");

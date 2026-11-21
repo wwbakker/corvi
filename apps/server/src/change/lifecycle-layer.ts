@@ -290,7 +290,7 @@ export const repositoriesLayer = (
 ): Layer.Layer<Repositories | ChangeRepositories> =>
   Layer.merge(changesNodeLayer.pipe(Layer.provide(storeLayer({ roots }))), repositoriesOverShell);
 
-/** The start workflow over the native store and the real Git adapter: no provider ports are
+/** The checkout workflow over the native store and the real Git adapter: no provider ports are
  * needed, because its provisioning is all concrete checkouts. */
 export const changeWorkLayer = (
   roots: readonly RootPair[],

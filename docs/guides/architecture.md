@@ -61,7 +61,7 @@ unrelated issue, build, and agent operations.
 | `terminals` | The vocabulary shared by server and page: the new-window key, the CSI u sequences a terminal cannot encode, the command option names, and the pure window presenters | Agent conversation identity, change transitions or notifications policy |
 | `agents` | Corvi-facing session identity, supported capabilities, prompts, status, and where each harness keeps its sessions (transcripts) | A provider's SDK types or the assumption that every agent is a terminal |
 | `actions` | Action files and their vocabulary, scope precedence, placeholder rendering, delivery to terminal sessions | Terminal/session mechanics, change lifecycle, HTTP handlers or JSX |
-| `workflows` | Create/start/complete/cancel, multi-repository operations, overview aggregation and action orchestration | Vendor CLI/HTTP encoding, storage primitives, JSX or HTTP responses |
+| `workflows` | Create/provision/complete/cancel, multi-repository operations, overview aggregation and action orchestration | Vendor CLI/HTTP encoding, storage primitives, JSX or HTTP responses |
 | `integrations/*` | External authentication, transport, decoding and provider-specific operations | Change lifecycle policy, HTTP handlers for Corvi, or rendering cards |
 | `client` | Named network operations, decoding, cancellation and transport failures | Backend implementation imports or application startup |
 | Applications | Concrete wiring, hosting, native capabilities and presentation | Duplicated domain rules |

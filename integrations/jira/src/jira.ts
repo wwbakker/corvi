@@ -349,9 +349,9 @@ export const listSprints = (
   });
 
 /**
- * Starting work takes a backlog ticket onto the board. Only an issue in no sprint moves — one
+ * Leaving Ideation takes a backlog ticket onto the board. Only an issue in no sprint moves — one
  * already planned into a sprint stays where it was put — and with several active sprints it
- * joins the one with the latest start date. What happened is the detail the start report shows:
+ * joins the one with the latest start date. What happened is the detail the move reports:
  * the sprint it joined, or why it stayed put.
  */
 export const moveIssueToActiveSprint = (

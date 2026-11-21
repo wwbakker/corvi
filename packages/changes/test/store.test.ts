@@ -122,10 +122,11 @@ test("a duplicate change id is refused", async () => {
 });
 test("transitions follow the rules and terminal phases set completedAt", async () => {
   await Effect.runPromise(create("lifecycle").pipe(Effect.provide(services(root))));
+  // Staying where you are is not a transition.
   const invalid = await runEither(
     Effect.gen(function* () {
       const changes = yield* ChangeService;
-      return yield* changes.transitionTo(ChangeId.make("lifecycle"), "Verification");
+      return yield* changes.transitionTo(ChangeId.make("lifecycle"), "Ideation");
     }),
   );
   expect(Result.isFailure(invalid)).toBe(true);
@@ -133,14 +134,20 @@ test("transitions follow the rules and terminal phases set completedAt", async (
   const result = await Effect.runPromise(
     Effect.gen(function* () {
       const changes = yield* ChangeService;
-      const started = yield* changes.transitionTo(ChangeId.make("lifecycle"), "Implementation");
+      // Ideation is an ordinary manual phase, so it leaves for any other one by hand.
+      const started = yield* changes.transitionTo(ChangeId.make("lifecycle"), "Verification");
       const completed = yield* changes.transitionTo(ChangeId.make("lifecycle"), "Completed");
+      // Nothing leaves a terminal phase.
+      const afterCompletion = yield* changes
+        .transitionTo(ChangeId.make("lifecycle"), "Implementation")
+        .pipe(Effect.result);
       const active = yield* changes.listChanges("Active");
       const archived = yield* changes.listChanges("Archived");
-      return { started, completed, active, archived };
+      return { started, completed, afterCompletion, active, archived };
     }).pipe(Effect.provide(services(root))),
   );
-  expect(result.started.phase).toBe("Implementation");
+  expect(result.started.phase).toBe("Verification");
+  expect(Result.isFailure(result.afterCompletion)).toBe(true);
   expect(result.completed.phase).toBe("Completed");
   expect(result.completed.completedAt).toBeDefined();
   expect(result.active.map((change) => change.changeId)).not.toContain(ChangeId.make("lifecycle"));

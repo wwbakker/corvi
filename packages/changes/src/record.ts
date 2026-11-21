@@ -51,12 +51,12 @@ export const CHANGE_STATES = [
 ] as const;
 export type ChangeState = (typeof CHANGE_STATES)[number];
 
-/** The state a change is in before its work has started. The one state that is set by creation
- * and left only by starting, so it is not offered as an editable word. */
+/** The state a change is made in, and an ordinary manual phase from then on: it is left — and
+ * returned to — like any other, from the change's state menu. */
 export const IDEATION: ChangeState = "Ideation";
 
-/** Whether this change is still an idea: no work has started, so there is no branch or worktree
- * to reason about, only the plan. */
+/** Whether this change is still an idea. An idea has its checkouts and its plan; what it has not
+ * done is start the work the ticket tracks, so the lists group it under Ideas. */
 export const isIdeation = (change: Pick<Change, "state">): boolean =>
   (change.state ?? "Implementation") === IDEATION;
 
@@ -152,13 +152,13 @@ export const checkoutSpecProblem = (spec: Pick<CheckoutSpec, "location" | "branc
  * is optional, because the core fills the gaps (branch defaults to the id, state to
  * "Implementation", createdAt to now).
  *
- * `state: "Ideation"` is what makes an idea: no repositories are required, and the change is
- * written without a branch or worktree — starting it is what provisions those. Any other state
- * (or none) is a change created ready to work, which needs at least one repository.
+ * `state: "Ideation"` is what makes an idea: no repositories are required, and its checkouts are
+ * cut at creation. Any other state (or none) is a change created ready to work, which needs at
+ * least one repository.
  */
-/** What provisioning one repository target reported, shown after a create or a start. A failure
- * names its repository and stops nothing: the other repositories run on, and the change itself
- * survives. */
+/** What provisioning one repository target reported, shown after a create or a repository edit.
+ * A failure names its repository and stops nothing: the other repositories run on, and the change
+ * itself survives. */
 export type ProvisionResult = { integration: string; ok: boolean; error?: string; detail?: string };
 
 export type ChangeDraft = {
@@ -190,7 +190,8 @@ export type CompletionProgress = CompletionProgressDto;
 
 /** One unmet requirement of a change's completion, tagged so the page knows whether to offer an
  * override dialog or a plain refusal. `forceable` reasons can be acknowledged away; `hard` ones
- * (uncommitted work, still an idea) refuse outright, even with force. */
+ * (uncommitted work, a provider fact no acknowledgement changes) refuse outright, even with
+ * force. */
 export type CompletionReason = CompletionReasonDto;
 
 /** Whether a change can be completed right now: what still blocks it, tagged, and which pull

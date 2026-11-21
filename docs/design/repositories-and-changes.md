@@ -14,8 +14,8 @@ below, the exported API is authoritative.
 A change owns its repository links, and the `repositories` capability performs checkout work on
 concrete locations. The workflow reads the change and its links and calls checkouts with concrete
 inputs, so neither capability imports the other. The first slice is the dashboard read
-(`inspectChangeRepositories`) and starting work (`startChange`); completion, cancellation,
-terminals and agents are later slices.
+(`inspectChangeRepositories`) and the checkout policy (`provisionRepository`, `provisionChange`);
+completion, cancellation, terminals and agents are later slices.
 
 # Change
 ## Values
@@ -95,11 +95,14 @@ export class ChangeStoreError extends Schema.TaggedError<ChangeStoreError>()("Ch
 
 Allowed transitions:
 
-- `Ideation -> Implementation` starts the work, and `Ideation -> Cancelled` abandons the idea;
-  those are the only ways out of `Ideation`.
-- `Implementation`, `Verification` and `Blocked` may move among themselves.
+- `Ideation`, `Implementation`, `Verification` and `Blocked` are the manual phases and may move
+  among themselves in any direction.
 - `Completed` and `Cancelled` are terminal, set `completedAt`, and are entered by the
   complete/cancel workflows, not by hand.
+- Leaving `Ideation` for another manual phase moves the linked ticket to its start status (and a
+  backlog issue onto the active sprint). The move runs once, guarded by the `startedAt` fact on
+  the record — not by idempotence of its own — so returning to `Ideation` and leaving again is
+  safe because nothing runs the second time.
 
 ```ts
 export interface Interface {
@@ -114,8 +117,8 @@ export interface Interface {
 ```
 
 `onPhaseTransition` is deliberately absent: a transition returns the updated change, and the
-callable start/complete/cancel workflows decide what follows. The change service does not invoke
-repository, terminal or provider behaviour.
+callable complete/cancel workflows — and the hand edit that moves a manual phase — decide what
+follows. The change service does not invoke repository, terminal or provider behaviour.
 
 ## Service and implementation
 ```ts
@@ -565,10 +568,10 @@ operations are adapted to Corvi's own interfaces rather than imported wholesale.
 
 # Workflows
 
-The first slice has two callable operations: one read for the dashboard and one write for
-starting work. They live in `workflows`, take their dependencies from context, and are ordinary
-Effect programs — no engine, no event handlers, no HTTP. A route, a test, and a future status
-action call the same operation.
+The first slice has callable operations: one read for the dashboard and the checkout policy that
+creation, a repository edit and a row's action share. They live in `workflows`, take their
+dependencies from context, and are ordinary Effect programs — no engine, no event handlers, no
+HTTP. A route, a test, and a status action call the same operation.
 
 ## Values
 ```ts
@@ -579,23 +582,14 @@ export type RepositoryView = {
   readonly checkout: CheckoutInspection
 }
 
-export type ProvisionFailure = {
-  readonly repositoryId: RepositoryId
-  readonly error: NotARepository | CheckoutError
+/** One repository's whole checkout run: fetch, provision, fast-forward. The refresh is always
+ * there to read; `error` is why the checkout work stopped, then. */
+export type CheckoutOutcome = {
+  readonly repository: Repository
+  readonly checkoutLocation: string
+  readonly error?: NotARepository | CheckoutError
+  readonly refresh: RefreshReport
 }
-
-export type StartOutcome =
-  | {
-      readonly _tag: "Started"
-      readonly change: Change
-      readonly repositories: readonly Repository[]
-    }
-  | {
-      readonly _tag: "PartiallyStarted"
-      readonly change: Change
-      readonly repositories: readonly Repository[]
-      readonly failures: readonly ProvisionFailure[]
-    }
 
 /** One journal entry of an operation that can stop half way. `waiting` is written with the plan,
  * before anything runs, so a page can show what is still coming. */
@@ -620,9 +614,9 @@ export class OperationProgress extends Context.Service<OperationProgress, Progre
 ```
 
 The port is exposed by `@corvi/changes/progress`; the node adapter appends steps to
-`<root>/<changeId>/operations.json`. A half started change has to stay legible from a page that
-was never opened, and completion will use the same record. `PartiallyStarted` is an outcome, not
-an error — the failed repository stays visible instead of being lost.
+`<root>/<changeId>/operations.json`. A half provisioned change has to stay legible from a page
+that was never opened, and completion uses the same record. A failed repository is an outcome,
+not an error — it stays visible instead of being lost.
 
 ## Interface
 ```ts
@@ -633,12 +627,21 @@ export interface Interface {
     readonly RepositoryView[],
     ChangeNotFound | ChangeStoreError | RepositoryStoreError | CheckoutError
   >
-  readonly startChange: (
+  readonly provisionRepository: (
     changeId: ChangeId,
+    repositoryId: RepositoryId,
   ) => Effect.Effect<
-    StartOutcome,
-    ChangeNotFound | InvalidTransition | ChangeConflict | ChangeStoreError | RepositoryStoreError
+    CheckoutOutcome,
+    ChangeNotFound | RepositoryNotFound | ChangeStoreError | RepositoryStoreError
   >
+  readonly provisionChange: (
+    changeId: ChangeId,
+  ) => Effect.Effect<readonly CheckoutOutcome[], ChangeNotFound | ChangeStoreError | RepositoryStoreError>
+  /** The freshness move alone, on the checkout that is there: the Fast-forward action. */
+  readonly refreshRepository: (
+    changeId: ChangeId,
+    repositoryId: RepositoryId,
+  ) => Effect.Effect<RefreshReport, ChangeNotFound | RepositoryNotFound | ChangeStoreError | RepositoryStoreError>
 }
 ```
 
@@ -694,22 +697,15 @@ export const layer = Layer.effect(
     //               branch, the resolved remote/upstream ref for an existing one
     const provisionLink = (change: Change, repository: Repository): Effect<CheckoutOutcome>
 
-    // One journal entry per repository (running -> done/failed with what the refresh did),
-    // each entry and its checkout work inside a per-change lock: creation, a repository row's
-    // retry and Start work all arrive here and must not race one destination.
+    // One journal entry per repository (running -> done/failed with what the refresh did), each
+    // entry and its checkout work inside a per-change lock: creation, a repository edit, the
+    // row's retry and the row's fast-forward all arrive here and must not race one destination.
     const provisionChange = (changeId: ChangeId): Effect<readonly CheckoutOutcome[]>
-
-    // Ideation only, refused otherwise. Persist `Implementation` first, then run the policy
-    // over every repository — provisioning anything missing and refreshing what is there, so a
-    // worktree made at creation picks up the base commits that landed during ideation. The
-    // result carries `reports` alongside `Started` / `PartiallyStarted`; a refresh that could
-    // not fast-forward never blocks the transition.
-    const startChange = (changeId: ChangeId): Effect<StartOutcome>
 ```
 
-`startChange` persists `Implementation` before provisioning and continues past a failed repository,
-so the result is either `Started` or `PartiallyStarted` with a journal entry per repository.
-`describeProvisionError` maps the typed union to the short line the journal shows;
+The same policy serves creation, a repository edit, a row's retry and the Local changes card's
+**Fast-forward** action. A failed repository is the outcome's data — a report per repository, not
+a stopped run. `describeProvisionError` maps the typed union to the short line the journal shows;
 `describeCheckout` folds in the refresh's outcome (`advanced to …`, `left-alone: …`,
 `fetch failed: …`).
 
@@ -731,7 +727,7 @@ export type AcknowledgementCode =
   | "provider-veto"
 
 export type LifecycleReason = {
-  readonly code: AcknowledgementCode | "idea" | "dirty-worktree" | "finished"
+  readonly code: AcknowledgementCode | "dirty-worktree" | "finished"
   readonly subject?: RepositoryRef
   readonly kind: "forceable" | "hard"
   readonly text: string
@@ -991,10 +987,10 @@ export const makeChangesClient = (baseUrl: string): ChangesClient => ({
 Domain failures map to transport status here and nowhere else; the workflow and capability errors
 stay typed. The client throws a classified failure rather than a bare `Error`.
 
-## Start endpoint
+## The checkout run's response
 
-`startChange` is the first write operation. Same shape: one schema, one route, one named client
-method.
+Creation, a repository edit and a row's action share one shape: one schema, one route per
+operation, one named client method each.
 
 ```ts
 export const ProvisionedChangeSchema = Schema.Struct({
@@ -1005,44 +1001,43 @@ export const ProvisionedChangeSchema = Schema.Struct({
   changeDir: Schema.optional(Schema.String),
 })
 export type ProvisionedChangeDto = typeof ProvisionedChangeSchema.Type
-
-export const startEndpoint = "POST /api/changes/:changeId/start" as const
-```
-
-```ts
-// apps/server — transport adapter: decode, invoke, encode
-export const startChangeRoute = (request: {
-  readonly params: { readonly changeId: string }
-}): Effect.Effect<ProvisionedChangeDto, HttpError, ChangeWork> =>
-  Effect.gen(function* () {
-    const changeId = yield* decode(ChangeId, request.params.changeId)
-    const work = yield* ChangeWork
-    return toProvisionedChangeDto(yield* work.startChange(changeId))
-  }).pipe(
-    Effect.catchTags({
-      ChangeNotFound: () => new HttpError({ status: 404, message: "change not found" }),
-      InvalidTransition: () => new HttpError({ status: 409, message: "change is not an idea" }),
-      ChangeConflict: () => new HttpError({ status: 409, message: "change changed; retry" }),
-      ChangeStoreError: (error) => new HttpError({ status: 500, message: error.message }),
-      RepositoryStoreError: (error) => new HttpError({ status: 500, message: error.message }),
-    }),
-  )
 ```
 
 ```ts
 // client — Promise-facing for React
 export interface ChangesClient {
   readonly inspectRepositories: (changeId: ChangeId) => Promise<readonly RepositoryViewDto[]>
-  readonly startChange: (changeId: ChangeId) => Promise<ProvisionedChangeDto>
+  readonly create: (body: CreateChangeBodyDto) => Promise<ProvisionedChangeDto>
+  readonly setRepositories: (changeId: ChangeId, body: ReposBodyDto) => Promise<ProvisionedChangeDto>
 }
 ```
 
-`PartiallyStarted` is a 200: it is a business outcome, not a transport failure. The response
+A failed checkout is a 200: it is a business outcome, not a transport failure. The response
 carries `provision` and `refresh` — what each integration and each checkout reported; the client
 refetches the read endpoint for rows. The journal is durable, so a reload can read what happened;
 streaming those steps live needs replay and cancellation semantics and is not part of this slice.
-A partial start stays visible as those reports, `Missing` rows, and the journal; a failed row's
-own action is the retry.
+A partial run stays visible as those reports, `Missing` rows, and the journal; a failed row's own
+action is the retry.
+
+`PATCH /api/changes/:changeId` is how a phase changes by hand. It is one conditional write: the
+record is written only onto the revision the server's own read saw for that request, inside the
+process-wide record lock that the capability store's own writer also holds. The body carries no
+client revision (`state`/`title` only), so this is not browser-side CAS: it guards a write that
+lands between the server's read and its write — two overlapping PATCHes, a background title
+refresh, or a completion landing in between — and a PATCH cannot overwrite a concurrent
+completion. The loser gets a 409 and runs
+no side effects.
+
+Its first departure from `Ideation` records `startedAt` with that write, and then moves the linked
+ticket — after the write won, outside any checkout lock, and non-fatally: a failed move is logged
+and the phase change stands. `startedAt` is the durable fact that makes the ticket move one-shot,
+so returning to `Ideation` and leaving again neither reassigns the ticket nor pulls an advanced
+one back. A terminal phase is refused there: it is what completing or cancelling sets.
+
+The phase and the title are written together, not through `ChangeService.transitionTo`: two stores
+writing the same file under two locks could half-apply a PATCH (phase landed, title refused). The
+revision check is the app store's, and both writers share one lock, which is what makes the check
+and the write atomic.
 
 # Behavior tests
 
@@ -1051,7 +1046,7 @@ own action is the retry.
 | Layer | Supply | Assert |
 | --- | --- | --- |
 | Pure rules | nothing | allowed transitions, `stateOf`, `checkoutLocationOf`, `isFinished`, duplicate directory names |
-| Workflow | scripted `ChangeService`, `ChangeRepositories`, `Repositories`, `OperationProgress` | persist-first ordering, one journal entry per repository, `PartiallyStarted` with a scripted failure, checkout-method mapping, fetch -> provision -> fast-forward ordering, per-change serialization |
+| Workflow | scripted `ChangeService`, `ChangeRepositories`, `Repositories`, `OperationProgress` | one journal entry per repository, a scripted failure reported per repository, checkout-method mapping, fetch -> provision -> fast-forward ordering, per-change serialization |
 | Links capability | real change store in isolated paths | add/list/remove links, duplicate rejection, links survive reload, remove touches no Git |
 | Checkout capability | scripted `Git` | `Missing` vs `CheckoutError`, `NotARepository` for a non-repository source, inspect performs no mutation |
 | Git adapter | real fixture repositories | identity via `commonDirectory` across linked worktrees, worktree add/remove, merge fast-forward (the verdict line, not git's `hint:` advice), unborn/detached HEAD, paths with spaces |
@@ -1076,10 +1071,12 @@ per-workspace enablement, notes, Pi reporting) moves to the owning package tests
 
 ## New acceptance cases
 
-- Starting is legal only from `Ideation`; a second start is `InvalidTransition`; a concurrent
-  writer surfaces as `ChangeConflict`.
-- A scripted failure in the middle of provisioning leaves the change `Implementation`, returns
-  `PartiallyStarted` with the other repositories provisioned, and writes a failed journal entry.
+- Every manual phase — `Ideation` included — moves to every other by hand; a terminal phase is
+  refused, and a concurrent writer surfaces as `ChangeConflict`.
+- Leaving `Ideation` for `Implementation`, `Verification` or `Blocked` moves the linked ticket;
+  moving between other phases does not.
+- A scripted failure in the middle of provisioning is reported per repository with the other
+  repositories provisioned, and writes a failed journal entry.
 - `inspectChangeRepositories` returns `Missing` for a concept link without running a mutating Git
   command; an unreadable Git call is an error, not `Missing`.
 - The checkout-method mapping is exact: `change`/`existing` on `original` call `provisionInPlace`
@@ -1088,8 +1085,20 @@ per-workspace enablement, notes, Pi reporting) moves to the owning package tests
 - A fetch that will not answer stops that repository before anything is created or moved, and
   reports `fetch failed: …`; the record and the other repositories go on.
 - The refresh only ever fast-forwards: `advanced`/`current` when it can, `left-alone` with git's
-  own reason when it cannot — and the start transitions either way. Two checkout runs racing on
-  one change leave exactly one worktree and one branch.
+  own reason when it cannot. Two checkout runs racing on one change leave exactly one worktree
+  and one branch.
+- The Local changes card offers **Fast-forward** only for a clean checkout with no commits of
+  its own that is behind the ref the checkout policy advances to — the same target for change and
+  existing branches — and the action refuses with a sentence when the policy could not advance
+  it. It advances the existing checkout and never provisions one, and it refuses a repository
+  that is not the change's own.
+- Leaving `Ideation` moves the linked ticket once: a second departure after returning to
+  `Ideation` neither reassigns nor re-transitions it.
+- A PATCH decided on a revision that has moved on is a 409 and writes nothing; two PATCHes from
+  one read leave exactly one winner, and the ticket move runs only for it.
+- The "merged" verdict is measured against the branch's target (the spec's `target`, else its
+  `base`, else the repository default read without guessing), not the display default branch; a
+  branch whose target is its own remote counterpart reports unknown rather than merged.
 - Two workspace layers with different roots do not share links or checkout paths.
 - The transport test encodes a `RepositoryView` and both route and client decode it; every error
   tag maps to exactly one status.
