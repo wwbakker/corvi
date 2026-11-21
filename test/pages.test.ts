@@ -1653,28 +1653,32 @@ test.skipIf(!usable)(
         expect(await title.locator(".change-id").count()).toBe(0);
         expect(await title.locator(".change-branch").count()).toBe(1);
 
-        // The brand row: the raven, the name, and the switcher as a compact pill at the column's
-        // right. All of it clears the lights, and the row is the window's.
+        // The brand row: the raven and the name, and no control of its own — the row the window
+        // drags by. All of it clears the lights.
         const brand = page.locator(".sidebar > .band");
         const logo = await brand.locator(".brand-logo").boundingBox();
-        const switcher = page.locator(".sidebar button.workspace");
-        const switcherBox = await switcher.boundingBox();
         const [sidebar, band] = await Promise.all([
           page.locator(".sidebar").boundingBox(),
           brand.boundingBox(),
         ]);
-        if (!logo || !switcherBox || !sidebar || !band) throw new Error("the sidebar did not lay out");
+        if (!logo || !sidebar || !band) throw new Error("the sidebar did not lay out");
         expect((await brand.locator(".brand-name").innerText()).trim()).toBe("Corvi");
         expect(logo.x).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset);
-        // At the row's right, inside it. The exact gutter is the stylesheet's (the sidebar's and
-        // the band's padding), so derive it from the band rather than restating a pixel count
-        // that font metrics or a scrollbar would make wrong.
-        expect(switcherBox.x + switcherBox.width).toBeLessThanOrEqual(band.x + band.width + 1);
-        expect(switcherBox.x).toBeGreaterThan(band.x + band.width / 2);
-        expect(switcherBox.width).toBeLessThan(sidebar.width / 2);
-        expect(switcherBox.x).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset);
+        expect(await brand.locator("button").count()).toBe(0);
         expect(sidebar.width).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset + 160);
         expect(await region(".sidebar > .band")).toBe("drag");
+
+        // The switcher is a compact pill at the right of the Workspace heading's row, below the
+        // changes: one line, so the column reads top to bottom.
+        const switcher = page.locator(".sidebar .workspace-row button.workspace");
+        const switcherBox = await switcher.boundingBox();
+        const workspaceRow = await page.locator(".sidebar .workspace-row").boundingBox();
+        if (!switcherBox || !workspaceRow) throw new Error("the workspace row did not lay out");
+        expect(switcherBox.width).toBeLessThan(sidebar.width / 2);
+        expect(switcherBox.x).toBeGreaterThan(workspaceRow.x + workspaceRow.width / 2);
+        expect(switcherBox.x + switcherBox.width).toBeLessThanOrEqual(
+          workspaceRow.x + workspaceRow.width + 1,
+        );
 
         // The column's line runs the whole edge, the brand row included: the column and the page
         // beside it are two surfaces, and the line is what says where one ends. It is drawn (a
@@ -1686,14 +1690,14 @@ test.skipIf(!usable)(
           "rgba(0, 0, 0, 0)",
         );
 
-        // The switcher's list opens inside the window rather than past its edge, and the click reaches the
-        // control at all: the row it sits in is the region you drag the window by.
+        // The switcher's list opens below its row and inside the window rather than past its edge.
         await switcher.click();
-        const menu = await page.locator(".menu-items").boundingBox();
+        const menu = await page.locator(".workspace-row .menu-items").boundingBox();
         if (!menu) throw new Error("the workspace menu did not open");
         const viewport = await page.evaluate(() => window.innerWidth);
         expect(menu.x).toBeGreaterThanOrEqual(0);
         expect(menu.x + menu.width).toBeLessThanOrEqual(viewport);
+        expect(menu.y).toBeGreaterThan(switcherBox.y);
         expect(complaints).toEqual([]);
       },
       VIEWPORT,

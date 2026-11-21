@@ -4,7 +4,7 @@ import { KeysIcon } from "../../app-root/icons.tsx";
 import { getPref, setPref } from "../../app-root/prefs.ts";
 
 /** The control a row offers beside its name, as behaviour rather than as elements: the listing
- * draws the button from it and gives the same `run` to Alt+Enter, so the key and the button cannot
+ * draws the button from it and gives the same `run` to Shift+Enter, so the key and the button cannot
  * disagree about which rows it applies to. */
 export type RowAction = {
   /** The button's own word, which also says what state the row is in ("Add", "Added"). */
@@ -118,7 +118,7 @@ export function DirectoryListing({
 
   /** Every chord the pane takes, handled here rather than on the filter, so the arrows work whether
    * the keyboard is in the field or on a row. Chords are matched on `code`: macOS reports a composed
-   * character for a letter under Option, and Alt+Enter is the same key code on both hosts. */
+   * character for a letter under Option, and Enter is the same key code on both hosts. */
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     const entry = selected >= 0 ? entries[selected] : undefined;
 
@@ -126,18 +126,24 @@ export function DirectoryListing({
       if (event.code === "ArrowUp") {
         event.preventDefault();
         up();
-        return;
-      }
-      if (event.code === "Enter" || event.code === "NumpadEnter") {
-        // A disabled action is a button that cannot be pressed, and a key that does nothing.
-        if (action === undefined || entry === undefined || action.disabled?.(entry)) return;
-        event.preventDefault();
-        action.run(entry);
       }
       return;
     }
+    if (event.shiftKey) {
+      // Shift+Enter presses the row's action, where the row has one and it can be pressed. It is
+      // not the picker's Enter (which walks into the directory), not the filter's, and it is no
+      // other chord either: Ctrl/Meta+Shift+Enter belongs to whatever else wants it. A focused
+      // button activates itself, so the key leaves that button alone, as Enter does below.
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.code !== "Enter" && event.code !== "NumpadEnter") return;
+      if (event.target instanceof HTMLButtonElement) return;
+      if (action === undefined || entry === undefined || action.disabled?.(entry)) return;
+      event.preventDefault();
+      action.run(entry);
+      return;
+    }
     // Everything else here is a plain key: a chord the app or the platform owns stays theirs.
-    if (event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (event.ctrlKey || event.metaKey) return;
 
     switch (event.key) {
       case "ArrowDown":
@@ -173,7 +179,7 @@ export function DirectoryListing({
     { keys: "↑ ↓", what: "choose" },
     { keys: "Enter", what: "open" },
     { keys: "Alt+↑", what: "up" },
-    ...(action === undefined ? [] : [{ keys: "Alt+Enter", what: action.hint }]),
+    ...(action === undefined ? [] : [{ keys: "Shift+Enter", what: action.hint }]),
   ];
 
   return (

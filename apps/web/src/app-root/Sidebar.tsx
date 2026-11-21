@@ -32,6 +32,7 @@ import type { AppUpdateStatus } from "../app-update/model.ts";
 import { coloursOf } from "../domain/theme.ts";
 import { PowerDialog } from "../power/PowerDialog.tsx";
 import { usePower } from "../power/state.ts";
+import { useLeaderGroup, type LeaderTarget } from "./leader.tsx";
 
 /** Which page of a change is open. The dashboard is what selecting a change opens; terminals is
  * the core's own, and any other id is a tab an extension contributed — the id is the last
@@ -184,6 +185,23 @@ export function Sidebar({
   const statusOfWorkspace = (workspace: Workspace): ReturnType<typeof statusOf> =>
     statusOf(availability, workspace.remote !== undefined ? workspace.id : "");
   const chosenWorkspace = workspaces.find((w) => w.id === chosen);
+  // Where the leader mode's keycaps sit (app-root/leader.tsx). The column's keys are positional:
+  // the entries below register in the order they are read down the column, and a slot for a
+  // heading that is not there is kept so the keys under it do not move.
+  const changesRef = useRef<HTMLButtonElement>(null);
+  const newIdeaRef = useRef<HTMLButtonElement>(null);
+  const ideasHeadingRef = useRef<HTMLParagraphElement>(null);
+  const ideasListRef = useRef<HTMLDivElement>(null);
+  const changesHeadingRef = useRef<HTMLParagraphElement>(null);
+  const changesListRef = useRef<HTMLDivElement>(null);
+  const workspaceRef = useRef<HTMLButtonElement>(null);
+  const actionsRef = useRef<HTMLButtonElement>(null);
+  const subagentsRef = useRef<HTMLButtonElement>(null);
+  const pageRefs = useRef(new Map<string, HTMLButtonElement>());
+  const settingsRef = useRef<HTMLButtonElement>(null);
+  const powerRef = useRef<HTMLButtonElement>(null);
+  const restartRef = useRef<HTMLButtonElement>(null);
+  const updateRef = useRef<HTMLButtonElement>(null);
 
   // The same numbers the overview cards show, for the icons. One request per change, from the
   // cache on the server, and slowly: this is a glance, not a monitor.
@@ -254,7 +272,7 @@ export function Sidebar({
    * the work they become — so a change looks the same in both. Adding a terminal is the window
    * tabs' job (apps/web/src/terminals/client/WindowTabs.tsx): the column is for going to the ones there
    * are, and it says nothing about windows a change has not got. */
-  const entry = (c: Change): JSX.Element => {
+  const entry = (c: Change, group: "ideas" | "changes"): JSX.Element => {
     const mine = windows[changeKey(c.source ?? "", c.id)] ?? [];
     const selected = changeKey(c.source ?? "", c.id) === changeKey(current?.source ?? "", current?.id ?? "");
     // One thing is highlighted at a time. On a terminal that thing is the window, not the
@@ -266,6 +284,7 @@ export function Sidebar({
       <div key={changeKey(c.source ?? "", c.id)} className="change-entry">
         <button
           // The bar down the left is the change's own state, in the usual colours.
+          data-leader-item={group}
           className={`entry sub change ${stateClass(c.state)}${here ? " current" : ""}`}
           title={c.branch}
           style={{ "--change-a": colours.from, "--change-b": colours.to } as CSSProperties}
@@ -312,43 +331,59 @@ export function Sidebar({
     );
   };
 
+  const items = (group: "ideas" | "changes", list: HTMLDivElement | null): readonly LeaderTarget[] =>
+    list === null
+      ? []
+      : [...list.querySelectorAll<HTMLElement>(`[data-leader-item="${group}"]`)].map((element) => ({
+          element,
+        }));
+
+  useLeaderGroup("sidebar", "qwertyuiop", () => [
+    { kind: "target", element: changesRef.current },
+    { kind: "target", element: newIdeaRef.current },
+    {
+      kind: "selector",
+      element: ideasHeadingRef.current,
+      items: () => items("ideas", ideasListRef.current),
+      outline: () => ideasListRef.current,
+    },
+    {
+      kind: "selector",
+      element: changesHeadingRef.current,
+      items: () => items("changes", changesListRef.current),
+      outline: () => changesListRef.current,
+    },
+    { kind: "target", element: workspaceRef.current, keep: true },
+    { kind: "target", element: actionsRef.current },
+    { kind: "target", element: subagentsRef.current },
+    ...pages.map((p) => ({ kind: "target" as const, element: pageRefs.current.get(p.id) ?? null })),
+  ]);
+
+  useLeaderGroup("bottom", "zxcv", () => [
+    { kind: "target", element: settingsRef.current },
+    { kind: "target", element: powerRef.current },
+    ...(hostReason === undefined ? [] : [{ kind: "target" as const, element: restartRef.current }]),
+    ...(update?.eligible === true ? [{ kind: "target" as const, element: updateRef.current }] : []),
+  ]);
+
   return (
     <nav className={open ? "sidebar open" : "sidebar"} style={{ width }}>
-      {/* The brand row: the raven, the app's name, and which client's world this is. In the app
-          window it is the top of the window — the lights sit in it on macOS, and the whole row is
-          what you drag the window by (apps/web/src/domain/chrome.ts) — so it clears them and lines
-          up with the page's title row beside it. A browser has no lights and nothing to drag, and
-          the row is where the brand has always been. */}
+      {/* The brand row: the raven and the app's name. In the app window it is the top of the
+          window — the lights sit in it on macOS, and the whole row is what you drag the window by
+          (apps/web/src/domain/chrome.ts) — so it clears them and lines up with the page's title
+          row beside it. The workspace switcher is not here: it belongs with the other entries of
+          the workspace section, below the changes, so the column reads top-to-bottom and the
+          leader's keys follow it (app-root/leader.tsx). */}
       <div className="band">
         <RavenMark />
         <span className="brand-name">Corvi</span>
-        <span className="spacer" />
-        {/* Which client's world this is. Everything below is what that context contains, so it
-            belongs above everything rather than beside it. Always shown, even with one
-            workspace: which context you are in should be visible, not implied. */}
-        <ActionsMenu
-          className="workspace"
-          label={`${chosenWorkspace?.name ?? "All work"}${chosenWorkspace === undefined ? "" : availabilitySuffix(statusOfWorkspace(chosenWorkspace))} ▾`}
-          actions={[
-            ...workspaces.map((w) => ({
-              label: `${w.name}${availabilitySuffix(statusOfWorkspace(w))}`,
-              disabled: w.id === chosen,
-              onSelect: () => onChooseWorkspace(w.id),
-            })),
-            {
-              label: "All work",
-              separated: true,
-              disabled: chosen === ALL,
-              onSelect: () => onChooseWorkspace(ALL),
-            },
-          ]}
-        />
       </div>
 
       {/* The overview. The way to start one left this row for the Ideas heading below, where the
           entries it adds to begin. The icon says what the list is; the count says how much work
           is in it, quietly, at the row's right. */}
       <button
+        ref={changesRef}
         className={current || extPage || actions || settings || wizard ? "entry" : "entry current"}
         onClick={onHome}
       >
@@ -370,8 +405,11 @@ export function Sidebar({
             New button's home — it sits with the entries it adds to, and stays there with no
             ideas and no draft. */}
         <div className="ideas-row">
-          <p className="group-label">Ideas</p>
+          <p className="group-label" ref={ideasHeadingRef}>
+            Ideas
+          </p>
           <button
+            ref={newIdeaRef}
             className="create"
             title={newBlocked === true ? "this workspace is unavailable" : "start a new idea"}
             aria-label="new idea"
@@ -384,23 +422,32 @@ export function Sidebar({
         {/* The draft is not a change yet — nothing has been written — so it appears as an idea
             that is still being written, above the ideas that exist. Clicking it is the way back
             into the wizard, wherever you left it. */}
-        {draft && (
-          <div className="change-entry">
-            <button
-              className={`entry sub change ${stateClass(IDEATION)}${wizard ? " current" : ""}`}
-              title="not created yet — open it to finish or discard it"
-              onClick={onNew}
-            >
-              <span className="top">
-                <span className="swatch" aria-hidden="true" />
-                <span className="subject">{draftLabel(draft)}</span>
-              </span>
-            </button>
-          </div>
+        <div className="list-group" ref={ideasListRef}>
+          {draft && (
+            <div className="change-entry">
+              <button
+                data-leader-item="ideas"
+                className={`entry sub change ${stateClass(IDEATION)}${wizard ? " current" : ""}`}
+                title="not created yet — open it to finish or discard it"
+                onClick={onNew}
+              >
+                <span className="top">
+                  <span className="swatch" aria-hidden="true" />
+                  <span className="subject">{draftLabel(draft)}</span>
+                </span>
+              </button>
+            </div>
+          )}
+          {ideas.map((c) => entry(c, "ideas"))}
+        </div>
+        {active.length > 0 && (
+          <p className="group-label" ref={changesHeadingRef}>
+            Changes
+          </p>
         )}
-        {ideas.map(entry)}
-        {active.length > 0 && <p className="group-label">Changes</p>}
-        {active.map(entry)}
+        <div className="list-group" ref={changesListRef}>
+          {active.map((c) => entry(c, "changes"))}
+        </div>
         {changes && live.length === 0 && <p className="hint">nothing in progress</p>}
       </div>
 
@@ -408,14 +455,37 @@ export function Sidebar({
           then the extensions' pages, offered as the server lists them — a context without the
           extension has no entry, not an empty one. Settings stays hardcoded below: it is the
           core's own too, but where you go once in a while rather than while working. */}
-      <p className="group-label workspace-label">Workspace</p>
-      <button className={`entry${actions ? " current" : ""}`} onClick={onActions}>
+      <div className="workspace-row">
+        <p className="group-label workspace-label">Workspace</p>
+        {/* Which client's world this is. It sits with the section's entries, below the changes:
+            everything under it is what that context contains. Always shown, even with one
+            workspace: which context you are in should be visible, not implied. */}
+        <ActionsMenu
+          className="workspace"
+          triggerRef={workspaceRef}
+          label={`${chosenWorkspace?.name ?? "All work"}${chosenWorkspace === undefined ? "" : availabilitySuffix(statusOfWorkspace(chosenWorkspace))} ▾`}
+          actions={[
+            ...workspaces.map((w) => ({
+              label: `${w.name}${availabilitySuffix(statusOfWorkspace(w))}`,
+              disabled: w.id === chosen,
+              onSelect: () => onChooseWorkspace(w.id),
+            })),
+            {
+              label: "All work",
+              separated: true,
+              disabled: chosen === ALL,
+              onSelect: () => onChooseWorkspace(ALL),
+            },
+          ]}
+        />
+      </div>
+      <button ref={actionsRef} className={`entry${actions ? " current" : ""}`} onClick={onActions}>
         <span className="ic" aria-hidden="true">
           <BoltIcon title="actions" />
         </span>
         <span className="label">Actions</span>
       </button>
-      <button className={`entry${subagents ? " current" : ""}`} onClick={onSubagents}>
+      <button ref={subagentsRef} className={`entry${subagents ? " current" : ""}`} onClick={onSubagents}>
         <span className="ic" aria-hidden="true">
           <SubagentsIcon title="subagents" />
         </span>
@@ -424,6 +494,10 @@ export function Sidebar({
       {pages.map((p) => (
         <button
           key={p.id}
+          ref={(element) => {
+            if (element === null) pageRefs.current.delete(p.id);
+            else pageRefs.current.set(p.id, element);
+          }}
           className={extPage === p.id ? "entry current" : "entry"}
           onClick={() => onPage(p.id)}
         >
@@ -441,6 +515,7 @@ export function Sidebar({
           started. */}
       <div className="bottom-row">
         <button
+          ref={settingsRef}
           className={`icon-entry${settings ? " current" : ""}`}
           title="Settings"
           aria-label="Settings"
@@ -449,6 +524,7 @@ export function Sidebar({
           <GearIcon title="Settings" />
         </button>
         <button
+          ref={powerRef}
           className={`icon-entry${power.open ? " current" : ""}`}
           title="Power down when done"
           aria-label="Power"
@@ -458,6 +534,7 @@ export function Sidebar({
         </button>
         {hostReason !== undefined && (
           <button
+            ref={restartRef}
             className="icon-entry stale"
             title={hostReason}
             aria-label="Restart the terminal host"
@@ -468,6 +545,7 @@ export function Sidebar({
         )}
         {update?.eligible && (
           <button
+            ref={updateRef}
             className={`icon-entry update${update.behind > 0 ? " available" : ""}`}
             title={update.behind > 0 ? "New version available" : "No updates"}
             aria-label="Update"

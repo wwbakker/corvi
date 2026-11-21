@@ -121,13 +121,13 @@ test("the keymap's tooltip lists what this pane can do", () => {
   expect(bare).toContain("↑ ↓ choose");
   expect(bare).toContain("Enter open");
   expect(bare).toContain("Alt+↑ up");
-  // No row action here, so no Alt+Enter chord to list.
-  expect(bare).not.toContain("Alt+Enter");
+  // No row action here, so no Shift+Enter chord to list.
+  expect(bare).not.toContain("Shift+Enter");
 
   const withAction = renderListing({
     action: { label: () => "Add", hint: "add the repository", run: () => {} },
   });
-  expect(withAction).toContain("Alt+Enter add");
+  expect(withAction).toContain("Shift+Enter add");
 });
 
 test("the listing query is the one request both callers make", () => {

@@ -1,4 +1,4 @@
-import { type JSX } from "react";
+import { type JSX, type RefObject } from "react";
 import { CHANGE_STATES, type Change, type ChangeState } from "../../app-root/api.ts";
 import { ActionsMenu, type Action } from "../../app-root/ActionsMenu.tsx";
 import { BranchIcon } from "../../app-root/icons.tsx";
@@ -27,6 +27,8 @@ export function ChangeControls({
   moving = false,
   reopening = false,
   onReopen,
+  statusRef,
+  actionsRef,
 }: {
   /** The record, while it is still on its way: the row shows the page's shape, the fields wait. */
   change: Change | undefined;
@@ -48,6 +50,9 @@ export function ChangeControls({
   reopening?: boolean;
   /** Undo a cancellation; only a cancelled change offers it. */
   onReopen?: () => void;
+  /** Where the leader's keycaps sit on the two menus (app-root/leader.tsx). */
+  statusRef?: RefObject<HTMLButtonElement | null>;
+  actionsRef?: RefObject<HTMLButtonElement | null>;
 }): JSX.Element {
   const name = change?.title ?? change?.branch ?? "";
   // The states a change may move between: every manual phase, `Ideation` included, and never
@@ -104,6 +109,7 @@ export function ChangeControls({
           ) : (
             <ActionsMenu
               className={`state ${stateClass(change.state)}`}
+              triggerRef={statusRef}
               label={change.state ?? "Implementation"}
               actions={states.map((state) => ({
                 label: state,
@@ -135,7 +141,12 @@ export function ChangeControls({
               )}
             </>
           ) : (
-            <ActionsMenu actions={actions} className="actions" onOpen={onActionsOpen} />
+            <ActionsMenu
+              actions={actions}
+              className="actions"
+              triggerRef={actionsRef}
+              onOpen={onActionsOpen}
+            />
           )}
         </>
       )}

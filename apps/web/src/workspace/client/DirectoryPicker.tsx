@@ -2,6 +2,7 @@ import { type JSX, useEffect, useRef, useState } from "react";
 import type { Listing } from "../../app-root/api.ts";
 import { DirectoryListing } from "./DirectoryListing.tsx";
 import { fetchListing } from "./repoListing.ts";
+import { useConfirmShortcut } from "../../app-root/confirmShortcut.ts";
 
 /**
  * Modal directory chooser for the settings page: the same listing the repository browser shows,
@@ -55,6 +56,13 @@ export function DirectoryPicker({
     filter.current?.focus();
   }, [open, listing]);
 
+  // Ctrl+Enter is "Use this directory": the answer the dialog was opened for.
+  useConfirmShortcut(ref, open, () => {
+    if (listing === undefined) return;
+    onChoose(listing.path);
+    onClose();
+  });
+
   const list = (dir: string | undefined, hidden: boolean): void => {
     setError(undefined);
     fetchListing({ path: dir, workspace, hidden })
@@ -105,6 +113,9 @@ export function DirectoryPicker({
               }}
             >
               Use this directory
+              <kbd className="key-hint" aria-hidden="true">
+                Ctrl+Enter
+              </kbd>
             </button>
           </div>
         </>

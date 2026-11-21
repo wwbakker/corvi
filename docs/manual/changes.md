@@ -24,13 +24,15 @@ branch, and the repositories as a small list of what is picked, with the same ki
 button over the directory browser. Repositories are optional for an idea; the browser starts at
 `repositoriesDirectory` and can navigate up to `/`. It is driven from the keyboard as well: it
 opens with the cursor in the filter and the first row selected, `↑`/`↓` move the selection (round
-the ends), `Enter` walks into it, `Alt+↑` goes up a directory, and `Alt+Enter` presses the row's
+the ends), `Enter` walks into it, `Alt+↑` goes up a directory, and `Shift+Enter` presses the row's
 button. The keyboard mark beside the hidden-directories switch lists the same chords, and the settings'
 directory picker behaves the same way.
 
 Leaving the wizard preserves one draft in the page. It appears under **Ideas** as *New idea* or
 its title. Reopening restores the fields and selections. **Discard** removes it; closing/reloading
-the application forgets it. No server-side change exists until **Create idea**.
+the application forgets it. No server-side change exists until **Create idea**, which
+`Ctrl+Enter` also does — and `Ctrl+Enter` closes the wizard's own browsers (repositories, a
+step's picker) and confirms the dashboard's **Repositories** dialog.
 
 Creating an idea writes its record and `PLAN.md`, and opens the change on its plan. The selected
 repositories get their checkouts straight away — the worktree and the change's branch exist from

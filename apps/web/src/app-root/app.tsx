@@ -44,6 +44,7 @@ import { applyStoredMonoFont, loadSymbolsFont } from "./monoFont.ts";
 import type { SettingsView } from "../settings/model.ts";
 import { ActionsPage } from "../actions/ActionsPage.tsx";
 import { SubagentsPage } from "../subagents/SubagentsPage.tsx";
+import { LeaderProvider, useLeaderActive } from "./leader.tsx";
 
 function Home({
   changes,
@@ -486,6 +487,65 @@ function App(): JSX.Element {
     "--traffic-inset": bridge?.platform === "darwin" ? `${TRAFFIC_LIGHTS.inset}px` : "0px",
   } as CSSProperties;
 
+  // Leader mode's keys sit on the column, so on a window narrow enough to have it as a drawer,
+  // the mode opens it and closes it again — unless you had opened it yourself. Read on the
+  // transition only: closing the drawer during the mode is yours to do, not something the mode
+  // undoes (app-root/leader.tsx).
+  const leaderActive = useLeaderActive();
+  const drawerOpenRef = useRef(drawerOpen);
+  drawerOpenRef.current = drawerOpen;
+  const leaderOpenedDrawer = useRef(false);
+  // Where the last press landed. A press inside the drawer ends the mode on mousedown, and closing
+  // the drawer then would take the control out from under the click: the gesture finishes first
+  // (app-root/leader.tsx).
+  const pressedInDrawer = useRef(false);
+  const leaderActiveRef = useRef(leaderActive);
+  leaderActiveRef.current = leaderActive;
+  useEffect(() => {
+    const onDown = (event: MouseEvent): void => {
+      // Only the press that ends the mode is this flag's business, and it is read in the effect
+      // that ends it. A press while the mode is off must not leave it set for a later session.
+      if (!leaderActiveRef.current) return;
+      // The drawer's own controls, and the toggle that closes it, finish their press before the
+      // drawer may move: a navigation closes it, and the toggle closes it itself.
+      pressedInDrawer.current =
+        event.target instanceof Element && event.target.closest(".sidebar, .drawer-toggle") !== null;
+    };
+    document.addEventListener("mousedown", onDown, true);
+    return () => document.removeEventListener("mousedown", onDown, true);
+  }, []);
+  useEffect(() => {
+    if (leaderActive) {
+      // A flag from a press in an earlier session is not this session's.
+      pressedInDrawer.current = false;
+      if (!window.matchMedia("(max-width: 720px)").matches) return;
+      leaderOpenedDrawer.current = !drawerOpenRef.current;
+      setDrawerOpen(true);
+      return;
+    }
+    if (!leaderOpenedDrawer.current) return;
+    leaderOpenedDrawer.current = false;
+    if (pressedInDrawer.current) {
+      // The click on the drawer's control navigates, and that closes it; a click on its blank
+      // space leaves it open, which is what was pressed.
+      pressedInDrawer.current = false;
+      return;
+    }
+    setDrawerOpen(false);
+  }, [leaderActive]);
+  // A window that narrows under the mode has to give it the drawer too: the column is
+  // off-screen otherwise, and its keys would be alive with nothing on screen to learn them from.
+  useEffect(() => {
+    const narrow = window.matchMedia("(max-width: 720px)");
+    const onChange = (): void => {
+      if (!leaderActive || !narrow.matches) return;
+      leaderOpenedDrawer.current = leaderOpenedDrawer.current || !drawerOpenRef.current;
+      setDrawerOpen(true);
+    };
+    narrow.addEventListener("change", onChange);
+    return () => narrow.removeEventListener("change", onChange);
+  }, [leaderActive]);
+
   return (
     <div className={bridge ? "app hosted" : "app"} style={chrome}>
       {/* The narrow window's navigation: a backdrop, and the toggle that stays above it (and the
@@ -743,7 +803,9 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <SessionGate>
       <SourcesProvider>
-        <App />
+        <LeaderProvider>
+          <App />
+        </LeaderProvider>
       </SourcesProvider>
     </SessionGate>
   </StrictMode>,

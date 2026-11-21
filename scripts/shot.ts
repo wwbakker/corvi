@@ -50,6 +50,15 @@ try {
   await page.goto(url, { waitUntil: "networkidle" });
   await shot("1-home");
 
+  // Leader mode: Ctrl+Space lays the column's keys over its controls, and the bottom row's over
+  // its own (app-root/leader.tsx). The overview has no view controls, so the page's keys are the
+  // column's alone here.
+  await page.keyboard.press("Control+Space");
+  await page.waitForSelector(".leader-layer");
+  await shot("1b-leader");
+  await page.keyboard.press("Escape");
+  await page.waitForSelector(".leader-layer", { state: "detached" });
+
   await page.locator(".sidebar .ideas-row .create").click();
   // One screen now: the seeded plan on the left, the sections on the right. The steps arrive
   // with the wizard's fetch, and each is collapsed to its pick — a field with an "Edit…" that
@@ -191,6 +200,13 @@ try {
     await page.waitForSelector(".change-bar .change-name");
     await page.waitForTimeout(500);
     await shot("14-change-dashboard");
+
+    // The change's own row: the views, the terminal and its "+", then the title row's menus.
+    await page.keyboard.press("Control+Space");
+    await page.waitForSelector(".leader-layer");
+    await shot("14b-leader-change");
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".leader-layer", { state: "detached" });
 
     // Every theme, on the same page: the four looks the choice offers, in Settings' order.
     for (const theme of ["ultramarine", "raven", "spaces"]) {

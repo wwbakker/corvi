@@ -9,6 +9,8 @@ import type { Workspace } from "../workspace/client/workspaces.ts";
 import { planPatch, seedPatch, stepContext, toChangeDraft, type Draft, type DraftPatch } from "./draft.ts";
 import { firstHeading } from "./plan.ts";
 import { MarkdownEditor } from "../editor/client/MarkdownEditor.tsx";
+import { useLeaderActive, useLeaderConfirm, useLeaderGroup, type LeaderEntry } from "../app-root/leader.tsx";
+import { isConfirmChord, modalOpen, useConfirmShortcut } from "../app-root/confirmShortcut.ts";
 
 /**
  * The "Create change" wizard: one screen, the plan on the left and everything else on the right.
@@ -105,6 +107,38 @@ export function Wizard({
   const issueSteps = (steps ?? []).filter((s) => s.phase === "issue");
   const repoSteps = (steps ?? []).filter((s) => s.phase === "repos");
 
+  // The wizard's own controls, in the order they read: create, discard, the plan, then each
+  // section's Edit… (app-root/leader.tsx). The plan is a target that puts the caret in it rather
+  // than one that clicks the frame around it.
+  const createRef = useRef<HTMLButtonElement>(null);
+  const discardRef = useRef<HTMLButtonElement>(null);
+  const planFrame = useRef<HTMLDivElement>(null);
+  const sectionsRef = useRef<HTMLDivElement>(null);
+  const sectionEdits = (): readonly LeaderEntry[] => {
+    const sections = sectionsRef.current;
+    return sections === null
+      ? []
+      : [...sections.querySelectorAll<HTMLElement>("[data-leader-edit]")].map((element) => ({
+          kind: "target" as const,
+          element,
+        }));
+  };
+  // The view row's keys, the same positions the change page uses: the wizard and a change page are
+  // never mounted together.
+  useLeaderGroup("wizard", "asdfghjkl", () => [
+    // The header's buttons carry their label to the corner: their keys sit above it, where the row's
+    // own space is, rather than on the last letter.
+    { kind: "target", element: createRef.current, align: "above" },
+    { kind: "target", element: discardRef.current, align: "above" },
+    {
+      kind: "target",
+      element: planFrame.current,
+      run: () => planFrame.current?.querySelector<HTMLElement>(".cm-content")?.focus(),
+    },
+    ...sectionEdits(),
+  ]);
+
+  const creatable = id.trim() !== "" && !busy && !createBlocked;
   // Added as a worktree off the remote default with the change's branch; both are changed per
   // repository afterwards.
   const addRepo = (path: string): void =>
@@ -135,6 +169,32 @@ export function Wizard({
       .finally(() => setBusy(false));
   };
 
+  // Ctrl+Enter creates the idea once it can be created, from anywhere on the page. It is taken
+  // ahead of the plan editor: CodeMirror binds Mod-Enter to `insertBlankLine`, and a key that
+  // both edited the plan and created the change would create the text from before the edit. A
+  // dialog's own Ctrl+Enter (confirmShortcut) is that dialog's, so an open one is never the
+  // wizard's.
+  const latest = useRef({ creatable, create });
+  latest.current = { creatable, create };
+  const leaderActive = useLeaderActive();
+  // With the keycaps up the mode offers the chord to the page; only when it can create.
+  useLeaderConfirm(creatable ? () => latest.current.create() : null);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (!isConfirmChord(event)) return;
+      // While the keycaps are up, the leader owns the chord and calls the create this file
+      // registered with it. This listener is the mode-off case, and only that: one owner per
+      // state, whatever order the two listeners were registered in.
+      if (leaderActive) return;
+      if (modalOpen()) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (latest.current.creatable) latest.current.create();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [leaderActive]);
+
   /** What the steps share, built from the draft: their prefill, the repositories picked so far,
    * their pick's place in the form, and their own slot of the creation record. The workspace is
    * the one to name on the wire — the remote's own id for a remote context. */
@@ -150,20 +210,26 @@ export function Wizard({
             required: repositories can be added now or after the work starts, and the plan can
             be empty. */}
         <button
+          ref={createRef}
           className="primary"
-          disabled={!id.trim() || busy || createBlocked}
+          disabled={!creatable}
           title={createBlocked ? "this workspace is unavailable" : undefined}
           onClick={create}
         >
           {busy ? "Creating…" : "Create idea"}
+          <kbd className="key-hint" aria-hidden="true">
+            Ctrl+Enter
+          </kbd>
         </button>
-        <button onClick={onDiscard}>Discard</button>
+        <button ref={discardRef} onClick={onDiscard}>
+          Discard
+        </button>
       </header>
 
       {error && <div className="error-banner">{error}</div>}
 
       <div className="wizard-body">
-        <div className="wizard-plan">
+        <div className="wizard-plan" ref={planFrame}>
           <MarkdownEditor
             fill
             value={plan}
@@ -172,7 +238,7 @@ export function Wizard({
           />
         </div>
 
-        <div className="wizard-sections">
+        <div className="wizard-sections" ref={sectionsRef}>
           {!steps && <span className="hint">loading…</span>}
           {issueSteps.map((info) => (
             <StepField key={info.id} info={info} ctx={ctx} pick={picks[info.extension]} source={source} />
@@ -246,14 +312,24 @@ function useDialog(
   focus?: RefObject<HTMLElement | null>,
 ): RefObject<HTMLDialogElement | null> {
   const ref = useRef<HTMLDialogElement>(null);
+  // What had the keyboard when it opened: the "Edit…" it belongs to, which is where it goes back
+  // to. showModal() focuses the dialog itself, and a close leaves the focus on whatever the page
+  // last had — often the terminal in a page behind.
+  const opener = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
     if (open && !dialog.open) {
+      opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       dialog.showModal();
       focus?.current?.focus();
     }
-    if (!open && dialog.open) dialog.close();
+    if (!open && dialog.open) {
+      dialog.close();
+      const target = opener.current;
+      opener.current = null;
+      if (target !== null && target.isConnected) target.focus({ preventScroll: true });
+    }
   }, [open, focus]);
   return ref;
 }
@@ -278,6 +354,7 @@ function StepField({
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const ref = useDialog(open);
+  useConfirmShortcut(ref, open, () => setOpen(false));
 
   return (
     <div className="field">
@@ -290,7 +367,7 @@ function StepField({
           title={pick?.name}
           className={pick ? "" : "none"}
         />
-        <button type="button" className="choose" onClick={() => setOpen(true)}>
+        <button type="button" className="choose" data-leader-edit onClick={() => setOpen(true)}>
           Edit…
         </button>
       </div>
@@ -302,6 +379,9 @@ function StepField({
         <div className="dialog-actions">
           <button type="button" onClick={() => setOpen(false)}>
             Close
+            <kbd className="key-hint" aria-hidden="true">
+              Ctrl+Enter
+            </kbd>
           </button>
         </div>
       </dialog>
@@ -335,6 +415,7 @@ function ReposField({
   const [open, setOpen] = useState(false);
   const filter = useRef<HTMLInputElement>(null);
   const ref = useDialog(open, filter);
+  useConfirmShortcut(ref, open, () => setOpen(false));
 
   return (
     <div className="field repos-field">
@@ -342,7 +423,7 @@ function ReposField({
       {repos.length === 0 ? (
         <div className="row">
           <input aria-label="Repositories" value="none" readOnly className="none" />
-          <button type="button" className="choose" onClick={() => setOpen(true)}>
+          <button type="button" className="choose" data-leader-edit onClick={() => setOpen(true)}>
             Edit…
           </button>
         </div>
@@ -365,7 +446,7 @@ function ReposField({
       )}
       {repos.length > 0 && (
         <div className="row">
-          <button type="button" className="choose" onClick={() => setOpen(true)}>
+          <button type="button" className="choose" data-leader-edit onClick={() => setOpen(true)}>
             Edit…
           </button>
         </div>
@@ -395,6 +476,9 @@ function ReposField({
         <div className="dialog-actions">
           <button type="button" onClick={() => setOpen(false)}>
             Close
+            <kbd className="key-hint" aria-hidden="true">
+              Ctrl+Enter
+            </kbd>
           </button>
         </div>
       </dialog>
