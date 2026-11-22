@@ -41,6 +41,10 @@ import { changeDir } from "../apps/server/src/change/server/index.ts";
 import { createInstance, type SubagentRecord } from "@corvi/agents/node";
 import { runEffect, runSh, testTempDir } from "./helpers.ts";
 
+/** These tests set the process's config and agent directories: the file that runs after this one
+ * must see whatever it had before, not a removed temp dir. */
+const previousConfig = process.env.CORVI_CONFIG;
+const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 const own = await testTempDir("harnesses");
 const changesRoot = join(own, "changes");
 const agentDir = join(own, "agent");
@@ -465,4 +469,9 @@ test("archiving removes the change's generated harness tree", async () => {
 
 afterAll(async () => {
   await rm(own, { recursive: true, force: true });
+  if (previousConfig === undefined) delete process.env.CORVI_CONFIG;
+  else process.env.CORVI_CONFIG = previousConfig;
+  if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+  else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+  reloadConfigSync();
 });

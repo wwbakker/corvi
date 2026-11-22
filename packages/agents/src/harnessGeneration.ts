@@ -226,6 +226,22 @@ const safeSegment = (value: string): string => {
   return cleaned.length === 0 ? "unnamed" : cleaned;
 };
 
+/** A trailing slash never names anything. Stripped by hand rather than with `/\/+$/`: the regex
+ * over a path a repository supplies is quadratic on a long run of slashes. */
+const withoutTrailingSlashes = (path: string): string => {
+  let end = path.length;
+  while (end > 0 && path.charCodeAt(end - 1) === 0x2f) end -= 1;
+  return path.slice(0, end);
+};
+
+/** A ref suffix (`@v1.2.0`) is not part of a name. Removed only when the `@` follows the last
+ * `/`, so a leading `@scope` and a path's own `@` stay: `/@[^/@]+$/` without the regex. */
+const withoutRefSuffix = (source: string): string => {
+  const at = source.lastIndexOf("@");
+  if (at <= 0) return source;
+  return source.lastIndexOf("/") < at ? source.slice(0, at) : source;
+};
+
 /** `<stateDir>/harnesses/<changeId>/<source>/<origin>/<id>` (no origin segment for built-in and
  * global harnesses). The path is stable across regenerations, which is what lets an existing
  * shell find the same harness on its next `pi` start. */
@@ -245,9 +261,9 @@ export const generatedHarnessDir = (
 
 /** The generated state of one change: everything under it goes when the change is archived. */
 export const harnessStateDir = (stateDir: string, changeId: string): string =>
-  [stateDir.replace(/\/+$/, ""), "harnesses", safeSegment(changeId)].join("/");
+  [withoutTrailingSlashes(stateDir), "harnesses", safeSegment(changeId)].join("/");
 
-const joinPath = (base: string, entry: string): string => `${base.replace(/\/+$/, "")}/${entry}`;
+const joinPath = (base: string, entry: string): string => `${withoutTrailingSlashes(base)}/${entry}`;
 
 const normalizePath = (path: string): string => {
   const absolute = path.startsWith("/");
@@ -718,23 +734,23 @@ const planSkills = (
 export const packageNameOf = (source: string): string => {
   const stripped = source.replace(/^(npm|git):/, "");
   if (/^https?:\/\//.test(stripped)) {
-    const withoutRef = stripped.replace(/@[^/@]+$/, "");
-    const path = withoutRef
+    const noRef = withoutRefSuffix(stripped);
+    const path = noRef
       .replace(/^https?:\/\//, "")
       .split("/")
       .slice(1)
       .join("/");
-    return lastSegment(path === "" ? withoutRef : path);
+    return lastSegment(path === "" ? noRef : path);
   }
   if (stripped.startsWith("@")) {
     const at = stripped.lastIndexOf("@");
     return at > 0 ? stripped.slice(0, at) : stripped;
   }
   if (stripped.startsWith(".") || stripped.startsWith("/") || stripped.startsWith("~")) {
-    return lastSegment(stripped.replace(/\/+$/, ""));
+    return lastSegment(withoutTrailingSlashes(stripped));
   }
   if (stripped.includes("/")) {
-    return lastSegment(stripped.replace(/@[^/@]+$/, "").replace(/\/+$/, ""));
+    return lastSegment(withoutTrailingSlashes(withoutRefSuffix(stripped)));
   }
   const at = stripped.indexOf("@");
   return at > 0 ? stripped.slice(0, at) : stripped;
