@@ -1043,6 +1043,10 @@ test.skipIf(!usable)(
   async () => {
     const { page } = await openTerminal(exits);
     await awaitAttached(page);
+    // The click in openTerminal can land while the pane is still attaching, leaving the keyboard
+    // in the previous window's shell; take it deliberately before typing a command that must
+    // reach this pty.
+    await focusVisiblePane(page);
     await page.keyboard.type("exit\n");
     await page.locator(".terminal-gone").waitFor({ timeout: budget(20_000) });
     const text = ((await page.locator(".terminal-gone").textContent()) ?? "").replace(/\s+/g, " ").trim();
