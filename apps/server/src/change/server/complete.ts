@@ -12,6 +12,7 @@ import type { Cache, GitFacts } from "@corvi/contracts/capabilities";
 import type { Changes } from "../../integrations/api/capabilities.ts";
 import { unsafeToRemove, type Unsafe } from "../../vendors/git.ts";
 import { changePairs, readChange, readSidecar, writeSidecar } from "./store.ts";
+import { removeHarnessState } from "../../harnesses/server/cleanup.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";
 import { ChangeRepositories } from "@corvi/changes/repositories";
 import { ChangeFormatTooNew, ChangeStoreError } from "@corvi/changes/errors";
@@ -337,6 +338,7 @@ const runCompletion = (
         return yield* new InternalError({
           message: "the completed change could not be read back",
         });
+      yield* removeHarnessState(change.id);
       const notes = [
         ...(overridden.length > 0 ? [`completed with overrides: ${overridden.join("; ")}`] : []),
         ...outcome.notes,

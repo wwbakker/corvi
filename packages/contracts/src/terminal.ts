@@ -43,6 +43,10 @@ export type RawWindow = {
   /** Whether this window is a Corvi subagent (a host session carrying `subagentId`). A subagent
    * waits for its orchestrator, not the user; the presenter suppresses its attention. */
   subagent?: boolean;
+  /** The harness its Pi environment belongs to, when the pane runs under one. */
+  harness?: string;
+  /** The directory the pane's shell is in now, when the host can read it. */
+  cwd?: string;
 };
 
 /** How a window is presented. The first presenter that answers a field wins; fields left out
@@ -115,4 +119,8 @@ export type TerminalWindow = {
   readonly panes: readonly string[];
   /** The focused pane's session id. The page renders this pane until 5b composes the rest. */
   readonly activePane: string;
+  /** The full directory the pane's shell is in now. */
+  cwd?: string;
+  /** The harness this tab's Pi environment belongs to, shown beside the name. */
+  harness?: string;
 };

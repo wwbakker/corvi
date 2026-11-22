@@ -6,13 +6,16 @@
  * `@corvi/agents/profile`'s; this file is what the browser and the server share. */
 import { Schema } from "effect";
 
-/** The harness a profile starts. */
-export const SubagentHarness = Schema.Literals(["pi", "opencode"]);
+import { HarnessAgent, HarnessSource } from "./harnesses.ts";
+
+/** The agent a subagent's resolved harness starts. The profile file names a harness id
+ * (`harness:`); the agent is what the chain resolves to, and what the instance record pins. */
+export const SubagentHarness = HarnessAgent;
 export type SubagentHarness = typeof SubagentHarness.Type;
 
 /** Where the profile's file was discovered. Built-in files are shipped with Corvi; repository
  * files live in one of the change's checkouts. */
-export const SubagentSource = Schema.Literals(["builtin", "global", "workspace", "repository"]);
+export const SubagentSource = HarnessSource;
 export type SubagentSource = typeof SubagentSource.Type;
 
 /** One profile file as the page lists it: the file as written, and what it parses to — or why it
@@ -100,7 +103,9 @@ export const SubagentProfileSummarySchema = Schema.Struct({
   source: SubagentSource,
   sourceLabel: Schema.optional(Schema.String),
   label: Schema.String,
-  harness: SubagentHarness,
+  /** The harness the profile names (an id: `pi`, `pi-bare`, `opencode`, or one of the user's);
+   * absent means the change's subagent default. */
+  harness: Schema.optional(Schema.String),
   model: Schema.optional(Schema.String),
   effort: Schema.optional(Schema.String),
   body: Schema.String,
@@ -153,6 +158,9 @@ export const SubagentRecordSchema = Schema.Struct({
   /** The resolved profile key (`global:reviewer`), not its text. */
   profile: Schema.String,
   label: Schema.String,
+  /** The harness the subagent was created with, pinned so a reopen regenerates from it rather
+   * than from whatever the profile says now. Absent on records written before pinning. */
+  harnessKey: Schema.optional(Schema.String),
   harness: SubagentHarness,
   model: Schema.optional(Schema.String),
   effort: Schema.optional(Schema.String),
@@ -192,6 +200,8 @@ export const SubagentInstanceSchema = Schema.Struct({
   changeId: Schema.String,
   profile: Schema.String,
   label: Schema.String,
+  /** The harness pinned at creation, so a reopen regenerates from it. */
+  harnessKey: Schema.optional(Schema.String),
   harness: SubagentHarness,
   model: Schema.optional(Schema.String),
   effort: Schema.optional(Schema.String),

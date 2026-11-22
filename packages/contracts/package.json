@@ -16,6 +16,7 @@
     "./power": "./src/power.ts",
     "./actions": "./src/actions.ts",
     "./subagents": "./src/subagents.ts",
+    "./harnesses": "./src/harnesses.ts",
     "./shelves": "./src/shelves.ts",
     "./transcripts": "./src/transcripts.ts",
     "./errors": "./src/errors.ts",

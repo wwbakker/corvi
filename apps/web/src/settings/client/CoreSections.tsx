@@ -1,4 +1,5 @@
-import { type JSX } from "react";
+import { type JSX, useEffect, useState } from "react";
+import { apiClient } from "../../app-root/api.ts";
 import { CheckField, DirectoryField, EnvEditor, ListEditor, MarkdownField } from "./SettingsFields.tsx";
 import type { SettingsScope } from "./settingsScope.ts";
 
@@ -165,6 +166,90 @@ export function WindowSection({ scope }: { scope: SettingsScope }): JSX.Element 
         }
         onChange={(on) => scope.set("contextMenu", on)}
       />
+    </div>
+  );
+}
+
+/** The harness a shell pane and a new subagent start, at this scope. "Default" inherits the
+ * global level's choice, and finally the built-in `pi`; the choices come from the same discovery
+ * the launch uses, so an offered key always resolves. A repository harness is chosen on the
+ * change itself, not here. */
+export function HarnessDefaultsSection({
+  scope,
+  workspaceId,
+}: {
+  scope: SettingsScope;
+  /** The workspace this scope is editing; a global default sees no workspace's own files. */
+  workspaceId?: string;
+}): JSX.Element {
+  const [files, setFiles] = useState<readonly { key: string; label: string; problem?: string }[]>([]);
+  const [available, setAvailable] = useState(false);
+  useEffect(() => {
+    apiClient.harnesses
+      .choices({
+        ...(scope.at === "global" || workspaceId === undefined ? {} : { workspace: workspaceId }),
+      })
+      .then((listed) => {
+        setAvailable(true);
+        setFiles(
+          listed.harnesses
+            .map((harness) => ({
+              key: harness.key,
+              label: `${harness.label} (${harness.source === "workspace" ? "workspace" : harness.source})`,
+              ...(harness.problem === undefined ? {} : { problem: harness.problem }),
+            }))
+            .sort((left, right) => left.label.localeCompare(right.label)),
+        );
+      })
+      .catch(() => {
+        setAvailable(false);
+        setFiles([]);
+      });
+  }, [scope.at, workspaceId]);
+  const own = scope.value("harnessDefaults") ?? {};
+  const inherited = scope.inherited("harnessDefaults") ?? {};
+  const pick = (kind: "user" | "subagents", value: string): void => {
+    const next = { ...own, [kind]: value === "" ? undefined : value };
+    if (next.user === undefined && next.subagents === undefined) scope.drop("harnessDefaults");
+    else scope.set("harnessDefaults", next);
+  };
+  const field = (kind: "user" | "subagents", label: string, hint: string): JSX.Element => {
+    const value = own[kind];
+    return (
+      <label className="harness-default">
+        <span>{label}</span>
+        <select
+          aria-label={label}
+          value={value ?? ""}
+          disabled={!available}
+          onChange={(event) => pick(kind, event.target.value)}
+        >
+          <option value="">Default ({inherited[kind] ?? "builtin:pi"})</option>
+          {value !== undefined && !files.some((file) => file.key === value) && (
+            <option value={value}>{value} (not available in this scope)</option>
+          )}
+          {files.map((file) => (
+            <option key={file.key} value={file.key} disabled={file.problem !== undefined}>
+              {file.label}
+              {file.problem === undefined ? "" : ` — ${file.problem}`}
+            </option>
+          ))}
+        </select>
+        <span className="hint">
+          {hint}
+          {scope.at !== "global" && value === undefined ? " · inherited" : ""}
+        </span>
+      </label>
+    );
+  };
+  return (
+    <div className="form">
+      {field(
+        "user",
+        "Shell panes",
+        "The harness a new terminal's shell gets, and the default the change's own selector starts from.",
+      )}
+      {field("subagents", "New subagents", "The harness a new subagent starts when its profile names none.")}
     </div>
   );
 }

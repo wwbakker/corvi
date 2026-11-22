@@ -1,61 +1,42 @@
-/** The file system half of profile discovery: one reader for a scope's directory, and the roots
- * a change draws from. Read fresh on every call so an edit or a new file needs no restart. OS
- * access stays behind this adapter entrypoint; the vocabulary and the precedence rules are pure
- * (`../discovery`, `../profile`).
+/** The file system half of profile and harness discovery: one reader for a scope's directory,
+ * and the roots a change draws from. Read fresh on every call so an edit or a new file needs no
+ * restart. OS access stays behind this adapter entrypoint; the vocabulary and the precedence
+ * rules are pure (`../discovery`, `../profile`, `../harnessDiscovery`).
  *
- * A directory that is missing or unreadable is simply no profiles from it — the scopes a user has
+ * A directory that is missing or unreadable is simply no files from it — the scopes a user has
  * not set up must not look like an error. A file that cannot be read is still returned, with
  * `readable: false`, so it is listed with a reason rather than hidden. */
-import { readFile, readdir } from "node:fs/promises";
-import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 
-import { InternalError } from "@corvi/contracts/errors";
+import { mergeHarnessFiles, type HarnessDiscovery, type HarnessFileInput } from "../harnessDiscovery.ts";
 import { mergeProfileFiles, type ProfileDiscovery, type ProfileFileInput } from "../discovery.ts";
+import { readMarkdownScope, type MarkdownScopeFile } from "./markdownScope.ts";
 
 /** Where the shipped profiles live: the package's own `builtins/`, read-only files in the same
  * format as user files. */
 export const builtinProfilesDir = (): string => fileURLToPath(new URL("../../builtins/", import.meta.url));
 
-/** One `*.md` file on disk in a scope, before it is parsed. `readable` is false when the file
- * could not be read: it is still listed, so a permission problem is visible rather than a
- * missing profile. */
-export type ProfileScopeFile = {
-  readonly id: string;
-  readonly path: string;
-  readonly text: string;
-  readonly readable: boolean;
-};
+/** Where the built-in harnesses live: `pi`, `pi-bare` and `opencode`, the only chain ends. */
+export const builtinHarnessesDir = (): string =>
+  fileURLToPath(new URL("../../builtins/harnesses/", import.meta.url));
 
-/** Every `*.md` directly in one directory. A directory that cannot be read is an empty scope; a
- * file that cannot be read is one unreadable entry. */
-export const readProfileScope = (dir: string): Effect.Effect<readonly ProfileScopeFile[]> =>
-  Effect.gen(function* () {
-    const names = yield* Effect.tryPromise({
-      try: () => readdir(dir),
-      catch: (cause) => new InternalError({ message: `cannot read ${dir}` }),
-    }).pipe(Effect.orElseSucceed(() => [] as string[]));
-    const files: ProfileScopeFile[] = [];
-    for (const name of names.filter((n) => n.endsWith(".md")).sort()) {
-      const path = join(dir, name);
-      const read = yield* Effect.tryPromise({
-        try: () => readFile(path, "utf8"),
-        catch: (cause) => new InternalError({ message: `cannot read ${path}` }),
-      }).pipe(Effect.result);
-      files.push({
-        id: name.slice(0, -3),
-        path,
-        text: read._tag === "Success" ? read.success : "",
-        readable: read._tag === "Success",
-      });
-    }
-    return files;
-  });
+/** One `*.md` file on disk in a profile scope, before it is parsed. */
+export type ProfileScopeFile = MarkdownScopeFile;
+
+/** Every `*.md` directly in one profile directory. A directory that cannot be read is an empty
+ * scope; a file that cannot be read is one unreadable entry. */
+export const readProfileScope = readMarkdownScope;
+
+/** One `*.md` file on disk in a harness scope, before it is parsed. */
+export type HarnessScopeFile = MarkdownScopeFile;
+
+/** Every `*.md` directly in one harness directory. */
+export const readHarnessScope = readMarkdownScope;
 
 /** Every scope a change draws from. Workspace and repository directories follow the change; the
  * global one follows the config file's directory so `CORVI_CONFIG` moves both. */
-export type ProfileRoots = {
+export type ScopeRoots = {
   readonly global: string;
   readonly workspaces: readonly {
     readonly id: string;
@@ -65,8 +46,13 @@ export type ProfileRoots = {
   readonly repositories: readonly {
     readonly name: string;
     readonly dir: string;
+    /** The ids to offer from this repository: a wizard's tracked harness files. */
+    readonly include?: readonly string[];
   }[];
 };
+
+export type ProfileRoots = ScopeRoots;
+export type HarnessRoots = ScopeRoots;
 
 const inputOf = (
   file: ProfileScopeFile,
@@ -74,6 +60,20 @@ const inputOf = (
   origin?: string,
   originLabel?: string,
 ): ProfileFileInput => ({
+  id: file.id,
+  source,
+  origin,
+  originLabel,
+  text: file.text,
+  readable: file.readable,
+});
+
+const harnessInputOf = (
+  file: HarnessScopeFile,
+  source: HarnessFileInput["source"],
+  origin?: string,
+  originLabel?: string,
+): HarnessFileInput => ({
   id: file.id,
   source,
   origin,
@@ -106,7 +106,42 @@ export const discoverProfiles = (roots: ProfileRoots): Effect.Effect<ProfileDisc
     return mergeProfileFiles(files);
   });
 
+/** Every harness a change can use: the built-ins, global files, its workspace's and its
+ * checkouts'. Read per call; parsed and merged by the pure rules. */
+export const discoverHarnesses = (roots: HarnessRoots): Effect.Effect<HarnessDiscovery> =>
+  Effect.gen(function* () {
+    const files: HarnessFileInput[] = [];
+    files.push(...(yield* readHarnessScope(builtinHarnessesDir())).map((f) => harnessInputOf(f, "builtin")));
+    files.push(...(yield* readHarnessScope(roots.global)).map((f) => harnessInputOf(f, "global")));
+    for (const workspace of roots.workspaces) {
+      files.push(
+        ...(yield* readHarnessScope(workspace.dir)).map((f) =>
+          harnessInputOf(f, "workspace", workspace.id, workspace.label),
+        ),
+      );
+    }
+    for (const repository of roots.repositories) {
+      const allowed = repository.include === undefined ? undefined : new Set(repository.include);
+      files.push(
+        ...(yield* readHarnessScope(repository.dir))
+          .filter((file) => allowed === undefined || allowed.has(file.id))
+          .map((f) => harnessInputOf(f, "repository", repository.name, repository.name)),
+      );
+    }
+    return mergeHarnessFiles(files);
+  });
+
 export * from "./instance.ts";
+export {
+  baseAgentDir,
+  corviExtensionDir,
+  generateHarness,
+  homeSkillsDir,
+  previewHarness,
+  type GeneratedHarness,
+  type GenerateHarnessOptions,
+  type PreparedHarness,
+} from "./harnessGeneration.ts";
 export {
   nodeOpencodeCli,
   opencodeDatabase,

@@ -301,6 +301,27 @@ export function BoltIcon({ title }: { title: string }): JSX.Element {
 }
 
 /** Subagents: one conversation opening two, the second still going. */
+export function HarnessIcon({ title }: { title: string }): JSX.Element {
+  return (
+    <svg
+      {...size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role="img"
+      aria-label={title}
+    >
+      <title>{title}</title>
+      <path d="M3 4h10M3 8h10M3 12h10" />
+      <circle cx="6" cy="4" r="1.5" fill="var(--bg, #000)" />
+      <circle cx="10" cy="8" r="1.5" fill="var(--bg, #000)" />
+      <circle cx="5" cy="12" r="1.5" fill="var(--bg, #000)" />
+    </svg>
+  );
+}
+
 export function SubagentsIcon({ title }: { title: string }): JSX.Element {
   return (
     <svg

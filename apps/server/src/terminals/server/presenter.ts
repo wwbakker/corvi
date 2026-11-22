@@ -81,7 +81,9 @@ export const presentWindow = (raw: RawWindow): PresentedWindow => {
     // where, and the presenters still answer the icon, state and note.
     label: raw.panes.length > 1 ? `${composed} (${raw.panes.length} panes)` : composed,
     ...(raw.title !== undefined ? { title: raw.title } : {}),
-    detail: said.detail ?? `${raw.name} (${raw.command}) in ${raw.place ?? raw.directory}`,
+    detail: `${said.detail ?? `${raw.name} (${raw.command}) in ${raw.place ?? raw.directory}`}${
+      raw.harness === undefined ? "" : ` · harness ${raw.harness}`
+    }`,
     icon: said.icon ?? "terminal",
     state: said.state ?? "idle",
     active: raw.active,
@@ -95,5 +97,7 @@ export const presentWindow = (raw: RawWindow): PresentedWindow => {
     working: raw.subagent === true ? false : (said.working ?? false),
     panes: raw.panes,
     activePane: raw.activePane,
+    ...(raw.harness === undefined ? {} : { harness: raw.harness }),
+    ...(raw.cwd === undefined ? {} : { cwd: raw.cwd }),
   };
 };

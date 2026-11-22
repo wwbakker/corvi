@@ -34,7 +34,7 @@ export const profilesFor = (change: Change): Effect.Effect<SubagentProfilesRespo
       source: found.source,
       ...(found.sourceLabel === undefined ? {} : { sourceLabel: found.sourceLabel }),
       label: found.profile.label,
-      harness: found.profile.harness,
+      ...(found.profile.harness === undefined ? {} : { harness: found.profile.harness }),
       ...(found.profile.model === undefined ? {} : { model: found.profile.model }),
       ...(found.profile.effort === undefined ? {} : { effort: found.profile.effort }),
       body: found.profile.body,

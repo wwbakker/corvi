@@ -640,6 +640,12 @@ test.skipIf(!usable)(
     );
 
     await page.locator(".window-tab.new").click();
+
+    await page.waitForSelector(".new-terminal-dialog[open]");
+
+    await page.keyboard.press("1");
+
+    await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
     expect(await until(() => tabs.count(), 2)).toBe(2);
 
     // The navigation column lists the registry's windows too.
@@ -829,7 +835,7 @@ test.skipIf(!usable)(
     // than assuming a fixed pause is long enough.
     await page.keyboard.press("Control+C");
     expect(
-      await until(async () => (await tab.locator(".label").innerText()).trim(), before, budget(10_000)),
+      await until(async () => (await tab.locator(".label").innerText()).trim(), before, budget(20_000)),
     ).toBe(before);
 
     // A click anywhere else dismisses it too.
@@ -903,6 +909,9 @@ test.skipIf(!usable)(
     // One marker per window's shell, so the rendered buffer says which screen the pane holds.
     await typeUntilText(page, "echo RAPID_A_MARK", "RAPID_A_MARK");
     await page.locator(".window-tab.new").click();
+    await page.waitForSelector(".new-terminal-dialog[open]");
+    await page.keyboard.press("1");
+    await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
     expect(await until(() => tabs.count(), 2)).toBe(2);
     await typeUntilText(page, "echo RAPID_B_MARK", "RAPID_B_MARK");
 
@@ -964,6 +973,9 @@ test.skipIf(!usable)(
     // The shared change may already carry windows from an earlier test in this file.
     if ((await tabs.count()) < 2) {
       await page.locator(".window-tab.new").click();
+      await page.waitForSelector(".new-terminal-dialog[open]");
+      await page.keyboard.press("1");
+      await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
       await until(async () => (await tabs.count()) >= 2, true, budget(20_000));
     }
 
@@ -1002,6 +1014,9 @@ test.skipIf(!usable)(
     // The shared change may already carry windows from an earlier test in this file.
     if ((await tabs.count()) < 2) {
       await page.locator(".window-tab.new").click();
+      await page.waitForSelector(".new-terminal-dialog[open]");
+      await page.keyboard.press("1");
+      await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
       await until(async () => (await tabs.count()) >= 2, true, budget(20_000));
     }
 
@@ -1073,6 +1088,9 @@ test.skipIf(!usable)(
     );
     const tabsBefore = await tabs.count();
     await page.locator(".window-tab.new").click();
+    await page.waitForSelector(".new-terminal-dialog[open]");
+    await page.keyboard.press("1");
+    await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
     // The change's windows accumulate across the tests in this file, so assert the delta, not 2.
     expect(await until(() => tabs.count(), tabsBefore + 1)).toBe(tabsBefore + 1);
     // The new tab becomes current and its pane attaches only after the switch; typing before the
@@ -1109,6 +1127,9 @@ test.skipIf(!usable)(
     // A fresh window: a new shell with no scrollback, so the overlay starts hidden.
     const before = await tabs.count();
     await page.locator(".window-tab.new").click();
+    await page.waitForSelector(".new-terminal-dialog[open]");
+    await page.keyboard.press("1");
+    await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
     expect(await until(() => tabs.count(), before + 1)).toBe(before + 1);
     await until(
       () => page.locator(".window-tab.current").getAttribute("data-window-index"),
@@ -1945,6 +1966,9 @@ test.skipIf(!usable)(
     const tabs = page.locator(".window-tab:not(.new)");
     const before = await tabs.count();
     await page.locator(".window-tab.new").click();
+    await page.waitForSelector(".new-terminal-dialog[open]");
+    await page.keyboard.press("1");
+    await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
     expect(await until(() => tabs.count(), before + 1)).toBe(before + 1);
     await tabs.first().click();
     expect(await until(async () => (await cursorHidden()) === false, true, budget(20_000))).toBe(true);
@@ -2003,6 +2027,9 @@ test.skipIf(!usable)(
 
     // Switching to a new window and back must not lose the marker: it lives in the server's screen.
     await page.locator(".window-tab.new").click();
+    await page.waitForSelector(".new-terminal-dialog[open]");
+    await page.keyboard.press("1");
+    await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
     expect(await until(() => tabs.count(), 2)).toBe(2);
     await tabs.first().click();
     expect(

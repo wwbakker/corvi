@@ -18,6 +18,7 @@ import { ContextsSection } from "./ContextsSection.tsx";
 import { ExtensionSettingsSection } from "./ExtensionSettingsSection.tsx";
 import {
   EnvironmentSection,
+  HarnessDefaultsSection,
   IdeationSection,
   LocationsSection,
   NotificationsSection,
@@ -85,7 +86,7 @@ export function SettingsPage({
   // change them. `selectedScope` is a workspace's index into the draft's list, or "global"; it
   // stays put while the tree is walked.
   const [selectedScope, setSelectedScope] = useState<"global" | number>("global");
-  const [selected, setSelected] = useState("locations");
+  const [selected, setSelected] = useState(() => window.location.hash.replace(/^#/, "") || "locations");
 
   useEffect(() => {
     apiClient.settings
@@ -251,6 +252,7 @@ export function SettingsPage({
         { id: "worktrees", label: "Worktrees" },
         { id: "ideation", label: "Ideation" },
         { id: "environment", label: "Environment" },
+        { id: "harness-defaults", label: "Harness defaults" },
       ],
     },
     {
@@ -471,6 +473,9 @@ export function SettingsPage({
 
               {selectedId === "ideation" && <IdeationSection scope={sectionScope} />}
 
+              {selectedId === "harness-defaults" && (
+                <HarnessDefaultsSection scope={sectionScope} workspaceId={workspace?.id} />
+              )}
               {selectedId === "environment" && (
                 <EnvironmentSection scope={sectionScope} inheritedEnv={draft.env ?? effective.env} />
               )}

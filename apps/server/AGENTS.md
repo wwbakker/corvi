@@ -4,8 +4,8 @@
 
 HTTP, SSE and WebSocket hosting, and the backend composition: the capability layer
 (`src/capabilities/**`), the feature modules (`src/change`, `src/dashboard`, `src/devices`,
-`src/settings`, `src/terminals`, `src/workspace`, `src/wizard` server halves), and the included
-integrations (`src/integrations/**`: their server halves and the contract dispatch that exposes
+`src/harnesses`, `src/settings`, `src/terminals`, `src/workspace`, `src/wizard` server halves), and
+the included integrations (`src/integrations/**`: their server halves and the contract dispatch that exposes
 them).
 
 `src/gateway` is the local server's reverse proxy to a remote workspace's server: it resolves
@@ -49,6 +49,11 @@ page's pairing helper
 (`POST /api/workspaces/pair-remote`) runs on the local server: it validates the url, redeems the
 code on the remote through `@corvi/client` (never following a redirect) and answers with the
 device, its raw token — which the editor stores in its draft — and the remote's workspace list.
+
+`src/harnesses` resolves harness files and the settings-chain defaults, generates each pane's
+`PI_CODING_AGENT_DIR` (the same plan the page previews), serves the harness file/view API and the
+harness-window route, and removes a change's generated tree when it is archived. The Pi extension
+is no longer installed globally; `extension:install:pi` retires an old link.
 
 Public entrypoint: `src/server.ts` (`bun run dev`, `bun run start`).
 

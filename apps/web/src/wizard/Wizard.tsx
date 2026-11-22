@@ -49,6 +49,8 @@ export function Wizard({
   const { id, branch, plan, repos, picks, idTouched, branchTouched } = draft;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [harnesses, setHarnesses] = useState<readonly { key: string; label: string; problem?: string }[]>([]);
+  const [choicesFailed, setChoicesFailed] = useState(true);
 
   // The change's context. The switcher's choice wins while it names one; "All work" hands the
   // decision to the wizard, which keeps its own — defaulting to the first context, which is
@@ -174,7 +176,68 @@ export function Wizard({
     onChange({ id: value, idTouched: true, ...(branchTouched ? {} : { branch: value }) });
   const editBranch = (value: string): void => onChange({ branch: value, branchTouched: true });
 
+  useEffect(() => {
+    // Discovery for the wizard's scope, plus the harnesses its chosen repositories carry: a
+    // repository harness is selectable the moment the repository is.
+    client.harnesses
+      .choices({
+        ...(wireWorkspace === undefined ? {} : { workspace: wireWorkspace }),
+        // A worktree carries every committed file; the server offers only harness files tracked
+        // in the source repository, so a committed harness is selectable and an untracked one is
+        // not promised.
+        repositories: repos.map((repo) => repo.path),
+        trackedRepositories: repos.filter((repo) => repo.location === "new").map((repo) => repo.path),
+      })
+      .then((listed) => {
+        const entries = listed.harnesses
+          .map((entry) => ({
+            key: entry.key,
+            label: `${entry.label} (${entry.source})`,
+            ...(entry.problem === undefined ? {} : { problem: entry.problem }),
+          }))
+          .sort((left, right) => left.label.localeCompare(right.label));
+        setChoicesFailed(false);
+        setHarnesses(entries);
+        // A repository flipping to a fresh worktree drops its harnesses from the list; a selection
+        // that left it must not be created and then fail at launch.
+        if (draft.userHarness !== undefined && !entries.some((entry) => entry.key === draft.userHarness)) {
+          onChange({ userHarness: undefined });
+        }
+        if (
+          draft.subagentHarness !== undefined &&
+          !entries.some((entry) => entry.key === draft.subagentHarness)
+        ) {
+          onChange({ subagentHarness: undefined });
+        }
+      })
+      .catch(() => {
+        setChoicesFailed(true);
+        setHarnesses([]);
+      });
+  }, [
+    client,
+    wireWorkspace,
+    repos.map((repo) => `${repo.path}:${repo.location}`).join("|"),
+    draft.userHarness,
+    draft.subagentHarness,
+    onChange,
+  ]);
+
   const create = (): void => {
+    // The choices may have changed under the form (a repository became a worktree); re-verify
+    // before writing a change whose harness would not resolve. A failed fetch cannot verify
+    // anything, so the choice is kept and the create is allowed; a key that left an available
+    // list is refused.
+    if (
+      !choicesFailed &&
+      ((draft.userHarness !== undefined &&
+        !harnesses.some((entry) => entry.key === draft.userHarness && entry.problem === undefined)) ||
+        (draft.subagentHarness !== undefined &&
+          !harnesses.some((entry) => entry.key === draft.subagentHarness && entry.problem === undefined)))
+    ) {
+      setError("the chosen harness is no longer available here: pick another");
+      return;
+    }
     setBusy(true);
     setError(null);
     client.changes
@@ -298,6 +361,51 @@ export function Wizard({
                 onChange={(e) => editBranch(e.target.value)}
                 placeholder={id || "defaults to the change id"}
               />
+            </label>
+            <label>
+              Harness
+              <select
+                aria-label="new change harness"
+                value={draft.userHarness ?? ""}
+                onChange={(e) =>
+                  onChange({
+                    userHarness: e.target.value === "" ? undefined : e.target.value,
+                  })
+                }
+              >
+                <option value="">Default (settings default)</option>
+                {harnesses.map((entry) => (
+                  <option key={entry.key} value={entry.key} disabled={entry.problem !== undefined}>
+                    {entry.label}
+                    {entry.problem === undefined ? "" : ` — ${entry.problem}`}
+                  </option>
+                ))}
+              </select>
+              <small>
+                The harness this change&apos;s shell panes start. Repository harnesses are offered from
+                in-place checkouts; a fresh worktree gets only committed files.
+              </small>
+            </label>
+            <label>
+              Subagent harness
+              <select
+                aria-label="new change subagent harness"
+                value={draft.subagentHarness ?? ""}
+                onChange={(e) =>
+                  onChange({
+                    subagentHarness: e.target.value === "" ? undefined : e.target.value,
+                  })
+                }
+              >
+                <option value="">Default (settings default)</option>
+                {harnesses.map((entry) => (
+                  <option key={entry.key} value={entry.key} disabled={entry.problem !== undefined}>
+                    {entry.label}
+                    {entry.problem === undefined ? "" : ` — ${entry.problem}`}
+                  </option>
+                ))}
+              </select>
+              <small>What a new subagent starts when its profile names no harness.</small>
             </label>
           </div>
 

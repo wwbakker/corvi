@@ -77,7 +77,7 @@ export function FileListPage<F extends FileShape, L extends ListingShape<F>, R e
   /** The shell's leave guard slot: filled while this page is mounted (app-root/navigation.ts). */
   onGuard: (guard: LeaveGuard | null) => void;
   api: FilesApi<F, L, R>;
-  view: "actions" | "subagents";
+  view: "actions" | "subagents" | "harnesses";
   pageClass: string;
   title: string;
   hint: ReactNode;

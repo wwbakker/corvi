@@ -2,6 +2,10 @@ import { Effect, Schema } from "effect";
 import { TerminalStatusSchema, type HostStatusDto } from "@corvi/contracts/api";
 import { WINDOW_TITLE_MAX } from "@corvi/contracts/terminal";
 import { changeDir, readChange } from "../change/server/index.ts";
+import type { Change } from "@corvi/changes/record";
+import type { HarnessPaneProvider } from "./server/windows.ts";
+import { inertWarningLine, writeToPane } from "./server/windows.ts";
+import { userHarnessLaunch } from "../harnesses/server/index.ts";
 import { BadRequestError, InternalError } from "@corvi/contracts/errors";
 import { runRoute } from "../capabilities/effect/run.ts";
 import { messageOf } from "../capabilities/effect/support.ts";
@@ -40,6 +44,7 @@ const WindowBody = Schema.Struct({
   direction: Schema.optional(Schema.Literals(["right", "down"])),
   window: Schema.optional(Schema.String),
   pane: Schema.optional(Schema.String),
+  directory: Schema.optional(Schema.String),
   /** A window's new name; an empty string clears it back to the default. */
   title: Schema.optional(Schema.String.pipe(Schema.check(Schema.isMaxLength(WINDOW_TITLE_MAX)))),
 });
@@ -71,6 +76,25 @@ const restartHostEffect = (): Effect.Effect<HostStatusDto, InternalError> =>
     catch: (error) => new InternalError({ message: messageOf(error) }),
   });
 
+/** A pane's harness is resolved lazily, inside the window registry's lock, and a failure never
+ * blocks the plain shell: the pane opens without the environment (today's behavior), logs the
+ * error, and is told in the pane before anything else runs. */
+const harnessPane = (
+  change: Change,
+): { readonly provider: HarnessPaneProvider; readonly warning: () => string | undefined } => {
+  let warning: string | undefined;
+  return {
+    provider: async () => {
+      const result = await Effect.runPromise(userHarnessLaunch(change).pipe(Effect.result));
+      if (result._tag === "Success") return { env: result.success.env, harness: result.success.key };
+      warning = result.failure.message;
+      console.error(warning);
+      return { warning };
+    },
+    warning: () => warning,
+  };
+};
+
 export const terminalsRoutes = guard({
   // The terminal's socket: one WebSocket per connection, attached to the change's active host
   // session. The session is started before the upgrade, so a failure — the wrong runtime, no
@@ -90,7 +114,13 @@ export const terminalsRoutes = guard({
     const sessionId = query.get("session") ?? undefined;
     let session: TerminalSession;
     try {
-      session = await openSession(id, dir, { cols: cols || 80, rows: rows || 24 }, sessionId);
+      // The pane's harness is resolved only if a window is actually created, under the registry's
+      // lock; an existing window is attached as it is. A broken harness never takes a terminal away.
+      const change = await Effect.runPromise(readChange(id));
+      const pane = change === null ? undefined : harnessPane(change);
+      session = await openSession(id, dir, { cols: cols || 80, rows: rows || 24 }, sessionId, pane?.provider);
+      const warning = pane?.warning();
+      if (warning !== undefined) session.write(inertWarningLine(warning));
     } catch (e) {
       // The client reads `{ error }` (apps/web/src/app-root/api.ts); this is the one failure that never
       // becomes a typed taxonomy error, so it is shaped here.
@@ -191,8 +221,19 @@ export const terminalsRoutes = guard({
           const windowId = body.window;
           // "New terminal here": where the active shell is now, or the change's own directory
           // when the change has no window yet.
-          if (body.action === "new") yield* newWindowHere(c.id, changeDir(c));
-          else if (body.action === "select") {
+          if (body.action === "new") {
+            const pane = harnessPane(c);
+            const created =
+              body.directory === undefined || body.directory === "current"
+                ? yield* newWindowHere(c.id, changeDir(c), pane.provider)
+                : body.directory === "change"
+                  ? yield* newWindow(c.id, changeDir(c), pane.provider)
+                  : yield* newWindow(c.id, body.directory, pane.provider, changeDir(c));
+            const warning = pane.warning();
+            if (warning !== undefined) {
+              yield* Effect.promise(() => writeToPane(created, warning));
+            }
+          } else if (body.action === "select") {
             // A caller that names a window id selects by stable identity under the registry lock;
             // the strip's ordinary select keeps its index. A named window that is gone is
             // reported, not silently ignored.
@@ -216,7 +257,12 @@ export const terminalsRoutes = guard({
               Effect.mapError((failure) => new BadRequestError({ message: failure.message })),
             );
           } else if (body.action === "split" && windowId !== undefined) {
-            yield* splitPane(c.id, windowId, body.direction ?? "right");
+            const pane = harnessPane(c);
+            const created = yield* splitPane(c.id, windowId, body.direction ?? "right", pane.provider);
+            const warning = pane.warning();
+            if (warning !== undefined && created !== "") {
+              yield* Effect.promise(() => writeToPane(created, warning));
+            }
           } else if (body.action === "close-pane" && windowId !== undefined && body.pane !== undefined) {
             yield* closePane(c.id, windowId, body.pane);
           } else if (body.action === "focus-pane" && windowId !== undefined && body.pane !== undefined) {

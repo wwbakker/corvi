@@ -39,8 +39,10 @@ test("a written profile is listed with its label; one that is not a profile is r
   expect(found?.scope).toBe("global");
 
   await expect(
-    runEffect(writeSubagentFile({ scope: "global", id: "broken", text: "---\nlabel: X\n---\nbody" })),
-  ).rejects.toThrow(/harness/);
+    runEffect(
+      writeSubagentFile({ scope: "global", id: "broken", text: "---\nlabel: X\nagent: cursor\n---\nbody" }),
+    ),
+  ).rejects.toThrow(/agent/);
 });
 
 test("an unknown workspace is refused rather than invented", async () => {
@@ -97,7 +99,10 @@ test("a repository profile is listed, written and deleted through its checkout",
   } as Change;
   // The checkout's own files are listed under the repository's name — problems and all.
   await mkdir(join(repo, ".corvi", "subagents"), { recursive: true });
-  await writeFile(join(repo, ".corvi", "subagents", "broken.md"), "---\nlabel: X\n---\nbody\n");
+  await writeFile(
+    join(repo, ".corvi", "subagents", "broken.md"),
+    "---\nlabel: X\nagent: cursor\n---\nbody\n",
+  );
   const before = await runEffect(repositorySubagentFiles(change));
   expect(before.repositories.map((one) => one.repository)).toEqual([basename(repo)]);
   expect(before.repositories[0]?.files.find((f) => f.id === "broken")?.problems).toBeDefined();

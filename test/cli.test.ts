@@ -1476,6 +1476,10 @@ test("a command typo is a usage error before any server is asked", async () => {
   const unknownProfile = capture();
   expect(await run(["subagent", "profile", "wat"], unknownProfile.io, { env: {} })).toBe(2);
   expect(unknownProfile.err.join("")).toContain("unknown profile command");
+
+  const unknownHarness = capture();
+  expect(await run(["harness", "wat"], unknownHarness.io, { env: {} })).toBe(2);
+  expect(unknownHarness.err.join("")).toContain("unknown harness command");
 });
 
 test("profile write states its scope, and a repository file names its checkout", async () => {
@@ -1516,6 +1520,57 @@ test("subagent profile list names the keys create takes, shipped profiles includ
   // The body is the profile file's own initial prompt — not pinned to the shipped wording, just
   // present (the wording is the builtins' own to change).
   expect(reviewer?.body.trim().length ?? 0).toBeGreaterThan(0);
+});
+
+test("harness list names the files, and show prints the resolved environment", async () => {
+  const list = capture();
+  expect(await run(["--server", baseUrl, "--change", CHANGE_ID, "harness", "list", "--json"], list.io)).toBe(
+    0,
+  );
+  const found = JSON.parse(list.out.join("")) as { harnesses: { key: string; label: string }[] };
+  expect(found.harnesses.some((harness) => harness.key === "builtin:pi")).toBe(true);
+
+  const show = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "harness", "show", "builtin:pi", "--json"],
+      show.io,
+    ),
+  ).toBe(0);
+  const shown = JSON.parse(show.out.join("")) as {
+    key: string;
+    view?: { chain: { id: string }[]; generatedDir: string; sections: { extensions: { items: unknown[] } } };
+  };
+  expect(shown.key).toBe("builtin:pi");
+  expect(shown.view?.chain[0]?.id).toBe("pi");
+  expect(shown.view?.generatedDir).toContain(`/harnesses/${CHANGE_ID}/builtin/pi`);
+  expect(shown.view?.sections.extensions.items.length ?? 0).toBeGreaterThan(0);
+});
+
+test("harness write and delete round-trip a file", async () => {
+  const file = join(tmp, "harness.md");
+  await writeFile(file, "---\nlabel: CLI harness\nharness: pi-bare\n---\nnotes\n", "utf8");
+
+  const written = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "harness", "write", "cli-harness", "--scope", "global", "--from", file, "--json"],
+      written.io,
+    ),
+  ).toBe(0);
+  const afterWrite = JSON.parse(written.out.join("")) as { id: string; label?: string };
+  expect(afterWrite.id).toBe("cli-harness");
+  expect(afterWrite.label).toBe("CLI harness");
+
+  const deleted = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "harness", "delete", "cli-harness", "--scope", "global", "--json"],
+      deleted.io,
+    ),
+  ).toBe(0);
+  const afterDelete = JSON.parse(deleted.out.join("")) as { id: string };
+  expect(afterDelete.id).toBe("cli-harness");
 });
 
 test("subagent profile write and delete round-trip a file, and a bad one is refused with its reasons", async () => {

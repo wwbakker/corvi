@@ -1,8 +1,12 @@
 /**
- * Install or remove the Corvi extensions — the agent-state reporters and the subagent relays
- * (see docs/manual/terminals.md) — by symlinking their source into the agent's plugin directory.
- * Symlinks rather than copies: editing it here is editing the installed one, and the agent picks
- * the change up (pi: `/reload`).
+ * Install or remove the Corvi extensions the agent discovers globally — the agent-state reporters
+ * and the subagent relays (see docs/manual/terminals.md) — by symlinking their source into the
+ * agent's plugin directory. Symlinks rather than copies: editing it here is editing the installed
+ * one, and the agent picks the change up (pi: `/reload`).
+ *
+ * pi's extension is no longer installed globally: every Corvi pane generates its own agent
+ * directory and adds the extension there. `install:pi` therefore only retires an older global
+ * install, so it cannot double-load beside the generated one. opencode keeps its global install.
  *
  * The shape follows each agent's loader, which is why the two differ. pi resolves a module's
  * imports beside the file it loaded, so the extension — entry `index.ts` plus its modules —
@@ -186,6 +190,22 @@ async function removeLegacy(directory: string, target: AgentTarget): Promise<voi
   }
 }
 
+/** Retire pi's old global install. Its generated panes carry the extension themselves now, so an
+ * install left behind would load it twice; removing ours is the whole command. A real file or
+ * directory at the path is somebody else's and is reported, not touched. */
+export async function retirePi(directory = targets.pi.directory()): Promise<ExtensionCommandResult> {
+  const result = await uninstall("pi", directory);
+  if (result.code !== 0) return result;
+  const path = join(directory, targets.pi.installed);
+  return {
+    code: 0,
+    stdout: result.stdout.startsWith("removed:")
+      ? `removed the global pi extension: ${path}\nCorvi panes get their own generated agent directory; nothing is installed globally.\n`
+      : `not installed globally: ${path}\nCorvi panes get their own generated agent directory; nothing is installed globally.\n`,
+    stderr: "",
+  };
+}
+
 export async function uninstall(
   name: AgentTargetName,
   directory = targets[name].directory(),
@@ -234,6 +254,7 @@ export const runExtensionCommand = async (
     };
   }
   const directory = directories?.[target.name] ?? target.directory();
+  if (verb === "install" && target.name === "pi") return retirePi(directory);
   return verb === "install" ? install(target.name, directory) : uninstall(target.name, directory);
 };
 

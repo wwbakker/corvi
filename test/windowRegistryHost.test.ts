@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect } from "effect";
 
@@ -8,8 +8,10 @@ import { closeHostClient, hostClient } from "../apps/server/src/terminals/server
 import * as registry from "../apps/server/src/terminals/server/registry.ts";
 import {
   closePaneAsync,
+  ensureActiveHostWindow,
   focusPaneAsync,
   isKeptOpen,
+  currentPaneDirectory,
   listWindowsAsync,
   moveWindowAsync,
   newWindowAsync,
@@ -17,6 +19,7 @@ import {
   placeOf,
   newWindowRunningAsync,
   renameWindowAsync,
+  writeToPane,
   selectWindowAsync,
   selectWindowByIdAsync,
   splitPaneAsync,
@@ -170,6 +173,106 @@ test("naming an action window leaves its action label alone", async () => {
     "Release build",
   );
   await stopHostTerminals(namedChange);
+}, 60_000);
+
+test("the first, split and action panes all carry their harness key", async () => {
+  const change = "REG-HARNESS";
+  const pane = async (): Promise<{ harness: string }> => ({ harness: "global:review" });
+  await ensureActiveHostWindow(change, dir, { cols: 80, rows: 24 }, undefined, pane);
+  let windows = await listWindowsAsync(change);
+  expect(windows[0]?.harness).toBe("global:review");
+
+  await splitPaneAsync(change, windows[0]!.id, "down", pane);
+  windows = await listWindowsAsync(change);
+  expect(windows[0]?.harness).toBe("global:review");
+
+  const action = await newWindowRunningAsync(change, dir, "sleep 30", {
+    harness: "global:action",
+  });
+  windows = await listWindowsAsync(change);
+  expect(windows.find((entry) => entry.id === action)?.harness).toBe("global:action");
+  await stopHostTerminals(change);
+}, 60_000);
+
+test("a shell in a checkout keeps the change root as its context", async () => {
+  const changeId = "REG-CHECKOUT";
+  const checkout = join(dir, "checkout-dir");
+  const out = join(dir, "change-dir.txt");
+  await mkdir(checkout, { recursive: true });
+  const window = await newWindowAsync(changeId, checkout, { cols: 80, rows: 24 }, undefined, dir);
+  const client = await hostClient();
+  await client.write(window.activePane, `printf '%s' "$CORVI_CHANGE_DIR" > '${out}'\n`);
+  await waitFor(
+    "the env file",
+    async () =>
+      (await Bun.file(out)
+        .text()
+        .catch(() => "")) === dir,
+  );
+  await stopHostTerminals(changeId);
+}, 60_000);
+
+test("a command window in a checkout seeds its env from the change root", async () => {
+  const changeId = "REG-COMMAND-CHECKOUT";
+  const checkout = join(dir, "checkout-command");
+  const out = join(dir, "command-change-dir.txt");
+  await mkdir(checkout, { recursive: true });
+  await newWindowRunningAsync(changeId, checkout, `printf '%s' "$CORVI_CHANGE_DIR" > '${out}'`, {
+    cwd: checkout,
+    envDir: dir,
+    env: {},
+  });
+  await waitFor(
+    "the command's env file",
+    async () =>
+      (await Bun.file(out)
+        .text()
+        .catch(() => "")) === dir,
+  );
+  await stopHostTerminals(changeId);
+}, 60_000);
+
+test("the current pane's directory is what the harness window's current choice resolves", async () => {
+  const changeId = "REG-CURRENT";
+  const checkout = join(dir, "checkout-current");
+  await mkdir(checkout, { recursive: true });
+  const window = await newWindowAsync(changeId, checkout, { cols: 80, rows: 24 }, undefined, dir);
+  await waitFor("the pane cwd", async () => (await currentPaneDirectory(changeId, dir)) === checkout);
+  expect(await currentPaneDirectory(changeId, dir)).toBe(checkout);
+  await stopHostTerminals(changeId);
+}, 60_000);
+
+test("a pane warning is written as an inert comment, never run", async () => {
+  const warningChange = "REG-WARNING";
+  const marker = join(dir, "executed.txt");
+  const window = await newWindowAsync(warningChange, dir);
+  await writeToPane(window.activePane, `touch '${marker}'`);
+  const client = await hostClient();
+  // End the comment and let the shell report itself; the warning's text must never run.
+  await client.write(window.activePane, "\n");
+  await client.write(window.activePane, "echo ALIVE\n");
+  await waitFor("the shell to answer", async () =>
+    (await client.list()).some((entry) => entry.id === window.activePane),
+  );
+  await Bun.sleep(300);
+  expect(await Bun.file(marker).exists()).toBe(false);
+  await stopHostTerminals(warningChange);
+}, 60_000);
+
+test("a window's extra environment reaches the process it runs", async () => {
+  const envChange = "REG-ENV";
+  const out = join(dir, "env.txt");
+  await newWindowRunningAsync(envChange, dir, `printf '%s' "$PI_CODING_AGENT_DIR" > '${out}'`, {
+    env: { PI_CODING_AGENT_DIR: "/tmp/generated-harness" },
+  });
+  await waitFor(
+    "the env file",
+    async () =>
+      (await Bun.file(out)
+        .text()
+        .catch(() => "")) === "/tmp/generated-harness",
+  );
+  await stopHostTerminals(envChange);
 }, 60_000);
 
 test("a background window does not take the active one; explicit creation does", async () => {

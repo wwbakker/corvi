@@ -16,6 +16,7 @@ test("the settings view decodes, and writing it names the settings route", async
       contextMenu: true,
       ideationPrompt: "p",
       planTemplate: "# Template",
+      harnessDefaults: {},
       workspaces: [],
       worktreeCopy: [],
       env: {},

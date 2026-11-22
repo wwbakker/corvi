@@ -4852,3 +4852,153 @@ a:focus-visible {
 .change-tabs .tab:focus-visible {
   outline-offset: -2px;
 }
+
+/* The harness file's resolved environment: the same dock as the field docs, with the view above
+   them. It scrolls as one panel so a long section list never pushes the fields out of reach. */
+.harness-docs {
+  flex: none;
+  box-sizing: border-box;
+  width: 380px;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  padding: 12px;
+}
+.harness-docs .action-docs {
+  position: static;
+  width: auto;
+  min-height: 0;
+  overflow: visible;
+  padding: 0;
+  gap: 8px;
+  background: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.harness-docs-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 10px;
+}
+.harness-docs-head h3,
+.harness-view h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.harness-docs-head label {
+  display: grid;
+  gap: 3px;
+  font-size: 11px;
+}
+.harness-view {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.harness-view .hint,
+.harness-docs .hint {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.harness-section h4,
+.harness-warnings h4 {
+  margin: 6px 0 2px;
+  font-size: 12px;
+}
+.harness-section ul,
+.harness-warnings ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.harness-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+}
+.harness-item .name {
+  overflow-wrap: anywhere;
+}
+.harness-item .state {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.harness-item.excluded .name {
+  text-decoration: line-through;
+  color: var(--text-dim);
+}
+.harness-item .badge {
+  font-size: 10px;
+}
+.harness-warnings .warn {
+  color: var(--warn, #c9a227);
+  font-size: 12px;
+}
+
+/* The harness a tab/pane runs under, quiet enough not to compete with the name. */
+.window-tab .harness,
+.entry.sub.window .harness {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-dim);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 5px;
+  white-space: nowrap;
+}
+
+.harness-select,
+.harness-default {
+  display: grid;
+  gap: 4px;
+}
+.harness-default .hint {
+  margin: 0;
+}
+
+/* The new-terminal dialog: two large choices, then the two selectors, then the keys. */
+.new-terminal-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+.new-terminal-dialog .terminal-choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 8px 0 12px;
+}
+.new-terminal-dialog .choice {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  text-align: left;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.new-terminal-dialog .choice.current {
+  border-color: var(--accent);
+  background: var(--surface-raised, transparent);
+}
+.new-terminal-dialog .choice kbd {
+  font-size: 11px;
+}
+.new-terminal-dialog .choice strong {
+  font-size: 14px;
+}
+.new-terminal-dialog footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.harness-docs .harness-section li.harness-item {
+  padding: 2px 0;
+}

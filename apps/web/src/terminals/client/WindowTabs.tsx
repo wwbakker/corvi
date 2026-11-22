@@ -185,6 +185,7 @@ export function WindowTabs({
               {w.icon === "agent" ? <AgentIcon title={w.label} /> : <TerminalIcon title={w.label} />}
             </span>
             <span className="label">{w.label}</span>
+            {w.harness !== undefined && <span className="harness">{w.harness}</span>}
             {/* Not for the window you are looking at: you see its output already. */}
             {w.activity && !(w.active && terminals) && <span className="bell" title="new output" />}
           </button>
@@ -197,7 +198,7 @@ export function WindowTabs({
         className="window-tab new"
         disabled={disabled}
         aria-label="new terminal"
-        title={platform === "mac" ? "new terminal here (cmd-t)" : "new terminal here (ctrl-alt-t)"}
+        title="new terminal"
         onMouseDown={(e) => e.preventDefault()}
         onClick={onNewWindow}
       >

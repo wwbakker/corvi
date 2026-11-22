@@ -12,6 +12,7 @@ export type View =
   | { name: "home" }
   | { name: "new" }
   | { name: "actions" }
+  | { name: "harnesses" }
   | { name: "subagents" }
   | { name: "ext-page"; id: string; extension: string }
   | { name: "settings" }
@@ -33,6 +34,7 @@ export function viewOf(location: string, pages: { id: string; extension: string 
   const source = new URLSearchParams(search).get("source") ?? "";
   if (path === "/new") return { name: "new" };
   if (path === "/actions") return { name: "actions" };
+  if (path === "/harnesses") return { name: "harnesses" };
   if (path === "/subagents") return { name: "subagents" };
   if (path === "/settings") return { name: "settings" };
   const m = /^\/changes\/([^/]+)(?:\/([^/]+))?/.exec(path);
@@ -63,15 +65,17 @@ export const pathOf = (view: View): string =>
       ? `/${view.id}`
       : view.name === "actions"
         ? "/actions"
-        : view.name === "subagents"
-          ? "/subagents"
-          : view.name === "settings"
-            ? "/settings"
-            : view.name === "change"
-              ? `/changes/${encodeURIComponent(view.id)}${view.page === "plan" ? "" : `/${view.page}`}${
-                  view.source === "" ? "" : `?source=${encodeURIComponent(view.source)}`
-                }`
-              : "/";
+        : view.name === "harnesses"
+          ? "/harnesses"
+          : view.name === "subagents"
+            ? "/subagents"
+            : view.name === "settings"
+              ? "/settings"
+              : view.name === "change"
+                ? `/changes/${encodeURIComponent(view.id)}${view.page === "plan" ? "" : `/${view.page}`}${
+                    view.source === "" ? "" : `?source=${encodeURIComponent(view.source)}`
+                  }`
+                : "/";
 
 /**
  * A page's leave guard: the view it guards, what it has unsaved, and the one save that ends it.

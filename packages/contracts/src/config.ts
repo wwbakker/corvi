@@ -24,6 +24,14 @@ const ExtensionBag = Schema.Record(
 /** A map of environment variables added to every CLI run: `env[name] = value`. */
 const EnvMap = Schema.Record(Schema.String, Schema.mutableKey(Schema.String));
 
+/** The harness each kind of pane starts when a change does not name one: a discovery key
+ * (`global:review-env`). Absent means the next level down, and finally the built-in `pi`. */
+export const HarnessDefaults = Schema.Struct({
+  user: Schema.optional(Schema.String),
+  subagents: Schema.optional(Schema.String),
+});
+export type HarnessDefaultsDto = typeof HarnessDefaults.Type;
+
 /** The settings, complete: every setting Corvi knows, at any level. Each key is optional — an
  * absent value means "not set", and the next level down answers (inside a workspace: the global
  * setting; at the global level: the default). This one shape is the config file's top level and
@@ -45,6 +53,8 @@ const settingsFields = {
    * Markdown with nothing filled in — the scaffold the user edits away. An empty or absent
    * value means no template: the plan starts empty. */
   planTemplate: Schema.optional(Schema.String),
+  /** The harness panes start when a change names none, at each scope. */
+  harnessDefaults: Schema.optional(HarnessDefaults),
   worktreeCopy: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   /** Which extensions exist here, by name. Absent means all of them; an empty list means none.
    * Names are validated against what is included by the settings write, not here: the file may
@@ -159,6 +169,8 @@ export const Resolved = Schema.Struct({
   ideationPrompt: Schema.String,
   /** The plan template in effect: literal Markdown, or the empty string for none. */
   planTemplate: Schema.String,
+  /** The harness defaults in effect at this scope; keys absent mean the built-in `pi`. */
+  harnessDefaults: HarnessDefaults,
   worktreeCopy: Schema.mutable(Schema.Array(Schema.String)),
   extensions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   extensionSettings: Schema.optional(ExtensionBag),

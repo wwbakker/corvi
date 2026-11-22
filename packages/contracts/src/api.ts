@@ -94,6 +94,12 @@ export const ChangeWireSchema = Schema.Struct({
   /** How many times the record has been written; absent on records written before revisioning,
    * which count as 0. Used for the lifecycle's optimistic concurrency check. */
   revision: Schema.optional(Schema.Number),
+  /** The harness this change's user panes start, as a discovery key (`global:review-env`).
+   * Absent means the workspace default, then the global default, then the built-in `pi`. */
+  userHarness: Schema.optional(Schema.String),
+  /** The harness a new subagent starts when its profile does not name one, as a discovery key.
+   * Absent means the workspace default, then the global default, then the built-in `pi`. */
+  subagentHarness: Schema.optional(Schema.String),
   /** The record format's version. A record without it is read as the current shape; a record
    * from a newer Corvi is read best-effort and never written. */
   formatVersion: Schema.optional(Schema.Number),
@@ -335,6 +341,10 @@ export const TerminalWindowSchema = Schema.Struct({
   panes: Schema.Array(Schema.String),
   /** The focused pane's session id. */
   activePane: Schema.String,
+  /** The harness key this window's environment belongs to, when it has one. */
+  harness: Schema.optional(Schema.String),
+  /** The full directory the active pane's shell is in now. */
+  cwd: Schema.optional(Schema.String),
 });
 export type TerminalWindowDto = typeof TerminalWindowSchema.Type;
 
@@ -459,6 +469,9 @@ export const CreateChangeBodySchema = Schema.Struct({
   workspace: Schema.optional(Schema.String),
   state: Schema.optional(ChangeStateSchema),
   extensions: Schema.optional(Schema.Record(Schema.String, Schema.mutableKey(Schema.Unknown))),
+  /** The harness this change's shell panes start, and the one new subagents fall back to. */
+  userHarness: Schema.optional(Schema.String),
+  subagentHarness: Schema.optional(Schema.String),
   plan: Schema.optional(Schema.String),
 });
 export type CreateChangeBodyDto = typeof CreateChangeBodySchema.Type;
@@ -484,6 +497,9 @@ export const WindowActionBodySchema = Schema.Struct({
   direction: Schema.optional(Schema.Literals(["right", "down"])),
   window: Schema.optional(Schema.String),
   pane: Schema.optional(Schema.String),
+  /** Where a new shell starts: an absolute directory, or `change` for the change root. Absent
+   * keeps the old "where the active shell is now" behavior. */
+  directory: Schema.optional(Schema.String),
   /** A window's new name. Required for `rename`; an empty string clears the name back to the
    * default. */
   title: Schema.optional(Schema.String.pipe(Schema.check(Schema.isMaxLength(WINDOW_TITLE_MAX)))),

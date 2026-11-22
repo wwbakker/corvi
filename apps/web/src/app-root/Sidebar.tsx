@@ -9,6 +9,7 @@ import {
   TerminalIcon,
   AgentIcon,
   GearIcon,
+  HarnessIcon,
   LeftoversIcon,
   PageIcon,
   PlusIcon,
@@ -103,6 +104,8 @@ export function Sidebar({
   extPage,
   onActions,
   actions,
+  onHarnesses,
+  harnesses,
   onSubagents,
   subagents,
   onSettings,
@@ -144,6 +147,10 @@ export function Sidebar({
   onActions: () => void;
   /** Whether the Actions page is the one open. */
   actions: boolean;
+  /** The core's own Harnesses page: the named Pi environments. */
+  onHarnesses: () => void;
+  /** Whether the Harnesses page is the one open. */
+  harnesses: boolean;
   /** The core's own Subagents page: the profile files behind the subagent menu. */
   onSubagents: () => void;
   /** Whether the Subagents page is the one open. */
@@ -196,6 +203,7 @@ export function Sidebar({
   const railRef = useRef<HTMLSpanElement>(null);
   const workspaceRef = useRef<HTMLButtonElement>(null);
   const actionsRef = useRef<HTMLButtonElement>(null);
+  const harnessesRef = useRef<HTMLButtonElement>(null);
   const subagentsRef = useRef<HTMLButtonElement>(null);
   const pageRefs = useRef(new Map<string, HTMLButtonElement>());
   const settingsRef = useRef<HTMLButtonElement>(null);
@@ -321,6 +329,7 @@ export function Sidebar({
               {w.icon === "agent" ? <AgentIcon title={w.label} /> : <TerminalIcon title={w.label} />}
             </span>
             <span className="label">{w.label}</span>
+            {w.harness !== undefined && <span className="harness">{w.harness}</span>}
             {/* Not for the window you are looking at: you see its output already. */}
             {w.activity && !(selected && page === "terminals" && w.active) && (
               <span className="bell" title="new output" />
@@ -363,6 +372,7 @@ export function Sidebar({
       },
       { kind: "target", element: workspaceRef.current, keep: true, align: "rail" },
       { kind: "target", element: actionsRef.current, align: "rail" },
+      { kind: "target", element: harnessesRef.current, align: "rail" },
       { kind: "target", element: subagentsRef.current, align: "rail" },
       ...pages.map((p) => ({
         kind: "target" as const,
@@ -492,6 +502,12 @@ export function Sidebar({
           <BoltIcon title="actions" />
         </span>
         <span className="label">Actions</span>
+      </button>
+      <button ref={harnessesRef} className={`entry${harnesses ? " current" : ""}`} onClick={onHarnesses}>
+        <span className="ic" aria-hidden="true">
+          <HarnessIcon title="harnesses" />
+        </span>
+        <span className="label">Harnesses</span>
       </button>
       <button ref={subagentsRef} className={`entry${subagents ? " current" : ""}`} onClick={onSubagents}>
         <span className="ic" aria-hidden="true">

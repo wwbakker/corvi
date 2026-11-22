@@ -82,9 +82,26 @@ test.skipIf(!usable)(
 
       // Every field the vocabulary has is documented, named as the file names it.
       const names = await page.locator(".action-docs .field h4 code").allTextContents();
-      expect(names).toEqual(["label", "harness", "model", "effort", "phases", "body"]);
+      expect(names).toEqual([
+        "label",
+        "harness",
+        "agent",
+        "model",
+        "effort",
+        "enabledModels",
+        "instructions",
+        "extensions",
+        "skills",
+        "packages",
+        "mcp",
+        "phases",
+        "body",
+      ]);
+      // The harness is any id, so the field is text; the agent is the closed vocabulary.
       const harness = page.locator(".action-docs .field").filter({ hasText: /^harness/ });
-      expect(await harness.locator(".values code").allTextContents()).toEqual(["pi", "opencode"]);
+      expect(await harness.textContent()).toContain("harness id");
+      const agent = page.locator(".action-docs .field").filter({ hasText: /^agent/ });
+      expect(await agent.locator(".values code").allTextContents()).toEqual(["pi", "opencode"]);
     });
   },
   60_000,
@@ -161,7 +178,10 @@ test.skipIf(!usable)(
     await runSh(["git", "add", "."], repo);
     await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], repo);
     await mkdir(join(repo, ".corvi", "subagents"), { recursive: true });
-    await writeFile(join(repo, ".corvi", "subagents", "broken.md"), "---\nlabel: X\n---\nbody\n");
+    await writeFile(
+      join(repo, ".corvi", "subagents", "broken.md"),
+      "---\nlabel: X\nagent: cursor\n---\nbody\n",
+    );
     await writeFile(join(repo, ".corvi", "subagents", "repo-mine.md"), source);
     const dir = join(tmp, "changes", branch);
     await mkdir(dir, { recursive: true });
@@ -207,7 +227,7 @@ test.skipIf(!usable)(
       // The good row and the broken one with its reasons, both in the repository's block.
       expect(await page.locator(".widget p", { hasText: "repo-mine.md" }).count()).toBe(1);
       expect((await page.locator(".widget p", { hasText: "broken.md" }).textContent()) ?? "").toContain(
-        "harness",
+        "agent",
       );
 
       // Editing the checkout's file is the same editor's frame; Save writes the checkout file.

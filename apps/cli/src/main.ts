@@ -74,7 +74,12 @@ usage: corvi [--json] [--change <id>] [--server <url>] <group> <command> [args]
                                        extension-facing: relay a settled reply, naming the
                                        inbound message it answers
 
-Each group prints its own usage: corvi change, corvi action, corvi subagent.
+  harness list                        the harnesses this change can use (their keys)
+  harness show <key>                  one harness's resolved view
+  harness write|delete <id> --scope global|workspace|repository
+                                       add, replace or remove a harness file
+
+Each group prints its own usage: corvi change, corvi action, corvi subagent, corvi harness.
 
   --json            machine-readable output (one JSON value)
   --change <id>     the change; defaults to CORVI_CHANGE_ID, then the nearest change.json
@@ -128,6 +133,22 @@ usage: corvi status <working|waiting|clear> [--name <agent>] [--session-name <na
 
 The session id and incarnation come from the environment (CORVI_SESSION_ID,
 CORVI_SESSION_INCARNATION); outside a Corvi host session there is nothing to report to.
+`,
+  harness: `corvi harness — the named Pi environments, and the files behind them
+
+usage: corvi harness <command> [args]
+
+  list                          the harnesses this change can use (their keys)
+  show <key>                    one harness's resolved view: chain, sections, warnings
+  write <id> --scope <global|workspace|repository> [--workspace <id>] [--repository <name>] [--from <file>]
+                                add or replace one; text from --from, or stdin
+  delete <id> --scope <global|workspace|repository> [--workspace <id>] [--repository <name>]
+                                remove one
+
+A harness is one Markdown file: frontmatter for the environment (harness, agent, model, effort,
+enabledModels, instructions, extensions/skills/packages/mcp), the body for notes. A repository
+harness is <checkout>/.corvi/harnesses/<id>.md. Every Corvi pane starts Pi with a generated agent
+directory for its harness; 'show' prints what that directory will contain.
 `,
   subagent: `corvi subagent — persistent subagents for this change
 
@@ -190,6 +211,7 @@ export const COMMANDS: Readonly<Record<string, readonly string[]>> = {
   change: ["list", "create", "show", "complete", "cancel", "phase", "repository"],
   action: ["list", "run", "profile"],
   subagent: ["list", "show", "create", "open", "close", "send", "await", "result", "next", "turn", "profile"],
+  harness: ["list", "write", "delete", "show"],
   status: ["working", "waiting", "clear"],
 };
 
@@ -207,8 +229,16 @@ const validateCommand = (positionals: readonly string[]): void => {
   // with a raw TypeError where the contract says usage (2).
   const commands = group === undefined || !Object.hasOwn(COMMANDS, group) ? undefined : COMMANDS[group];
   if (commands === undefined) throw new CliFailure(`unknown command: ${group ?? ""}`.trim(), EXIT.usage);
-  if (command === undefined || !commands.includes(command)) {
+  if (command === undefined) {
     throw new CliFailure(`${group} needs a command: ${commands.join(", ")}`, EXIT.usage);
+  }
+  if (!commands.includes(command)) {
+    throw new CliFailure(
+      group === "harness"
+        ? `unknown harness command: ${command}`
+        : `${group} needs a command: ${commands.join(", ")}`,
+      EXIT.usage,
+    );
   }
   if (command === "profile" && sub !== undefined && !PROFILE_COMMANDS.includes(sub)) {
     throw new CliFailure(`unknown profile command: ${sub}`, EXIT.usage);
@@ -673,20 +703,20 @@ const awaitTarget = (
  * required), written through the change-scoped routes like every other repository file.
  * `--workspace` goes with `--scope workspace` only — the server would refuse the rest anyway,
  * and a usage error here names the flag. */
-const profileTarget = (args: ParsedArgs): ProfileTarget => {
-  const [sub, id] = args.positionals.slice(2);
+const profileTarget = (args: ParsedArgs, start = 2, noun = "profile"): ProfileTarget => {
+  const [sub, id] = args.positionals.slice(start);
   if (sub !== "write" && sub !== "delete") {
     throw new CliFailure(
-      sub === undefined ? "profile needs a command: list, write, delete" : `unknown profile command: ${sub}`,
+      sub === undefined ? `${noun} needs a command: list, write, delete` : `unknown ${noun} command: ${sub}`,
       EXIT.usage,
     );
   }
-  if (id === undefined || id === "") throw new CliFailure(`profile ${sub} needs an id`, EXIT.usage);
+  if (id === undefined || id === "") throw new CliFailure(`${noun} ${sub} needs an id`, EXIT.usage);
   // A write with no text and a terminal in front would hang on stdin for ever — the one failure
   // mode an agent-facing CLI must not have. A piped stdin is still read to its EOF below.
   if (sub === "write" && stringFlag(args, "from") === undefined && process.stdin.isTTY === true) {
     throw new CliFailure(
-      "profile write needs the file's text: --from <path>, or pipe it to stdin",
+      `${noun} write needs the file's text: --from <path>, or pipe it to stdin`,
       EXIT.usage,
     );
   }
@@ -705,7 +735,7 @@ const profileTarget = (args: ParsedArgs): ProfileTarget => {
   if (scope !== "global" && scope !== "workspace") {
     throw new CliFailure(
       scope === undefined
-        ? "profile needs --scope global|workspace|repository"
+        ? `${noun} needs --scope global|workspace|repository`
         : `--scope takes global, workspace or repository, not ${scope}`,
       EXIT.usage,
     );
@@ -850,13 +880,13 @@ export const forceRefusal = (error: unknown): CliFailure | undefined => {
 };
 
 /** The file's text: `--from <path>`, or stdin when it is piped in. */
-const profileText = async (args: ParsedArgs): Promise<string> => {
+const profileText = async (args: ParsedArgs, noun = "profile"): Promise<string> => {
   const from = stringFlag(args, "from");
   const text = from === undefined ? await readStdin() : await readFile(from, "utf8").catch(() => undefined);
   if (text === undefined) throw new CliFailure(`cannot read ${from ?? "stdin"}`, EXIT.usage);
   if (text.trim() === "") {
     throw new CliFailure(
-      "profile write needs the file's text: --from <path>, or pipe it to stdin",
+      `${noun} write needs the file's text: --from <path>, or pipe it to stdin`,
       EXIT.usage,
     );
   }
@@ -877,8 +907,10 @@ const profileFileCommand = async (
   args: ParsedArgs,
   json: boolean,
   io: Io,
+  start = 2,
+  noun = "profile",
 ): Promise<void> => {
-  const { sub, ...at } = profileTarget(args);
+  const { sub, ...at } = profileTarget(args, start, noun);
   if (at.scope === "repository") {
     // A repository file is one checkout's own: the change names the checkout, the repository
     // name its block — the same address the change-scoped routes take.
@@ -889,7 +921,7 @@ const profileFileCommand = async (
       emit(io, json, { value: at, human: (value) => `deleted ${fileKey(value)}` });
       return;
     }
-    await api.writeRepositoryFile(change, { ...ref, text: await profileText(args) });
+    await api.writeRepositoryFile(change, { ...ref, text: await profileText(args, noun) });
     emit(io, json, { value: at, human: (value) => `wrote ${fileKey(value)}` });
     return;
   }
@@ -899,7 +931,7 @@ const profileFileCommand = async (
     emit(io, json, { value: at, human: (value) => `deleted ${fileKey(value)}` });
     return;
   }
-  const text = await profileText(args);
+  const text = await profileText(args, noun);
   const answer = await api.writeFile({ ...at, text });
   const written = answer.files.find(
     (file) => file.id === id && file.scope === scope && file.workspace === workspace,
@@ -934,7 +966,9 @@ const profileCommand = async (
         value: discovery,
         human: (value) =>
           [
-            ...value.profiles.map((profile) => `${profile.key}\t${profile.harness}\t${profile.label}`),
+            ...value.profiles.map(
+              (profile) => `${profile.key}\t${profile.harness ?? "(change default)"}\t${profile.label}`,
+            ),
             ...value.skipped.map((file) => `${file.key}\t(skipped: ${file.reasons.join("; ")})`),
           ].join("\n"),
       });
@@ -986,6 +1020,86 @@ const statusCommand = async (client: CorviClient, args: ParsedArgs, json: boolea
   emit(io, json, { value: { ok: true, status }, human: () => `status ${status}` });
 };
 
+/** The view as a few human lines: the chain, each section's items and their states, warnings. */
+const harnessViewLines = (view: {
+  readonly key: string;
+  readonly label: string;
+  readonly agent: string;
+  readonly generatedDir: string;
+  readonly chain: readonly { readonly id: string }[];
+  readonly sections: Readonly<
+    Record<
+      string,
+      { readonly mode: string; readonly items: readonly { readonly name: string; readonly state: string }[] }
+    >
+  >;
+  readonly warnings: readonly { readonly message: string }[];
+}): string[] => {
+  const lines = [
+    `${view.key}\t${view.label}\t${view.agent}`,
+    `generated: ${view.generatedDir}`,
+    `chain: ${view.chain.map((link) => link.id).join(" -> ")}`,
+  ];
+  for (const [name, section] of Object.entries(view.sections)) {
+    lines.push(
+      `${name} (${section.mode}): ${section.items.map((item) => `${item.name}=${item.state}`).join(", ") || "-"}`,
+    );
+  }
+  for (const warning of view.warnings) lines.push(`warning: ${warning.message}`);
+  return lines;
+};
+
+/** `corvi harness`: the harness files, and one harness's resolved environment. */
+const harnessCommand = async (
+  client: CorviClient,
+  changeId: string | undefined,
+  args: ParsedArgs,
+  json: boolean,
+  io: Io,
+): Promise<void> => {
+  const sub = args.positionals[1];
+  if (sub === undefined) {
+    io.out(GROUP_HELP.harness ?? "");
+    return;
+  }
+  if (sub === "list") {
+    const listed = await client.harnesses.list(requireChange(changeId));
+    emit(io, json, {
+      value: listed,
+      human: (value) =>
+        value.harnesses
+          .map(
+            (harness) =>
+              `${harness.key}\t${harness.agent ?? "?"}\t${harness.label}${
+                harness.problem === undefined ? "" : `\t(${harness.problem})`
+              }`,
+          )
+          .join("\n"),
+    });
+    return;
+  }
+  if (sub === "show") {
+    const key = args.positionals[2];
+    if (key === undefined || key === "") throw new CliFailure("harness show needs a key", EXIT.usage);
+    const listed = await client.harnesses.list(requireChange(changeId));
+    const found =
+      listed.harnesses.find((harness) => harness.key === key) ??
+      listed.harnesses.find((harness) => harness.id === key);
+    if (found === undefined) throw new CliFailure(`no such harness: ${key}`, EXIT.refused);
+    emit(io, json, {
+      value: found,
+      human: (value) =>
+        value.view === undefined
+          ? [`${value.key}\t${value.label}\t${value.agent ?? "?"}`, value.problem ?? "no resolved view"].join(
+              "\n",
+            )
+          : harnessViewLines(value.view).join("\n"),
+    });
+    return;
+  }
+  await profileFileCommand(client.harnesses, changeId, args, json, io, 1, "harness");
+};
+
 const dispatch = async (
   client: CorviClient,
   changeId: string | undefined,
@@ -996,6 +1110,10 @@ const dispatch = async (
   const [group, command] = args.positionals;
   if ((group === "action" || group === "subagent") && command === "profile") {
     await profileCommand(client, group, changeId, args, json, io);
+    return EXIT.ok;
+  }
+  if (group === "harness") {
+    await harnessCommand(client, changeId, args, json, io);
     return EXIT.ok;
   }
   if (group === "change") return changeCommand(client, changeId, args, json, io).then(() => EXIT.ok);
@@ -1043,6 +1161,7 @@ export const needsChange = (positionals: readonly string[]): boolean => {
   if (group === "change") return command !== "list" && command !== "create";
   if (group === "action") return true;
   if (group === "subagent") return true;
+  if (group === "harness") return true;
   return false;
 };
 

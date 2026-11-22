@@ -498,10 +498,16 @@ test(
     const session = await openSession("SNAP-FLUSH", dir, { cols: 80, rows: 24 });
     const command = "echo FLUSH_MARK\n";
     await runAndWait(session, command);
+    // The host's bytes reach the screen asynchronously; flush only once the marker is applied.
+    await waitFor(
+      "the screen to apply the marker",
+      async () => (screenForTest(session.sessionId, session.incarnation) ?? "").includes("FLUSH_MARK"),
+      budget(20_000),
+    );
     flushScreens();
     expect(snapshotOf(session.sessionId, session.incarnation)?.data).toContain("FLUSH_MARK");
   },
-  budget(30_000),
+  budget(60_000),
 );
 
 test(

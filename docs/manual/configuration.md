@@ -142,6 +142,38 @@ Leaving the editor with unsaved edits asks first — **Save and leave**, **Disca
 **Stay** — as the settings page does. **Cancel** is the deliberate discard: back to the list,
 dropping the draft.
 
+## Harnesses
+
+A **harness** is a named Pi environment: the agent, model and thinking effort, the extra models,
+the instructions, and which extensions, skills, packages and MCP servers a pane starts with. One
+Markdown file per harness, with the same scopes and precedence as actions:
+
+| Scope | Where | On the Harnesses page |
+| --- | --- | --- |
+| Built-in | shipped with Corvi (`pi`, `pi-bare`, `opencode`) | templates in the create flow |
+| Global | `~/.config/corvi/harnesses/` | created, edited, deleted |
+| Workspace | `~/.config/corvi/workspaces/<id>/harnesses/` | created, edited, deleted |
+| Repository | `<checkout>/.corvi/harnesses/` | in the Repositories block |
+
+`harness:` names the harness a file is based on; the chain ends at a built-in. Scalars are the
+child's when set and inherited otherwise; a section `mode: all|none` replaces the section while
+`include`/`exclude` add to its parent's lists. `instructions` replaces the base `AGENTS.md`;
+`enabledModels` is the model cycle. Everything else in the base agent directory — credentials,
+models, trust, sessions, packages, themes, prompts, keybindings, `SYSTEM.md`, `APPEND_SYSTEM.md`
+and `bin/` — is shared into every generated environment. Optional files are linked only when the
+base has them. `AGENTS.override.md` is linked only while the harness sets no instructions: it
+replaces the base `AGENTS.md`, so inheriting it would otherwise defeat an explicit `instructions:`.
+Corvi adds its own Pi extension unless a harness excludes `corvi`.
+
+Every Corvi pane gets a generated agent directory (`PI_CODING_AGENT_DIR`), regenerated on launch
+and when a harness file is saved. The resolved view beside the editor shows the chain, every
+item's effective state and origin, and any warnings; the same plan writes the directory the pane
+starts with. **Settings → Workspace → Harness defaults** chooses the shell-pane and subagent
+defaults globally and per workspace; a change can override the user harness in its title row, and
+a repository harness is only offered to changes that carry that checkout.
+
+The `corvi harness` command mirrors the page: `list`, `show <key>`, `write` and `delete`.
+
 ## Subagent profiles
 
 A subagent profile is a template for a visible, persistent agent session inside a change: which
@@ -162,8 +194,10 @@ explicit; a repository file names its checkout with `--repository <name>` and th
 `--change`), and `corvi subagent profile list` answers with the keys `corvi subagent create`
 accepts.
 
-The frontmatter names `label` and `harness` (`pi` or `opencode`); `model` and `effort` are passed
-to the harness and are checked loosely, because a model catalog changes with the harness. `phases`
+The frontmatter names `label` and, optionally, `harness` (a harness id; absent means the change's
+subagent default). `model` and `effort` are passed to the resolved harness and are checked
+loosely, because a model catalog changes with the harness. The rest of a profile's harness fields
+overlay the named harness. `phases`
 limits when the profile is offered. The body is the initial prompt; `create` sends it rendered,
 with the same facts as an action (`{id}`, `{title}`, `{branch}`, `{plan}`, `{state}`, `{dir}`,
 `{repos}`) plus `{prompt}`, which the delegating task text fills in — or, without it, the task is

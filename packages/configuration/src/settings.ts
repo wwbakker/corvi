@@ -181,6 +181,10 @@ export function settingsFor(
       global: config.planTemplate,
       fallback: config.planTemplate,
     }),
+    harnessDefaults: {
+      ...(config.harnessDefaults ?? {}),
+      ...(own?.harnessDefaults ?? {}),
+    },
     worktreeCopy: at("worktreeCopy", {
       workspace: own?.worktreeCopy,
       global: config.worktreeCopy,
