@@ -260,9 +260,9 @@ export function FileListPage<F extends FileShape, L extends ListingShape<F>, R e
     (listing?.files ?? []).filter((f) => f.scope === scope && f.workspace === workspace);
 
   const row = (file: F, target: WriteTarget): JSX.Element => (
-    <p key={file.path}>
+    <p key={file.path} className="file-row">
       <strong>{file.label ?? file.id}</strong> <code>{file.id}.md</code>
-      {file.problems && <span className="summary"> — {file.problems.join("; ")}</span>}
+      {file.problems && <span className="summary">{file.problems.join("; ")}</span>}
       <span className="spacer" />
       <button
         onClick={() => {

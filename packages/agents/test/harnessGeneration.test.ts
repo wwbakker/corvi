@@ -350,6 +350,32 @@ test("unknown include names warn once per section, and paths resolve against the
   expect(file?.path).toBe("/work/orders/extensions/local");
 });
 
+test("an unknown name from another section says where it belongs", () => {
+  const planned = plan(
+    harnessOf({
+      fields: {
+        extensions: section({ mode: "none", include: ["spiega"] }),
+        skills: section({ mode: "none", include: ["ghost"] }),
+      },
+    }),
+  );
+  const messages = planned.view.warnings.map((warning) =>
+    warning.kind === "unknown-name" ? warning.message : "",
+  );
+  expect(messages).toContain('"spiega" is a skill, not an extension — list it under skills.include');
+  expect(messages).toContain('no skills named "ghost" in the base agent directory or ~/.agents/skills');
+});
+
+test("skills include works for a name under ~/.agents/skills in mode none", () => {
+  const planned = plan(harnessOf({ fields: { skills: section({ mode: "none", include: ["spiega"] }) } }));
+  // The auto-discovered home skills are disabled with the glob, then the included one is re-added.
+  expect(settingsOf(planned)["skills"]).toEqual([
+    "!/home/u/.agents/skills/*",
+    "+/home/u/.agents/skills/spiega",
+  ]);
+  expect(planned.view.sections.skills.items.find((item) => item.name === "spiega")?.state).toBe("included");
+});
+
 test("a relative path with no scope root is a warning, not a guess", () => {
   const planned = plan(
     harnessOf({

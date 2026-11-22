@@ -314,12 +314,17 @@ test("the harness window route translates sentinels and runs the harness's own a
     command: string;
     harness?: string;
     envDir?: string;
+    intent?: "activate" | "background";
   }[] = [];
   const fake = async (
     _changeId: string,
     directory: string,
     command: string,
-    options: { readonly harness?: string; readonly envDir?: string },
+    options: {
+      readonly harness?: string;
+      readonly envDir?: string;
+      readonly intent?: "activate" | "background";
+    },
   ): Promise<string> => {
     opened.push({ directory, command, ...options });
     return "w-test";
@@ -332,6 +337,7 @@ test("the harness window route translates sentinels and runs the harness's own a
   expect(opened[0]?.command).toContain("exec opencode");
   expect(opened[0]?.command).toContain("--model 'zai/glm-5.3'");
   expect(opened[0]?.harness).toBe("global:oc-env");
+  expect(opened[0]?.intent).toBe("activate");
 
   opened.length = 0;
   await runEffect(openHarnessWindow(change, { harness: "builtin:pi", directory: "current" }, fake as never));

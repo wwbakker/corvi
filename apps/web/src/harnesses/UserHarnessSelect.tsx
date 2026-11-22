@@ -11,12 +11,15 @@ export function UserHarnessSelect({
   stored,
   disabled,
   onChanged,
+  label = "Harness",
 }: {
   changeId: string;
   client: CorviClient;
   stored?: string;
   disabled?: boolean;
   onChanged: () => void;
+  /** The field name; the dialog says which kind of pane it applies to. */
+  label?: string;
 }): JSX.Element {
   const [listed, setListed] = useState<HarnessListResponseDto | null>(null);
   const [saving, setSaving] = useState(false);
@@ -38,7 +41,7 @@ export function UserHarnessSelect({
   };
   return (
     <label className="change-harness" title="the harness a new shell pane starts with">
-      <span>Harness</span>
+      <span>{label}</span>
       <select
         aria-label="change user harness"
         disabled={disabled === true || saving || listed === null}

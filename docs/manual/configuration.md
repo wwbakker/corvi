@@ -169,8 +169,10 @@ Every Corvi pane gets a generated agent directory (`PI_CODING_AGENT_DIR`), regen
 and when a harness file is saved. The resolved view beside the editor shows the chain, every
 item's effective state and origin, and any warnings; the same plan writes the directory the pane
 starts with. **Settings → Workspace → Harness defaults** chooses the shell-pane and subagent
-defaults globally and per workspace; a change can override the user harness in its title row, and
-a repository harness is only offered to changes that carry that checkout.
+defaults globally and per workspace; a change overrides both from **Actions → Harnesses…**, and a
+repository harness reaches a change through its checkout: a fresh worktree carries only files
+committed (tracked) in the source repository, while an in-place checkout also offers an untracked
+file there, because launch discovery reads that same directory.
 
 The `corvi harness` command mirrors the page: `list`, `show <key>`, `write` and `delete`.
 

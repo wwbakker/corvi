@@ -27,8 +27,7 @@ import { forgetChange, seeView } from "../../app-root/remember.ts";
 import { changeActions } from "./changeActions.ts";
 import { ChangeControls } from "./ChangeControls.tsx";
 import { NewTerminalDialog } from "../../terminals/client/NewTerminalDialog.tsx";
-import { SubagentHarnessSelect } from "../../harnesses/SubagentHarnessSelect.tsx";
-import { UserHarnessSelect } from "../../harnesses/UserHarnessSelect.tsx";
+import { ChangeHarnessesDialog } from "../../harnesses/ChangeHarnessesDialog.tsx";
 import { ChangeDashboard } from "./ChangeDashboard.tsx";
 import { PlanPage } from "./PlanPage.tsx";
 import { TranscriptsPage } from "./TranscriptsPage.tsx";
@@ -109,6 +108,7 @@ export function ChangeView({
 }): JSX.Element {
   const client = useChangeClient();
   const [newTerminalOpen, setNewTerminalOpen] = useState(false);
+  const [harnessDialogOpen, setHarnessDialogOpen] = useState(false);
   // The change's own source, not the chosen workspace: a direct link or "All work" banners too.
   const availability = useSourceAvailability(source);
   const blocked = availability.status._tag !== "available";
@@ -530,7 +530,18 @@ export function ChangeView({
           actionsRef={actionsRef}
           change={change}
           blocked={blocked}
-          actions={[...actions, ...terminalActions.actions]}
+          actions={[
+            ...actions,
+            ...(change === undefined
+              ? []
+              : [
+                  {
+                    label: "Harnesses…",
+                    onSelect: () => setHarnessDialogOpen(true),
+                  },
+                ]),
+            ...terminalActions.actions,
+          ]}
           onActionsOpen={terminalActions.refresh}
           draft={draft}
           onDraft={setDraft}
@@ -539,30 +550,6 @@ export function ChangeView({
           moving={moving}
           reopening={reopening}
           onReopen={reopen}
-          harnessControl={
-            change === undefined ? undefined : (
-              <>
-                <UserHarnessSelect
-                  changeId={change.id}
-                  client={client}
-                  stored={change.userHarness}
-                  disabled={blocked}
-                  onChanged={onChanged}
-                />
-                <SubagentHarnessSelect
-                  changeId={ChangeId.make(change.id)}
-                  client={client}
-                  value={change.subagentHarness}
-                  disabled={blocked}
-                  onChange={(key) => {
-                    void client.changes
-                      .rename(ChangeId.make(change.id), { subagentHarness: key })
-                      .then(onChanged);
-                  }}
-                />
-              </>
-            )
-          }
         />
         {changeTabs}
       </div>
@@ -674,6 +661,16 @@ export function ChangeView({
             onNewWindow={openNewTerminal}
           />
         </div>
+      )}
+      {change !== undefined && (
+        <ChangeHarnessesDialog
+          open={harnessDialogOpen}
+          change={change}
+          client={client}
+          blocked={blocked}
+          onClose={() => setHarnessDialogOpen(false)}
+          onChanged={onChanged}
+        />
       )}
       {change !== undefined && (
         <NewTerminalDialog

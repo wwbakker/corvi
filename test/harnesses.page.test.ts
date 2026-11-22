@@ -70,10 +70,36 @@ test.skipIf(!usable)(
     await withPage(browser, async (page) => {
       await page.goto(`${url}/harnesses`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".harnesses-page");
+      // The cards share the Actions/Subagents rhythm.
+      const gaps = await page
+        .locator(".harnesses-page > .widget")
+        .evaluateAll((cards) =>
+          cards
+            .slice(1)
+            .map(
+              (card, index) =>
+                card.getBoundingClientRect().top - cards[index]!.getBoundingClientRect().bottom,
+            ),
+        );
+      expect(gaps.length).toBeGreaterThan(0);
+      expect(gaps.every((gap) => gap >= 16)).toBe(true);
       const row = page.locator(".widget p", { hasText: "review-env.md" }).first();
       await row.getByRole("button", { name: "Edit" }).click();
       await page.waitForSelector(".harnesses-page.editing");
       await page.waitForSelector(".harness-docs");
+      // The docs dock has its own scrollbar, independent of the Markdown editor.
+      const dock = await page.locator(".harness-docs").evaluate((element) => ({
+        overflow: getComputedStyle(element).overflowY,
+        scrolls: element.scrollHeight > element.clientHeight,
+      }));
+      expect(dock.overflow).toBe("auto");
+      expect(dock.scrolls).toBe(true);
+      // The dock ends where the editor does: its own frame, never clipped by the window.
+      const bottoms = await page.evaluate(() => ({
+        editor: document.querySelector(".action-editor .md-editor")?.getBoundingClientRect().bottom,
+        dock: document.querySelector(".harness-docs")?.getBoundingClientRect().bottom,
+      }));
+      expect(bottoms.dock).toBe(bottoms.editor);
       // The view endpoint honours views=0: selectors do not pay for a generated plan.
       const summary = (await (await fetch(`${url}/api/changes/${CHANGE}/harnesses?views=0`)).json()) as {
         harnesses: { view?: unknown }[];
@@ -124,14 +150,28 @@ test.skipIf(!usable)(
 
       await page.goto(`${url}/changes/${CHANGE}/terminals`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".window-tabs");
-      await page.locator(".window-tab.new").click();
-      await page.waitForSelector(".new-terminal-dialog[open]");
       // The first shell exists, so the dialog defaults to its directory — a real location, not
       // the ambiguous "change root" the old dialog used for both kinds.
       await page.waitForSelector('.window-tab[data-window-index="0"]', { timeout: 20_000 });
-      // Both change selectors are named in the title row.
-      expect(await page.getByLabel("change user harness").count()).toBe(1);
-      expect(await page.getByLabel("subagent harness").count()).toBe(1);
+      // Both change selectors live in the Actions → Harnesses… dialog, not the title row.
+      expect(await page.getByLabel("change user harness").isVisible()).toBe(false);
+      await page.locator(".change-bar button.actions").click();
+      await page.locator(".change-bar .menu-items button", { hasText: "Harnesses…" }).click();
+      await page.waitForSelector(".harness-choice-dialog[open]");
+      expect(await page.getByLabel("change user harness").isVisible()).toBe(true);
+      expect(await page.getByLabel("subagent harness").isVisible()).toBe(true);
+      expect(await page.locator(".harness-choice-dialog").textContent()).toContain("Default");
+      // One top-right control, and no stray text after it.
+      expect((await page.locator(".harness-choice-dialog > header").textContent())?.trim()).toBe(
+        "Harnesses×",
+      );
+      await page.keyboard.press("Escape");
+      await page.waitForSelector(".harness-choice-dialog[open]", { state: "detached" });
+      await page.locator(".window-tab.new").click();
+      await page.waitForSelector(".new-terminal-dialog[open]");
+      expect((await page.locator(".new-terminal-dialog > header").textContent())?.trim()).toBe(
+        "New terminalCancel",
+      );
       const directory = page.getByLabel("terminal directory");
       expect(await directory.inputValue()).toBe("current");
       const directoryOptions = await directory.locator("option").allTextContents();

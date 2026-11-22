@@ -339,11 +339,51 @@ type SectionPlan<T extends string | PackageEntry = string> = {
   readonly warnings: readonly HarnessWarning[];
 };
 
-const unknownName = (section: HarnessSectionName, name: string, where: string): HarnessWarning => ({
+const SECTION_LABEL: Record<HarnessSectionName, { readonly one: string; readonly list: string }> = {
+  extensions: { one: "extension", list: "extensions" },
+  skills: { one: "skill", list: "skills" },
+  packages: { one: "package", list: "packages" },
+  mcp: { one: "MCP server", list: "mcp" },
+};
+
+/** Another section that does contain this name: the actionable half of an unknown-name warning.
+ * A harness that put a skill under `extensions.include` is told where it belongs. */
+const crossSectionHint = (
+  section: HarnessSectionName,
+  name: string,
+  base: HarnessBase,
+): string | undefined => {
+  const inSection = (other: HarnessSectionName): boolean => {
+    switch (other) {
+      case "extensions":
+        return base.catalogs.extensions.some((item) => item.name === name);
+      case "skills":
+        return base.catalogs.skills.some((item) => item.name === name);
+      case "packages":
+        return base.catalogs.packages.some((item) => item.name === name || item.source === name);
+      case "mcp":
+        return base.catalogs.mcp.includes(name);
+    }
+  };
+  const other = (["extensions", "skills", "packages", "mcp"] as const).find(
+    (candidate) => candidate !== section && inSection(candidate),
+  );
+  const article = (word: string): string => (/^[aeiou]/i.test(word) ? "an" : "a");
+  return other === undefined
+    ? undefined
+    : `"${name}" is ${article(SECTION_LABEL[other].one)} ${SECTION_LABEL[other].one}, not ${article(SECTION_LABEL[section].one)} ${SECTION_LABEL[section].one} — list it under ${SECTION_LABEL[other].list}.include`;
+};
+
+const unknownName = (
+  section: HarnessSectionName,
+  name: string,
+  where: string,
+  hint?: string,
+): HarnessWarning => ({
   kind: "unknown-name",
   section,
   name,
-  message: `no ${section} named "${name}" in ${where}`,
+  message: hint ?? `no ${section} named "${name}" in ${where}`,
 });
 
 const unresolvedPath = (
@@ -372,6 +412,7 @@ const classifyEntries = (
   homeDir: string,
   source: ResolvedHarness["source"],
   where: string,
+  hintFor?: (name: string) => string | undefined,
 ): { readonly classified: ClassifiedEntries; readonly warnings: readonly HarnessWarning[] } => {
   const names: string[] = [];
   const paths: string[] = [];
@@ -384,7 +425,7 @@ const classifyEntries = (
       continue;
     }
     if (matches(entry)) names.push(entry);
-    else warnings.push(unknownName(section, entry, where));
+    else warnings.push(unknownName(section, entry, where, hintFor?.(entry)));
   }
   return { classified: { names, paths }, warnings };
 };
@@ -447,6 +488,7 @@ const planExtensions = (
     base.paths.homeDir,
     harness.source,
     "the base agent directory",
+    (name) => crossSectionHint("extensions", name, base),
   );
   const excludes = classifyEntries(
     "extensions",
@@ -456,6 +498,7 @@ const planExtensions = (
     base.paths.homeDir,
     harness.source,
     "the base agent directory",
+    (name) => crossSectionHint("extensions", name, base),
   );
 
   const inherited = baseResourceEntries(base.settings, "extensions").map((entry) =>
@@ -581,6 +624,7 @@ const planSkills = (
     base.paths.homeDir,
     harness.source,
     "the base agent directory or ~/.agents/skills",
+    (name) => crossSectionHint("skills", name, base),
   );
   const excludes = classifyEntries(
     "skills",
@@ -590,6 +634,7 @@ const planSkills = (
     base.paths.homeDir,
     harness.source,
     "the base agent directory or ~/.agents/skills",
+    (name) => crossSectionHint("skills", name, base),
   );
 
   const inherited = baseResourceEntries(base.settings, "skills").map((entry) =>
@@ -755,14 +800,18 @@ const planPackages = (
   const unknownIncludes = section.include
     .filter((entry) => !isPackagePathEntry(entry))
     .filter((entry) => !items.some((item) => matches(item, entry)))
-    .map((entry) => unknownName("packages", entry, "the base settings.json"));
+    .map((entry) =>
+      unknownName("packages", entry, "the base settings.json", crossSectionHint("packages", entry, base)),
+    );
   const excludedNames = section.exclude
     .filter((entry) => !isPackagePathEntry(entry))
     .filter((entry) => items.some((item) => matches(item, entry)));
   const unknownExcludes = section.exclude
     .filter((entry) => !isPackagePathEntry(entry))
     .filter((entry) => !items.some((item) => matches(item, entry)))
-    .map((entry) => unknownName("packages", entry, "the base settings.json"));
+    .map((entry) =>
+      unknownName("packages", entry, "the base settings.json", crossSectionHint("packages", entry, base)),
+    );
   const included = new Set(items.filter((item) => includedNames.some((name) => matches(item, name))));
   const excluded = new Set(items.filter((item) => excludedNames.some((name) => matches(item, name))));
   const selected = items.filter(
@@ -812,10 +861,10 @@ const planMcp = (harness: ResolvedHarness, base: HarnessBase): SectionPlan => {
   const excluded = new Set(items.filter((item) => section.exclude.includes(item)));
   const unknownIncludes = section.include
     .filter((entry) => !items.includes(entry))
-    .map((entry) => unknownName("mcp", entry, "the base mcp.json"));
+    .map((entry) => unknownName("mcp", entry, "the base mcp.json", crossSectionHint("mcp", entry, base)));
   const unknownExcludes = section.exclude
     .filter((entry) => !items.includes(entry))
-    .map((entry) => unknownName("mcp", entry, "the base mcp.json"));
+    .map((entry) => unknownName("mcp", entry, "the base mcp.json", crossSectionHint("mcp", entry, base)));
   const selected = items.filter((item) => !excluded.has(item) && (mode === "all" || included.has(item)));
 
   return {

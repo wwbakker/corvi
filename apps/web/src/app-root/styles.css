@@ -484,6 +484,7 @@ dialog,
 .transcripts .conversation,
 .settings .workspace-card,
 .action-docs,
+.harness-docs,
 .menu-items,
 .toast,
 .theme-choice {
@@ -1721,6 +1722,15 @@ button.primary:not(:disabled) {
 /* A summary beside a widget's title, inside the heading: smaller than the title, and with no
    margins of its own. A margin here is part of the flex line, so it would make the heading —
    and with it the whole card — grow the moment the text appears. */
+.widget .file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+.widget .file-row .summary {
+  overflow-wrap: anywhere;
+}
 .widget h3 .summary {
   color: var(--muted);
   font-size: 12px;
@@ -3932,16 +3942,20 @@ button.danger:disabled {
 /* The file pages stack their cards; the cards get the dashboard's air between them, so the
    page reads as a column of things rather than one long sheet. */
 .page.actions-page > .widget + .widget,
-.page.subagents-page > .widget + .widget {
+.page.subagents-page > .widget + .widget,
+.page.harnesses-page > .widget + .widget {
   margin-top: 16px;
 }
 
 .page.actions-page > .hint + .widget,
-.page.subagents-page > .hint + .widget {
+.page.subagents-page > .hint + .widget,
+.page.harnesses-page > .hint + .widget {
   margin-top: 12px;
 }
 
-.page.actions-page.editing {
+.page.actions-page.editing,
+.page.subagents-page.editing,
+.page.harnesses-page.editing {
   display: flex;
   flex-direction: column;
   height: calc(100dvh - 64px);
@@ -4859,23 +4873,24 @@ a:focus-visible {
   flex: none;
   box-sizing: border-box;
   width: 380px;
+  align-self: stretch;
+  height: 100%;
+  max-height: 100%;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   display: grid;
   gap: 12px;
   align-content: start;
-  padding: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
 }
 .harness-docs .action-docs {
-  position: static;
-  width: auto;
-  min-height: 0;
-  overflow: visible;
-  padding: 0;
-  gap: 8px;
-  background: none;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+  /* The field list is part of the one dock flow: its headings, fields and the example stack in
+     the same grid, so the example cannot overlap the fields and the whole dock scrolls as one. */
+  display: contents;
 }
 .harness-docs-head {
   display: flex;
@@ -4942,18 +4957,6 @@ a:focus-visible {
   font-size: 12px;
 }
 
-/* The harness a tab/pane runs under, quiet enough not to compete with the name. */
-.window-tab .harness,
-.entry.sub.window .harness {
-  flex: none;
-  font-size: 10px;
-  color: var(--text-dim);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 0 5px;
-  white-space: nowrap;
-}
-
 .harness-select,
 .harness-default {
   display: grid;
@@ -5001,4 +5004,65 @@ a:focus-visible {
 
 .harness-docs .harness-section li.harness-item {
   padding: 2px 0;
+}
+
+/* The change harness dialog: one column, the two selectors with room to explain themselves. */
+.harness-choice-dialog {
+  width: min(520px, calc(100vw - 32px));
+}
+/* The new dialogs' headers are a flex line: title, air, the one top-right control. */
+.harness-choice-dialog > header,
+.new-terminal-dialog > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.harness-choice-dialog > header h2,
+.new-terminal-dialog > header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.harness-choice-form {
+  display: grid;
+  gap: 14px;
+  margin: 12px 0;
+}
+.harness-choice-dialog footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.harness-choice-dialog .hint {
+  margin: 0;
+}
+.harness-default,
+.harness-select,
+.change-harness {
+  display: grid;
+  gap: 4px;
+}
+
+/* The example sits at the bottom of the harness field docs. */
+.harness-example {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.harness-example pre {
+  margin: 0;
+  padding: 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+  background: var(--well, var(--surface));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.harness-example h3 {
+  margin: 0;
+  font-size: 14px;
 }

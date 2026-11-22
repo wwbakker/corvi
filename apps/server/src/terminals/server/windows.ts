@@ -532,7 +532,7 @@ export const newWindowRunningAsync = (
       options.cwd ?? dir,
       [shell(), "-c", command],
       { cols: 100, rows: 30 },
-      "background",
+      options.intent ?? "background",
       {
         command,
         ...(options.announce?.label ? { label: options.announce.label } : {}),

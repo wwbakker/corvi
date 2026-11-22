@@ -81,6 +81,13 @@ test("an action that names its phases is offered only in them", async () => {
       text: "---\nlabel: Shape the plan\nkind: prompt\ntarget: agent\nphases: [Ideation]\n---\nhello\n",
     }),
   );
+  await runEffect(
+    writeActionFile({
+      scope: "global",
+      id: "any-phase",
+      text: "---\nlabel: Anywhere\nkind: prompt\ntarget: active\n---\nhello\n",
+    }),
+  );
   const labels = async (state: Change["state"]): Promise<string[]> =>
     (await runEffect(listActionsFor(changeWith({ state })))).map((a) => a.label);
 
@@ -90,8 +97,9 @@ test("an action that names its phases is offered only in them", async () => {
   // Outside it the phase filter hides both, while an action without phases is offered anywhere.
   expect(await labels("Implementation")).not.toContain("Shape the plan");
   expect(await labels("Implementation")).not.toContain("Send PLAN.md instructions");
-  expect(await labels("Implementation")).toContain("New pi session");
+  expect(await labels("Implementation")).toContain("Anywhere");
 
+  await runEffect(deleteActionFile({ scope: "global", id: "any-phase" }));
   await runEffect(deleteActionFile({ scope: "global", id: "only-ideation" }));
 });
 

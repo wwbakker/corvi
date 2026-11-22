@@ -382,8 +382,8 @@ export function Wizard({
                 ))}
               </select>
               <small>
-                The harness this change&apos;s shell panes start. Repository harnesses are offered from
-                in-place checkouts; a fresh worktree gets only committed files.
+                The harness this change&apos;s shell panes start. A repository harness is offered when its
+                file is committed (tracked) in the repository, so a fresh worktree carries it too.
               </small>
             </label>
             <label>

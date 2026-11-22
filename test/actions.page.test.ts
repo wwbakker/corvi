@@ -348,11 +348,11 @@ test.skipIf(!usable)(
       // the preview, and the id defaulting to the template's own.
       await page.locator(".widget", { hasText: "Global" }).getByRole("button", { name: "New" }).click();
       await page.waitForSelector("dialog.template-picker");
-      const choice = page.locator(".template-choice", { hasText: "Review the diff" });
-      expect((await choice.textContent()) ?? "").toContain("Review the changes on");
+      const choice = page.locator(".template-choice", { hasText: "Send PLAN.md instructions" });
+      expect((await choice.textContent()) ?? "").toContain("You are helping me refine an idea");
       await choice.click();
       expect((await page.locator(".template-preview").textContent()) ?? "").toContain(
-        "Review the changes on",
+        "You are helping me refine an idea",
       );
       await page.getByRole("button", { name: "Create" }).click();
       await page.waitForSelector(".actions-page.editing");
@@ -362,8 +362,8 @@ test.skipIf(!usable)(
       const listing = (await (await fetch(`${url}/api/actions/files`)).json()) as {
         files: { id: string; scope: string }[];
       };
-      expect(listing.files.some((file) => file.id === "review" && file.scope === "global")).toBe(true);
-      expect(listing.files.some((file) => file.id === "review" && file.scope === "builtin")).toBe(true);
+      expect(listing.files.some((file) => file.id === "brief" && file.scope === "global")).toBe(true);
+      expect(listing.files.some((file) => file.id === "brief" && file.scope === "builtin")).toBe(true);
       expect(listing.files.some((file) => file.id === "blank-action" && file.scope === "global")).toBe(true);
     });
   },
@@ -438,7 +438,7 @@ test.skipIf(!usable)(
         .getByRole("button", { name: "New" })
         .click();
       await page.waitForSelector("dialog.template-picker");
-      await page.locator(".template-choice", { hasText: "New pi session" }).click();
+      await page.locator(".template-choice", { hasText: "Send PLAN.md instructions" }).click();
       await page.getByLabel("new action id").fill("repo-copy");
       await page.getByRole("button", { name: "Create" }).click();
       await page.waitForSelector(".actions-page.editing");

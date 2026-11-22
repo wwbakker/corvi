@@ -329,7 +329,6 @@ export function Sidebar({
               {w.icon === "agent" ? <AgentIcon title={w.label} /> : <TerminalIcon title={w.label} />}
             </span>
             <span className="label">{w.label}</span>
-            {w.harness !== undefined && <span className="harness">{w.harness}</span>}
             {/* Not for the window you are looking at: you see its output already. */}
             {w.activity && !(selected && page === "terminals" && w.active) && (
               <span className="bell" title="new output" />

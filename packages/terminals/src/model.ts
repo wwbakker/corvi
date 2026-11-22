@@ -79,6 +79,9 @@ export type NewWindowOptions = {
     readonly notify: boolean;
   };
   readonly cwd?: string;
+  /** Whether the new window becomes the active tab, or stays in the background for work that is
+   * not the user's current attention (an action, a subagent). Defaults to background. */
+  readonly intent?: "activate" | "background";
   /** Where the change env is seeded from when `cwd` is a checkout: the change's own directory. */
   readonly envDir?: string;
   /** The harness key this window's environment was generated for. */

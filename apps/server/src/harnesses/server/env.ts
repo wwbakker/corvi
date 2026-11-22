@@ -206,6 +206,7 @@ export type OpenHarnessWindow = (
     readonly env: Record<string, string>;
     readonly harness?: string;
     readonly envDir?: string;
+    readonly intent?: "activate" | "background";
     readonly announce?: { readonly label: string; readonly notify: boolean };
   },
 ) => Promise<string>;
@@ -246,6 +247,9 @@ export const openHarnessWindow = (
           envDir: root,
           env: launch.env,
           harness: launch.key,
+          // A harness window is the user's terminal: it takes the active tab, and its label names
+          // it rather than asking for attention.
+          intent: "activate",
           announce: { label: launch.label, notify: false },
         }),
       catch: (error) => badHarness(error instanceof Error ? error.message : String(error)),

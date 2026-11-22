@@ -12,6 +12,7 @@ export function SubagentHarnessSelect({
   value,
   onChange,
   disabled,
+  label = "Subagent harness",
 }: {
   changeId: ChangeId;
   client: CorviClient;
@@ -19,6 +20,8 @@ export function SubagentHarnessSelect({
   value?: string;
   onChange: (key: string | null) => void;
   disabled?: boolean;
+  /** The field name shown by the dialog. */
+  label?: string;
 }): JSX.Element {
   const [listed, setListed] = useState<HarnessListResponseDto | null>(null);
   useEffect(() => {
@@ -30,7 +33,7 @@ export function SubagentHarnessSelect({
   const fallback = listed?.selection.subagentDefault ?? "builtin:pi";
   return (
     <label className="harness-select">
-      <span>Subagent harness</span>
+      <span>{label}</span>
       <select
         aria-label="subagent harness"
         disabled={disabled === true || listed === null}

@@ -175,6 +175,19 @@ test("naming an action window leaves its action label alone", async () => {
   await stopHostTerminals(namedChange);
 }, 60_000);
 
+test("a harness window opened for the user is the active tab, not a background one", async () => {
+  const changeId = "REG-HARNESS-ACTIVE";
+  const id = await newWindowRunningAsync(changeId, dir, "sleep 30", {
+    intent: "activate",
+    harness: "global:review",
+    announce: { label: "Review environment", notify: false },
+  });
+  const windows = await listWindowsAsync(changeId);
+  expect(windows.find((window) => window.id === id)?.active).toBe(true);
+  expect(windows.find((window) => window.id === id)?.harness).toBe("global:review");
+  await stopHostTerminals(changeId);
+}, 60_000);
+
 test("the first, split and action panes all carry their harness key", async () => {
   const change = "REG-HARNESS";
   const pane = async (): Promise<{ harness: string }> => ({ harness: "global:review" });

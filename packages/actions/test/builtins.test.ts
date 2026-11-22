@@ -11,7 +11,7 @@ test("every shipped action is a valid action file", () => {
   const names = readdirSync(builtinActionsDir())
     .filter((n) => n.endsWith(".md"))
     .sort();
-  expect(names).toEqual(["brief.md", "new-pi.md", "review.md"]);
+  expect(names).toEqual(["brief.md"]);
   for (const name of names) {
     const parsed = parseActionFile(readFileSync(join(builtinActionsDir(), name), "utf8"));
     expect(Result.isSuccess(parsed)).toBe(true);

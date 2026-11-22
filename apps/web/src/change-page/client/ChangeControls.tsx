@@ -1,4 +1,4 @@
-import { type JSX, type ReactNode, type RefObject } from "react";
+import { type JSX, type RefObject } from "react";
 import { CHANGE_STATES, type Change, type ChangeState } from "../../app-root/api.ts";
 import { ActionsMenu, type Action } from "../../app-root/ActionsMenu.tsx";
 import { BranchIcon } from "../../app-root/icons.tsx";
@@ -29,7 +29,6 @@ export function ChangeControls({
   onReopen,
   statusRef,
   actionsRef,
-  harnessControl,
 }: {
   /** The record, while it is still on its way: the row shows the page's shape, the fields wait. */
   change: Change | undefined;
@@ -51,8 +50,6 @@ export function ChangeControls({
   reopening?: boolean;
   /** Undo a cancellation; only a cancelled change offers it. */
   onReopen?: () => void;
-  /** The change's harness selector, composed by the page (it needs the change's client). */
-  harnessControl?: ReactNode;
   /** Where the leader's keycaps sit on the two menus (app-root/leader.tsx). */
   statusRef?: RefObject<HTMLButtonElement | null>;
   actionsRef?: RefObject<HTMLButtonElement | null>;
@@ -101,7 +98,6 @@ export function ChangeControls({
         )}
       </div>
       {blocked && <StaleMarker>unavailable</StaleMarker>}
-      {change && harnessControl}
       {change && (
         <>
           {/* The state is a menu, not a native select: the list has to look like the page's other

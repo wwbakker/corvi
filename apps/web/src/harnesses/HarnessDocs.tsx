@@ -165,6 +165,45 @@ export function HarnessDocs({ highlight, file }: { highlight?: string; file: Edi
         ariaLabel="harness file documentation"
         highlight={highlight}
       />
+      <section className="harness-example" aria-label="example harness file">
+        <h3>Example</h3>
+        <pre>
+          <code>{`---
+label: Review environment
+harness: pi-bare
+agent: pi
+model: mistral/deepseek-v4-1-flash-1017
+effort: low
+enabledModels: [deepseek/deepseek-flash, zai/glm-5.3-flash]
+instructions: |
+  Be terse. Name the file and the line.
+extensions:
+  mode: none
+  include: [some-extension]
+  exclude: [noisy-extension]
+skills:
+  mode: none
+  include: [adversarial-review]
+  exclude: [spiega]
+packages:
+  mode: all
+  include: [npm:pi-footer-wessel]
+  exclude: [pi-footer-old]
+mcp:
+  mode: none
+  include: [docs]
+  exclude: [noise]
+---
+Free-form notes for the reader.
+`}</code>
+        </pre>
+        <p className="hint">
+          Merge rules: a scalar in a child wins and an absent one inherits; a section <code>mode</code>{" "}
+          replaces that whole section; <code>include</code> and <code>exclude</code> append to the
+          parent&apos;s lists; <code>instructions</code> replaces the base instructions. The chain ends at a
+          built-in harness.
+        </p>
+      </section>
     </div>
   );
 }
