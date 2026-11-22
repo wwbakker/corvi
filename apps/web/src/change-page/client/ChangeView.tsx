@@ -26,6 +26,8 @@ import { changeNav, resolveChangePage, type ChangeTabInfo } from "./changeTabs.t
 import { forgetChange, seeView } from "../../app-root/remember.ts";
 import { changeActions } from "./changeActions.ts";
 import { ChangeControls } from "./ChangeControls.tsx";
+import { NewTerminalDialog } from "../../terminals/client/NewTerminalDialog.tsx";
+import { ChangeHarnessesDialog } from "../../harnesses/ChangeHarnessesDialog.tsx";
 import { ChangeDashboard } from "./ChangeDashboard.tsx";
 import { PlanPage } from "./PlanPage.tsx";
 import { TranscriptsPage } from "./TranscriptsPage.tsx";
@@ -60,6 +62,7 @@ export function ChangeView({
   onRenameWindow,
   onOpenPage,
   onChanged,
+  onRefreshWindows,
 }: {
   id: string;
   /** Which server owns this change: `""` for the local one, the local workspace id for a remote
@@ -98,10 +101,14 @@ export function ChangeView({
   onOpenPage: (page: Page) => void;
   /** The change was renamed, completed or otherwise altered: the lists elsewhere are stale. */
   onChanged: () => void;
+  /** A window was opened by the new-terminal dialog: the window lists are stale. */
+  onRefreshWindows: () => void;
   /** The server's platform: what the terminal's key hints and shortcut assume. */
   platform: Platform;
 }): JSX.Element {
   const client = useChangeClient();
+  const [newTerminalOpen, setNewTerminalOpen] = useState(false);
+  const [harnessDialogOpen, setHarnessDialogOpen] = useState(false);
   // The change's own source, not the chosen workspace: a direct link or "All work" banners too.
   const availability = useSourceAvailability(source);
   const blocked = availability.status._tag !== "available";
@@ -415,6 +422,12 @@ export function ChangeView({
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
   const tabRowRef = useRef<HTMLDivElement>(null);
   const newWindowRef = useRef<HTMLButtonElement>(null);
+  /** Every new terminal goes through the dialog: the "+" tab, its leader key, and the terminal's
+   * own chord all land here. */
+  const openNewTerminal = (): void => {
+    setNewTerminalOpen(true);
+    onNewWindow();
+  };
   const statusRef = useRef<HTMLButtonElement>(null);
   const actionsRef = useRef<HTMLButtonElement>(null);
   const windowTabs = (): readonly LeaderTarget[] => {
@@ -486,7 +499,7 @@ export function ChangeView({
         platform={platform}
         disabled={blocked}
         onSelectWindow={onSelectWindow}
-        onNewWindow={onNewWindow}
+        onNewWindow={openNewTerminal}
         onMoveWindow={onMoveWindow}
         onRenameWindow={onRenameWindow}
         onRenameClosed={() => {
@@ -517,7 +530,18 @@ export function ChangeView({
           actionsRef={actionsRef}
           change={change}
           blocked={blocked}
-          actions={[...actions, ...terminalActions.actions]}
+          actions={[
+            ...actions,
+            ...(change === undefined
+              ? []
+              : [
+                  {
+                    label: "Harnesses…",
+                    onSelect: () => setHarnessDialogOpen(true),
+                  },
+                ]),
+            ...terminalActions.actions,
+          ]}
           onActionsOpen={terminalActions.refresh}
           draft={draft}
           onDraft={setDraft}
@@ -634,9 +658,32 @@ export function ChangeView({
             visible={active.kind === "terminals"}
             focusRequest={focusRequest}
             platform={platform}
-            onNewWindow={terminal.create}
+            onNewWindow={openNewTerminal}
           />
         </div>
+      )}
+      {change !== undefined && (
+        <ChangeHarnessesDialog
+          open={harnessDialogOpen}
+          change={change}
+          client={client}
+          blocked={blocked}
+          onClose={() => setHarnessDialogOpen(false)}
+          onChanged={onChanged}
+        />
+      )}
+      {change !== undefined && (
+        <NewTerminalDialog
+          open={newTerminalOpen}
+          change={change}
+          client={client}
+          currentDirectory={activeWindow?.cwd}
+          onClose={() => setNewTerminalOpen(false)}
+          onCreated={() => {
+            onRefreshWindows();
+            setFocusRequest((n) => n + 1);
+          }}
+        />
       )}
     </div>
   );

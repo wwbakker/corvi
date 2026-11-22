@@ -92,6 +92,9 @@ const PatchBody = Schema.Struct({
   // the caller's 400 at the boundary, before any write, stamp or ticket move.
   state: Schema.optional(ChangeStateSchema),
   title: Schema.optional(Schema.String),
+  // The harness selectors: absent leaves the choice alone, null is "Default" (store nothing).
+  userHarness: Schema.optional(Schema.NullOr(Schema.String)),
+  subagentHarness: Schema.optional(Schema.NullOr(Schema.String)),
 });
 
 export const changeRoutes = guard({
@@ -313,15 +316,27 @@ export const changeRoutes = guard({
  * title that conflicted after the phase landed would leave the PATCH half applied. */
 export const patchChange = (
   observed: Change,
-  body: { state?: string; title?: string },
+  body: {
+    state?: string;
+    title?: string;
+    userHarness?: string | null;
+    subagentHarness?: string | null;
+  },
 ): Effect.Effect<Change, CorviError> =>
   Effect.gen(function* () {
     // Naming the phase the change is already in is a no-op, and so is an empty body: either would
     // otherwise bump the revision and let the stamp below run for nothing.
     const stateChanges = body.state !== undefined && body.state !== (observed.state ?? "Implementation");
-    if (!stateChanges && body.title === undefined) return observed;
+    const harnessChanges = body.userHarness !== undefined || body.subagentHarness !== undefined;
+    if (!stateChanges && body.title === undefined && !harnessChanges) return observed;
     const updated = yield* Effect.try({
-      try: () => applyPatch(observed, stateChanges ? body : { title: body.title }),
+      try: () =>
+        applyPatch(observed, {
+          ...(stateChanges ? { state: body.state } : {}),
+          ...(body.title === undefined ? {} : { title: body.title }),
+          ...(body.userHarness === undefined ? {} : { userHarness: body.userHarness }),
+          ...(body.subagentHarness === undefined ? {} : { subagentHarness: body.subagentHarness }),
+        }),
       catch: changeError,
     });
     // The first departure from Ideation is the one that starts the work: `startedAt` is recorded

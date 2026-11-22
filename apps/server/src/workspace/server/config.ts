@@ -196,6 +196,7 @@ export function readConfig(): Config {
     // on a heading line, so the first thing typed is the change's name. An empty value is a value
     // — clearing the setting leaves new plans empty.
     planTemplate: resolveSetting({ global: file.planTemplate, fallback: "# " }),
+    harnessDefaults: file.harnessDefaults ?? {},
     workspaces: workspaces.length ? workspaces : [DEFAULT_WORKSPACE],
     // The extensions' own settings, passed through untouched: the core does not look inside.
     // Always a key, absent or not — the refill is Object.assign over the one config object, and

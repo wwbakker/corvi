@@ -30,6 +30,8 @@ export type DiscoveredProfile = {
   readonly key: string;
   readonly id: string;
   readonly source: SubagentSource;
+  /** The workspace id or repository name the file came from. */
+  readonly origin?: string;
   readonly sourceLabel?: string;
   readonly profile: Profile;
 };
@@ -60,6 +62,7 @@ export const mergeProfileFiles = (files: readonly ProfileFileInput[]): ProfileDi
       key,
       id: file.id,
       source: file.source,
+      ...(file.origin === undefined ? {} : { origin: file.origin }),
       sourceLabel: file.originLabel ?? file.origin,
       profile: value,
     })),

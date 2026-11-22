@@ -226,6 +226,12 @@ const hostRaw = (
     directory: basename(dir),
     named: true,
     options: { ...agentOptions(status), ...commandOptions(record, session) },
+    ...(record.harness === undefined && session?.metadata?.harness === undefined
+      ? {}
+      : { harness: session?.metadata?.harness ?? record.harness }),
+    ...((session?.workingDirectory ?? session?.cwd) === undefined
+      ? {}
+      : { cwd: session?.workingDirectory ?? session?.cwd }),
     panes: [...record.panes],
     activePane: record.activePane,
     subagent: (session?.metadata?.subagentId?.trim() ?? "") !== "",
@@ -277,7 +283,7 @@ const allWindowsAsync = async (): Promise<Record<string, PresentedWindow[]>> => 
   return result;
 };
 
-type RecordExtra = Pick<WindowRecord, "command" | "label" | "keepOpen" | "notify">;
+type RecordExtra = Pick<WindowRecord, "command" | "label" | "keepOpen" | "notify" | "harness">;
 
 /** The pane session ids whose window asked to be kept open, across every change's records. A pane
  * is named directly, not by its window, so closing a pane releases its own retained screen even
@@ -366,7 +372,22 @@ type HostWindowOptions = {
   readonly envDir?: string;
   readonly env?: Record<string, string>;
   readonly metadata?: Record<string, string>;
+  /** The harness key this pane was generated for. */
+  readonly harness?: string;
 };
+
+/** What a pane's shell starts with: the generated environment and harness key, or the reason the
+ * harness could not be resolved. */
+export type HarnessPane = {
+  readonly env?: Record<string, string>;
+  readonly harness?: string;
+  readonly warning?: string;
+};
+
+/** Resolve a pane's harness when — and only when — a window is actually being created. The
+ * provider runs under the registry lock, so the environment and the record that names it cannot
+ * disagree. */
+export type HarnessPaneProvider = () => Promise<HarnessPane>;
 
 /** Open a host window running `command` (or a shell). `intent` decides whether it takes the
  * active flag or leaves it. Caller holds the registry lock. */
@@ -407,7 +428,13 @@ const openPane = async (
     cols: size.cols,
     rows: size.rows,
     env: { ...changeEnv(changeId, options.envDir ?? dir), ...options.env },
-    metadata: { change: changeId, window: windowId, pane: paneId, ...options.metadata },
+    metadata: {
+      change: changeId,
+      window: windowId,
+      pane: paneId,
+      ...(options.harness === undefined ? {} : { harness: options.harness }),
+      ...options.metadata,
+    },
   });
   // The screen exists for the pane's whole life, not only while a page is attached: a pane opened
   // with no page (a subagent, a command) is fed from the start, so a page attaching later gets a
@@ -430,15 +457,21 @@ const openShellWindow = async (
   changeRoot: string,
   size: { readonly cols: number; readonly rows: number },
   here?: string,
+  pane?: HarnessPaneProvider,
 ): Promise<WindowRecord> => {
+  const resolved = pane === undefined ? {} : await pane();
   const id = await openHostWindow(
     changeId,
     changeRoot,
     [shell()],
     size,
     "activate",
-    {},
-    here === undefined ? {} : { cwd: here, envDir: changeRoot },
+    resolved.harness === undefined ? {} : { harness: resolved.harness },
+    {
+      ...(here === undefined ? {} : { cwd: here, envDir: changeRoot }),
+      ...(resolved.env === undefined ? {} : { env: resolved.env }),
+      ...(resolved.harness === undefined ? {} : { harness: resolved.harness }),
+    },
   );
   const records = await listRecords(changeId);
   const created = records.find((record) => record.id === id);
@@ -451,7 +484,12 @@ export const newWindowAsync = (
   changeId: string,
   dir: string,
   size: { readonly cols: number; readonly rows: number } = { cols: 80, rows: 24 },
-): Promise<WindowRecord> => withRegistryLock(() => openShellWindow(changeId, dir, size));
+  pane?: HarnessPaneProvider,
+  changeRoot?: string,
+): Promise<WindowRecord> =>
+  withRegistryLock(() =>
+    openShellWindow(changeId, changeRoot ?? dir, size, changeRoot === undefined ? undefined : dir, pane),
+  );
 
 /** The directory the change's active pane is in: where its shell announced it is, else where that
  * pane was opened, else the change's own. The caller holds the registry lock. */
@@ -463,6 +501,11 @@ const hereIn = async (changeId: string, fallbackDir: string): Promise<string> =>
   return session?.workingDirectory ?? session?.cwd ?? fallbackDir;
 };
 
+/** Where the change's active pane is now, for a caller outside the registry lock (a harness
+ * window's "current pane" directory). */
+export const currentPaneDirectory = async (changeId: string, fallbackDir: string): Promise<string> =>
+  withRegistryLock(() => hereIn(changeId, fallbackDir));
+
 /** A new interactive shell where the active window is now, which is what "new terminal here"
  * means: a shell that has `cd`-ed somewhere gets its next one there, and a change with no window
  * yet gets `fallbackDir`. */
@@ -470,9 +513,10 @@ export const newWindowHereAsync = (
   changeId: string,
   fallbackDir: string,
   size: { readonly cols: number; readonly rows: number } = { cols: 80, rows: 24 },
+  pane?: HarnessPaneProvider,
 ): Promise<WindowRecord> =>
   withRegistryLock(async () =>
-    openShellWindow(changeId, fallbackDir, size, await hereIn(changeId, fallbackDir)),
+    openShellWindow(changeId, fallbackDir, size, await hereIn(changeId, fallbackDir), pane),
   );
 
 /** A host window running one command — the window a command action gets. Returns its id. */
@@ -488,12 +532,19 @@ export const newWindowRunningAsync = (
       options.cwd ?? dir,
       [shell(), "-c", command],
       { cols: 100, rows: 30 },
-      "background",
+      options.intent ?? "background",
       {
         command,
         ...(options.announce?.label ? { label: options.announce.label } : {}),
         ...(options.keepOpen || options.announce?.notify ? { keepOpen: true } : {}),
         ...(options.announce ? { notify: options.announce.notify } : {}),
+        ...(options.harness === undefined ? {} : { harness: options.harness }),
+      },
+      {
+        ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+        ...(options.envDir === undefined ? {} : { envDir: options.envDir }),
+        ...(options.env === undefined ? {} : { env: options.env }),
+        ...(options.harness === undefined ? {} : { harness: options.harness }),
       },
     ),
   );
@@ -510,6 +561,8 @@ export const newSubagentWindowAsync = (
     readonly subagentId: string;
     readonly label: string;
     readonly command: readonly string[];
+    readonly env?: Record<string, string>;
+    readonly harness?: string;
   },
 ): Promise<string> =>
   withRegistryLock(() =>
@@ -519,11 +572,16 @@ export const newSubagentWindowAsync = (
       args.command,
       { cols: 100, rows: 30 },
       "background",
-      { command: args.command.join(" "), label: args.label },
+      {
+        command: args.command.join(" "),
+        label: args.label,
+        ...(args.harness === undefined ? {} : { harness: args.harness }),
+      },
       {
         cwd: args.cwd,
         envDir: args.changeDir,
-        env: { CORVI_SUBAGENT_ID: args.subagentId },
+        env: { CORVI_SUBAGENT_ID: args.subagentId, ...args.env },
+        harness: args.harness,
         metadata: { subagentId: args.subagentId },
       },
     ),
@@ -670,12 +728,13 @@ export const splitPaneAsync = (
   changeId: string,
   windowId: string,
   direction: "right" | "down",
-): Promise<void> =>
+  pane?: HarnessPaneProvider,
+): Promise<string> =>
   withRegistryLock(async () => {
     void direction;
     const records = await listRecords(changeId);
     const record = records.find((entry) => entry.id === windowId);
-    if (record === undefined || record.activePane === "") return;
+    if (record === undefined || record.activePane === "") return "";
     const sessions = hostRunning() ? await (await hostClient()).list() : [];
     const active = sessions.find((session) => session.id === record.activePane);
     // A split opens where the shell is now, as the manual says: the announced cwd when it has one,
@@ -684,6 +743,7 @@ export const splitPaneAsync = (
     const changeRoot = await dirOf(changeId);
     const cwd = active?.workingDirectory ?? active?.cwd ?? changeRoot;
     const paneId = freshId();
+    const resolved = pane === undefined ? {} : await pane();
     // The pane's metadata names the window, so a rebuild adopts it the moment its session exists:
     // a crash between opening it and the focus save cannot orphan it.
     await openPane(
@@ -695,6 +755,8 @@ export const splitPaneAsync = (
       { cols: 100, rows: 30 },
       {
         envDir: changeRoot,
+        ...(resolved.env === undefined ? {} : { env: resolved.env }),
+        ...(resolved.harness === undefined ? {} : { harness: resolved.harness }),
       },
     );
     try {
@@ -714,6 +776,7 @@ export const splitPaneAsync = (
       if (hostRunning()) await (await hostClient()).kill(paneId).catch(() => undefined);
       throw error;
     }
+    return paneId;
   });
 
 /** Kill a pane and drop it from its window; the window goes too when it was the last pane. The
@@ -775,6 +838,7 @@ export const ensureActiveHostWindow = (
   dir: string,
   size: { readonly cols: number; readonly rows: number },
   sessionId?: string,
+  pane?: HarnessPaneProvider,
 ): Promise<string> =>
   withRegistryLock(async () => {
     const records = await listRecords(changeId);
@@ -786,8 +850,32 @@ export const ensureActiveHostWindow = (
       records.find((record) => record.active && record.kind === "host") ??
       records.find((record) => record.kind === "host");
     if (active !== undefined && active.activePane !== "") return active.activePane;
-    return openHostWindow(changeId, dir, [shell()], size, "activate");
+    const resolved = pane === undefined ? {} : await pane();
+    return openHostWindow(
+      changeId,
+      dir,
+      [shell()],
+      size,
+      "activate",
+      resolved.harness === undefined ? {} : { harness: resolved.harness },
+      {
+        ...(resolved.env === undefined ? {} : { env: resolved.env }),
+        ...(resolved.harness === undefined ? {} : { harness: resolved.harness }),
+      },
+    );
   });
+
+/** A warning rendered inertly for a pane: a shell comment with no newline, and no control
+ * characters that could end the comment or the line. It is shown, never submitted. */
+export const inertWarningLine = (text: string): string =>
+  // Kill any half-typed line, then show and submit a comment: the next typed command starts on a
+  // clean line, and the warning itself never runs. `!` is stripped because a shell may expand it
+  // from history even inside a comment.
+  `\u0015# ${text.replace(/[!\r\n\u0000-\u001f\u007f]/g, " ")}\r`;
+
+/** Write a warning into the pane just created, never whichever pane happens to be active later. */
+export const writeToPane = async (paneSessionId: string, text: string): Promise<boolean> =>
+  writeToHostWindow(paneSessionId, inertWarningLine(text));
 
 /** Write raw bytes to a host window's pty; `false` when the window is gone. */
 export const writeToHostWindow = async (sessionId: string, data: string): Promise<boolean> => {
@@ -818,11 +906,26 @@ export const listWindows = (changeId: string): Effect.Effect<PresentedWindow[], 
 export const allWindows = (): Effect.Effect<Record<string, PresentedWindow[]>, CommandFailure> =>
   Effect.tryPromise({ try: () => allWindowsAsync(), catch: asFailure });
 
-export const newWindow = (changeId: string, dir: string): Effect.Effect<void, CommandFailure> =>
-  Effect.tryPromise({ try: async () => void (await newWindowAsync(changeId, dir)), catch: asFailure });
+export const newWindow = (
+  changeId: string,
+  dir: string,
+  pane?: HarnessPaneProvider,
+  changeRoot?: string,
+): Effect.Effect<string, CommandFailure> =>
+  Effect.tryPromise({
+    try: async () => (await newWindowAsync(changeId, dir, undefined, pane, changeRoot)).activePane,
+    catch: asFailure,
+  });
 
-export const newWindowHere = (changeId: string, dir: string): Effect.Effect<void, CommandFailure> =>
-  Effect.tryPromise({ try: async () => void (await newWindowHereAsync(changeId, dir)), catch: asFailure });
+export const newWindowHere = (
+  changeId: string,
+  dir: string,
+  pane?: HarnessPaneProvider,
+): Effect.Effect<string, CommandFailure> =>
+  Effect.tryPromise({
+    try: async () => (await newWindowHereAsync(changeId, dir, undefined, pane)).activePane,
+    catch: asFailure,
+  });
 
 export const selectWindow = (changeId: string, index: number): Effect.Effect<void, CommandFailure> =>
   Effect.tryPromise({ try: () => selectWindowAsync(changeId, index), catch: asFailure });
@@ -844,8 +947,12 @@ export const splitPane = (
   changeId: string,
   windowId: string,
   direction: "right" | "down",
-): Effect.Effect<void, CommandFailure> =>
-  Effect.tryPromise({ try: () => splitPaneAsync(changeId, windowId, direction), catch: asFailure });
+  pane?: HarnessPaneProvider,
+): Effect.Effect<string, CommandFailure> =>
+  Effect.tryPromise({
+    try: () => splitPaneAsync(changeId, windowId, direction, pane),
+    catch: asFailure,
+  });
 
 export const closePane = (
   changeId: string,

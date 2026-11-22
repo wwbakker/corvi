@@ -70,22 +70,32 @@ for (const name of ["pi", "opencode"] as const) {
     await rm(tmp, { recursive: true, force: true });
   });
 
-  test(`install links ${name}'s extension into its plugin directory`, async () => {
-    const result = await run(`install:${name}`);
+  test(
+    name === "pi"
+      ? "install retires pi's global extension instead of linking it"
+      : "install links opencode's extension into its plugin directory",
+    async () => {
+      const result = await run(`install:${name}`);
 
-    expect(result.code).toBe(0);
-    expect(await readlink(entryLink)).toBe(join(sources[name], "index.ts"));
-    // pi's loader resolves the entry's modules beside the file it loaded, so they are linked
-    // along; opencode follows the link and finds them at the real file.
-    if (isDirectoryLayout) {
-      for (const file of ["agent-state.ts", "turns.ts"]) {
-        expect(await readlink(join(installed, file))).toBe(join(sources[name], file));
+      expect(result.code).toBe(0);
+      if (name === "pi") {
+        expect(result.stdout).toContain("not installed globally");
+        expect(await present()).toBe(false);
+        return;
       }
-      // The node adapter is a directory of modules, linked whole so its imports resolve beside
-      // the entry.
-      expect(await readlink(join(installed, "node"))).toBe(join(sources[name], "node"));
-    }
-  });
+      expect(await readlink(entryLink)).toBe(join(sources[name], "index.ts"));
+      // pi's loader resolves the entry's modules beside the file it loaded, so they are linked
+      // along; opencode follows the link and finds them at the real file.
+      if (isDirectoryLayout) {
+        for (const file of ["agent-state.ts", "turns.ts"]) {
+          expect(await readlink(join(installed, file))).toBe(join(sources[name], file));
+        }
+        // The node adapter is a directory of modules, linked whole so its imports resolve beside
+        // the entry.
+        expect(await readlink(join(installed, "node"))).toBe(join(sources[name], "node"));
+      }
+    },
+  );
 
   test(`install removes the older installs' symlinks (${name})`, async () => {
     await symlink(join(otherSource, "index.ts"), legacyState);
@@ -94,12 +104,12 @@ for (const name of ["pi", "opencode"] as const) {
     const result = await run(`install:${name}`);
 
     expect(result.code).toBe(0);
-    expect(await readlink(entryLink)).toBe(join(sources[name], "index.ts"));
+    if (name === "pi") expect(await present()).toBe(false);
+    else expect(await readlink(entryLink)).toBe(join(sources[name], "index.ts"));
     // The old symlinks are gone: one would load the extension twice, and the other cannot
     // resolve its modules at all.
     expect(await lstat(legacyState).catch(() => undefined)).toBeUndefined();
-    // opencode's install lives at that very path — its own link is the install, checked above.
-    if (isDirectoryLayout) {
+    if (name !== "opencode") {
       expect(await lstat(legacyEntry).catch(() => undefined)).toBeUndefined();
     }
   });
@@ -109,8 +119,11 @@ for (const name of ["pi", "opencode"] as const) {
     const result = await run(`install:${name}`);
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain("already installed");
-    expect(await readlink(entryLink)).toBe(join(sources[name], "index.ts"));
+    if (name === "pi") expect(await present()).toBe(false);
+    else {
+      expect(result.stdout).toContain("already installed");
+      expect(await readlink(entryLink)).toBe(join(sources[name], "index.ts"));
+    }
   });
 
   test(`install repoints the links another branch made (${name})`, async () => {
@@ -119,6 +132,11 @@ for (const name of ["pi", "opencode"] as const) {
     const result = await run(`install:${name}`);
 
     expect(result.code).toBe(0);
+    if (name === "pi") {
+      expect(result.stdout).toContain("removed the global pi extension");
+      expect(await present()).toBe(false);
+      return;
+    }
     expect(result.stdout).toContain("installed:");
     expect(await readlink(entryLink)).toBe(join(sources[name], "index.ts"));
     if (isDirectoryLayout) {
@@ -166,11 +184,14 @@ for (const name of ["pi", "opencode"] as const) {
       const result = await run(`install:${name}`);
 
       expect(result.code).toBe(0);
-      expect(await readlink(entryLink)).toBe(join(sources[name], "index.ts"));
+      if (name === "pi") expect(await present()).toBe(false);
+      else expect(await readlink(entryLink)).toBe(join(sources[name], "index.ts"));
     });
 
     test(`uninstall leaves a real file inside the install directory alone (${name})`, async () => {
-      await run(`install:${name}`);
+      // pi no longer installs globally; seed the link set an older install left instead.
+      if (name === "pi") await otherInstall();
+      else await run(`install:${name}`);
       await writeFile(join(installed, "notes.txt"), "mine\n");
 
       const result = await run(`uninstall:${name}`);

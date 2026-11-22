@@ -40,19 +40,51 @@ test("a profile is parsed, and unknown frontmatter keys are tolerated", () => {
       effort: "high",
       phases: ["Implementation", "Verification"],
       body: "Review {prompt}",
+      extensions: { include: [], exclude: [] },
+      skills: { include: [], exclude: [] },
+      packages: { include: [], exclude: [] },
+      mcp: { include: [], exclude: [] },
     });
   }
 });
 test("a file that is not a profile is refused with the reasons", () => {
   const missing = parseProfileFile("---\nlabel: X\n---\nbody");
-  expect(Result.isFailure(missing)).toBe(true);
-  if (Result.isFailure(missing)) expect(missing.failure.reasons.join("; ")).toContain("harness");
-  const badHarness = parseProfileFile("---\nlabel: X\nharness: cursor\n---\nbody");
+  expect(Result.isSuccess(missing)).toBe(true);
+  if (Result.isSuccess(missing)) expect(missing.success.harness).toBeUndefined();
+  const badHarness = parseProfileFile("---\nlabel: X\nharness: cursor\nagent: cursor\n---\nbody");
   expect(Result.isFailure(badHarness)).toBe(true);
   const badModel = parseProfileFile("---\nlabel: X\nharness: pi\nmodel: 7\n---\nbody");
   expect(Result.isFailure(badModel)).toBe(true);
   const noFrontmatter = parseProfileFile("just a body");
   expect(Result.isFailure(noFrontmatter)).toBe(true);
+});
+
+test("harness is a harness id, not only pi or opencode", () => {
+  const parsed = parseProfileFile("---\nlabel: X\nharness: review-env\n---\nbody");
+  expect(Result.isSuccess(parsed)).toBe(true);
+  if (Result.isSuccess(parsed)) expect(parsed.success.harness).toBe("review-env");
+});
+
+test("a profile carries the harness sections too", () => {
+  const parsed = parseProfileFile(
+    [
+      "---",
+      "label: X",
+      "harness: pi-bare",
+      "skills: { exclude: [spiega] }",
+      "instructions: |",
+      "  Be terse.",
+      "enabledModels: [a/b, c/d]",
+      "---",
+      "body",
+    ].join("\n"),
+  );
+  expect(Result.isSuccess(parsed)).toBe(true);
+  if (Result.isSuccess(parsed)) {
+    expect(parsed.success.skills).toEqual({ include: [], exclude: ["spiega"] });
+    expect(parsed.success.instructions).toBe("Be terse.\n");
+    expect(parsed.success.enabledModels).toEqual(["a/b", "c/d"]);
+  }
 });
 test("an empty phases list means every phase, not none", () => {
   const parsed = parseProfileFile("---\nlabel: X\nharness: pi\nphases: []\n---\nbody");

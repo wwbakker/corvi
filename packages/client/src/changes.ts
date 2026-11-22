@@ -72,7 +72,13 @@ export interface ChangesApi {
   readonly transcript: (changeId: ChangeId, id: string, options?: RequestOptions) => Promise<TranscriptDto>;
   readonly rename: (
     changeId: ChangeId,
-    patch: { readonly state?: NonNullable<ChangeWireDto["state"]>; readonly title?: string },
+    patch: {
+      readonly state?: NonNullable<ChangeWireDto["state"]>;
+      readonly title?: string;
+      /** The harness selectors; null clears one back to the default. */
+      readonly userHarness?: string | null;
+      readonly subagentHarness?: string | null;
+    },
   ) => Promise<ChangeWireDto>;
   /** The covered repositories and their checkout states: the read half of `setRepositories`. */
   readonly repoStates: (changeId: ChangeId, options?: RequestOptions) => Promise<RepoStateDto[]>;

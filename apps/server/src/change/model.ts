@@ -14,7 +14,15 @@ import { InvalidChangeEdit } from "./errors.ts";
  * refusals (`InvalidChangeEdit`); the route boundary decides the status and lifts the throw into
  * the Effect channel.
  */
-export function applyPatch(change: Change, patch: { state?: string; title?: string }): Change {
+export function applyPatch(
+  change: Change,
+  patch: {
+    state?: string;
+    title?: string;
+    userHarness?: string | null;
+    subagentHarness?: string | null;
+  },
+): Change {
   // `undefined` is "leave the phase alone"; every other value must be a phase, the empty string
   // included — treating it as absent would write a blank phase from a raw caller.
   if (patch.state !== undefined && !CHANGE_STATES.includes(patch.state as ChangeState)) {
@@ -42,6 +50,10 @@ export function applyPatch(change: Change, patch: { state?: string; title?: stri
     });
   }
   const title = patch.title?.trim();
+  // `undefined` leaves a harness choice alone; `null` (or an empty value) stores nothing, which is
+  // the "Default" selector: later default changes still apply.
+  const harness = (value: string | null | undefined, current: string | undefined): string | undefined =>
+    value === undefined ? current : value?.trim() ? value.trim() : undefined;
   return {
     ...change,
     state: requested ?? change.state,
@@ -51,5 +63,7 @@ export function applyPatch(change: Change, patch: { state?: string; title?: stri
       : title
         ? { title, titleEdited: true }
         : { title: undefined, titleEdited: undefined }),
+    userHarness: harness(patch.userHarness, change.userHarness),
+    subagentHarness: harness(patch.subagentHarness, change.subagentHarness),
   };
 }

@@ -35,6 +35,10 @@ export type DeliverRequest = {
   readonly candidates: readonly CandidateWindow[];
   /** The window the menu was opened on; `target: active` names this one. */
   readonly explicitWindow?: string;
+  /** Extra environment for a window this delivery starts (the change's harness). */
+  readonly env?: Record<string, string>;
+  /** The harness label that environment belongs to, shown beside the window's name. */
+  readonly harness?: string;
 };
 
 export type Delivery = {
@@ -97,6 +101,8 @@ export const deliverAction = (
       if (action.target === "new") {
         const started = yield* sessions.newWindowRunning(changeId, changeDir, action.start ?? "pi", {
           keepOpen: false,
+          ...(request.env === undefined ? {} : { env: request.env }),
+          ...(request.harness === undefined ? {} : { harness: request.harness }),
         });
         yield* sessions.pastePromptTo(started, text);
         if (action.submit) yield* sessions.submit(started);
@@ -119,6 +125,8 @@ export const deliverAction = (
       // An agent was asked for and none is running: start one, and paste into it.
       const started = yield* sessions.newWindowRunning(changeId, changeDir, action.start ?? "pi", {
         keepOpen: false,
+        ...(request.env === undefined ? {} : { env: request.env }),
+        ...(request.harness === undefined ? {} : { harness: request.harness }),
       });
       yield* sessions.pastePromptTo(started, text);
       if (action.submit) yield* sessions.submit(started);
@@ -133,6 +141,8 @@ export const deliverAction = (
       const options: NewWindowOptions = {
         keepOpen,
         ...(keepOpen ? { announce: { label: action.label, notify: action.notify } } : {}),
+        ...(request.env === undefined ? {} : { env: request.env }),
+        ...(request.harness === undefined ? {} : { harness: request.harness }),
       };
       const started = yield* sessions.newWindowRunning(changeId, changeDir, text, options);
       return { submitted: true, started: true, window: { id: started } };

@@ -484,6 +484,7 @@ dialog,
 .transcripts .conversation,
 .settings .workspace-card,
 .action-docs,
+.harness-docs,
 .menu-items,
 .toast,
 .theme-choice {
@@ -1721,6 +1722,15 @@ button.primary:not(:disabled) {
 /* A summary beside a widget's title, inside the heading: smaller than the title, and with no
    margins of its own. A margin here is part of the flex line, so it would make the heading —
    and with it the whole card — grow the moment the text appears. */
+.widget .file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+.widget .file-row .summary {
+  overflow-wrap: anywhere;
+}
 .widget h3 .summary {
   color: var(--muted);
   font-size: 12px;
@@ -3932,16 +3942,20 @@ button.danger:disabled {
 /* The file pages stack their cards; the cards get the dashboard's air between them, so the
    page reads as a column of things rather than one long sheet. */
 .page.actions-page > .widget + .widget,
-.page.subagents-page > .widget + .widget {
+.page.subagents-page > .widget + .widget,
+.page.harnesses-page > .widget + .widget {
   margin-top: 16px;
 }
 
 .page.actions-page > .hint + .widget,
-.page.subagents-page > .hint + .widget {
+.page.subagents-page > .hint + .widget,
+.page.harnesses-page > .hint + .widget {
   margin-top: 12px;
 }
 
-.page.actions-page.editing {
+.page.actions-page.editing,
+.page.subagents-page.editing,
+.page.harnesses-page.editing {
   display: flex;
   flex-direction: column;
   height: calc(100dvh - 64px);
@@ -4851,4 +4865,204 @@ a:focus-visible {
 .window-tab:focus-visible,
 .change-tabs .tab:focus-visible {
   outline-offset: -2px;
+}
+
+/* The harness file's resolved environment: the same dock as the field docs, with the view above
+   them. It scrolls as one panel so a long section list never pushes the fields out of reach. */
+.harness-docs {
+  flex: none;
+  box-sizing: border-box;
+  width: 380px;
+  align-self: stretch;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.harness-docs .action-docs {
+  /* The field list is part of the one dock flow: its headings, fields and the example stack in
+     the same grid, so the example cannot overlap the fields and the whole dock scrolls as one. */
+  display: contents;
+}
+.harness-docs-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 10px;
+}
+.harness-docs-head h3,
+.harness-view h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.harness-docs-head label {
+  display: grid;
+  gap: 3px;
+  font-size: 11px;
+}
+.harness-view {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.harness-view .hint,
+.harness-docs .hint {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.harness-section h4,
+.harness-warnings h4 {
+  margin: 6px 0 2px;
+  font-size: 12px;
+}
+.harness-section ul,
+.harness-warnings ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.harness-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+}
+.harness-item .name {
+  overflow-wrap: anywhere;
+}
+.harness-item .state {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.harness-item.excluded .name {
+  text-decoration: line-through;
+  color: var(--text-dim);
+}
+.harness-item .badge {
+  font-size: 10px;
+}
+.harness-warnings .warn {
+  color: var(--warn, #c9a227);
+  font-size: 12px;
+}
+
+.harness-select,
+.harness-default {
+  display: grid;
+  gap: 4px;
+}
+.harness-default .hint {
+  margin: 0;
+}
+
+/* The new-terminal dialog: two large choices, then the two selectors, then the keys. */
+.new-terminal-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+.new-terminal-dialog .terminal-choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 8px 0 12px;
+}
+.new-terminal-dialog .choice {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  text-align: left;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.new-terminal-dialog .choice.current {
+  border-color: var(--accent);
+  background: var(--surface-raised, transparent);
+}
+.new-terminal-dialog .choice kbd {
+  font-size: 11px;
+}
+.new-terminal-dialog .choice strong {
+  font-size: 14px;
+}
+.new-terminal-dialog footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.harness-docs .harness-section li.harness-item {
+  padding: 2px 0;
+}
+
+/* The change harness dialog: one column, the two selectors with room to explain themselves. */
+.harness-choice-dialog {
+  width: min(520px, calc(100vw - 32px));
+}
+/* The new dialogs' headers are a flex line: title, air, the one top-right control. */
+.harness-choice-dialog > header,
+.new-terminal-dialog > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.harness-choice-dialog > header h2,
+.new-terminal-dialog > header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.harness-choice-form {
+  display: grid;
+  gap: 14px;
+  margin: 12px 0;
+}
+.harness-choice-dialog footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.harness-choice-dialog .hint {
+  margin: 0;
+}
+.harness-default,
+.harness-select,
+.change-harness {
+  display: grid;
+  gap: 4px;
+}
+
+/* The example sits at the bottom of the harness field docs. */
+.harness-example {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.harness-example pre {
+  margin: 0;
+  padding: 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+  background: var(--well, var(--surface));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.harness-example h3 {
+  margin: 0;
+  font-size: 14px;
 }

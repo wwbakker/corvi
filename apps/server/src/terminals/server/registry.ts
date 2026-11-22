@@ -45,6 +45,8 @@ export type WindowRecord = {
    * an action run": a named shell is still idle. Outlives the shell in the window; blank means
    * no name at all. */
   readonly title?: string;
+  /** The harness label this window's environment belongs to. */
+  readonly harness?: string;
   readonly command?: string;
   /** A command window that stays after it ends (`keepOpen` or `notify`), so its frozen last
    * output and exit state are shown rather than the window vanishing. */

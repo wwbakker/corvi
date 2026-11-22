@@ -16,8 +16,10 @@
  * derived after a reboot, so it is written when `next` hands a message over and cleared when the
  * reply settles.
  */
-import { Effect, Semaphore } from "effect";
+import { Effect, Result, Semaphore } from "effect";
 
+import { describeHarnessError } from "@corvi/agents/harness-discovery";
+import { harnessFieldsOfProfile } from "@corvi/agents/profile";
 import { launchOf } from "@corvi/agents/harness";
 import {
   awaitDecisionOf,
@@ -63,6 +65,13 @@ import {
 } from "../../terminals/server/index.ts";
 import type { Change } from "@corvi/changes/record";
 import { resolveProfileFor } from "./run.ts";
+import {
+  harnessDefaultsFor,
+  harnessDiscoveryFor,
+  resolveSubagentHarness,
+  subagentHarnessLaunch,
+  withWarningsLine,
+} from "../../harnesses/server/index.ts";
 import { renderSubagentBody } from "./prompt.ts";
 import { notify, subscribe } from "./waiters.ts";
 
@@ -108,6 +117,7 @@ const toDto = (record: SubagentWithMessages, live: Live | undefined): SubagentIn
     changeId: record.changeId,
     profile: record.profile,
     label: record.label,
+    ...(record.harnessKey === undefined ? {} : { harnessKey: record.harnessKey }),
     harness: record.harness,
     ...(record.model === undefined ? {} : { model: record.model }),
     ...(record.effort === undefined ? {} : { effort: record.effort }),
@@ -219,13 +229,17 @@ const startWindow: SubagentLauncher = (change, record) =>
   Effect.gen(function* () {
     const changeDirPath = changeDir(change);
     const { cwd, command } = subagentLaunch(changeDirPath, record);
-    // argv, not a shell line: the host execs the harness directly.
+    // The subagent's own generated environment (its pinned harness plus the profile's overlay);
+    // a warning is printed before pi starts, so the pane does not look broken without a reason.
+    const harness = yield* subagentHarnessLaunch(change, record);
     const window = yield* newSubagentWindow(change.id, {
       changeDir: changeDirPath,
       cwd,
       subagentId: record.id,
       label: record.label,
-      command,
+      command: withWarningsLine(command, harness.warningsLine),
+      env: harness.env,
+      harness: harness.key,
     }).pipe(Effect.mapError((failure) => new BadRequestError({ message: failure.message })));
     return window;
   });
@@ -262,6 +276,16 @@ export const createSubagent = (
     if (!profile) {
       return yield* new BadRequestError({ message: `no such profile: ${input.profile}` });
     }
+    const discovery = yield* harnessDiscoveryFor(change);
+    const resolved = resolveSubagentHarness(discovery, {
+      ...(profile.profile.harness === undefined ? {} : { profileHarness: profile.profile.harness }),
+      ...(change.subagentHarness === undefined ? {} : { changeKey: change.subagentHarness }),
+      defaultKey: harnessDefaultsFor(change).subagents,
+      overlay: harnessFieldsOfProfile(profile.profile),
+    });
+    if (Result.isFailure(resolved)) {
+      return yield* new BadRequestError({ message: describeHarnessError(resolved.failure) });
+    }
     const from = input.from ?? "orchestrator";
     const dir = changeDir(change);
     return yield* withCreateLock(
@@ -273,8 +297,13 @@ export const createSubagent = (
           changeId: change.id,
           profile: profile.key,
           label: profile.profile.label,
-          harness: profile.profile.harness,
-          ...(profile.profile.model === undefined ? {} : { model: profile.profile.model }),
+          harnessKey: resolved.success.key,
+          harness: resolved.success.agent,
+          // The model the harness resolves to is pinned too: opencode takes only a model from its
+          // harness, and a later harness edit must not silently change an existing subagent.
+          ...((profile.profile.model ?? resolved.success.fields.model) === undefined
+            ? {}
+            : { model: profile.profile.model ?? resolved.success.fields.model }),
           ...(profile.profile.effort === undefined ? {} : { effort: profile.profile.effort }),
           createdBy: from,
           createdAt: now(),

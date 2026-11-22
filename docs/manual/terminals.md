@@ -135,7 +135,7 @@ agent's session ends.
 The included reporters are installed into pi and opencode with:
 
 ```sh
-bun run extension:install:pi         # or: bun run extension:uninstall:pi
+bun run extension:install:pi         # retires an older global pi install (no longer needed)
 bun run extension:install:opencode   # or: bun run extension:uninstall:opencode
 ```
 
@@ -144,10 +144,11 @@ Corvi. Each install points at `integrations/<agent>/src` — its entry `index.ts
 reporter (`agent-state.ts`), the subagent relay (`turns.ts`), and the CLI guide (`cli-guide.ts`, a
 sentence about `corvi` in the agent's prompt inside a Corvi session and nowhere else) — in the shape
 that agent's loader
-resolves: pi resolves a module's imports beside the file it loaded, so its install is the
-directory `~/.pi/agent/extensions/corvi/` (symlinks, entry at `index.ts`); opencode follows the
-link to the entry and finds its modules at the real file, so its install is the one link
-`~/.config/opencode/plugin/corvi.ts`. Older shapes are removed on install. Installing from another
+resolves. pi's extension is no longer installed globally: every Corvi pane gets a generated agent
+directory (see [harnesses](configuration.md#harnesses)) that adds Corvi's own extension, so
+`extension:install:pi` only removes an older `~/.pi/agent/extensions/corvi/` link. opencode
+follows the link to the entry and finds its modules at the real file, so its install is the one
+link `~/.config/opencode/plugin/corvi.ts`. Older shapes are removed on install. Installing from another
 checkout repoints the links, so do not run it as an incidental test. A real file at the
 destination is left alone. pi picks a changed extension up with `/reload` or a new session;
 opencode takes a restart.
@@ -235,3 +236,15 @@ shells running by design.
 Tests isolate themselves with their own state directory (`XDG_STATE_HOME`), so they never touch
 your host. Follow the contributor [resource-safety
 rules](../guides/testing.md#resource-safety) when diagnosing test leftovers.
+
+## New terminal
+
+The `+` tab (and its leader key) opens one dialog for every new terminal. `1` or `Enter` starts a
+**Shell** with the change's user harness in its environment; `2` or `↓` then `Enter` starts a
+**Harness** — Pi itself, in a new window named after the harness. The dialog remembers the last
+directory and harness you chose. The directory list always offers the **current pane's** directory
+(the default), the **change root**, and each checkout as distinct choices; the harness list names
+the change's default and is disabled while Shell is selected, because a shell always uses the
+change's user harness. The dialog owns its keys while it is open: `Esc`
+closes it. Every tab carries the harness it runs under, and the terminal's own new-window chord
+opens the same dialog.

@@ -381,6 +381,9 @@ test("the chord works from inside the terminal, keeps keys out of it, and gives 
     await page.keyboard.press("Control+Space");
     await page.waitForSelector(".leader-layer");
     await page.keyboard.press("g");
+    await page.waitForSelector(".new-terminal-dialog[open]");
+    await page.keyboard.press("1");
+    await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
     await page.waitForSelector('[data-window-index="1"]');
     await page.waitForSelector(".leader-layer", { state: "detached" });
 
@@ -905,6 +908,9 @@ test("the terminal tabs wear their box, and their key sits over the whole group"
     await page.waitForSelector('.change-tabs [data-window-index="0"]', { timeout: 20_000 });
     // A second window, so the group is a strip rather than one tab.
     await page.locator(".change-tabs button.window-tab.new").click();
+    await page.waitForSelector(".new-terminal-dialog[open]");
+    await page.keyboard.press("1");
+    await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
     await page.waitForSelector('.change-tabs [data-window-index="1"]', { timeout: 20_000 });
 
     await page.keyboard.press("Control+Space");

@@ -24,6 +24,7 @@ import { unlinkRepo } from "../../vendors/git.ts";
 import type { ForceReason } from "../provisioning.ts";
 import { lifecycleLayer } from "../lifecycle-layer.ts";
 import { changePairs, readChange, type ChangeRoots } from "./store.ts";
+import { removeHarnessState } from "../../harnesses/server/cleanup.ts";
 
 /** Names of the repositories whose work would be lost, when that needs asking about first, and
  * what that work is. */
@@ -128,6 +129,7 @@ export const cancelChange = (
       const updated = yield* readChange(change.id);
       if (!updated)
         return yield* new InternalError({ message: "the cancelled change could not be read back" });
+      yield* removeHarnessState(change.id);
       return { _tag: "Done", change: updated, loose: [...outcome.loose] } satisfies Cancelled;
     }
     if (outcome._tag === "NeedsAcknowledgement") return needsForce(links, outcome.reasons);

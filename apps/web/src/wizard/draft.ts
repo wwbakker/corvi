@@ -25,6 +25,11 @@ export type Draft = {
   /** The workspace chosen inside the form, which decides the change's context when the switcher
    * says "All work". */
   picked?: string;
+  /** The harness this change's shell panes start, chosen while creating it. Absent is the
+   * settings default; the create applies it after the record exists. */
+  userHarness?: string;
+  /** The subagent fallback for this change. */
+  subagentHarness?: string;
   /** Whether the id and branch are still following the plan's heading, or were set by hand (or
    * by a picked issue). Restored with the rest, so returning and typing a heading leaves an
    * edited id alone. */
@@ -156,6 +161,8 @@ export function toChangeDraft(draft: Draft, workspace?: string): ChangeDraft & {
     // The starting text of PLAN.md, then the agent's and yours to shape.
     plan: draft.plan,
     workspace,
+    ...(draft.userHarness === undefined ? {} : { userHarness: draft.userHarness }),
+    ...(draft.subagentHarness === undefined ? {} : { subagentHarness: draft.subagentHarness }),
     checkouts: draft.repos.map((r) => ({
       path: r.path,
       location: r.location,

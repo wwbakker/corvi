@@ -3,7 +3,8 @@
  * so most of these run without a host or a harness; one test opens a real host session to pin
  * discovery, presentation and close. */
 import { beforeAll, afterAll, expect, test } from "bun:test";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { join } from "node:path";
 import { Effect } from "effect";
 
@@ -38,6 +39,7 @@ import { AWAIT_INSTRUCTIONS } from "../apps/server/src/subagents/server/prompt.t
 import { changeDir } from "../apps/server/src/change/server/index.ts";
 import type { Change } from "@corvi/changes/record";
 import { testTempDir, waitFor } from "./helpers.ts";
+import { configPath } from "../apps/server/src/workspace/server/index.ts";
 
 /** A launcher that returns a fake window id, so create/open work without a host or a harness. The
  * caller persists the id and the `opened` entry under the lock. */
@@ -122,6 +124,7 @@ test("create writes the record and the initial message, closed by a fake launche
     createSubagent(change, { profile: "builtin:reviewer", prompt: "Review it" }, fakeLauncher),
   );
   expect(created.profile).toBe("builtin:reviewer");
+  expect(created.harnessKey).toBe("builtin:pi");
   expect(created.label).toBe("Reviewer");
   expect(created.presence).toBe("detached"); // no live window with the private socket
   expect(created.messages.map((message) => message.role)).toEqual(["orchestrator"]);
@@ -130,6 +133,24 @@ test("create writes the record and the initial message, closed by a fake launche
   expect(created.messages[0]?.body).toContain("Look for correctness bugs, missing tests");
   expect(created.messages[0]?.body).toContain("Review it");
   expect(created.log.map((event) => event.kind)).toEqual(["created", "opened"]);
+});
+
+test("create pins the harness key and the model its harness resolves to", async () => {
+  const base = dirname(configPath());
+  await mkdir(join(base, "harnesses"), { recursive: true });
+  await mkdir(join(base, "subagents"), { recursive: true });
+  await writeFile(
+    join(base, "harnesses", "oc-env.md"),
+    "---\nlabel: Open environment\nharness: opencode\nmodel: zai/glm-5.3\n---\n",
+  );
+  await writeFile(
+    join(base, "subagents", "oc-profile.md"),
+    "---\nlabel: Open profile\nharness: oc-env\n---\nDo it.\n",
+  );
+  const created = await run(createSubagent(change, { profile: "global:oc-profile" }, fakeLauncher));
+  expect(created.harnessKey).toBe("global:oc-env");
+  expect(created.harness).toBe("opencode");
+  expect(created.model).toBe("zai/glm-5.3");
 });
 
 test("create refuses an unknown profile", async () => {

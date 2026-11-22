@@ -13,6 +13,10 @@ export type EditorFile = {
   readonly id: string;
   readonly path: string;
   readonly problems?: readonly string[];
+  /** Where the file came from; a harness editor uses it to find the matching resolved view. */
+  readonly scope?: "builtin" | "global" | "workspace" | "repository";
+  readonly workspace?: string;
+  readonly repository?: string;
 };
 
 export function FileEditor({
@@ -42,7 +46,7 @@ export function FileEditor({
   placeholder: string;
   /** The cookie pref that remembers whether the panel is open. */
   docsKey: string;
-  Docs: ComponentType<{ highlight?: string }>;
+  Docs: ComponentType<{ highlight?: string; file: EditorFile; draft: string }>;
 }): JSX.Element {
   const [caret, setCaret] = useState(1);
   const [docs, setDocs] = useState<boolean>(() => getPref(docsKey) !== "closed");
@@ -80,7 +84,7 @@ export function FileEditor({
           remember={documentKey(documentName, file.path)}
           placeholder={placeholder}
         />
-        {docs && <Docs highlight={fieldAtLine(draft, caret)} />}
+        {docs && <Docs highlight={fieldAtLine(draft, caret)} file={file} draft={draft} />}
       </div>
     </>
   );

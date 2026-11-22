@@ -17,6 +17,7 @@ import { changeDir, factsFor } from "../../change/server/index.ts";
 import { settingsOf, workspaceOf } from "../../workspace/server/index.ts";
 import { fileRootsFor } from "../../capabilities/fileRoots.ts";
 import { ensureActiveHostWindow, listWindows } from "../../terminals/server/index.ts";
+import { userHarnessLaunch } from "../../harnesses/server/index.ts";
 import { actionSessions } from "../../terminals/server/action-sessions.ts";
 
 /** Where one change's action files live. */
@@ -91,13 +92,27 @@ export const runActionFor = (
     );
 
     const dir = changeDir(change);
+    // An action run should not be blocked by a harness file that broke since the pane opened: a
+    // window it starts then keeps today's environment, and the warning is logged.
+    const harness = yield* userHarnessLaunch(change).pipe(
+      Effect.catch((error) =>
+        Effect.sync(() => {
+          console.error(error.message);
+          return undefined;
+        }),
+      ),
+    );
+    const harnessEnv = harness?.env;
     // A change whose only windows are subagent windows must not get a throwaway shell just to
     // have somewhere to paste: list what exists, and start a host window only when there is
     // nothing to target at all.
     let windows = yield* listWindows(change.id);
     if (windows.length === 0) {
       yield* Effect.tryPromise({
-        try: () => ensureActiveHostWindow(change.id, dir, { cols: 100, rows: 30 }),
+        try: () =>
+          ensureActiveHostWindow(change.id, dir, { cols: 100, rows: 30 }, undefined, async () =>
+            harness === undefined ? {} : { env: harness.env, harness: harness.key },
+          ),
         catch: (error) =>
           new BadRequestError({ message: error instanceof Error ? error.message : String(error) }),
       });
@@ -116,6 +131,8 @@ export const runActionFor = (
       text,
       candidates,
       explicitWindow,
+      ...(harnessEnv === undefined ? {} : { env: harnessEnv }),
+      ...(harness?.key === undefined ? {} : { harness: harness.key }),
     }).pipe(Effect.mapError((failure) => asBadRequest(failure)));
 
     return {

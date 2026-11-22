@@ -44,6 +44,7 @@ import { applyStoredMonoFont, loadSymbolsFont } from "./monoFont.ts";
 import type { SettingsView } from "../settings/model.ts";
 import { ActionsPage } from "../actions/ActionsPage.tsx";
 import { SubagentsPage } from "../subagents/SubagentsPage.tsx";
+import { HarnessesPage } from "../harnesses/HarnessesPage.tsx";
 import { LeaderProvider, useLeaderActive } from "./leader.tsx";
 
 function Home({
@@ -597,6 +598,8 @@ function App(): JSX.Element {
         extPage={view.name === "ext-page" ? view.id : undefined}
         onActions={() => setView({ name: "actions" })}
         actions={view.name === "actions"}
+        onHarnesses={() => setView({ name: "harnesses" })}
+        harnesses={view.name === "harnesses"}
         onSubagents={() => setView({ name: "subagents" })}
         subagents={view.name === "subagents"}
         onSettings={() => setView({ name: "settings" })}
@@ -670,6 +673,7 @@ function App(): JSX.Element {
             </WorkspaceSourceContext.Provider>
           )}
           {view.name === "actions" && <ActionsPage onGuard={onGuard} />}
+          {view.name === "harnesses" && <HarnessesPage onGuard={onGuard} />}
           {view.name === "subagents" && <SubagentsPage onGuard={onGuard} />}
           {view.name === "settings" && (
             <SettingsPage
@@ -730,13 +734,11 @@ function App(): JSX.Element {
                   setView({ name: "change", source: view.source, id: view.id, page: "terminals" });
                 }}
                 onNewWindow={() => {
-                  // A session that has not started has nothing to add a window to: opening the
-                  // terminal makes its first window.
-                  if ((terminals.windows[changeKey(selectedSource, view.id)] ?? []).length > 0) {
-                    void terminals.create(selectedSource, view.id);
-                  }
+                  // The dialog is the one place a terminal is created; this only brings its page
+                  // up. The dialog's own action creates the window once a choice is made.
                   setView({ name: "change", source: view.source, id: view.id, page: "terminals" });
                 }}
+                onRefreshWindows={() => terminals.refresh()}
                 onMoveWindow={(from, to) => terminals.move(selectedSource, view.id, from, to)}
                 onRenameWindow={(windowId, title) =>
                   terminals.rename(selectedSource, view.id, windowId, title)

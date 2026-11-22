@@ -197,7 +197,7 @@ export function WindowTabs({
         className="window-tab new"
         disabled={disabled}
         aria-label="new terminal"
-        title={platform === "mac" ? "new terminal here (cmd-t)" : "new terminal here (ctrl-alt-t)"}
+        title="new terminal"
         onMouseDown={(e) => e.preventDefault()}
         onClick={onNewWindow}
       >

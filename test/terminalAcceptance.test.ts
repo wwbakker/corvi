@@ -274,6 +274,9 @@ test.skipIf(!usable)(
     // active window changes; wait for the switch (window 1's marker leaves the screen) before
     // typing, or the keystrokes land in window 1 and the test retries into the void.
     await page.locator(".window-tab.new").click();
+    await page.waitForSelector(".new-terminal-dialog[open]");
+    await page.keyboard.press("1");
+    await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
     expect(await until(() => tabs.count(), 2)).toBe(2);
     await until(async () => (await terminalText(page)).includes("W1-DEEP-80"), false, budget(20_000));
     await typeUntilText(page, "seq -f 'W2-DEEP-%g' 1 80", "W2-DEEP-80");

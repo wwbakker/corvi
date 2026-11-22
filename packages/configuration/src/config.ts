@@ -9,7 +9,15 @@
  */
 
 import type { Device } from "./devices.ts";
-import type { RemoteAccessDto, RemoteWorkspaceDto, ResolvedDto } from "@corvi/contracts/config";
+import type {
+  HarnessDefaultsDto,
+  RemoteAccessDto,
+  RemoteWorkspaceDto,
+  ResolvedDto,
+} from "@corvi/contracts/config";
+
+/** The harness each kind of pane starts when nothing more specific says: a discovery key. */
+export type HarnessDefaults = HarnessDefaultsDto;
 
 /** Where a remote workspace lives, as a domain value: the contract's record, named once here. */
 export type RemoteWorkspace = RemoteWorkspaceDto;
@@ -42,6 +50,9 @@ export type SettingsOverrides = {
   /** The starting text of a new idea's PLAN.md, seeded into the wizard's plan editor: literal
    * Markdown, nothing filled in. An empty value means no template — a plan starts empty. */
   planTemplate?: string;
+  /** The harness user panes and new subagents start when a change names none, at each scope. Keys
+   * merge per field: a workspace naming only `user` keeps the global `subagents`. */
+  harnessDefaults?: HarnessDefaults;
   /** IDE and build-tool directories copied from the repository into a new worktree, with the
    * paths inside them rewritten. Empty disables it. See `apps/server/src/capabilities/os.ts`. */
   worktreeCopy?: string[];
