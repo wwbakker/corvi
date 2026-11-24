@@ -25,7 +25,7 @@ import {
   emptyHarnessProfileFields,
   mergeHarnessProfileFields,
   type HarnessProfileFields,
-  type HarnessSectionName,
+  type HarnessProfileSectionName,
 } from "./harnessProfileFields.ts";
 import {
   BUILTIN_HARNESS_PROFILE_IDS,
@@ -128,21 +128,21 @@ export type HarnessProfileWarning =
   | {
       /** A name an include or exclude list expects to find in the base agent directory. */
       readonly kind: "unknown-name";
-      readonly section: HarnessSectionName;
+      readonly section: HarnessProfileSectionName;
       readonly name: string;
       readonly message: string;
     }
   | {
       /** A path entry no scope root can resolve (a built-in harness has no directory). */
       readonly kind: "unresolved-path";
-      readonly section: HarnessSectionName;
+      readonly section: HarnessProfileSectionName;
       readonly entry: string;
       readonly message: string;
     }
   | {
       /** A field only `pi` acts on, set on an opencode profile. */
       readonly kind: "unsupported-field";
-      readonly field: "effort" | "enabledModels" | "instructions" | HarnessSectionName;
+      readonly field: "effort" | "enabledModels" | "instructions" | HarnessProfileSectionName;
       readonly message: string;
     };
 
@@ -223,7 +223,7 @@ const lookupHarnessProfile = (
   });
 };
 
-const SECTION_NAMES: readonly HarnessSectionName[] = ["extensions", "skills", "packages", "mcp"];
+const SECTION_NAMES: readonly HarnessProfileSectionName[] = ["extensions", "skills", "packages", "mcp"];
 
 /** What an opencode profile cannot act on. `model` is the one field it does apply. */
 const warningsFor = (harness: Harness, fields: HarnessProfileFields): readonly HarnessProfileWarning[] => {

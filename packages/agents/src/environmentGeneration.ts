@@ -26,8 +26,12 @@
  */
 import { Schema } from "effect";
 
-import type { Harness, HarnessSectionMode } from "@corvi/contracts/harness-profiles";
-import type { HarnessProfileFields, HarnessSection, HarnessSectionName } from "./harnessProfileFields.ts";
+import type { Harness, HarnessProfileSectionMode } from "@corvi/contracts/harness-profiles";
+import type {
+  HarnessProfileFields,
+  HarnessProfileSection,
+  HarnessProfileSectionName,
+} from "./harnessProfileFields.ts";
 import type { HarnessProfileWarning, ResolvedHarnessProfile } from "./harnessProfileDiscovery.ts";
 
 /** Corvi's extension, by the name a profile file excludes it with. */
@@ -150,7 +154,7 @@ export type EnvironmentItem = {
 };
 
 export type EnvironmentSection = {
-  readonly mode: HarnessSectionMode;
+  readonly mode: HarnessProfileSectionMode;
   readonly items: readonly EnvironmentItem[];
 };
 
@@ -315,7 +319,7 @@ const resolvePathEntry = (
   return scopeBase === undefined ? undefined : normalizePath(joinPath(scopeBase, entry));
 };
 
-const effectiveMode = (section: HarnessSection): HarnessSectionMode => section.mode ?? "all";
+const effectiveMode = (section: HarnessProfileSection): HarnessProfileSectionMode => section.mode ?? "all";
 
 const matchesDirectoryItem = (item: EnvironmentDirectoryItem, entry: string): boolean =>
   item.name === entry || lastSegment(item.path) === entry;
@@ -355,7 +359,7 @@ type SectionPlan<T extends string | PackageEntry = string> = {
   readonly warnings: readonly HarnessProfileWarning[];
 };
 
-const SECTION_LABEL: Record<HarnessSectionName, { readonly one: string; readonly list: string }> = {
+const SECTION_LABEL: Record<HarnessProfileSectionName, { readonly one: string; readonly list: string }> = {
   extensions: { one: "extension", list: "extensions" },
   skills: { one: "skill", list: "skills" },
   packages: { one: "package", list: "packages" },
@@ -365,11 +369,11 @@ const SECTION_LABEL: Record<HarnessSectionName, { readonly one: string; readonly
 /** Another section that does contain this name: the actionable half of an unknown-name warning.
  * A profile that put a skill under `extensions.include` is told where it belongs. */
 const crossSectionHint = (
-  section: HarnessSectionName,
+  section: HarnessProfileSectionName,
   name: string,
   base: EnvironmentBase,
 ): string | undefined => {
-  const inSection = (other: HarnessSectionName): boolean => {
+  const inSection = (other: HarnessProfileSectionName): boolean => {
     switch (other) {
       case "extensions":
         return base.catalogs.extensions.some((item) => item.name === name);
@@ -391,7 +395,7 @@ const crossSectionHint = (
 };
 
 const unknownName = (
-  section: HarnessSectionName,
+  section: HarnessProfileSectionName,
   name: string,
   where: string,
   hint?: string,
@@ -403,7 +407,7 @@ const unknownName = (
 });
 
 const unresolvedPath = (
-  section: HarnessSectionName,
+  section: HarnessProfileSectionName,
   entry: string,
   source: ResolvedHarnessProfile["source"],
 ): HarnessProfileWarning => ({
@@ -421,7 +425,7 @@ type ClassifiedEntries = {
 /** Split one include/exclude list into catalogue names and resolved absolute paths, warning about
  * names nothing offers and paths no scope root can resolve. */
 const classifyEntries = (
-  section: HarnessSectionName,
+  section: HarnessProfileSectionName,
   entries: readonly string[],
   matches: (name: string) => boolean,
   scopeBase: string | undefined,
@@ -1025,7 +1029,10 @@ export const resolveOverlayPaths = (
   scopeBase: string | undefined,
   homeDir: string,
 ): HarnessProfileFields => {
-  const section = (value: HarnessSection, pathLike: (entry: string) => boolean): HarnessSection => ({
+  const section = (
+    value: HarnessProfileSection,
+    pathLike: (entry: string) => boolean,
+  ): HarnessProfileSection => ({
     ...(value.mode === undefined ? {} : { mode: value.mode }),
     include: value.include.map((entry) =>
       pathLike(entry) ? (resolvePathEntry(entry, scopeBase, homeDir) ?? entry) : entry,

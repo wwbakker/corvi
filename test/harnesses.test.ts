@@ -354,10 +354,18 @@ test("a harness key written before the vocabulary split is not a pin", async () 
 
 test("a subagent's pinned harness wins, and a pin that disappeared names itself", async () => {
   const discovery = await runEffect(harnessProfileDiscoveryFor(change));
-  const pinned = resolveSubagentHarnessProfile({ change, discovery, pin: "builtin:pi-bare" });
+  const record = (harnessProfileKey: string): Pick<SubagentRecord, "harness" | "harnessProfileKey"> => ({
+    harness: "pi",
+    harnessProfileKey,
+  });
+  const pinned = resolveSubagentHarnessProfile({
+    change,
+    discovery,
+    record: record("builtin:pi-bare"),
+  });
   expect("success" in pinned && pinned.success.resolved.key).toBe("builtin:pi-bare");
 
-  const gone = resolveSubagentHarnessProfile({ change, discovery, pin: "global:gone" });
+  const gone = resolveSubagentHarnessProfile({ change, discovery, record: record("global:gone") });
   expect("failure" in gone && gone.failure.kind).toBe("unknown-harness-profile");
 });
 

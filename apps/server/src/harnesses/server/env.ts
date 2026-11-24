@@ -34,10 +34,8 @@ import {
   harnessProfileDiscoveryFor,
   harnessProfileScopeBaseFor,
   harnessProfileScopeRootsFor,
-  resolveSelection,
+  resolvePaneHarnessProfile,
   resolveSubagentHarnessProfile,
-  subagentRecordHarnessInput,
-  selectedHarnessProfileKey,
 } from "./selection.ts";
 
 /** One pane's generated environment. A non-Pi harness has no generated directory and an empty
@@ -114,13 +112,13 @@ const generated = (
 export const userHarnessProfileLaunch = (change: Change): Effect.Effect<EnvironmentLaunch, BadRequestError> =>
   Effect.gen(function* () {
     const discovery = yield* harnessProfileDiscoveryFor(change);
-    const resolved = resolveSelection(change, discovery, "user");
-    if (Result.isFailure(resolved)) {
+    const selection = resolvePaneHarnessProfile(change, discovery, "user");
+    if (Result.isFailure(selection.resolved)) {
       return yield* badHarness(
-        `harness profile "${selectedHarnessProfileKey(change, "user")}": ${describeHarnessProfileError(resolved.failure)}`,
+        `harness profile "${selection.key}": ${describeHarnessProfileError(selection.resolved.failure)}`,
       );
     }
-    return yield* generated(change, resolved.success, {});
+    return yield* generated(change, selection.resolved.success, {});
   });
 
 /** The environment for a named harness key, as the new-terminal dialog selects one. */
@@ -165,7 +163,7 @@ export const subagentHarnessProfileLaunch = (
       change,
       discovery,
       ...(profile === undefined ? {} : { profile }),
-      ...subagentRecordHarnessInput(record),
+      record,
       ...(overlay === undefined ? {} : { overlay }),
     });
     if (Result.isFailure(decision)) {

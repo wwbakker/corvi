@@ -107,12 +107,22 @@ export const selectedHarnessProfileKey = (change: Change, kind: HarnessProfileKi
     : (change.subagentHarnessProfile ?? defaults.subagents);
 };
 
-export const resolveSelection = (
+/** A pane's chosen harness profile: the key it selected, and what that key resolves to. The key
+ * is answered even when resolution fails, so the refusal names the file the person chose. */
+export type PaneHarnessProfileSelection = {
+  readonly key: string;
+  readonly resolved: Result.Result<ResolvedHarnessProfile, HarnessProfileResolutionError>;
+};
+
+/** The harness profile a pane of this kind starts: the change's selector, else the default. */
+export const resolvePaneHarnessProfile = (
   change: Change,
   discovery: HarnessProfileDiscovery,
   kind: HarnessProfileKind,
-): Result.Result<ResolvedHarnessProfile, HarnessProfileResolutionError> =>
-  resolveHarnessProfileByKey(discovery, selectedHarnessProfileKey(change, kind));
+): PaneHarnessProfileSelection => {
+  const key = selectedHarnessProfileKey(change, kind);
+  return { key, resolved: resolveHarnessProfileByKey(discovery, key) };
+};
 
 /** A subagent's harness profile, and why it is that one. */
 export type SubagentHarnessProfileDecision = {
@@ -149,16 +159,15 @@ export const resolveSubagentHarnessProfile = (input: {
   readonly discovery: HarnessProfileDiscovery;
   /** The discovered profile, when its file is still there. */
   readonly profile?: SubagentProfile;
-  /** The record's pin (`harnessProfileKey`). */
-  readonly pin?: string;
-  /** The provenance stored with the pin, so a reopen reports the same source. */
-  readonly pinSource?: HarnessProfileSource;
-  /** The program the record was created with, used when the profile file is gone. */
-  readonly program?: Harness;
+  /** The record, on a reopen: its pin, the provenance stored with it, and its program. */
+  readonly record?: Pick<SubagentRecord, "harnessProfileKey" | "harnessProfileFrom" | "harness">;
   /** The fields the profile overlays on the chosen harness profile. */
   readonly overlay?: ReturnType<typeof harnessProfileFieldsOf>;
 }): Result.Result<SubagentHarnessProfileDecision, HarnessProfileResolutionError> => {
-  const { change, discovery, profile, pin, pinSource, program, overlay } = input;
+  const { change, discovery, profile, record, overlay } = input;
+  const pin = record?.harnessProfileKey;
+  const pinSource = record?.harnessProfileFrom;
+  const program = record?.harness;
   if (pin !== undefined) {
     const resolved = resolveHarnessProfileByKey(discovery, pin, overlay);
     return Result.isFailure(resolved)
@@ -222,22 +231,3 @@ export const resolveSubagentHarnessProfile = (input: {
 
 export const harnessProfileErrorText = (error: HarnessProfileResolutionError): string =>
   describeHarnessProfileError(error);
-
-/** The overlay a record's profile contributes, when its file is still discovered. */
-export const overlayOfProfile = (
-  profile: SubagentProfile | undefined,
-): ReturnType<typeof harnessProfileFieldsOf> | undefined =>
-  profile === undefined ? undefined : harnessProfileFieldsOf(profile);
-
-/** One subagent record's resolution inputs: its pin, its program, and its profile. */
-export const subagentRecordHarnessInput = (
-  record: Pick<SubagentRecord, "harnessProfileKey" | "harness" | "harnessProfileFrom">,
-): {
-  readonly pin?: string;
-  readonly pinSource?: HarnessProfileSource;
-  readonly program: Harness;
-} => ({
-  ...(record.harnessProfileKey === undefined ? {} : { pin: record.harnessProfileKey }),
-  ...(record.harnessProfileFrom === undefined ? {} : { pinSource: record.harnessProfileFrom }),
-  program: record.harness,
-});

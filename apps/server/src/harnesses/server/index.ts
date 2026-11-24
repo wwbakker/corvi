@@ -1,39 +1,18 @@
-/** The harness-profile server's public face: the change's selection and resolved views, the pane
- * environments, the file operations and the cleanup. */
+/** The harness-profile server's public face for the modules that launch panes: the change's
+ * discovery and pane environments, plus the resolver a create and a reopen share.
+ *
+ * The pages and routes read `./files.ts`, `./views.ts` and `./choices.ts` directly; keeping this
+ * surface small keeps the launch contract readable. */
 export {
-  DEFAULT_HARNESS_PROFILE_KEY,
-  configuredHarnessProfileDefaults,
-  harnessProfileDefaultsFor,
   harnessProfileDiscoveryFor,
-  harnessProfileRootsFor,
-  harnessProfileScopeBaseFor,
-  harnessProfileSelectionFor,
-  harnessProfileScopeRootsFor,
-  resolveSelection,
+  resolvePaneHarnessProfile,
   resolveSubagentHarnessProfile,
-  selectedHarnessProfileKey,
-  subagentRecordHarnessInput,
-  type HarnessProfileKind,
-  type HarnessProfileSource,
+  type PaneHarnessProfileSelection,
   type SubagentHarnessProfileDecision,
 } from "./selection.ts";
-export { harnessProfilesFor } from "./views.ts";
 export {
-  harnessProfileLaunchByKey,
-  harnessWindowCommand,
-  openHarnessWindow,
   subagentHarnessProfileLaunch,
   userHarnessProfileLaunch,
-  warningsLineOf,
   withWarningsLine,
   type EnvironmentLaunch,
 } from "./env.ts";
-export {
-  deleteHarnessProfileFile,
-  deleteRepositoryHarnessProfileFile,
-  harnessProfileFiles,
-  repositoryHarnessProfileFiles,
-  writeHarnessProfileFile,
-  writeRepositoryHarnessProfileFile,
-} from "./files.ts";
-export { removeEnvironmentState } from "./cleanup.ts";

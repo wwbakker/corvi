@@ -16,14 +16,14 @@
  * writes settings for. */
 import { Result, Schema } from "effect";
 
-import { Harness, HarnessSectionMode } from "@corvi/contracts/harness-profiles";
+import { Harness, HarnessProfileSectionMode } from "@corvi/contracts/harness-profiles";
 
 /** The four sections a harness profile can narrow or widen. */
-export type HarnessSectionName = "extensions" | "skills" | "packages" | "mcp";
+export type HarnessProfileSectionName = "extensions" | "skills" | "packages" | "mcp";
 
 /** One section: a mode, and the names to add to or remove from the base's list. */
-export type HarnessSection = {
-  readonly mode?: HarnessSectionMode;
+export type HarnessProfileSection = {
+  readonly mode?: HarnessProfileSectionMode;
   readonly include: readonly string[];
   readonly exclude: readonly string[];
 };
@@ -39,10 +39,10 @@ export type HarnessProfileFields = {
   readonly enabledModels?: readonly string[];
   /** Markdown that replaces the base `AGENTS.md`; absent inherits it, an empty string clears it. */
   readonly instructions?: string;
-  readonly extensions: HarnessSection;
-  readonly skills: HarnessSection;
-  readonly packages: HarnessSection;
-  readonly mcp: HarnessSection;
+  readonly extensions: HarnessProfileSection;
+  readonly skills: HarnessProfileSection;
+  readonly packages: HarnessProfileSection;
+  readonly mcp: HarnessProfileSection;
 };
 
 /** A file's fields before the chain is resolved: the shared settings plus the profile it is based
@@ -62,7 +62,7 @@ const invalid = (
   ...reasons: string[]
 ): Result.Result<HarnessProfileFileFields, InvalidHarnessProfileFields> => Result.fail({ reasons });
 
-const emptySection = (): HarnessSection => ({ include: [], exclude: [] });
+const emptySection = (): HarnessProfileSection => ({ include: [], exclude: [] });
 
 export const emptyHarnessProfileFields: HarnessProfileFields = {
   extensions: emptySection(),
@@ -72,7 +72,7 @@ export const emptyHarnessProfileFields: HarnessProfileFields = {
 };
 
 const isHarness = Schema.is(Harness);
-const isSectionMode = Schema.is(HarnessSectionMode);
+const isSectionMode = Schema.is(HarnessProfileSectionMode);
 
 /** An absent value stays absent; a present one has to be a non-empty string. `null` means the
  * field was present but wrong (the caller records a reason). */
@@ -94,7 +94,11 @@ const optionalNames = (value: unknown): readonly string[] | null | undefined => 
 
 /** One section from its raw frontmatter value. Absent and `null` are an empty section; anything
  * that is not an object with a valid mode and name lists is a reason. */
-const parseSection = (name: HarnessSectionName, value: unknown, reasons: string[]): HarnessSection => {
+const parseSection = (
+  name: HarnessProfileSectionName,
+  value: unknown,
+  reasons: string[],
+): HarnessProfileSection => {
   if (value === undefined || value === null) return emptySection();
   if (typeof value !== "object" || Array.isArray(value)) {
     reasons.push(`${name}: an object with mode, include or exclude`);
@@ -169,7 +173,10 @@ export const parseHarnessProfileFields = (
 
 /** Merge one section: a child mode replaces the section outright; without a mode, the child's
  * lists append to the parent's. */
-export const mergeHarnessProfileSection = (base: HarnessSection, child: HarnessSection): HarnessSection =>
+export const mergeHarnessProfileSection = (
+  base: HarnessProfileSection,
+  child: HarnessProfileSection,
+): HarnessProfileSection =>
   child.mode === undefined
     ? {
         ...(base.mode === undefined ? {} : { mode: base.mode }),

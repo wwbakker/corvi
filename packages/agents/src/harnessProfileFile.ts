@@ -24,8 +24,8 @@ export {
   parseHarnessProfileFields,
   type HarnessProfileFields,
   type HarnessProfileFileFields,
-  type HarnessSection,
-  type HarnessSectionName,
+  type HarnessProfileSection,
+  type HarnessProfileSectionName,
   type InvalidHarnessProfileFields,
 } from "./harnessProfileFields.ts";
 

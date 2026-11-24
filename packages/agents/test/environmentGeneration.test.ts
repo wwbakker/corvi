@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import type { HarnessSection } from "../src/harnessProfileFields.ts";
+import type { HarnessProfileSection } from "../src/harnessProfileFields.ts";
 import {
   CORVI_EXTENSION_NAME,
   generatedEnvironmentDir,
@@ -13,7 +13,7 @@ import {
 } from "../src/environmentGeneration.ts";
 import type { ResolvedHarnessProfile } from "../src/harnessProfileDiscovery.ts";
 
-const section = (partial: Partial<HarnessSection> = {}): HarnessSection => ({
+const section = (partial: Partial<HarnessProfileSection> = {}): HarnessProfileSection => ({
   include: [],
   exclude: [],
   ...partial,

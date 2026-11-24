@@ -19,12 +19,12 @@ export type HarnessProfileSource = typeof HarnessProfileSource.Type;
 /** Whether a section starts from everything the base agent directory offers (`all`) or from
  * nothing but what the file includes (`none`). An absent mode means "leave the section as the
  * parent left it". */
-export const HarnessSectionMode = Schema.Literals(["all", "none"]);
-export type HarnessSectionMode = typeof HarnessSectionMode.Type;
+export const HarnessProfileSectionMode = Schema.Literals(["all", "none"]);
+export type HarnessProfileSectionMode = typeof HarnessProfileSectionMode.Type;
 
 /** The four sections a harness profile file narrows or widens. */
-export const HarnessSectionName = Schema.Literals(["extensions", "skills", "packages", "mcp"]);
-export type HarnessSectionName = typeof HarnessSectionName.Type;
+export const HarnessProfileSectionName = Schema.Literals(["extensions", "skills", "packages", "mcp"]);
+export type HarnessProfileSectionName = typeof HarnessProfileSectionName.Type;
 
 /** The persisted discovery key of one harness: `global:review`, `workspace:personal:review`,
  * `repository:orders-api:review`. One builder, because the key is stored in settings and
@@ -137,7 +137,7 @@ export const EnvironmentItemSchema = Schema.Struct({
 export type EnvironmentItemDto = typeof EnvironmentItemSchema.Type;
 
 export const EnvironmentSectionSchema = Schema.Struct({
-  mode: HarnessSectionMode,
+  mode: HarnessProfileSectionMode,
   items: Schema.Array(EnvironmentItemSchema),
 });
 export type EnvironmentSectionDto = typeof EnvironmentSectionSchema.Type;
@@ -146,7 +146,7 @@ export type EnvironmentSectionDto = typeof EnvironmentSectionSchema.Type;
  * and the pane print. */
 export const HarnessProfileWarningSchema = Schema.Struct({
   kind: Schema.Literals(["unknown-name", "unresolved-path", "unsupported-field"]),
-  section: Schema.optional(HarnessSectionName),
+  section: Schema.optional(HarnessProfileSectionName),
   name: Schema.optional(Schema.String),
   entry: Schema.optional(Schema.String),
   field: Schema.optional(Schema.String),
