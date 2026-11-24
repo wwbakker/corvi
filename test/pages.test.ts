@@ -1316,6 +1316,258 @@ test.skipIf(!usable)(
   30_000,
 );
 
+test.skipIf(!usable)(
+  "the chrome reaches the window's top edge and leaves the page its air",
+  async () => {
+    // A sticky box's margin edge is clamped to the scrollport, so a negative top margin cannot lift
+    // the chrome: the content's top padding is what goes instead. These are the numbers it buys —
+    // the row's top edge is the window's, level with the column's brand row beside it, and the
+    // space the row keeps below it belongs to the page again.
+    await withPage(
+      browser,
+      async (page) => {
+        // A change's chrome: the window's row and the change's own, sticky together.
+        await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
+        await page.waitForSelector(".widgets .widget");
+        await settleLayout(page);
+        const dashboard = await page.evaluate(() => {
+          const chrome = document.querySelector<HTMLElement>(".change-chrome");
+          const card = document.querySelector<HTMLElement>(".widgets .widget");
+          if (chrome === null || card === null) return null;
+          const chromeBox = chrome.getBoundingClientRect();
+          return {
+            chromeTop: Math.round(chromeBox.top),
+            air: Math.round(card.getBoundingClientRect().top - chromeBox.bottom),
+          };
+        });
+        if (dashboard === null) throw new Error("the dashboard's chrome did not lay out");
+        expect(dashboard.chromeTop).toBe(0);
+        expect(dashboard.air).toBe(16);
+
+        // The columns, not the page, are what the dashboard scrolls. Shrink the window until they
+        // must, then scroll one: the cards move by exactly the scroll and the chrome does not,
+        // because the chrome is not part of what a column carries.
+        await page.setViewportSize({ width: 1000, height: 320 });
+        await settleLayout(page);
+        const column = await page.evaluate(() => {
+          const chrome = document.querySelector<HTMLElement>(".change-chrome");
+          const card = document.querySelector<HTMLElement>(".widgets .widget");
+          // The column the first card is in, so the card is the thing the scroll moves.
+          const scroller = card?.closest<HTMLElement>(".column") ?? null;
+          if (chrome === null || card === null || scroller === null) return null;
+          if (scroller.scrollHeight <= scroller.clientHeight + 1) return null;
+          const chromeTop = chrome.getBoundingClientRect().top;
+          const cardTop = card.getBoundingClientRect().top;
+          scroller.scrollBy(0, 150);
+          return {
+            scrolled: scroller.scrollTop,
+            moved: Math.round(cardTop - card.getBoundingClientRect().top),
+            chromeTop: Math.round(chromeTop),
+            chromeTopAfter: Math.round(chrome.getBoundingClientRect().top),
+          };
+        });
+        if (column === null) throw new Error("the dashboard's columns did not scroll");
+        expect(column.scrolled).toBeGreaterThan(0);
+        expect(column.moved).toBe(Math.round(column.scrolled));
+        expect(column.chromeTop).toBe(0);
+        expect(column.chromeTopAfter).toBe(0);
+
+        // Plain pages: the same header row with no change around it. The row each leads is its
+        // hint, so that is the row the header's own space below is measured on.
+        await page.setViewportSize({ width: 1000, height: 600 });
+        const pageRow = async (route: string): Promise<{ headerTop: number; air: number } | null> => {
+          await page.goto(`${url}${route}`, { waitUntil: "domcontentloaded" });
+          await page.waitForSelector(".page > header");
+          await settleLayout(page);
+          return page.evaluate(() => {
+            const header = document.querySelector<HTMLElement>(".page > header");
+            const first = header?.nextElementSibling;
+            if (header === null || !(first instanceof HTMLElement)) return null;
+            const headerBox = header.getBoundingClientRect();
+            return {
+              headerTop: Math.round(headerBox.top),
+              air: Math.round(first.getBoundingClientRect().top - headerBox.bottom),
+            };
+          });
+        };
+        for (const route of ["/actions", "/subagents"]) {
+          const row = await pageRow(route);
+          if (row === null) throw new Error(`the ${route} page did not lay out`);
+          expect(row.headerTop).toBe(0);
+          expect(row.air).toBe(16);
+        }
+
+        // The same header on a page that scrolls under it: still at the window's top edge, with
+        // nothing above it. The content is the scroller on a plain page, and it does not overflow at
+        // the shared height, so the window shrinks until it must.
+        await page.goto(`${url}/actions`, { waitUntil: "domcontentloaded" });
+        await page.waitForSelector(".actions-page > .widget");
+        const overflows = (): Promise<boolean> =>
+          page.evaluate(() => {
+            const content = document.querySelector<HTMLElement>(".content");
+            return content !== null && content.scrollHeight > content.clientHeight + 1;
+          });
+        for (const height of [600, 480, 360, 240]) {
+          await page.setViewportSize({ width: 1000, height });
+          await settleLayout(page);
+          if (await overflows()) break;
+        }
+        if (!(await overflows())) {
+          throw new Error(
+            "the actions page does not scroll even at 240px: the fixture's cards are too short to exercise a scrolled header",
+          );
+        }
+        const scrolled = await page.evaluate(() => {
+          const content = document.querySelector<HTMLElement>(".content");
+          const header = document.querySelector<HTMLElement>(".actions-page > header");
+          if (content === null || header === null) return null;
+          content.scrollBy(0, 300);
+          return {
+            scrollTop: content.scrollTop,
+            headerTop: Math.round(header.getBoundingClientRect().top),
+          };
+        });
+        if (scrolled === null) throw new Error("the actions page did not scroll");
+        expect(scrolled.scrollTop).toBeGreaterThan(0);
+        expect(scrolled.headerTop).toBe(0);
+
+        // A tab row that wraps to a second line makes the chrome taller and nothing else: the row
+        // still starts at the window's edge, and the cards under it keep their air.
+        const wrapped = "PROJ-PAGES-WRAP";
+        await terminalWindows(wrapped, 4);
+        await page.setViewportSize({ width: 900, height: 420 });
+        await page.goto(`${url}/changes/${wrapped}/dashboard`, { waitUntil: "domcontentloaded" });
+        await page.waitForSelector(".widgets .widget");
+        await page.waitForFunction(() => document.querySelectorAll(".window-tab").length >= 5);
+        await settleLayout(page);
+        const wrapping = await page.evaluate(() => {
+          const chrome = document.querySelector<HTMLElement>(".change-chrome");
+          const card = document.querySelector<HTMLElement>(".widgets .widget");
+          const tabs = [...document.querySelectorAll<HTMLElement>(".window-tabs .window-tab")];
+          if (chrome === null || card === null) return null;
+          const chromeBox = chrome.getBoundingClientRect();
+          return {
+            chromeTop: Math.round(chromeBox.top),
+            air: Math.round(card.getBoundingClientRect().top - chromeBox.bottom),
+            rows: new Set(tabs.map((tab) => Math.round(tab.getBoundingClientRect().top))).size,
+          };
+        });
+        if (wrapping === null) throw new Error("the wrapped chrome did not lay out");
+        expect(wrapping.rows).toBeGreaterThanOrEqual(2);
+        expect(wrapping.chromeTop).toBe(0);
+        expect(wrapping.air).toBe(16);
+
+        // The wizard's body ends where the page's padding begins. It is the flex chain's remainder,
+        // not a viewport subtraction, so it cannot drift away from the window's bottom edge.
+        await page.setViewportSize({ width: 1000, height: 600 });
+        await page.goto(`${url}/new`, { waitUntil: "domcontentloaded" });
+        await page.waitForSelector(".wizard-body .md-editor");
+        await settleLayout(page);
+        const wizard = await page.evaluate(() => {
+          const header = document.querySelector<HTMLElement>(".wizard > header");
+          const body = document.querySelector<HTMLElement>(".wizard-body");
+          const content = document.querySelector<HTMLElement>(".content");
+          if (header === null || body === null || content === null) return null;
+          const contentBox = content.getBoundingClientRect();
+          const paddingBottom = Number.parseFloat(getComputedStyle(content).paddingBottom);
+          return {
+            headerTop: Math.round(header.getBoundingClientRect().top),
+            bodyTop: Math.round(body.getBoundingClientRect().top),
+            bodyBottom: Math.round(body.getBoundingClientRect().bottom),
+            pageBottom: Math.round(contentBox.bottom - paddingBottom),
+          };
+        });
+        if (wizard === null) throw new Error("the wizard did not lay out");
+        expect(wizard.headerTop).toBe(0);
+        expect(Math.abs(wizard.bodyBottom - wizard.pageBottom)).toBeLessThanOrEqual(1);
+
+        // The banner above the body is what the flex chain exists for: a refused create is the state
+        // it appears in, and the body gives up exactly the banner's outer height, so the page still
+        // ends where its padding begins. The id the fixture already holds is the refusal, so the
+        // case needs no network.
+        await page.getByLabel("Change id").fill(id);
+        await page.getByRole("button", { name: "Create idea" }).click();
+        await page.waitForSelector(".wizard > .error-banner");
+        await settleLayout(page);
+        const refused = await page.evaluate(() => {
+          const banner = document.querySelector<HTMLElement>(".wizard > .error-banner");
+          const body = document.querySelector<HTMLElement>(".wizard-body");
+          const content = document.querySelector<HTMLElement>(".content");
+          if (banner === null || body === null || content === null) return null;
+          const bannerBox = banner.getBoundingClientRect();
+          const bannerStyle = getComputedStyle(banner);
+          const contentBox = content.getBoundingClientRect();
+          const paddingBottom = Number.parseFloat(getComputedStyle(content).paddingBottom);
+          return {
+            message: banner.textContent ?? "",
+            bannerHeight:
+              bannerBox.height +
+              Number.parseFloat(bannerStyle.marginTop) +
+              Number.parseFloat(bannerStyle.marginBottom),
+            bodyTop: Math.round(body.getBoundingClientRect().top),
+            bodyBottom: Math.round(body.getBoundingClientRect().bottom),
+            pageBottom: Math.round(contentBox.bottom - paddingBottom),
+          };
+        });
+        if (refused === null) throw new Error("the refused wizard did not lay out");
+        expect(refused.message).toContain(id);
+        expect(Math.abs(refused.bodyTop - (wizard.bodyTop + refused.bannerHeight))).toBeLessThanOrEqual(1);
+        expect(Math.abs(refused.bodyBottom - refused.pageBottom)).toBeLessThanOrEqual(1);
+
+        // A window too short for the body's minimum scrolls the page: the header keeps its one row
+        // at the window's edge rather than giving any of it up to the body.
+        await page.setViewportSize({ width: 1000, height: 300 });
+        await settleLayout(page);
+        const shortWizard = await page.evaluate(() => {
+          const content = document.querySelector<HTMLElement>(".content");
+          const header = document.querySelector<HTMLElement>(".wizard > header");
+          if (content === null || header === null) return null;
+          content.scrollBy(0, 200);
+          const box = header.getBoundingClientRect();
+          return {
+            scrollTop: content.scrollTop,
+            headerTop: Math.round(box.top),
+            headerHeight: Math.round(box.height),
+          };
+        });
+        if (shortWizard === null) throw new Error("the short wizard did not lay out");
+        expect(shortWizard.scrollTop).toBeGreaterThan(0);
+        expect(shortWizard.headerTop).toBe(0);
+        expect(shortWizard.headerHeight).toBe(TITLE_BAR_HEIGHT);
+
+        // An extension page: the shell wraps it in a fieldset, between it and the content, and its
+        // header is the same row at the window's edge with the same space below it.
+        await page.setViewportSize({ width: 1000, height: 600 });
+        await page.goto(`${url}/azure-devops`, { waitUntil: "domcontentloaded" });
+        await page.waitForSelector(".widgets-fieldset .page > header");
+        await settleLayout(page);
+        const extension = await page.evaluate(() => {
+          const header = document.querySelector<HTMLElement>(".widgets-fieldset .page > header");
+          const first = header?.nextElementSibling;
+          if (header === null || !(first instanceof HTMLElement)) return null;
+          const headerBox = header.getBoundingClientRect();
+          return {
+            headerTop: Math.round(headerBox.top),
+            air: Math.round(first.getBoundingClientRect().top - headerBox.bottom),
+          };
+        });
+        if (extension === null) throw new Error("the extension page did not lay out");
+        expect(extension.headerTop).toBe(0);
+        expect(extension.air).toBe(16);
+
+        // Settings, whose content is a flex column with scrollers of its own: the header is still
+        // the row at the window's edge, and the intro it leads still starts under it.
+        const settings = await pageRow("/settings");
+        if (settings === null) throw new Error("the settings page did not lay out");
+        expect(settings.headerTop).toBe(0);
+        expect(settings.air).toBe(16);
+      },
+      { width: 1000, height: 600 },
+    );
+  },
+  30_000,
+);
+
 /** A change with `count` terminal windows, created idempotently, so a test body can run again
  * without making a duplicate window. `name` gives every window a long title, which is what makes
  * the strip wrap at the shared viewport. */

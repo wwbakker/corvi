@@ -201,69 +201,71 @@ export function IssueTable({
         </button>
       </div>
 
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Key</th>
-            <th>Summary</th>
-            <th>Assignee</th>
-            <th>Status</th>
-            <th />
-          </tr>
-        </thead>
-        {groups.map((group) => {
-          const isCollapsed = collapsed.includes(group.name);
-          return (
-            <tbody key={group.label}>
-              <tr
-                className="group"
-                onClick={() =>
-                  setCollapsed(
-                    isCollapsed ? collapsed.filter((n) => n !== group.name) : [...collapsed, group.name],
-                  )
-                }
-              >
-                <th colSpan={5}>
-                  {isCollapsed ? "▸" : "▾"} {group.label}
-                  <span className="count">{group.issues.length}</span>
-                </th>
-              </tr>
-              {!isCollapsed &&
-                group.issues.map((issue) => (
-                  <tr
-                    key={issue.key}
-                    className={issue.key === selectedKey ? "selected" : ""}
-                    onClick={() => onSelect(issue.key === selectedKey ? null : issue)}
-                  >
-                    <td>{issue.key}</td>
-                    <td className="summary">{issue.summary}</td>
-                    <td>{issue.assignee || "—"}</td>
-                    <td>{issue.status}</td>
-                    <td>
-                      {board.baseUrl && (
-                        <a
-                          href={`${board.baseUrl}/browse/${issue.key}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={(e) => e.stopPropagation()} // opening Jira must not also select
-                        >
-                          link
-                        </a>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          );
-        })}
-        {groups.length === 0 && !loading && (
-          <tbody>
+      <div className="table-frame">
+        <table className="table">
+          <thead>
             <tr>
-              <td colSpan={5}>no issues match</td>
+              <th>Key</th>
+              <th>Summary</th>
+              <th>Assignee</th>
+              <th>Status</th>
+              <th />
             </tr>
-          </tbody>
-        )}
-      </table>
+          </thead>
+          {groups.map((group) => {
+            const isCollapsed = collapsed.includes(group.name);
+            return (
+              <tbody key={group.label}>
+                <tr
+                  className="group"
+                  onClick={() =>
+                    setCollapsed(
+                      isCollapsed ? collapsed.filter((n) => n !== group.name) : [...collapsed, group.name],
+                    )
+                  }
+                >
+                  <th colSpan={5}>
+                    {isCollapsed ? "▸" : "▾"} {group.label}
+                    <span className="count">{group.issues.length}</span>
+                  </th>
+                </tr>
+                {!isCollapsed &&
+                  group.issues.map((issue) => (
+                    <tr
+                      key={issue.key}
+                      className={issue.key === selectedKey ? "selected" : ""}
+                      onClick={() => onSelect(issue.key === selectedKey ? null : issue)}
+                    >
+                      <td>{issue.key}</td>
+                      <td className="summary">{issue.summary}</td>
+                      <td>{issue.assignee || "—"}</td>
+                      <td>{issue.status}</td>
+                      <td>
+                        {board.baseUrl && (
+                          <a
+                            href={`${board.baseUrl}/browse/${issue.key}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()} // opening Jira must not also select
+                          >
+                            link
+                          </a>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            );
+          })}
+          {groups.length === 0 && !loading && (
+            <tbody>
+              <tr>
+                <td colSpan={5}>no issues match</td>
+              </tr>
+            </tbody>
+          )}
+        </table>
+      </div>
 
       <NewIssueDialog
         open={dialogOpen}
