@@ -71,8 +71,10 @@ export const createChange = (
       workspace: input.workspace?.trim() || undefined,
       // A name typed in the wizard is yours, so a ticket source never overwrites it later.
       ...(title ? { title, titleEdited: true } : {}),
-      ...(input.userHarness?.trim() ? { userHarness: input.userHarness.trim() } : {}),
-      ...(input.subagentHarness?.trim() ? { subagentHarness: input.subagentHarness.trim() } : {}),
+      ...(input.userHarnessProfile?.trim() ? { userHarnessProfile: input.userHarnessProfile.trim() } : {}),
+      ...(input.subagentHarnessProfile?.trim()
+        ? { subagentHarnessProfile: input.subagentHarnessProfile.trim() }
+        : {}),
       state,
       createdAt: new Date().toISOString(),
       // A change created ready to work has already started. Recording the fact here is what stops

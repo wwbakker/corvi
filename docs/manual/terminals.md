@@ -153,7 +153,7 @@ reporter (`agent-state.ts`), the subagent relay (`turns.ts`), and the CLI guide 
 sentence about `corvi` in the agent's prompt inside a Corvi session and nowhere else) — in the shape
 that agent's loader
 resolves. pi's extension is no longer installed globally: every Corvi pane gets a generated agent
-directory (see [harnesses](configuration.md#harnesses)) that adds Corvi's own extension, so
+directory (see [harness profiles](configuration.md#harnesses-and-harness-profiles)) that adds Corvi's own extension, so
 `extension:install:pi` only removes an older `~/.pi/agent/extensions/corvi/` link. opencode
 follows the link to the entry and finds its modules at the real file, so its install is the one
 link `~/.config/opencode/plugin/corvi.ts`. Older shapes are removed on install. Installing from another
@@ -248,12 +248,13 @@ rules](../guides/testing.md#resource-safety) when diagnosing test leftovers.
 ## New terminal
 
 The `+` tab (and its leader key) opens one dialog for every new terminal. `1` or `Enter` starts a
-**Shell** with the change's user harness in its environment; `2` or `↓` then `Enter` starts a
-**Harness** — Pi itself, in a new window named after the harness. The dialog remembers the last
-directory and harness you chose. The directory list always offers the **current pane's** directory
-(the default), the **change root**, and each checkout as distinct choices; the harness list names
+**Shell** with the change's user harness profile in its environment; `2` or `↓` then `Enter`
+starts the program directly — Pi or opencode — in a new window named after the harness profile. The
+dialog remembers the last
+directory and profile you chose. The directory list always offers the **current pane's** directory
+(the default), the **change root**, and each checkout as distinct choices; the profile list names
 the change's default and is disabled while Shell is selected, because a shell always uses the
-change's user harness. The dialog owns its keys while it is open: `Esc` closes it. Opened from its
+change's user harness profile. The dialog owns its keys while it is open: `Esc` closes it. Opened from its
 leader key it shows those keys beside the choices and in its footer; opened with the pointer it
 does not, because a key hint there is a second set of instructions for a choice already being
-made. Every tab carries the harness it runs under.
+made. Every tab carries the harness profile it runs under.

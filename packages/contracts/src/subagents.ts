@@ -3,19 +3,18 @@
  * A profile is a template for a subagent instance — harness, model, effort and an initial
  * prompt. Like an action, it is one Markdown file with YAML frontmatter; the page edits the file
  * itself, so what it sends is the file's text. The profile's own parsed shape is
- * `@corvi/agents/profile`'s; this file is what the browser and the server share. */
+ * `@corvi/agents/subagent-profile`'s; this file is what the browser and the server share. */
 import { Schema } from "effect";
 
-import { HarnessAgent, HarnessSource } from "./harnesses.ts";
+import { Harness, HarnessProfileSource } from "./harnessProfiles.ts";
 
-/** The agent a subagent's resolved harness starts. The profile file names a harness id
- * (`harness:`); the agent is what the chain resolves to, and what the instance record pins. */
-export const SubagentHarness = HarnessAgent;
-export type SubagentHarness = typeof SubagentHarness.Type;
+/** A subagent runs one harness (the program: `pi` or `opencode`); the harness profile it is
+ * based on decides the environment, and the record pins both. */
+export { Harness };
 
 /** Where the profile's file was discovered. Built-in files are shipped with Corvi; repository
  * files live in one of the change's checkouts. */
-export const SubagentSource = HarnessSource;
+export const SubagentSource = HarnessProfileSource;
 export type SubagentSource = typeof SubagentSource.Type;
 
 /** One profile file as the page lists it: the file as written, and what it parses to — or why it
@@ -89,9 +88,9 @@ export const SubagentRepositoryFilesResponseSchema = Schema.Struct({
 });
 export type SubagentRepositoryFilesResponseDto = typeof SubagentRepositoryFilesResponseSchema.Type;
 
-/** What a change can run, on the wire: discovery's answer (`@corvi/agents/discovery`) as the
+/** What a change can run, on the wire: discovery's answer (`@corvi/agents/subagent-profile-discovery`) as the
  * CLI reads it. The `key` is what `subagent create` takes (`repository:orders-api:reviewer`).
- * `body` is the profile file's own initial prompt (`Profile.body`); the create request's
+ * `body` is the profile file's own initial prompt (`SubagentProfile.body`); the create request's
  * `prompt` is a different thing — the orchestrator's task text that fills the `{prompt}` mark
  * in this body, or is appended to it. With no task, the mark takes the await instruction
  * (`AWAIT_INSTRUCTIONS`). A body that does not name the mark is rendered, with the task appended
@@ -158,10 +157,14 @@ export const SubagentRecordSchema = Schema.Struct({
   /** The resolved profile key (`global:reviewer`), not its text. */
   profile: Schema.String,
   label: Schema.String,
-  /** The harness the subagent was created with, pinned so a reopen regenerates from it rather
-   * than from whatever the profile says now. Absent on records written before pinning. */
-  harnessKey: Schema.optional(Schema.String),
-  harness: SubagentHarness,
+  /** The harness profile the subagent was created with — pinned only when the profile's own
+   * base or the change's selector named one. Absent means the profile's base and the settings
+   * default are resolved again at every launch. */
+  harnessProfileKey: Schema.optional(Schema.String),
+  /** Where the pin came from, so the card and the CLI can say why this profile runs. */
+  harnessProfileFrom: Schema.optional(Schema.Literals(["profile", "change"])),
+  /** The program (`pi` | `opencode`), pinned always: it decides the launch command. */
+  harness: Harness,
   model: Schema.optional(Schema.String),
   effort: Schema.optional(Schema.String),
   createdBy: Schema.Literals(["orchestrator", "user"]),
@@ -200,9 +203,11 @@ export const SubagentInstanceSchema = Schema.Struct({
   changeId: Schema.String,
   profile: Schema.String,
   label: Schema.String,
-  /** The harness pinned at creation, so a reopen regenerates from it. */
-  harnessKey: Schema.optional(Schema.String),
-  harness: SubagentHarness,
+  /** The harness profile pinned at creation, when one was chosen rather than defaulted. */
+  harnessProfileKey: Schema.optional(Schema.String),
+  /** Where the pin came from: the profile's own base, or the change's selector. */
+  harnessProfileFrom: Schema.optional(Schema.Literals(["profile", "change"])),
+  harness: Harness,
   model: Schema.optional(Schema.String),
   effort: Schema.optional(Schema.String),
   createdBy: Schema.Literals(["orchestrator", "user"]),

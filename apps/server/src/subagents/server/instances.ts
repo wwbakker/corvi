@@ -18,8 +18,8 @@
  */
 import { Effect, Result, Semaphore } from "effect";
 
-import { describeHarnessError } from "@corvi/agents/harness-discovery";
-import { harnessFieldsOfProfile } from "@corvi/agents/profile";
+import { describeHarnessProfileError } from "@corvi/agents/harness-profile-discovery";
+import { harnessProfileFieldsOf } from "@corvi/agents/subagent-profile";
 import { launchOf } from "@corvi/agents/harness";
 import {
   awaitDecisionOf,
@@ -64,12 +64,11 @@ import {
   type LiveSubagent,
 } from "../../terminals/server/index.ts";
 import type { Change } from "@corvi/changes/record";
-import { resolveProfileFor } from "./run.ts";
+import { profileOfferedIn, resolveProfileFor } from "./run.ts";
 import {
-  harnessDefaultsFor,
-  harnessDiscoveryFor,
-  resolveSubagentHarness,
-  subagentHarnessLaunch,
+  harnessProfileDiscoveryFor,
+  resolveSubagentHarnessProfile,
+  subagentHarnessProfileLaunch,
   withWarningsLine,
 } from "../../harnesses/server/index.ts";
 import { renderSubagentBody } from "./prompt.ts";
@@ -117,7 +116,8 @@ const toDto = (record: SubagentWithMessages, live: Live | undefined): SubagentIn
     changeId: record.changeId,
     profile: record.profile,
     label: record.label,
-    ...(record.harnessKey === undefined ? {} : { harnessKey: record.harnessKey }),
+    ...(record.harnessProfileKey === undefined ? {} : { harnessProfileKey: record.harnessProfileKey }),
+    ...(record.harnessProfileFrom === undefined ? {} : { harnessProfileFrom: record.harnessProfileFrom }),
     harness: record.harness,
     ...(record.model === undefined ? {} : { model: record.model }),
     ...(record.effort === undefined ? {} : { effort: record.effort }),
@@ -205,9 +205,9 @@ export type SubagentLauncher = (
   record: SubagentRecord,
 ) => Effect.Effect<string, BadRequestError>;
 
-/** The argv and working directory a subagent's host window runs: the harness pinned to the
- * subagent id (`--session-id`/`--session`), in the subagent's own directory. Pure, so the resume
- * contract a reopen depends on is testable without a harness. */
+/** The argv and working directory a subagent's host window runs: the program's session pinned to
+ * the subagent id (`--session-id`/`--session`), in the subagent's own directory. Pure, so the
+ * resume contract a reopen depends on is testable without a session. */
 export const subagentLaunch = (
   changeDirPath: string,
   record: SubagentRecord,
@@ -222,16 +222,16 @@ export const subagentLaunch = (
   return { cwd: instanceDir(changeDirPath, record.id), command: [launch.command, ...launch.args] };
 };
 
-/** The launcher a real subagent gets: its own host session, running the harness pinned to the
- * subagent id. Reopening the same id runs the same argv in the same directory, which is what
- * resumes the harness's own session. */
+/** The launcher a real subagent gets: its own host session, running the program in the harness
+ * profile pinned to the subagent. Reopening the same id runs the same argv in the same directory,
+ * which is what resumes the program's own session. */
 const startWindow: SubagentLauncher = (change, record) =>
   Effect.gen(function* () {
     const changeDirPath = changeDir(change);
     const { cwd, command } = subagentLaunch(changeDirPath, record);
-    // The subagent's own generated environment (its pinned harness plus the profile's overlay);
+    // The subagent's own generated environment (its harness profile plus the profile's overlay);
     // a warning is printed before pi starts, so the pane does not look broken without a reason.
-    const harness = yield* subagentHarnessLaunch(change, record);
+    const harness = yield* subagentHarnessProfileLaunch(change, record);
     const window = yield* newSubagentWindow(change.id, {
       changeDir: changeDirPath,
       cwd,
@@ -276,16 +276,22 @@ export const createSubagent = (
     if (!profile) {
       return yield* new BadRequestError({ message: `no such profile: ${input.profile}` });
     }
-    const discovery = yield* harnessDiscoveryFor(change);
-    const resolved = resolveSubagentHarness(discovery, {
-      ...(profile.profile.harness === undefined ? {} : { profileHarness: profile.profile.harness }),
-      ...(change.subagentHarness === undefined ? {} : { changeKey: change.subagentHarness }),
-      defaultKey: harnessDefaultsFor(change).subagents,
-      overlay: harnessFieldsOfProfile(profile.profile),
-    });
-    if (Result.isFailure(resolved)) {
-      return yield* new BadRequestError({ message: describeHarnessError(resolved.failure) });
+    if (!profileOfferedIn(change, profile)) {
+      return yield* new BadRequestError({
+        message: `"${profile.profile.label}" is not offered in ${change.state ?? "Implementation"}`,
+      });
     }
+    const discovery = yield* harnessProfileDiscoveryFor(change);
+    const decision = resolveSubagentHarnessProfile({
+      change,
+      discovery,
+      profile: profile.profile,
+      overlay: harnessProfileFieldsOf(profile.profile),
+    });
+    if (Result.isFailure(decision)) {
+      return yield* new BadRequestError({ message: describeHarnessProfileError(decision.failure) });
+    }
+    const resolvedHarnessProfile = decision.success.resolved;
     const from = input.from ?? "orchestrator";
     const dir = changeDir(change);
     return yield* withCreateLock(
@@ -297,13 +303,21 @@ export const createSubagent = (
           changeId: change.id,
           profile: profile.key,
           label: profile.profile.label,
-          harnessKey: resolved.success.key,
-          harness: resolved.success.agent,
-          // The model the harness resolves to is pinned too: opencode takes only a model from its
-          // harness, and a later harness edit must not silently change an existing subagent.
-          ...((profile.profile.model ?? resolved.success.fields.model) === undefined
+          // Pin only what was chosen: a profile's own base or the change's selector. A default
+          // resolved from the settings chain is not pinned, so a later settings change reaches
+          // this subagent on its next start.
+          ...(decision.success.source === "default"
             ? {}
-            : { model: profile.profile.model ?? resolved.success.fields.model }),
+            : {
+                harnessProfileKey: resolvedHarnessProfile.key,
+                harnessProfileFrom: decision.success.source,
+              }),
+          harness: resolvedHarnessProfile.harness,
+          // The model the harness profile resolves to is pinned too: opencode takes only a model
+          // from its profile, and a later edit must not silently change an existing subagent.
+          ...((profile.profile.model ?? resolvedHarnessProfile.fields.model) === undefined
+            ? {}
+            : { model: profile.profile.model ?? resolvedHarnessProfile.fields.model }),
           ...(profile.profile.effort === undefined ? {} : { effort: profile.profile.effort }),
           createdBy: from,
           createdAt: now(),

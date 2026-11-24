@@ -44,7 +44,7 @@ import { applyStoredMonoFont, loadSymbolsFont } from "./monoFont.ts";
 import type { SettingsView } from "../settings/model.ts";
 import { ActionsPage } from "../actions/ActionsPage.tsx";
 import { SubagentsPage } from "../subagents/SubagentsPage.tsx";
-import { HarnessesPage } from "../harnesses/HarnessesPage.tsx";
+import { HarnessProfilesPage } from "../harnesses/HarnessProfilesPage.tsx";
 import { LeaderProvider, useLeaderActive } from "./leader.tsx";
 
 function Home({
@@ -677,7 +677,7 @@ function App(): JSX.Element {
             </WorkspaceSourceContext.Provider>
           )}
           {view.name === "actions" && <ActionsPage onGuard={onGuard} />}
-          {view.name === "harnesses" && <HarnessesPage onGuard={onGuard} />}
+          {view.name === "harnesses" && <HarnessProfilesPage onGuard={onGuard} />}
           {view.name === "subagents" && <SubagentsPage onGuard={onGuard} />}
           {view.name === "settings" && (
             <SettingsPage

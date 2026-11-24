@@ -9,7 +9,7 @@ import { makeActionsApi, type ActionsApi } from "./actions.ts";
 import { makeChangesApi, type ChangesApi } from "./changes.ts";
 import { makeDashboardApi, type DashboardApi } from "./dashboard.ts";
 import { makeDevicesApi, type DevicesApi } from "./devices.ts";
-import { makeHarnessesApi, type HarnessesApi } from "./harnesses.ts";
+import { makeHarnessProfilesApi, type HarnessProfilesApi } from "./harnessProfiles.ts";
 import { makePowerApi, type PowerApi } from "./power.ts";
 import { makeRemotesApi, type RemotesApi } from "./remotes.ts";
 import { makeRepositoriesApi, type RepositoriesApi } from "./repositories.ts";
@@ -36,7 +36,7 @@ export interface CorviClient {
   readonly settings: SettingsApi;
   readonly actions: ActionsApi;
   readonly subagents: SubagentsApi;
-  readonly harnesses: HarnessesApi;
+  readonly harnessProfiles: HarnessProfilesApi;
   readonly tailscale: TailscaleApi;
   readonly update: UpdateApi;
   readonly server: ServerApi;
@@ -57,7 +57,7 @@ export const makeCorviClient = (options: ClientOptions): CorviClient => {
     settings: makeSettingsApi(send),
     actions: makeActionsApi(send),
     subagents: makeSubagentsApi(send),
-    harnesses: makeHarnessesApi(send),
+    harnessProfiles: makeHarnessProfilesApi(send),
     tailscale: makeTailscaleApi(send),
     update: makeUpdateApi(send),
     server: makeServerApi(send),

@@ -170,11 +170,11 @@ export function WindowSection({ scope }: { scope: SettingsScope }): JSX.Element 
   );
 }
 
-/** The harness a shell pane and a new subagent start, at this scope. "Default" inherits the
+/** The harness profile a shell pane and a new subagent start, at this scope. "Default" inherits the
  * global level's choice, and finally the built-in `pi`; the choices come from the same discovery
  * the launch uses, so an offered key always resolves. A repository harness is chosen on the
  * change itself, not here. */
-export function HarnessDefaultsSection({
+export function HarnessProfileDefaultsSection({
   scope,
   workspaceId,
 }: {
@@ -185,14 +185,14 @@ export function HarnessDefaultsSection({
   const [files, setFiles] = useState<readonly { key: string; label: string; problem?: string }[]>([]);
   const [available, setAvailable] = useState(false);
   useEffect(() => {
-    apiClient.harnesses
+    apiClient.harnessProfiles
       .choices({
         ...(scope.at === "global" || workspaceId === undefined ? {} : { workspace: workspaceId }),
       })
       .then((listed) => {
         setAvailable(true);
         setFiles(
-          listed.harnesses
+          listed.harnessProfiles
             .map((harness) => ({
               key: harness.key,
               label: `${harness.label} (${harness.source === "workspace" ? "workspace" : harness.source})`,
@@ -206,12 +206,12 @@ export function HarnessDefaultsSection({
         setFiles([]);
       });
   }, [scope.at, workspaceId]);
-  const own = scope.value("harnessDefaults") ?? {};
-  const inherited = scope.inherited("harnessDefaults") ?? {};
+  const own = scope.value("harnessProfileDefaults") ?? {};
+  const inherited = scope.inherited("harnessProfileDefaults") ?? {};
   const pick = (kind: "user" | "subagents", value: string): void => {
     const next = { ...own, [kind]: value === "" ? undefined : value };
-    if (next.user === undefined && next.subagents === undefined) scope.drop("harnessDefaults");
-    else scope.set("harnessDefaults", next);
+    if (next.user === undefined && next.subagents === undefined) scope.drop("harnessProfileDefaults");
+    else scope.set("harnessProfileDefaults", next);
   };
   const field = (kind: "user" | "subagents", label: string, hint: string): JSX.Element => {
     const value = own[kind];
@@ -247,9 +247,13 @@ export function HarnessDefaultsSection({
       {field(
         "user",
         "Shell panes",
-        "The harness a new terminal's shell gets, and the default the change's own selector starts from.",
+        "The harness profile a new terminal's shell gets, and the default the change's own selector starts from.",
       )}
-      {field("subagents", "New subagents", "The harness a new subagent starts when its profile names none.")}
+      {field(
+        "subagents",
+        "New subagents",
+        "The harness profile a new subagent starts when its profile names none.",
+      )}
     </div>
   );
 }

@@ -18,21 +18,21 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 
-import type { ResolvedHarness } from "../harnessDiscovery.ts";
+import type { ResolvedHarnessProfile } from "../harnessProfileDiscovery.ts";
 import {
-  generatedHarnessDir,
-  harnessScopeRoot,
-  HarnessGenerationError,
+  generatedEnvironmentDir,
+  harnessProfileScopeRoot,
+  EnvironmentGenerationError,
   packageNameOf,
-  planHarnessEnvironment,
+  planEnvironment,
   SHARED_STATE_NAMES,
-  type HarnessBase,
-  type HarnessDirectoryItem,
-  type HarnessEnvironmentView,
-  type HarnessGenerationPlan,
-  type HarnessSharedState,
-  type HarnessScopeRoots,
-} from "../harnessGeneration.ts";
+  type EnvironmentBase,
+  type EnvironmentDirectoryItem,
+  type EnvironmentView,
+  type EnvironmentGenerationPlan,
+  type EnvironmentSharedState,
+  type HarnessProfileScopeRoots,
+} from "../environmentGeneration.ts";
 
 /** The base Pi agent directory: the server's `PI_CODING_AGENT_DIR` when it has one, otherwise
  * `~/.pi/agent`. */
@@ -46,11 +46,11 @@ export const homeSkillsDir = (homeDir: string = homedir()): string => join(homeD
 export const corviExtensionDir = (): string =>
   fileURLToPath(new URL("../../../../integrations/pi/src", import.meta.url));
 
-export type GenerateHarnessOptions = {
+export type GenerateEnvironmentOptions = {
   readonly stateDir: string;
   readonly changeId: string;
-  /** The resolved harness (its chain, fields, agent and warnings). */
-  readonly harness: ResolvedHarness;
+  /** The resolved harness profile (its chain, fields, harness and warnings). */
+  readonly harnessProfile: ResolvedHarnessProfile;
   /** The base agent directory; defaults to `baseAgentDir()`. */
   readonly agentDir?: string;
   /** The home directory skills hang off; defaults to `homedir()`. */
@@ -63,21 +63,21 @@ export type GenerateHarnessOptions = {
    * `scopeRoots`. */
   readonly scopeBase?: string;
   /** The change's scope roots; the harness's own scope selects the base. */
-  readonly scopeRoots?: HarnessScopeRoots;
+  readonly scopeRoots?: HarnessProfileScopeRoots;
   /** An explicit directory, for a pane whose environment is derived (a subagent's harness plus
    * its profile overlay). Defaults to the harness's own generated directory. */
   readonly dir?: string;
 };
 
-export type GeneratedHarness = {
+export type GeneratedEnvironment = {
   readonly dir: string;
-  readonly view: HarnessEnvironmentView;
+  readonly view: EnvironmentView;
 };
 
-export type PreparedHarness = {
+export type PreparedEnvironment = {
   readonly dir: string;
-  readonly plan: HarnessGenerationPlan;
-  readonly view: HarnessEnvironmentView;
+  readonly plan: EnvironmentGenerationPlan;
+  readonly view: EnvironmentView;
 };
 
 const isNotFound = (cause: unknown): boolean =>
@@ -86,23 +86,23 @@ const isNotFound = (cause: unknown): boolean =>
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const readFailure = (path: string, message: string, cause?: unknown): HarnessGenerationError =>
-  new HarnessGenerationError({
+const readFailure = (path: string, message: string, cause?: unknown): EnvironmentGenerationError =>
+  new EnvironmentGenerationError({
     operation: "read",
     path,
     message,
     ...(cause === undefined ? {} : { cause }),
   });
 
-const writeFailure = (path: string, message: string, cause?: unknown): HarnessGenerationError =>
-  new HarnessGenerationError({
+const writeFailure = (path: string, message: string, cause?: unknown): EnvironmentGenerationError =>
+  new EnvironmentGenerationError({
     operation: "write",
     path,
     message,
     ...(cause === undefined ? {} : { cause }),
   });
 
-const readText = (path: string): Effect.Effect<string | undefined, HarnessGenerationError> =>
+const readText = (path: string): Effect.Effect<string | undefined, EnvironmentGenerationError> =>
   Effect.gen(function* () {
     const result = yield* Effect.tryPromise({
       try: () => readFile(path, "utf8"),
@@ -115,7 +115,7 @@ const readText = (path: string): Effect.Effect<string | undefined, HarnessGenera
 
 const readJsonObject = (
   path: string,
-): Effect.Effect<Readonly<Record<string, unknown>> | undefined, HarnessGenerationError> =>
+): Effect.Effect<Readonly<Record<string, unknown>> | undefined, EnvironmentGenerationError> =>
   Effect.gen(function* () {
     const text = yield* readText(path);
     if (text === undefined) return undefined;
@@ -131,7 +131,7 @@ const readJsonObject = (
 
 type DirectoryEntry = { readonly name: string; readonly file: boolean };
 
-const isDirectoryPath = (path: string): Effect.Effect<boolean | undefined, HarnessGenerationError> =>
+const isDirectoryPath = (path: string): Effect.Effect<boolean | undefined, EnvironmentGenerationError> =>
   Effect.gen(function* () {
     const result = yield* Effect.tryPromise({
       try: () => stat(path),
@@ -142,7 +142,7 @@ const isDirectoryPath = (path: string): Effect.Effect<boolean | undefined, Harne
     return yield* readFailure(path, `cannot inspect ${path}`, result.failure);
   });
 
-const readDirectory = (path: string): Effect.Effect<readonly DirectoryEntry[], HarnessGenerationError> =>
+const readDirectory = (path: string): Effect.Effect<readonly DirectoryEntry[], EnvironmentGenerationError> =>
   Effect.gen(function* () {
     const result = yield* Effect.tryPromise({
       try: () => readdir(path, { withFileTypes: true }),
@@ -168,7 +168,7 @@ const readDirectory = (path: string): Effect.Effect<readonly DirectoryEntry[], H
 const extensionItems = (
   directory: string,
   entries: readonly { readonly name: string; readonly file: boolean }[],
-): readonly HarnessDirectoryItem[] =>
+): readonly EnvironmentDirectoryItem[] =>
   entries.flatMap((entry) => {
     if (!entry.file) {
       return [{ name: entry.name, path: join(directory, entry.name), location: "extensions" as const }];
@@ -187,9 +187,9 @@ const extensionItems = (
 /** The skill entries: directories and `*.md` files. */
 const skillItems = (
   directory: string,
-  location: HarnessDirectoryItem["location"],
+  location: EnvironmentDirectoryItem["location"],
   entries: readonly { readonly name: string; readonly file: boolean }[],
-): readonly HarnessDirectoryItem[] =>
+): readonly EnvironmentDirectoryItem[] =>
   entries.flatMap((entry) => {
     if (!entry.file) {
       return [{ name: entry.name, path: join(directory, entry.name), location }];
@@ -228,7 +228,7 @@ const packageItems = (
 const mcpNames = (
   path: string,
   mcp: Readonly<Record<string, unknown>>,
-): Effect.Effect<readonly string[], HarnessGenerationError> => {
+): Effect.Effect<readonly string[], EnvironmentGenerationError> => {
   const servers = mcp["mcpServers"];
   if (servers === undefined) return Effect.succeed([]);
   if (!isRecord(servers)) {
@@ -239,14 +239,14 @@ const mcpNames = (
 
 /** Read the base agent directory into the plan's input. Missing files are an empty base; a
  * malformed JSON file is a read failure rather than a silently empty environment. */
-const readHarnessBase = (input: {
+const readEnvironmentBase = (input: {
   readonly agentDir: string;
   readonly homeDir: string;
   readonly homeSkillsDir: string;
   readonly corviExtension: string;
   readonly extensionsDir: string;
   readonly skillsDir: string;
-}): Effect.Effect<HarnessBase, HarnessGenerationError> =>
+}): Effect.Effect<EnvironmentBase, EnvironmentGenerationError> =>
   Effect.gen(function* () {
     const settings = (yield* readJsonObject(join(input.agentDir, "settings.json"))) ?? {};
     const mcpPath = join(input.agentDir, "mcp.json");
@@ -288,7 +288,7 @@ const readHarnessBase = (input: {
 
 /** Whether a directory exists, kept separate from its entries so an empty directory is still
  * named in the generated settings (`present` is about existence, not contents). */
-const directoryPresent = (path: string): Effect.Effect<boolean, HarnessGenerationError> =>
+const directoryPresent = (path: string): Effect.Effect<boolean, EnvironmentGenerationError> =>
   Effect.gen(function* () {
     const result = yield* Effect.tryPromise({
       try: () => stat(path),
@@ -299,7 +299,7 @@ const directoryPresent = (path: string): Effect.Effect<boolean, HarnessGeneratio
     return yield* readFailure(path, `cannot inspect ${path}`, result.failure);
   });
 
-const ensureDirectory = (path: string): Effect.Effect<void, HarnessGenerationError> =>
+const ensureDirectory = (path: string): Effect.Effect<void, EnvironmentGenerationError> =>
   Effect.tryPromise({
     try: () => mkdir(path, { recursive: true }),
     catch: (cause) => writeFailure(path, `cannot create ${path}`, cause),
@@ -312,7 +312,7 @@ const removeQuietly = (path: string): Effect.Effect<void> =>
     Effect.catch(() => Effect.void),
   );
 
-const writeFileAtomic = (path: string, content: string): Effect.Effect<void, HarnessGenerationError> =>
+const writeFileAtomic = (path: string, content: string): Effect.Effect<void, EnvironmentGenerationError> =>
   Effect.gen(function* () {
     const temporary = `${path}.${randomUUID()}.tmp`;
     const written = yield* Effect.tryPromise({
@@ -337,8 +337,8 @@ const writeFileAtomic = (path: string, content: string): Effect.Effect<void, Har
  * older generation is replaced; the link itself is swapped by rename, so it is never absent. */
 const ensureSharedState = (
   dir: string,
-  state: HarnessSharedState,
-): Effect.Effect<void, HarnessGenerationError> =>
+  state: EnvironmentSharedState,
+): Effect.Effect<void, EnvironmentGenerationError> =>
   Effect.gen(function* () {
     if (state.kind === "directory") yield* ensureDirectory(state.target);
     const link = join(dir, state.name);
@@ -371,7 +371,7 @@ const MANAGED_LINKS: readonly string[] = [
   "AGENTS.override.md",
 ];
 
-const removeStaleLink = (path: string): Effect.Effect<void, HarnessGenerationError> =>
+const removeStaleLink = (path: string): Effect.Effect<void, EnvironmentGenerationError> =>
   Effect.gen(function* () {
     const existing = yield* Effect.tryPromise({
       try: () => lstat(path),
@@ -388,7 +388,7 @@ const removeStaleLink = (path: string): Effect.Effect<void, HarnessGenerationErr
     });
   });
 
-const writeHarnessEnvironment = (plan: HarnessGenerationPlan): Effect.Effect<void, HarnessGenerationError> =>
+const writeEnvironment = (plan: EnvironmentGenerationPlan): Effect.Effect<void, EnvironmentGenerationError> =>
   Effect.gen(function* () {
     yield* ensureDirectory(plan.dir);
     yield* writeFileAtomic(join(plan.dir, "settings.json"), plan.settingsJson);
@@ -420,17 +420,17 @@ const writeHarnessEnvironment = (plan: HarnessGenerationPlan): Effect.Effect<voi
     }
   });
 
-/** Read the base and plan one harness's agent directory without writing anything. The page uses
- * this for its resolved view; `generateHarness` writes the same plan for the launch. */
-export const previewHarness = (
-  options: GenerateHarnessOptions,
-): Effect.Effect<PreparedHarness, HarnessGenerationError> =>
+/** Read the base and plan one harness profile's agent directory without writing anything. The page uses
+ * this for its resolved view; `generateEnvironment` writes the same plan for the launch. */
+export const previewEnvironment = (
+  options: GenerateEnvironmentOptions,
+): Effect.Effect<PreparedEnvironment, EnvironmentGenerationError> =>
   Effect.gen(function* () {
-    if (options.harness.agent !== "pi") {
-      return yield* new HarnessGenerationError({
-        operation: "unsupported-agent",
-        agent: options.harness.agent,
-        message: `harness "${options.harness.key}" runs ${options.harness.agent}: only pi harnesses generate an agent directory`,
+    if (options.harnessProfile.harness !== "pi") {
+      return yield* new EnvironmentGenerationError({
+        operation: "unsupported-harness",
+        harness: options.harnessProfile.harness,
+        message: `harness profile "${options.harnessProfile.key}" runs ${options.harnessProfile.harness}: only pi profiles generate an agent directory`,
       });
     }
     const agentDir = options.agentDir ?? baseAgentDir();
@@ -439,8 +439,10 @@ export const previewHarness = (
     const corviExtension = options.corviExtension ?? corviExtensionDir();
     const scopeBase =
       options.scopeBase ??
-      (options.scopeRoots === undefined ? undefined : harnessScopeRoot(options.harness, options.scopeRoots));
-    const base = yield* readHarnessBase({
+      (options.scopeRoots === undefined
+        ? undefined
+        : harnessProfileScopeRoot(options.harnessProfile, options.scopeRoots));
+    const base = yield* readEnvironmentBase({
       agentDir,
       homeDir,
       homeSkillsDir: skillsDir,
@@ -448,9 +450,10 @@ export const previewHarness = (
       extensionsDir: join(agentDir, "extensions"),
       skillsDir: join(agentDir, "skills"),
     });
-    const dir = options.dir ?? generatedHarnessDir(options.stateDir, options.changeId, options.harness);
-    const plan = planHarnessEnvironment({
-      harness: options.harness,
+    const dir =
+      options.dir ?? generatedEnvironmentDir(options.stateDir, options.changeId, options.harnessProfile);
+    const plan = planEnvironment({
+      harnessProfile: options.harnessProfile,
       dir,
       ...(scopeBase === undefined ? {} : { scopeBase }),
       base,
@@ -458,13 +461,13 @@ export const previewHarness = (
     return { dir, plan, view: plan.view };
   });
 
-/** Generate the Pi agent directory for one resolved harness and return its resolved view. The
+/** Generate the Pi agent directory for one resolved harness profile and return its resolved view. The
  * view is the plan's own, so the page and the launch read one answer. */
-export const generateHarness = (
-  options: GenerateHarnessOptions,
-): Effect.Effect<GeneratedHarness, HarnessGenerationError> =>
+export const generateEnvironment = (
+  options: GenerateEnvironmentOptions,
+): Effect.Effect<GeneratedEnvironment, EnvironmentGenerationError> =>
   Effect.gen(function* () {
-    const prepared = yield* previewHarness(options);
-    yield* writeHarnessEnvironment(prepared.plan);
+    const prepared = yield* previewEnvironment(options);
+    yield* writeEnvironment(prepared.plan);
     return { dir: prepared.dir, view: prepared.view };
   });

@@ -1522,18 +1522,25 @@ test("subagent profile list names the keys create takes, shipped profiles includ
   expect(reviewer?.body.trim().length ?? 0).toBeGreaterThan(0);
 });
 
-test("harness list names the files, and show prints the resolved environment", async () => {
+test("harness list names the programs, and profile list/show name the profiles", async () => {
+  const programs = capture();
+  expect(await run(["--server", baseUrl, "harness", "list", "--json"], programs.io)).toBe(0);
+  const foundPrograms = JSON.parse(programs.out.join("")) as {
+    harnesses: { harness: string; profile: string }[];
+  };
+  expect(foundPrograms.harnesses.map((one) => one.harness).sort()).toEqual(["opencode", "pi"]);
+
   const list = capture();
-  expect(await run(["--server", baseUrl, "--change", CHANGE_ID, "harness", "list", "--json"], list.io)).toBe(
-    0,
-  );
-  const found = JSON.parse(list.out.join("")) as { harnesses: { key: string; label: string }[] };
-  expect(found.harnesses.some((harness) => harness.key === "builtin:pi")).toBe(true);
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "harness", "profile", "list", "--json"], list.io),
+  ).toBe(0);
+  const found = JSON.parse(list.out.join("")) as { harnessProfiles: { key: string; label: string }[] };
+  expect(found.harnessProfiles.some((harness) => harness.key === "builtin:pi")).toBe(true);
 
   const show = capture();
   expect(
     await run(
-      ["--server", baseUrl, "--change", CHANGE_ID, "harness", "show", "builtin:pi", "--json"],
+      ["--server", baseUrl, "--change", CHANGE_ID, "harness", "profile", "show", "builtin:pi", "--json"],
       show.io,
     ),
   ).toBe(0);
@@ -1549,12 +1556,24 @@ test("harness list names the files, and show prints the resolved environment", a
 
 test("harness write and delete round-trip a file", async () => {
   const file = join(tmp, "harness.md");
-  await writeFile(file, "---\nlabel: CLI harness\nharness: pi-bare\n---\nnotes\n", "utf8");
+  await writeFile(file, "---\nlabel: CLI harness\nbasedOnHarnessProfile: pi-bare\n---\nnotes\n", "utf8");
 
   const written = capture();
   expect(
     await run(
-      ["--server", baseUrl, "harness", "write", "cli-harness", "--scope", "global", "--from", file, "--json"],
+      [
+        "--server",
+        baseUrl,
+        "harness",
+        "profile",
+        "write",
+        "cli-harness",
+        "--scope",
+        "global",
+        "--from",
+        file,
+        "--json",
+      ],
       written.io,
     ),
   ).toBe(0);
@@ -1565,7 +1584,7 @@ test("harness write and delete round-trip a file", async () => {
   const deleted = capture();
   expect(
     await run(
-      ["--server", baseUrl, "harness", "delete", "cli-harness", "--scope", "global", "--json"],
+      ["--server", baseUrl, "harness", "profile", "delete", "cli-harness", "--scope", "global", "--json"],
       deleted.io,
     ),
   ).toBe(0);

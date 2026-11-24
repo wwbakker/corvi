@@ -220,7 +220,7 @@ it: resuming the edit, or an explicit save, follows the normal save policy. The 
 selector and the action menus are held back until it recovers.
 
 The title row's **Actions** menu is the change's and the window's at once: **Harnesses…** opens
-the change's shell-pane and subagent harness choices; the change's endings
+the change's shell-pane and subagent harness-profile choices; the change's endings
 first, then the actions that fit the window you are on — a prompt for the agent window you are
 looking at, a command for a plain shell — and the terminal cheat sheet. Each
 action is a file on disk; the **Actions** and **Subagents** pages list

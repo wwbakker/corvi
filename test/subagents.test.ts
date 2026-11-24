@@ -14,6 +14,7 @@ import {
 } from "../apps/server/src/subagents/server/files.ts";
 import type { Change } from "@corvi/changes/record";
 import { configPath } from "../apps/server/src/workspace/server/index.ts";
+import { profilesFor } from "../apps/server/src/subagents/server/run.ts";
 import { checkoutsOf, runEffect, runSh, testTempDir } from "./helpers.ts";
 
 const own = await testTempDir("subagents");
@@ -40,9 +41,33 @@ test("a written profile is listed with its label; one that is not a profile is r
 
   await expect(
     runEffect(
-      writeSubagentFile({ scope: "global", id: "broken", text: "---\nlabel: X\nagent: cursor\n---\nbody" }),
+      writeSubagentFile({ scope: "global", id: "broken", text: "---\nlabel: X\nharness: cursor\n---\nbody" }),
     ),
-  ).rejects.toThrow(/agent/);
+  ).rejects.toThrow(/harness/);
+});
+
+test("a profile that names its phases is offered only in them", async () => {
+  const change = {
+    id: "PROJ-phases",
+    branch: "PROJ-phases",
+    checkouts: [],
+    state: "Implementation",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  } as Change;
+  await runEffect(
+    writeSubagentFile({
+      scope: "global",
+      id: "phase-worker",
+      text: "---\nlabel: Phase worker\nharness: pi\nphases: [Verification]\n---\nCheck it.\n",
+    }),
+  );
+  expect((await runEffect(profilesFor(change))).profiles.map((profile) => profile.key)).not.toContain(
+    "global:phase-worker",
+  );
+  const verifying = { ...change, state: "Verification" } as Change;
+  expect((await runEffect(profilesFor(verifying))).profiles.map((profile) => profile.key)).toContain(
+    "global:phase-worker",
+  );
 });
 
 test("an unknown workspace is refused rather than invented", async () => {
@@ -101,7 +126,7 @@ test("a repository profile is listed, written and deleted through its checkout",
   await mkdir(join(repo, ".corvi", "subagents"), { recursive: true });
   await writeFile(
     join(repo, ".corvi", "subagents", "broken.md"),
-    "---\nlabel: X\nagent: cursor\n---\nbody\n",
+    "---\nlabel: X\nharness: cursor\n---\nbody\n",
   );
   const before = await runEffect(repositorySubagentFiles(change));
   expect(before.repositories.map((one) => one.repository)).toEqual([basename(repo)]);

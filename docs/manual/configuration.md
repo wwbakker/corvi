@@ -142,46 +142,54 @@ Leaving the editor with unsaved edits asks first — **Save and leave**, **Disca
 **Stay** — as the settings page does. **Cancel** is the deliberate discard: back to the list,
 dropping the draft.
 
-## Harnesses
+## Harnesses and harness profiles
 
-A **harness** is a named Pi environment: the agent, model and thinking effort, the extra models,
-the instructions, and which extensions, skills, packages and MCP servers a pane starts with. One
-Markdown file per harness, with the same scopes and precedence as actions:
+A **harness** is the program a pane runs: `pi` or `opencode`. A **harness profile** is a named
+environment for one of them: the model and thinking effort, the extra models, the instructions,
+and which extensions, skills, packages and MCP servers a pane starts with. One Markdown file per
+harness profile, with the same scopes and precedence as actions:
 
-| Scope | Where | On the Harnesses page |
+| Scope | Where | On the Harness profiles page |
 | --- | --- | --- |
 | Built-in | shipped with Corvi (`pi`, `pi-bare`, `opencode`) | templates in the create flow |
 | Global | `~/.config/corvi/harnesses/` | created, edited, deleted |
 | Workspace | `~/.config/corvi/workspaces/<id>/harnesses/` | created, edited, deleted |
 | Repository | `<checkout>/.corvi/harnesses/` | in the Repositories block |
 
-`harness:` names the harness a file is based on; the chain ends at a built-in. Scalars are the
-child's when set and inherited otherwise; a section `mode: all|none` replaces the section while
-`include`/`exclude` add to its parent's lists. `instructions` replaces the base `AGENTS.md`;
-`enabledModels` is the model cycle. Everything else in the base agent directory — credentials,
-models, trust, sessions, packages, themes, prompts, keybindings, `SYSTEM.md`, `APPEND_SYSTEM.md`
-and `bin/` — is shared into every generated environment. Optional files are linked only when the
-base has them. `AGENTS.override.md` is linked only while the harness sets no instructions: it
-replaces the base `AGENTS.md`, so inheriting it would otherwise defeat an explicit `instructions:`.
-Corvi adds its own Pi extension unless a harness excludes `corvi`.
+`harness:` names the program; `basedOnHarnessProfile:` names the profile a file is layered on, by
+id (`pi-bare`) or key (`builtin:pi`). One key, one meaning: `harness:` never names a profile.
+Only a built-in chain end declares the program (a file that switches it is an error); every other
+file inherits it. A user file without a base inherits the built-in `pi`.
+
+Scalars are the child's when set and inherited otherwise; a section `mode: all|none` replaces the
+section while `include`/`exclude` add to its parent's lists. `instructions` replaces the base
+`AGENTS.md`; `enabledModels` is the model cycle. Everything else in the base agent directory —
+credentials, models, trust, sessions, packages, themes, prompts, keybindings, `SYSTEM.md`,
+`APPEND_SYSTEM.md` and `bin/` — is shared into every generated environment. Optional files are
+linked only when the base has them. `AGENTS.override.md` is linked only while the profile sets no
+instructions: it replaces the base `AGENTS.md`, so inheriting it would otherwise defeat an explicit
+`instructions:`. Corvi adds its own Pi extension unless a profile excludes `corvi`.
 
 Every Corvi pane gets a generated agent directory (`PI_CODING_AGENT_DIR`), regenerated on launch
-and when a harness file is saved. The resolved view beside the editor shows the chain, every
+and when a profile file is saved. The resolved view beside the editor shows the chain, every
 item's effective state and origin, and any warnings; the same plan writes the directory the pane
-starts with. **Settings → Workspace → Harness defaults** chooses the shell-pane and subagent
-defaults globally and per workspace; a change overrides both from **Actions → Harnesses…**, and a
-repository harness reaches a change through its checkout: a fresh worktree carries only files
+starts with.
+
+**Settings → Workspace → Harness profile defaults** chooses the shell-pane and subagent defaults
+globally and per workspace; a change overrides both from **Actions → Harness profiles…**, and a
+repository profile reaches a change through its checkout: a fresh worktree carries only files
 committed (tracked) in the source repository, while an in-place checkout also offers an untracked
 file there, because launch discovery reads that same directory.
 
-The `corvi harness` command mirrors the page: `list`, `show <key>`, `write` and `delete`.
+The `corvi harness` command mirrors the page: `list` names the programs, and `profile list`,
+`profile show <key>`, `profile write` and `profile delete` the profiles behind them.
 
 ## Subagent profiles
 
-A subagent profile is a template for a visible, persistent agent session inside a change: which
-harness to start, the model and thinking effort, and the initial prompt. Profiles are files too,
-with the same scopes and precedence as actions, and the **Subagents** page edits them the same
-way:
+A subagent profile is a template for a visible, persistent agent session inside a change: the
+harness profile it is based on, the model and thinking effort, and the initial prompt. Profiles
+are files too, with the same scopes and precedence as actions, and the **Subagents** page edits
+them the same way:
 
 | Scope | Where | On the Subagents page |
 | --- | --- | --- |
@@ -196,16 +204,25 @@ explicit; a repository file names its checkout with `--repository <name>` and th
 `--change`), and `corvi subagent profile list` answers with the keys `corvi subagent create`
 accepts.
 
-The frontmatter names `label` and, optionally, `harness` (a harness id; absent means the change's
-subagent default). `model` and `effort` are passed to the resolved harness and are checked
-loosely, because a model catalog changes with the harness. The rest of a profile's harness fields
-overlay the named harness. `phases`
-limits when the profile is offered. The body is the initial prompt; `create` sends it rendered,
-with the same facts as an action (`{id}`, `{title}`, `{branch}`, `{plan}`, `{state}`, `{dir}`,
-`{repos}`) plus `{prompt}`, which the delegating task text fills in — or, without it, the task is
-appended as a final `## Task` section. An absent or empty task fills `{prompt}` with "Please await
-your initial instructions." (a body-less profile sends that text alone). A file that does not parse
-is listed with its reasons.
+The frontmatter names `label` and, optionally, `basedOnHarnessProfile` (the profile the subagent
+runs in, by id or key) and `harness` (the program, which must agree with that profile). Absent
+means the change's subagent selector, then the settings default, then `builtin:pi`; a profile that
+asks for `harness: opencode` while the default runs `pi` gets `builtin:opencode` instead of an
+error. `model` and `effort` are passed to the resolved profile and are checked loosely, because a
+model catalog changes with the harness. The rest of a profile's harness fields overlay the profile
+it is based on. `phases` limits when the profile is offered: a profile that names its phases is
+only offered in them. The body is the initial prompt; `create` sends it rendered, with the same
+facts as an action (`{id}`, `{title}`, `{branch}`, `{plan}`, `{state}`, `{dir}`, `{repos}`) plus
+`{prompt}`, which the delegating task text fills in — or, without it, the task is appended as a
+final `## Task` section. An absent or empty task fills `{prompt}` with "Please await your initial
+instructions." (a body-less profile sends that text alone). A file that does not parse is listed
+with its reasons.
+
+A created subagent pins the harness profile only when someone chose one — the profile's own base
+or the change's selector. A default resolved from Settings is not pinned, so a later change there
+reaches the subagent on its next start; the program is always pinned, because it decides the
+command. **Continue** and the card's other actions reuse that choice, and the card says which
+profile runs and why.
 
 ## Locations and worktrees
 

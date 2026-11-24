@@ -2,17 +2,17 @@
  * discovered harnesses. "Default" stores nothing and shows what the settings chain resolves to. */
 import { type JSX, useEffect, useState } from "react";
 import type { ChangeId } from "@corvi/contracts/changes";
-import type { HarnessListResponseDto } from "@corvi/contracts/harnesses";
+import type { HarnessProfileListResponseDto } from "@corvi/contracts/harness-profiles";
 
 import type { CorviClient } from "@corvi/client";
 
-export function SubagentHarnessSelect({
+export function SubagentHarnessProfileSelect({
   changeId,
   client,
   value,
   onChange,
   disabled,
-  label = "Subagent harness",
+  label = "Subagent harness profile",
 }: {
   changeId: ChangeId;
   client: CorviClient;
@@ -23,9 +23,9 @@ export function SubagentHarnessSelect({
   /** The field name shown by the dialog. */
   label?: string;
 }): JSX.Element {
-  const [listed, setListed] = useState<HarnessListResponseDto | null>(null);
+  const [listed, setListed] = useState<HarnessProfileListResponseDto | null>(null);
   useEffect(() => {
-    client.harnesses
+    client.harnessProfiles
       .summaries(changeId)
       .then(setListed)
       .catch(() => setListed(null));
@@ -41,7 +41,7 @@ export function SubagentHarnessSelect({
         onChange={(event) => onChange(event.target.value === "" ? null : event.target.value)}
       >
         <option value="">Default ({fallback})</option>
-        {(listed?.harnesses ?? []).map((harness) => (
+        {(listed?.harnessProfiles ?? []).map((harness) => (
           <option key={harness.key} value={harness.key}>
             {harness.label} ({harness.key})
           </option>

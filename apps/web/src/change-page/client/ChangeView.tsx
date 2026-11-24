@@ -28,7 +28,7 @@ import { changeActions } from "./changeActions.ts";
 import { ChangeControls } from "./ChangeControls.tsx";
 import { NewTerminalDialog, type NewTerminalOpener } from "../../terminals/client/NewTerminalDialog.tsx";
 import { SelectTerminalDialog } from "../../terminals/client/SelectTerminalDialog.tsx";
-import { ChangeHarnessesDialog } from "../../harnesses/ChangeHarnessesDialog.tsx";
+import { ChangeHarnessProfilesDialog } from "../../harnesses/ChangeHarnessProfilesDialog.tsx";
 import { ChangeDashboard } from "./ChangeDashboard.tsx";
 import { PlanPage } from "./PlanPage.tsx";
 import { TranscriptsPage } from "./TranscriptsPage.tsx";
@@ -117,7 +117,7 @@ export function ChangeView({
   // answer to.
   const [newTerminal, setNewTerminal] = useState<NewTerminalOpener | null>(null);
   const [selectTerminalOpen, setSelectTerminalOpen] = useState(false);
-  const [harnessDialogOpen, setHarnessDialogOpen] = useState(false);
+  const [harnessProfileDialogOpen, setHarnessDialogOpen] = useState(false);
   // The change's own source, not the chosen workspace: a direct link or "All work" banners too.
   const availability = useSourceAvailability(source);
   const blocked = availability.status._tag !== "available";
@@ -569,7 +569,7 @@ export function ChangeView({
               ? []
               : [
                   {
-                    label: "Harnesses…",
+                    label: "Harness profiles…",
                     onSelect: () => setHarnessDialogOpen(true),
                   },
                 ]),
@@ -705,8 +705,8 @@ export function ChangeView({
         </div>
       )}
       {change !== undefined && (
-        <ChangeHarnessesDialog
-          open={harnessDialogOpen}
+        <ChangeHarnessProfilesDialog
+          open={harnessProfileDialogOpen}
           change={change}
           client={client}
           blocked={blocked}

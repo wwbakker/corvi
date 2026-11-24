@@ -40,8 +40,22 @@ const defaults: Pick<Config, "changesRoot" | "archiveRoot" | "repositoriesDirect
  * local file, and an async dance here would only move the await into the server's first request.
  * Everything async (the settings page's write path) composes the same Effect.
  */
+/** The harness defaults were stored as `harnessDefaults` before the vocabulary split the program
+ * from the profile it configures. Read that into the current name and drop it, so the next save
+ * writes the new shape. */
+const withHarnessProfileDefaults = (raw: unknown): unknown => {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
+  const record = raw as Record<string, unknown>;
+  if (record["harnessProfileDefaults"] !== undefined) return record;
+  const legacy = record["harnessDefaults"];
+  if (typeof legacy !== "object" || legacy === null || Array.isArray(legacy)) return record;
+  const { harnessDefaults: _legacy, ...rest } = record;
+  return { ...rest, harnessProfileDefaults: legacy };
+};
+
 const decodeConfigFile = (text: string): Effect.Effect<ConfigFile> =>
   Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))(text).pipe(
+    Effect.map(withHarnessProfileDefaults),
     Effect.flatMap((raw) => decodePreserving(ConfigFile, raw)),
     // Tolerance the manual documents: an invalid config file reads as "nothing configured".
     Effect.orElseSucceed(() => ({})),
@@ -196,7 +210,7 @@ export function readConfig(): Config {
     // on a heading line, so the first thing typed is the change's name. An empty value is a value
     // — clearing the setting leaves new plans empty.
     planTemplate: resolveSetting({ global: file.planTemplate, fallback: "# " }),
-    harnessDefaults: file.harnessDefaults ?? {},
+    harnessProfileDefaults: file.harnessProfileDefaults ?? {},
     workspaces: workspaces.length ? workspaces : [DEFAULT_WORKSPACE],
     // The extensions' own settings, passed through untouched: the core does not look inside.
     // Always a key, absent or not — the refill is Object.assign over the one config object, and

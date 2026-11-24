@@ -181,9 +181,9 @@ export function settingsFor(
       global: config.planTemplate,
       fallback: config.planTemplate,
     }),
-    harnessDefaults: {
-      ...(config.harnessDefaults ?? {}),
-      ...(own?.harnessDefaults ?? {}),
+    harnessProfileDefaults: {
+      ...(config.harnessProfileDefaults ?? {}),
+      ...(own?.harnessProfileDefaults ?? {}),
     },
     worktreeCopy: at("worktreeCopy", {
       workspace: own?.worktreeCopy,

@@ -9,10 +9,14 @@ import { Result } from "effect";
 
 import type { SubagentSource } from "@corvi/contracts/subagents";
 import { keyOf, mergeScopedFiles } from "@corvi/markdown/scoped";
-import { parseProfileFile, type Profile, type InvalidProfileFile } from "./profile.ts";
+import {
+  parseSubagentProfileFile,
+  type SubagentProfile,
+  type InvalidSubagentProfileFile,
+} from "./subagentProfile.ts";
 
 /** One file as discovery reads it: its id is the filename without `.md`. */
-export type ProfileFileInput = {
+export type SubagentProfileFileInput = {
   readonly id: string;
   readonly source: SubagentSource;
   /** The workspace id or repository name the file came from; part of the key. */
@@ -25,7 +29,7 @@ export type ProfileFileInput = {
 };
 
 /** One runnable profile and where it came from. */
-export type DiscoveredProfile = {
+export type DiscoveredSubagentProfile = {
   /** Names the file's place, not its text: `repository:orders-api:reviewer`. */
   readonly key: string;
   readonly id: string;
@@ -33,28 +37,30 @@ export type DiscoveredProfile = {
   /** The workspace id or repository name the file came from. */
   readonly origin?: string;
   readonly sourceLabel?: string;
-  readonly profile: Profile;
+  readonly profile: SubagentProfile;
 };
 
-export type SkippedProfileFile = {
+export type SkippedSubagentProfileFile = {
   readonly key: string;
   readonly reasons: readonly string[];
 };
 
-export type ProfileDiscovery = {
-  readonly profiles: readonly DiscoveredProfile[];
+export type SubagentProfileDiscovery = {
+  readonly profiles: readonly DiscoveredSubagentProfile[];
   /** Files that did not parse. They are skipped with their reasons and never hide the rest. */
-  readonly skipped: readonly SkippedProfileFile[];
+  readonly skipped: readonly SkippedSubagentProfileFile[];
 };
 
 export { keyOf };
 
 /** Parse every file and apply the precedence rules. Order survives: files come in scope order
  * (built-in, global, workspace, repositories) and the list keeps it. */
-export const mergeProfileFiles = (files: readonly ProfileFileInput[]): ProfileDiscovery => {
-  const merged = mergeScopedFiles<ProfileFileInput, Profile>(files, (file) => {
+export const mergeSubagentProfileFiles = (
+  files: readonly SubagentProfileFileInput[],
+): SubagentProfileDiscovery => {
+  const merged = mergeScopedFiles<SubagentProfileFileInput, SubagentProfile>(files, (file) => {
     if (file.readable === false) return { reasons: ["cannot read this file"] };
-    const result = parseProfileFile(file.text);
+    const result = parseSubagentProfileFile(file.text);
     return Result.isSuccess(result) ? { value: result.success } : { reasons: result.failure.reasons };
   });
   return {

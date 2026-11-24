@@ -76,8 +76,8 @@ export interface ChangesApi {
       readonly state?: NonNullable<ChangeWireDto["state"]>;
       readonly title?: string;
       /** The harness selectors; null clears one back to the default. */
-      readonly userHarness?: string | null;
-      readonly subagentHarness?: string | null;
+      readonly userHarnessProfile?: string | null;
+      readonly subagentHarnessProfile?: string | null;
     },
   ) => Promise<ChangeWireDto>;
   /** The covered repositories and their checkout states: the read half of `setRepositories`. */

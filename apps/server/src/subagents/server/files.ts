@@ -5,8 +5,8 @@
  * not parse is listed with its parser's reasons. The page is where both get fixed. */
 import { Result, Effect } from "effect";
 
-import { builtinProfilesDir } from "@corvi/agents/node";
-import { parseProfileFile } from "@corvi/agents/profile";
+import { builtinSubagentProfilesDir } from "@corvi/agents/node";
+import { parseSubagentProfileFile } from "@corvi/agents/subagent-profile";
 import type {
   SubagentFileRefDto,
   SubagentFileWriteDto,
@@ -22,9 +22,9 @@ import { profileRootsFor } from "./run.ts";
 
 const files = makeMarkdownFiles({
   dirName: "subagents",
-  builtinDir: builtinProfilesDir,
+  builtinDir: builtinSubagentProfilesDir,
   parse: (text) => {
-    const parsed = parseProfileFile(text);
+    const parsed = parseSubagentProfileFile(text);
     return Result.isSuccess(parsed) ? { label: parsed.success.label } : { problems: parsed.failure.reasons };
   },
   unreadable: "problem",

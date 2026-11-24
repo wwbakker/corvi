@@ -178,9 +178,10 @@ export type ChangeDraft = {
   state?: ChangeState;
   /** Each extension's own data about this change, keyed by extension name. */
   extensions?: Record<string, unknown>;
-  /** The harness this change's shell panes start, and the subagent fallback. */
-  userHarness?: string;
-  subagentHarness?: string;
+  /** The harness profile this change's shell panes start, and the one new subagents fall back
+   * to. */
+  userHarnessProfile?: string;
+  subagentHarnessProfile?: string;
 };
 
 /** One thing an operation does, and how it went. Written to disk as it happens: a

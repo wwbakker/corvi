@@ -110,6 +110,22 @@ const guardFormat = (id: string): Effect.Effect<void, ChangeFormatTooNew> =>
     if (recordFormat > FORMAT_VERSION) return yield* formatTooNew(ChangeId.make(id), recordFormat);
   });
 
+/** The change's harness selectors were stored as `userHarness` / `subagentHarness` before the
+ * vocabulary split the program from the profile. Read those into the current names and drop
+ * them, so the next write stores the new shape; a record that has both keeps the new one. */
+const withHarnessProfileKeys = (raw: Record<string, unknown>): Record<string, unknown> => {
+  const { userHarness, subagentHarness, ...rest } = raw;
+  return {
+    ...rest,
+    ...(rest["userHarnessProfile"] === undefined && typeof userHarness === "string"
+      ? { userHarnessProfile: userHarness }
+      : {}),
+    ...(rest["subagentHarnessProfile"] === undefined && typeof subagentHarness === "string"
+      ? { subagentHarnessProfile: subagentHarness }
+      : {}),
+  };
+};
+
 // Decode with unknown keys preserved: a change.json carries whatever the code that wrote it
 // put there, and rewriting it must not drop fields another version added. Failures become
 // DecodeError with the schema issues rendered one line per problem, path included.
@@ -120,7 +136,7 @@ const decodeChange = (text: string, dir: string): Effect.Effect<Change, DecodeEr
     )(text).pipe(
       Effect.mapError(() => new DecodeError({ source: "file", message: `malformed change.json in ${dir}` })),
     );
-    return yield* decodePreserving(ChangeSchema, raw).pipe(
+    return yield* decodePreserving(ChangeSchema, withHarnessProfileKeys(raw)).pipe(
       Effect.mapError(
         (error) =>
           new DecodeError({

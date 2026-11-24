@@ -19,8 +19,8 @@ export function applyPatch(
   patch: {
     state?: string;
     title?: string;
-    userHarness?: string | null;
-    subagentHarness?: string | null;
+    userHarnessProfile?: string | null;
+    subagentHarnessProfile?: string | null;
   },
 ): Change {
   // `undefined` is "leave the phase alone"; every other value must be a phase, the empty string
@@ -50,10 +50,12 @@ export function applyPatch(
     });
   }
   const title = patch.title?.trim();
-  // `undefined` leaves a harness choice alone; `null` (or an empty value) stores nothing, which is
-  // the "Default" selector: later default changes still apply.
-  const harness = (value: string | null | undefined, current: string | undefined): string | undefined =>
-    value === undefined ? current : value?.trim() ? value.trim() : undefined;
+  // `undefined` leaves a harness-profile choice alone; `null` (or an empty value) stores nothing,
+  // which is the "Default" selector: later default changes still apply.
+  const harnessProfile = (
+    value: string | null | undefined,
+    current: string | undefined,
+  ): string | undefined => (value === undefined ? current : value?.trim() ? value.trim() : undefined);
   return {
     ...change,
     state: requested ?? change.state,
@@ -63,7 +65,7 @@ export function applyPatch(
       : title
         ? { title, titleEdited: true }
         : { title: undefined, titleEdited: undefined }),
-    userHarness: harness(patch.userHarness, change.userHarness),
-    subagentHarness: harness(patch.subagentHarness, change.subagentHarness),
+    userHarnessProfile: harnessProfile(patch.userHarnessProfile, change.userHarnessProfile),
+    subagentHarnessProfile: harnessProfile(patch.subagentHarnessProfile, change.subagentHarnessProfile),
   };
 }

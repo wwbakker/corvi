@@ -5043,7 +5043,7 @@ a:focus-visible {
   outline-offset: -2px;
 }
 
-/* The harness file's resolved environment: the same dock as the field docs, with the view above
+/* The harness profile file's resolved environment: the same dock as the field docs, with the view above
    them. It scrolls as one panel so a long section list never pushes the fields out of reach. */
 .harness-docs {
   flex: none;

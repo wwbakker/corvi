@@ -85,7 +85,7 @@ test.skipIf(!usable)(
       expect(names).toEqual([
         "label",
         "harness",
-        "agent",
+        "basedOnHarnessProfile",
         "model",
         "effort",
         "enabledModels",
@@ -97,11 +97,11 @@ test.skipIf(!usable)(
         "phases",
         "body",
       ]);
-      // The harness is any id, so the field is text; the agent is the closed vocabulary.
+      // The program is the closed vocabulary; the profile it is based on is a free reference.
       const harness = page.locator(".action-docs .field").filter({ hasText: /^harness/ });
-      expect(await harness.textContent()).toContain("harness id");
-      const agent = page.locator(".action-docs .field").filter({ hasText: /^agent/ });
-      expect(await agent.locator(".values code").allTextContents()).toEqual(["pi", "opencode"]);
+      expect(await harness.locator(".values code").allTextContents()).toEqual(["pi", "opencode"]);
+      const based = page.locator(".action-docs .field").filter({ hasText: /^basedOnHarnessProfile/ });
+      expect(await based.textContent()).toContain("harness profile id");
     });
   },
   60_000,
@@ -180,7 +180,7 @@ test.skipIf(!usable)(
     await mkdir(join(repo, ".corvi", "subagents"), { recursive: true });
     await writeFile(
       join(repo, ".corvi", "subagents", "broken.md"),
-      "---\nlabel: X\nagent: cursor\n---\nbody\n",
+      "---\nlabel: X\nharness: cursor\n---\nbody\n",
     );
     await writeFile(join(repo, ".corvi", "subagents", "repo-mine.md"), source);
     const dir = join(tmp, "changes", branch);
@@ -227,7 +227,7 @@ test.skipIf(!usable)(
       // The good row and the broken one with its reasons, both in the repository's block.
       expect(await page.locator(".widget p", { hasText: "repo-mine.md" }).count()).toBe(1);
       expect((await page.locator(".widget p", { hasText: "broken.md" }).textContent()) ?? "").toContain(
-        "agent",
+        "harness",
       );
 
       // Editing the checkout's file is the same editor's frame; Save writes the checkout file.

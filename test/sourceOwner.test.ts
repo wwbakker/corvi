@@ -47,7 +47,7 @@ const snapshot = (over: Partial<RemoteAvailabilitySnapshotDto> = {}): RemoteAvai
   ...over,
 });
 
-type Harness = {
+type HarnessProfile = {
   readonly owner: SourceOwner;
   readonly fetches: () => number;
   readonly availabilityCalls: () => number;
@@ -66,7 +66,7 @@ const harness = (
     /** The local retry route hangs until its request is aborted (disposal). */
     readonly retryHang?: boolean;
   } = {},
-): Harness => {
+): HarnessProfile => {
   const queue = [...(config.snapshots ?? [])];
   let fetchCount = 0;
   let availabilityCount = 0;

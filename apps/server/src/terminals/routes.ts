@@ -3,9 +3,9 @@ import { TerminalStatusSchema, type HostStatusDto } from "@corvi/contracts/api";
 import { WINDOW_TITLE_MAX } from "@corvi/contracts/terminal";
 import { changeDir, readChange } from "../change/server/index.ts";
 import type { Change } from "@corvi/changes/record";
-import type { HarnessPaneProvider } from "./server/windows.ts";
+import type { EnvironmentPaneProvider } from "./server/windows.ts";
 import { inertWarningLine, NoTerminalWindowError, writeToPane } from "./server/windows.ts";
-import { userHarnessLaunch } from "../harnesses/server/index.ts";
+import { userHarnessProfileLaunch } from "../harnesses/server/index.ts";
 import { BadRequestError, InternalError } from "@corvi/contracts/errors";
 import { runRoute } from "../capabilities/effect/run.ts";
 import { messageOf } from "../capabilities/effect/support.ts";
@@ -79,11 +79,11 @@ const restartHostEffect = (): Effect.Effect<HostStatusDto, InternalError> =>
  * error, and is told in the pane before anything else runs. */
 const harnessPane = (
   change: Change,
-): { readonly provider: HarnessPaneProvider; readonly warning: () => string | undefined } => {
+): { readonly provider: EnvironmentPaneProvider; readonly warning: () => string | undefined } => {
   let warning: string | undefined;
   return {
     provider: async () => {
-      const result = await Effect.runPromise(userHarnessLaunch(change).pipe(Effect.result));
+      const result = await Effect.runPromise(userHarnessProfileLaunch(change).pipe(Effect.result));
       if (result._tag === "Success") return { env: result.success.env, harness: result.success.key };
       warning = result.failure.message;
       console.error(warning);
