@@ -24,7 +24,7 @@ export function SubagentsPage({
       view="subagents"
       pageClass="subagents-page"
       title="Subagents"
-      hint="A profile is a template for a subagent: which harness to start, the model and effort, and the initial prompt. Each profile is one file — YAML frontmatter for the settings, the body for the prompt — and saving writes that file at once."
+      hint="A profile is a template for a subagent: the harness profile it is based on, the model and effort, and the initial prompt. Each profile is one file — YAML frontmatter for the settings, the body for the prompt — and saving writes that file at once."
       empty="no profiles yet"
       repositoryHint={
         <>

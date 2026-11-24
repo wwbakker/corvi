@@ -179,17 +179,17 @@ export function Wizard({
   useEffect(() => {
     // Discovery for the wizard's scope, plus the harnesses its chosen repositories carry: a
     // repository harness is selectable the moment the repository is.
-    client.harnesses
+    client.harnessProfiles
       .choices({
         ...(wireWorkspace === undefined ? {} : { workspace: wireWorkspace }),
-        // A worktree carries every committed file; the server offers only harness files tracked
+        // A worktree carries every committed file; the server offers only harness profile files tracked
         // in the source repository, so a committed harness is selectable and an untracked one is
         // not promised.
         repositories: repos.map((repo) => repo.path),
         trackedRepositories: repos.filter((repo) => repo.location === "new").map((repo) => repo.path),
       })
       .then((listed) => {
-        const entries = listed.harnesses
+        const entries = listed.harnessProfiles
           .map((entry) => ({
             key: entry.key,
             label: `${entry.label} (${entry.source})`,
@@ -200,14 +200,17 @@ export function Wizard({
         setHarnesses(entries);
         // A repository flipping to a fresh worktree drops its harnesses from the list; a selection
         // that left it must not be created and then fail at launch.
-        if (draft.userHarness !== undefined && !entries.some((entry) => entry.key === draft.userHarness)) {
-          onChange({ userHarness: undefined });
+        if (
+          draft.userHarnessProfile !== undefined &&
+          !entries.some((entry) => entry.key === draft.userHarnessProfile)
+        ) {
+          onChange({ userHarnessProfile: undefined });
         }
         if (
-          draft.subagentHarness !== undefined &&
-          !entries.some((entry) => entry.key === draft.subagentHarness)
+          draft.subagentHarnessProfile !== undefined &&
+          !entries.some((entry) => entry.key === draft.subagentHarnessProfile)
         ) {
-          onChange({ subagentHarness: undefined });
+          onChange({ subagentHarnessProfile: undefined });
         }
       })
       .catch(() => {
@@ -218,8 +221,8 @@ export function Wizard({
     client,
     wireWorkspace,
     repos.map((repo) => `${repo.path}:${repo.location}`).join("|"),
-    draft.userHarness,
-    draft.subagentHarness,
+    draft.userHarnessProfile,
+    draft.subagentHarnessProfile,
     onChange,
   ]);
 
@@ -230,10 +233,12 @@ export function Wizard({
     // list is refused.
     if (
       !choicesFailed &&
-      ((draft.userHarness !== undefined &&
-        !harnesses.some((entry) => entry.key === draft.userHarness && entry.problem === undefined)) ||
-        (draft.subagentHarness !== undefined &&
-          !harnesses.some((entry) => entry.key === draft.subagentHarness && entry.problem === undefined)))
+      ((draft.userHarnessProfile !== undefined &&
+        !harnesses.some((entry) => entry.key === draft.userHarnessProfile && entry.problem === undefined)) ||
+        (draft.subagentHarnessProfile !== undefined &&
+          !harnesses.some(
+            (entry) => entry.key === draft.subagentHarnessProfile && entry.problem === undefined,
+          )))
     ) {
       setError("the chosen harness is no longer available here: pick another");
       return;
@@ -363,13 +368,13 @@ export function Wizard({
               />
             </label>
             <label>
-              Harness
+              HarnessProfile
               <select
                 aria-label="new change harness"
-                value={draft.userHarness ?? ""}
+                value={draft.userHarnessProfile ?? ""}
                 onChange={(e) =>
                   onChange({
-                    userHarness: e.target.value === "" ? undefined : e.target.value,
+                    userHarnessProfile: e.target.value === "" ? undefined : e.target.value,
                   })
                 }
               >
@@ -390,10 +395,10 @@ export function Wizard({
               Subagent harness
               <select
                 aria-label="new change subagent harness"
-                value={draft.subagentHarness ?? ""}
+                value={draft.subagentHarnessProfile ?? ""}
                 onChange={(e) =>
                   onChange({
-                    subagentHarness: e.target.value === "" ? undefined : e.target.value,
+                    subagentHarnessProfile: e.target.value === "" ? undefined : e.target.value,
                   })
                 }
               >
@@ -405,7 +410,7 @@ export function Wizard({
                   </option>
                 ))}
               </select>
-              <small>What a new subagent starts when its profile names no harness.</small>
+              <small>What a new subagent starts when its profile names no harness profile.</small>
             </label>
           </div>
 

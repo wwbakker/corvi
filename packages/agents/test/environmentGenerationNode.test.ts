@@ -5,18 +5,18 @@ import { Effect, Result } from "effect";
 
 import { testTempDir } from "@corvi/test-support/temp";
 import {
-  describeHarnessError,
-  resolveHarnessByKey,
-  type HarnessDiscovery,
-  type ResolvedHarness,
-} from "../src/harnessDiscovery.ts";
+  describeHarnessProfileError,
+  resolveHarnessProfileByKey,
+  type HarnessProfileDiscovery,
+  type ResolvedHarnessProfile,
+} from "../src/harnessProfileDiscovery.ts";
 import {
   baseAgentDir,
   corviExtensionDir,
-  discoverHarnesses,
-  generateHarness,
-  previewHarness,
-  type GenerateHarnessOptions,
+  discoverHarnessProfiles,
+  generateEnvironment,
+  previewEnvironment,
+  type GenerateEnvironmentOptions,
 } from "../src/node/index.ts";
 
 const writeJson = (path: string, value: unknown): Promise<void> =>
@@ -73,20 +73,20 @@ const fixture = async (label: string): Promise<Fixture> => {
 const writeHarness = (f: Fixture, text: string, id = "review"): Promise<void> =>
   writeFile(join(f.harnessDir, `${id}.md`), text, "utf8");
 
-const discover = (f: Fixture): Promise<HarnessDiscovery> =>
-  Effect.runPromise(discoverHarnesses({ global: f.harnessDir, workspaces: [], repositories: [] }));
+const discover = (f: Fixture): Promise<HarnessProfileDiscovery> =>
+  Effect.runPromise(discoverHarnessProfiles({ global: f.harnessDir, workspaces: [], repositories: [] }));
 
-const resolve = async (f: Fixture, key: string): Promise<ResolvedHarness> => {
+const resolve = async (f: Fixture, key: string): Promise<ResolvedHarnessProfile> => {
   const discovery = await discover(f);
-  const resolved = resolveHarnessByKey(discovery, key);
-  if (Result.isFailure(resolved)) throw new Error(describeHarnessError(resolved.failure));
+  const resolved = resolveHarnessProfileByKey(discovery, key);
+  if (Result.isFailure(resolved)) throw new Error(describeHarnessProfileError(resolved.failure));
   return resolved.success;
 };
 
-const optionsFor = (f: Fixture, harness: ResolvedHarness): GenerateHarnessOptions => ({
+const optionsFor = (f: Fixture, harness: ResolvedHarnessProfile): GenerateEnvironmentOptions => ({
   stateDir: f.stateDir,
   changeId: "change-1",
-  harness,
+  harnessProfile: harness,
   agentDir: f.agentDir,
   homeDir: f.homeDir,
   corviExtension: f.corviExtension,
@@ -119,7 +119,7 @@ test("a generated agent directory carries merged settings, MCP, AGENTS.md and sh
       [
         "---",
         "label: Review",
-        "harness: pi-bare",
+        "basedOnHarnessProfile: pi-bare",
         "model: mistral/deepseek-v4-1-flash-1017",
         "effort: low",
         "enabledModels: [deepseek/flash]",
@@ -130,7 +130,7 @@ test("a generated agent directory carries merged settings, MCP, AGENTS.md and sh
       ].join("\n"),
     );
     const harness = await resolve(f, "global:review");
-    const generated = await Effect.runPromise(generateHarness(optionsFor(f, harness)));
+    const generated = await Effect.runPromise(generateEnvironment(optionsFor(f, harness)));
     expect(generated.dir).toBe(join(f.stateDir, "harnesses", "change-1", "global", "review"));
     const settings = await readJson(join(generated.dir, "settings.json"));
     expect(settings).toEqual({
@@ -193,11 +193,11 @@ test("a generated agent directory carries merged settings, MCP, AGENTS.md and sh
 test("previewing a harness returns the same view without writing the directory", async () => {
   const f = await fixture("agents-preview");
   try {
-    await writeHarness(f, "---\nlabel: Review\nharness: pi-bare\n---\n");
+    await writeHarness(f, "---\nlabel: Review\nbasedOnHarnessProfile: pi-bare\n---\n");
     const harness = await resolve(f, "global:review");
     const options = optionsFor(f, harness);
-    const preview = await Effect.runPromise(previewHarness(options));
-    const generated = await Effect.runPromise(generateHarness(options));
+    const preview = await Effect.runPromise(previewEnvironment(options));
+    const generated = await Effect.runPromise(generateEnvironment(options));
     expect(preview.dir).toBe(generated.dir);
     expect(preview.view).toEqual(generated.view);
     expect(preview.plan.settingsJson).toBe(await readFile(join(generated.dir, "settings.json"), "utf8"));
@@ -206,15 +206,15 @@ test("previewing a harness returns the same view without writing the directory",
   }
 });
 
-test("editing the harness file regenerates the same directory", async () => {
+test("editing the harness profile file regenerates the same directory", async () => {
   const f = await fixture("agents-regenerate");
   try {
     await writeHarness(
       f,
-      "---\nlabel: Review\nharness: pi-bare\nskills: { mode: none, include: [spiega] }\n---\n",
+      "---\nlabel: Review\nbasedOnHarnessProfile: pi-bare\nskills: { mode: none, include: [spiega] }\n---\n",
     );
     const first = await resolve(f, "global:review");
-    const firstGenerated = await Effect.runPromise(generateHarness(optionsFor(f, first)));
+    const firstGenerated = await Effect.runPromise(generateEnvironment(optionsFor(f, first)));
     expect((await readJson(join(firstGenerated.dir, "settings.json")))["skills"]).toEqual([
       `!${join(f.homeDir, ".agents", "skills")}/*`,
       `+${join(f.homeDir, ".agents", "skills", "spiega")}`,
@@ -222,10 +222,10 @@ test("editing the harness file regenerates the same directory", async () => {
 
     await writeHarness(
       f,
-      "---\nlabel: Review\nharness: pi-bare\nskills: { mode: none, include: [mine] }\n---\n",
+      "---\nlabel: Review\nbasedOnHarnessProfile: pi-bare\nskills: { mode: none, include: [mine] }\n---\n",
     );
     const second = await resolve(f, "global:review");
-    const secondGenerated = await Effect.runPromise(generateHarness(optionsFor(f, second)));
+    const secondGenerated = await Effect.runPromise(generateEnvironment(optionsFor(f, second)));
     expect(secondGenerated.dir).toBe(firstGenerated.dir);
     expect((await readJson(join(secondGenerated.dir, "settings.json")))["skills"]).toEqual([
       `!${join(f.homeDir, ".agents", "skills")}/*`,
@@ -239,14 +239,14 @@ test("editing the harness file regenerates the same directory", async () => {
 test("a harness that sets instructions does not inherit the base AGENTS.override.md", async () => {
   const f = await fixture("agents-override");
   try {
-    await writeHarness(f, "---\nlabel: Review\nharness: pi-bare\n---\n");
+    await writeHarness(f, "---\nlabel: Review\nbasedOnHarnessProfile: pi-bare\n---\n");
     const withoutInstructions = await resolve(f, "global:review");
-    const first = await Effect.runPromise(generateHarness(optionsFor(f, withoutInstructions)));
+    const first = await Effect.runPromise(generateEnvironment(optionsFor(f, withoutInstructions)));
     expect((await lstat(join(first.dir, "AGENTS.override.md"))).isSymbolicLink()).toBe(true);
 
-    await writeHarness(f, "---\nlabel: Review\nharness: pi-bare\ninstructions: mine\n---\n");
+    await writeHarness(f, "---\nlabel: Review\nbasedOnHarnessProfile: pi-bare\ninstructions: mine\n---\n");
     const withInstructions = await resolve(f, "global:review");
-    const second = await Effect.runPromise(generateHarness(optionsFor(f, withInstructions)));
+    const second = await Effect.runPromise(generateEnvironment(optionsFor(f, withInstructions)));
     expect(second.dir).toBe(first.dir);
     expect(await lstat(join(second.dir, "AGENTS.override.md")).catch(() => undefined)).toBeUndefined();
     expect(await readFile(join(second.dir, "AGENTS.md"), "utf8")).toBe("mine");
@@ -259,14 +259,14 @@ test("a stale AGENTS.md is removed when the harness and the base have none", asy
   const f = await fixture("agents-agents-md");
   try {
     await rm(join(f.agentDir, "AGENTS.md"), { force: true });
-    await writeHarness(f, "---\nlabel: Review\nharness: pi-bare\ninstructions: notes\n---\n");
+    await writeHarness(f, "---\nlabel: Review\nbasedOnHarnessProfile: pi-bare\ninstructions: notes\n---\n");
     const first = await resolve(f, "global:review");
-    const firstGenerated = await Effect.runPromise(generateHarness(optionsFor(f, first)));
+    const firstGenerated = await Effect.runPromise(generateEnvironment(optionsFor(f, first)));
     expect(await readFile(join(firstGenerated.dir, "AGENTS.md"), "utf8")).toBe("notes");
 
-    await writeHarness(f, "---\nlabel: Review\nharness: pi-bare\n---\n");
+    await writeHarness(f, "---\nlabel: Review\nbasedOnHarnessProfile: pi-bare\n---\n");
     const second = await resolve(f, "global:review");
-    const secondGenerated = await Effect.runPromise(generateHarness(optionsFor(f, second)));
+    const secondGenerated = await Effect.runPromise(generateEnvironment(optionsFor(f, second)));
     expect(secondGenerated.view.instructions.origin).toBe("none");
     expect(await lstat(join(secondGenerated.dir, "AGENTS.md")).catch(() => undefined)).toBeUndefined();
   } finally {
@@ -277,15 +277,15 @@ test("a stale AGENTS.md is removed when the harness and the base have none", asy
 test("regeneration replaces a real sessions directory with the shared link", async () => {
   const f = await fixture("agents-sessions");
   try {
-    await writeHarness(f, "---\nlabel: Review\nharness: pi-bare\n---\n");
+    await writeHarness(f, "---\nlabel: Review\nbasedOnHarnessProfile: pi-bare\n---\n");
     const harness = await resolve(f, "global:review");
-    const generated = await Effect.runPromise(generateHarness(optionsFor(f, harness)));
+    const generated = await Effect.runPromise(generateEnvironment(optionsFor(f, harness)));
     const link = join(generated.dir, "sessions");
     await rm(link, { recursive: true, force: true });
     await mkdir(link, { recursive: true });
     await writeFile(join(link, "stale.txt"), "stale", "utf8");
 
-    await Effect.runPromise(generateHarness(optionsFor(f, harness)));
+    await Effect.runPromise(generateEnvironment(optionsFor(f, harness)));
     expect((await lstat(link)).isSymbolicLink()).toBe(true);
     const target = join(f.agentDir, "sessions");
     expect((await lstat(target)).isDirectory()).toBe(true);
@@ -298,15 +298,15 @@ test("regeneration replaces a real sessions directory with the shared link", asy
 test("concurrent regenerations never leave a settings file a reader cannot parse", async () => {
   const f = await fixture("agents-concurrent");
   try {
-    await writeHarness(f, "---\nlabel: Review\nharness: pi-bare\n---\n");
+    await writeHarness(f, "---\nlabel: Review\nbasedOnHarnessProfile: pi-bare\n---\n");
     const harness = await resolve(f, "global:review");
     const options = optionsFor(f, harness);
-    const first = await Effect.runPromise(generateHarness(options));
+    const first = await Effect.runPromise(generateEnvironment(options));
     const settingsPath = join(first.dir, "settings.json");
 
     const errors: unknown[] = [];
     const writes = Array.from({ length: 12 }, () =>
-      Effect.runPromise(generateHarness(options)).catch((error: unknown) => {
+      Effect.runPromise(generateEnvironment(options)).catch((error: unknown) => {
         errors.push(error);
       }),
     );
@@ -340,9 +340,9 @@ test("optional base files are linked only when the base has them", async () => {
     await rm(join(f.agentDir, "bin"), { recursive: true, force: true });
     await rm(join(f.agentDir, "auth.json"), { force: true });
 
-    await writeHarness(f, "---\nlabel: Review\nharness: pi-bare\n---\n");
+    await writeHarness(f, "---\nlabel: Review\nbasedOnHarnessProfile: pi-bare\n---\n");
     const harness = await resolve(f, "global:review");
-    const generated = await Effect.runPromise(generateHarness(optionsFor(f, harness)));
+    const generated = await Effect.runPromise(generateEnvironment(optionsFor(f, harness)));
     for (const name of [
       "keybindings.json",
       "SYSTEM.md",
@@ -363,9 +363,9 @@ test("a malformed base settings file is a read failure, not an empty environment
   const f = await fixture("agents-bad-base");
   try {
     await writeFile(join(f.agentDir, "settings.json"), "{", "utf8");
-    await writeHarness(f, "---\nlabel: Review\nharness: pi-bare\n---\n");
+    await writeHarness(f, "---\nlabel: Review\nbasedOnHarnessProfile: pi-bare\n---\n");
     const harness = await resolve(f, "global:review");
-    const result = await Effect.runPromise(generateHarness(optionsFor(f, harness)).pipe(Effect.result));
+    const result = await Effect.runPromise(generateEnvironment(optionsFor(f, harness)).pipe(Effect.result));
     expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
       expect(result.failure.operation).toBe("read");
@@ -380,11 +380,11 @@ test("opencode harnesses generate nothing", async () => {
   const f = await fixture("agents-opencode");
   try {
     const harness = await resolve(f, "builtin:opencode");
-    const result = await Effect.runPromise(generateHarness(optionsFor(f, harness)).pipe(Effect.result));
+    const result = await Effect.runPromise(generateEnvironment(optionsFor(f, harness)).pipe(Effect.result));
     expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
-      expect(result.failure.operation).toBe("unsupported-agent");
-      expect(result.failure.agent).toBe("opencode");
+      expect(result.failure.operation).toBe("unsupported-harness");
+      expect(result.failure.harness).toBe("opencode");
     }
     expect(await lstat(join(f.stateDir, "harnesses")).catch(() => undefined)).toBeUndefined();
   } finally {
@@ -399,9 +399,12 @@ test("a symlinked skill in the base directory is still discovered", async () => 
     await mkdir(real, { recursive: true });
     await writeFile(join(real, "SKILL.md"), "# real\n", "utf8");
     await symlink(real, join(f.agentDir, "skills", "linked"));
-    await writeHarness(f, "---\nlabel: Review\nharness: pi-bare\nskills: { include: [linked] }\n---\n");
+    await writeHarness(
+      f,
+      "---\nlabel: Review\nbasedOnHarnessProfile: pi-bare\nskills: { include: [linked] }\n---\n",
+    );
     const harness = await resolve(f, "global:review");
-    const generated = await Effect.runPromise(generateHarness(optionsFor(f, harness)));
+    const generated = await Effect.runPromise(generateEnvironment(optionsFor(f, harness)));
     expect((await readJson(join(generated.dir, "settings.json")))["skills"]).toContain(
       join(f.agentDir, "skills", "linked"),
     );

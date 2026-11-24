@@ -16,7 +16,6 @@
     "./power": "./src/power.ts",
     "./actions": "./src/actions.ts",
     "./subagents": "./src/subagents.ts",
-    "./harnesses": "./src/harnesses.ts",
     "./shelves": "./src/shelves.ts",
     "./transcripts": "./src/transcripts.ts",
     "./errors": "./src/errors.ts",
@@ -27,7 +26,8 @@
     "./display": "./src/display.ts",
     "./integrations/*": "./src/integrations/*.ts",
     "./settings-view": "./src/settings-view.ts",
-    "./body": "./src/body.ts"
+    "./body": "./src/body.ts",
+    "./harness-profiles": "./src/harnessProfiles.ts"
   },
   "dependencies": {
     "effect": "catalog:"

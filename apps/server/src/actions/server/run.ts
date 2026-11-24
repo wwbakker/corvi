@@ -17,7 +17,7 @@ import { changeDir, factsFor } from "../../change/server/index.ts";
 import { settingsOf, workspaceOf } from "../../workspace/server/index.ts";
 import { fileRootsFor } from "../../capabilities/fileRoots.ts";
 import { ensureActiveHostWindow, listWindows } from "../../terminals/server/index.ts";
-import { userHarnessLaunch } from "../../harnesses/server/index.ts";
+import { userHarnessProfileLaunch } from "../../harnesses/server/index.ts";
 import { actionSessions } from "../../terminals/server/action-sessions.ts";
 
 /** Where one change's action files live. */
@@ -92,9 +92,9 @@ export const runActionFor = (
     );
 
     const dir = changeDir(change);
-    // An action run should not be blocked by a harness file that broke since the pane opened: a
+    // An action run should not be blocked by a harness profile file that broke since the pane opened: a
     // window it starts then keeps today's environment, and the warning is logged.
-    const harness = yield* userHarnessLaunch(change).pipe(
+    const harness = yield* userHarnessProfileLaunch(change).pipe(
       Effect.catch((error) =>
         Effect.sync(() => {
           console.error(error.message);

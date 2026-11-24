@@ -150,7 +150,7 @@ argument is `2` whether or not a server is running — as is `--location new` wi
 current`, since a new worktree cannot take the branch a source checkout has checked out.
 
 Each group prints its own usage — bare `corvi change`, `corvi action`, or `corvi subagent` — and
-the subagent one carries the delegation recipe an orchestrating agent follows. Profile keys are
+the subagent one carries the delegation recipe an orchestrating agent follows. SubagentProfile keys are
 discoverable (`corvi subagent profile list` answers with what `create` accepts), and the profile
 and action files are writable from the command line: `corvi … profile write <id> --scope
 global|workspace|repository` (the scope is explicit; a repository file names its checkout with

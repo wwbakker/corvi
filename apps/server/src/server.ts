@@ -32,7 +32,7 @@ import { readPublishedPort } from "./tailscale/server/index.ts";
 import { settingsRoutes } from "./settings/routes.ts";
 import { powerRoutes } from "./power/routes.ts";
 import { startPowerMonitor } from "./power/server/index.ts";
-import { harnessRoutes } from "./harnesses/routes.ts";
+import { harnessProfileRoutes } from "./harnesses/routes.ts";
 import { subagentsRoutes } from "./subagents/routes.ts";
 import { terminalsRoutes } from "./terminals/routes.ts";
 import { workspaceRoutes } from "./workspace/routes.ts";
@@ -133,7 +133,7 @@ const routes: Record<string, unknown> = {
   ...integrationRoutes,
   ...powerRoutes,
   ...settingsRoutes,
-  ...harnessRoutes,
+  ...harnessProfileRoutes,
   ...subagentsRoutes,
   ...tailscaleRoutes,
   ...terminalsRoutes,

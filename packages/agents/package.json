@@ -5,17 +5,17 @@
   "type": "module",
   "exports": {
     "./presenter": "./src/presenter.ts",
-    "./profile": "./src/profile.ts",
     "./fields": "./src/fields.ts",
-    "./harness-fields": "./src/harnessFields.ts",
-    "./harness-file": "./src/harnessFile.ts",
-    "./harness-generation": "./src/harnessGeneration.ts",
-    "./harness-discovery": "./src/harnessDiscovery.ts",
-    "./discovery": "./src/discovery.ts",
     "./instance": "./src/instance.ts",
     "./harness": "./src/harness.ts",
     "./transcripts": "./src/transcripts.ts",
-    "./node": "./src/node/index.ts"
+    "./node": "./src/node/index.ts",
+    "./subagent-profile": "./src/subagentProfile.ts",
+    "./harness-profile-fields": "./src/harnessProfileFields.ts",
+    "./harness-profile": "./src/harnessProfileFile.ts",
+    "./environment-generation": "./src/environmentGeneration.ts",
+    "./harness-profile-discovery": "./src/harnessProfileDiscovery.ts",
+    "./subagent-profile-discovery": "./src/subagentProfileDiscovery.ts"
   },
   "dependencies": {
     "@corvi/contracts": "workspace:*",

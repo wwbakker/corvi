@@ -14,7 +14,8 @@ extensions — invisible outside Corvi.
 
 ## Profiles
 
-A profile is a template for a subagent: the harness, the model and effort, and the initial prompt.
+A profile is a template for a subagent: the harness profile it runs in, the model and effort, and
+the initial prompt.
 Profiles are files, with the same scopes and editing as actions (see
 [configuration](configuration.md#subagent-profiles)), and the built-in `reviewer` is a starting
 point. `corvi subagent profile list` shows what this change can run — the keys `create` accepts,

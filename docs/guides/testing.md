@@ -51,6 +51,9 @@ archive, configuration, and state directory and runs owned-resource cleanup on e
 test can help development, but is not completion verification. Bare `bun test` does not provide
 all wrapper safeguards; do not use it as the final check.
 
+`bun run screens` is a local tool outside this suite, not a test to run in CI and not a replacement
+for the page tests ([Checking the interface](../manual/interface.md)).
+
 ## Watching a browser test
 
 Browser tests are headless by default: that is the only mode CI can run, and the suite is judged

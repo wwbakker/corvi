@@ -1,72 +1,78 @@
-/** The fields a harness file shares with a subagent file: which agent, model and effort, the
- * extra models, the instructions, and the four sections of names.
+/** The fields a harness profile shares with a subagent profile: which harness, model and effort,
+ * the extra models, the instructions, and the four sections of names.
  *
- * Parsing is pure and total, exactly like the profile parser that composes it: a frontmatter
- * object is either one well-formed `HarnessFields` or the reasons it is not, and unknown keys are
- * tolerated so a file can carry `description` or a comment for another reader. Model and effort
- * are checked loosely on purpose — a model catalog changes with the harness, so an unknown id is
- * a launch concern, never a parse failure.
+ * Parsing is pure and total, exactly like the subagent profile parser that composes it: a
+ * frontmatter object is either one well-formed `HarnessProfileFields` or the reasons it is not,
+ * and unknown keys are tolerated so a file can carry `description` or a comment for another
+ * reader. Model and effort are checked loosely on purpose — a model catalog changes with the
+ * harness, so an unknown id is a launch concern, never a parse failure.
+ *
+ * `harness:` always names the program (`pi` | `opencode`); the profile a file is based on goes in
+ * `basedOnHarnessProfile:`. One key, one meaning, in both file kinds.
  *
  * A section is `{ mode, include, exclude }`. An absent `mode` means "keep the parent's mode and
  * add my list entries"; a present `mode` replaces the whole section, lists included. That one
- * rule is what `mergeHarnessFields` implements, and it is the same rule the generator writes
- * settings for. */
+ * rule is what `mergeHarnessProfileFields` implements, and it is the same rule the generator
+ * writes settings for. */
 import { Result, Schema } from "effect";
 
-import { HarnessAgent, HarnessSectionMode } from "@corvi/contracts/harnesses";
+import { Harness, HarnessProfileSectionMode } from "@corvi/contracts/harness-profiles";
 
-/** The four sections a harness file can narrow or widen. */
-export type HarnessSectionName = "extensions" | "skills" | "packages" | "mcp";
+/** The four sections a harness profile can narrow or widen. */
+export type HarnessProfileSectionName = "extensions" | "skills" | "packages" | "mcp";
 
 /** One section: a mode, and the names to add to or remove from the base's list. */
-export type HarnessSection = {
-  readonly mode?: HarnessSectionMode;
+export type HarnessProfileSection = {
+  readonly mode?: HarnessProfileSectionMode;
   readonly include: readonly string[];
   readonly exclude: readonly string[];
 };
 
-/** The effective harness settings. Absent values inherit from the based-on harness. */
-export type HarnessFields = {
-  /** Which agent runs it. Present only at a chain's built-in end, or to override (which the
-   * resolver refuses when it differs from the inherited agent). */
-  readonly agent?: HarnessAgent;
+/** The effective harness-profile settings. Absent values inherit from the profile it is based on. */
+export type HarnessProfileFields = {
+  /** Which program runs it. A built-in chain end declares it; every other file inherits it, and a
+   * file that declares a different one is the resolver's harness-switch error. */
+  readonly harness?: Harness;
   readonly model?: string;
   readonly effort?: string;
   /** The model ids a `pi` session may switch between; an empty list is meaningful. */
   readonly enabledModels?: readonly string[];
   /** Markdown that replaces the base `AGENTS.md`; absent inherits it, an empty string clears it. */
   readonly instructions?: string;
-  readonly extensions: HarnessSection;
-  readonly skills: HarnessSection;
-  readonly packages: HarnessSection;
-  readonly mcp: HarnessSection;
+  readonly extensions: HarnessProfileSection;
+  readonly skills: HarnessProfileSection;
+  readonly packages: HarnessProfileSection;
+  readonly mcp: HarnessProfileSection;
 };
 
-/** A file's fields before the chain is resolved: the shared settings plus the id it is based on. */
-export type HarnessFileFields = HarnessFields & {
-  /** The harness this file inherits from. Absent only at a built-in chain end. */
-  readonly harness?: string;
+/** A file's fields before the chain is resolved: the shared settings plus the profile it is based
+ * on. */
+export type HarnessProfileFileFields = HarnessProfileFields & {
+  /** The harness profile this file is layered on, by id (`normaal`) or key (`global:normaal`).
+   * Absent at a built-in chain end, and in a subagent profile that follows the default. */
+  readonly basedOnHarnessProfile?: string;
 };
 
-/** Why a frontmatter object is not a set of harness fields. Every reason names a field. */
-export type InvalidHarnessFields = {
+/** Why a frontmatter object is not a set of harness-profile fields. Every reason names a field. */
+export type InvalidHarnessProfileFields = {
   readonly reasons: readonly string[];
 };
 
-const invalid = (...reasons: string[]): Result.Result<HarnessFileFields, InvalidHarnessFields> =>
-  Result.fail({ reasons });
+const invalid = (
+  ...reasons: string[]
+): Result.Result<HarnessProfileFileFields, InvalidHarnessProfileFields> => Result.fail({ reasons });
 
-const emptySection = (): HarnessSection => ({ include: [], exclude: [] });
+const emptySection = (): HarnessProfileSection => ({ include: [], exclude: [] });
 
-export const emptyHarnessFields: HarnessFields = {
+export const emptyHarnessProfileFields: HarnessProfileFields = {
   extensions: emptySection(),
   skills: emptySection(),
   packages: emptySection(),
   mcp: emptySection(),
 };
 
-const isAgent = Schema.is(HarnessAgent);
-const isSectionMode = Schema.is(HarnessSectionMode);
+const isHarness = Schema.is(Harness);
+const isSectionMode = Schema.is(HarnessProfileSectionMode);
 
 /** An absent value stays absent; a present one has to be a non-empty string. `null` means the
  * field was present but wrong (the caller records a reason). */
@@ -88,7 +94,11 @@ const optionalNames = (value: unknown): readonly string[] | null | undefined => 
 
 /** One section from its raw frontmatter value. Absent and `null` are an empty section; anything
  * that is not an object with a valid mode and name lists is a reason. */
-const parseSection = (name: HarnessSectionName, value: unknown, reasons: string[]): HarnessSection => {
+const parseSection = (
+  name: HarnessProfileSectionName,
+  value: unknown,
+  reasons: string[],
+): HarnessProfileSection => {
   if (value === undefined || value === null) return emptySection();
   if (typeof value !== "object" || Array.isArray(value)) {
     reasons.push(`${name}: an object with mode, include or exclude`);
@@ -109,18 +119,20 @@ const parseSection = (name: HarnessSectionName, value: unknown, reasons: string[
   };
 };
 
-/** Parse the harness fields out of one frontmatter object. Total: every mistake is a reason. */
-export const parseHarnessFields = (
+/** Parse the shared fields out of one frontmatter object. Total: every mistake is a reason. */
+export const parseHarnessProfileFields = (
   fields: Record<string, unknown>,
-): Result.Result<HarnessFileFields, InvalidHarnessFields> => {
+): Result.Result<HarnessProfileFileFields, InvalidHarnessProfileFields> => {
   const reasons: string[] = [];
 
-  const rawHarness = optionalString(fields["harness"]);
-  if (rawHarness === null) reasons.push("harness: a harness id");
+  const rawHarness = fields["harness"];
+  const harness = rawHarness === undefined ? undefined : isHarness(rawHarness) ? rawHarness : null;
+  if (harness === null) reasons.push("harness: pi or opencode");
 
-  const rawAgent = fields["agent"];
-  const agent = rawAgent === undefined ? undefined : isAgent(rawAgent) ? rawAgent : null;
-  if (agent === null) reasons.push("agent: pi or opencode");
+  const basedOnHarnessProfile = optionalString(fields["basedOnHarnessProfile"]);
+  if (basedOnHarnessProfile === null) {
+    reasons.push("basedOnHarnessProfile: a harness profile id or key");
+  }
 
   const model = optionalString(fields["model"]);
   if (model === null) reasons.push("model: a string");
@@ -141,11 +153,13 @@ export const parseHarnessFields = (
   const packages = parseSection("packages", fields["packages"], reasons);
   const mcp = parseSection("mcp", fields["mcp"], reasons);
 
-  if (reasons.length > 0 || agent === null) return invalid(...reasons);
+  if (reasons.length > 0) return invalid(...reasons);
 
   return Result.succeed({
-    ...(rawHarness === undefined || rawHarness === null ? {} : { harness: rawHarness }),
-    ...(agent === undefined ? {} : { agent }),
+    ...(harness === undefined || harness === null ? {} : { harness }),
+    ...(basedOnHarnessProfile === undefined || basedOnHarnessProfile === null
+      ? {}
+      : { basedOnHarnessProfile }),
     ...(model === undefined || model === null ? {} : { model }),
     ...(effort === undefined || effort === null ? {} : { effort }),
     ...(enabledModels === undefined || enabledModels === null ? {} : { enabledModels }),
@@ -159,7 +173,10 @@ export const parseHarnessFields = (
 
 /** Merge one section: a child mode replaces the section outright; without a mode, the child's
  * lists append to the parent's. */
-export const mergeHarnessSection = (base: HarnessSection, child: HarnessSection): HarnessSection =>
+export const mergeHarnessProfileSection = (
+  base: HarnessProfileSection,
+  child: HarnessProfileSection,
+): HarnessProfileSection =>
   child.mode === undefined
     ? {
         ...(base.mode === undefined ? {} : { mode: base.mode }),
@@ -169,24 +186,28 @@ export const mergeHarnessSection = (base: HarnessSection, child: HarnessSection)
     : { mode: child.mode, include: [...child.include], exclude: [...child.exclude] };
 
 /** Merge a child's fields onto its parent's: scalars — child wins, absent inherits; sections —
- * see `mergeHarnessSection`. The based-on id is not a setting and never lands in the result. */
-export const mergeHarnessFields = (base: HarnessFields, child: HarnessFields): HarnessFields => {
+ * see `mergeHarnessProfileSection`. The profile a file is based on is not a setting and never
+ * lands in the result. */
+export const mergeHarnessProfileFields = (
+  base: HarnessProfileFields,
+  child: HarnessProfileFields,
+): HarnessProfileFields => {
   const pick = <T>(childValue: T | undefined, baseValue: T | undefined): T | undefined =>
     childValue === undefined ? baseValue : childValue;
-  const agent = pick(child.agent, base.agent);
+  const harness = pick(child.harness, base.harness);
   const model = pick(child.model, base.model);
   const effort = pick(child.effort, base.effort);
   const enabledModels = pick(child.enabledModels, base.enabledModels);
   const instructions = pick(child.instructions, base.instructions);
   return {
-    ...(agent === undefined ? {} : { agent }),
+    ...(harness === undefined ? {} : { harness }),
     ...(model === undefined ? {} : { model }),
     ...(effort === undefined ? {} : { effort }),
     ...(enabledModels === undefined ? {} : { enabledModels }),
     ...(instructions === undefined ? {} : { instructions }),
-    extensions: mergeHarnessSection(base.extensions, child.extensions),
-    skills: mergeHarnessSection(base.skills, child.skills),
-    packages: mergeHarnessSection(base.packages, child.packages),
-    mcp: mergeHarnessSection(base.mcp, child.mcp),
+    extensions: mergeHarnessProfileSection(base.extensions, child.extensions),
+    skills: mergeHarnessProfileSection(base.skills, child.skills),
+    packages: mergeHarnessProfileSection(base.packages, child.packages),
+    mcp: mergeHarnessProfileSection(base.mcp, child.mcp),
   };
 };

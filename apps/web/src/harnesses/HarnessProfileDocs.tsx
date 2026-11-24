@@ -1,10 +1,13 @@
-/** The harness file's resolved environment beside its editor: which change it is shown for, the
+/** The harness profile file's resolved environment beside its editor: which change it is shown for, the
  * chain, every section's effective items, the instructions and the warnings — with the field
  * documentation below. The view comes from the server's generator, so it is what a pane starts. */
 import { type JSX, useEffect, useMemo, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
-import type { HarnessListResponseDto, HarnessSummaryDto } from "@corvi/contracts/harnesses";
-import { harnessFieldDocs } from "@corvi/agents/fields";
+import type {
+  HarnessProfileListResponseDto,
+  HarnessProfileSummaryDto,
+} from "@corvi/contracts/harness-profiles";
+import { harnessProfileFieldDocs } from "@corvi/agents/fields";
 
 import { type Change } from "../app-root/api.ts";
 import { useChanges } from "../app-root/state.ts";
@@ -18,7 +21,7 @@ const CHANGE_KEY = "corvi:harness-view-change";
 
 const sectionNames = ["extensions", "skills", "packages", "mcp"] as const;
 
-function ItemList({ view }: { view: NonNullable<HarnessSummaryDto["view"]> }): JSX.Element {
+function ItemList({ view }: { view: NonNullable<HarnessProfileSummaryDto["view"]> }): JSX.Element {
   return (
     <>
       {sectionNames.map((name) => {
@@ -53,12 +56,12 @@ function ItemList({ view }: { view: NonNullable<HarnessSummaryDto["view"]> }): J
   );
 }
 
-function View({ view }: { view: NonNullable<HarnessSummaryDto["view"]> }): JSX.Element {
+function View({ view }: { view: NonNullable<HarnessProfileSummaryDto["view"]> }): JSX.Element {
   return (
     <section className="harness-view">
       <h3>{view.label}</h3>
       <p className="hint">
-        <code>{view.key}</code> · {view.agent} · chain {view.chain.map((link) => link.id).join(" → ")}
+        <code>{view.key}</code> · {view.harness} · chain {view.chain.map((link) => link.id).join(" → ")}
       </p>
       <p className="hint">
         generated: <code>{view.generatedDir}</code>
@@ -85,12 +88,18 @@ function View({ view }: { view: NonNullable<HarnessSummaryDto["view"]> }): JSX.E
   );
 }
 
-export function HarnessDocs({ highlight, file }: { highlight?: string; file: EditorFile }): JSX.Element {
+export function HarnessProfileDocs({
+  highlight,
+  file,
+}: {
+  highlight?: string;
+  file: EditorFile;
+}): JSX.Element {
   const { changes: allChanges } = useChanges();
   const owner = useSourceOwner();
   const changes = useMemo(() => (allChanges ?? []).filter((change) => !isFinished(change)), [allChanges]);
   const [chosen, setChosen] = useState<string>(() => getPref(CHANGE_KEY) ?? "");
-  const [listed, setListed] = useState<HarnessListResponseDto | null>(null);
+  const [listed, setListed] = useState<HarnessProfileListResponseDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const selected = changes.find((change) => `${change.source ?? ""}\u0000${change.id}` === chosen);
 
@@ -108,13 +117,13 @@ export function HarnessDocs({ highlight, file }: { highlight?: string; file: Edi
     setError(null);
     owner
       .clientFor(selected.source ?? "")
-      .harnesses.list(ChangeId.make(selected.id))
+      .harnessProfiles.list(ChangeId.make(selected.id))
       .then(setListed)
       .catch((e: Error) => setError(e.message));
   }, [selected?.source, selected?.id, owner, selected]);
 
   const target = useMemo(() => {
-    const matches = (listed?.harnesses ?? []).filter((harness) => harness.id === file.id);
+    const matches = (listed?.harnessProfiles ?? []).filter((harness) => harness.id === file.id);
     return (
       matches.find(
         (harness) =>
@@ -156,22 +165,21 @@ export function HarnessDocs({ highlight, file }: { highlight?: string; file: Edi
       {target?.problem !== undefined && <div className="error-banner">{target.problem}</div>}
       {listed !== null && target === undefined && (
         <p className="hint">
-          this file is not the harness a change currently discovers; save it and it appears here
+          this file is not a harness profile the change currently discovers; save it and it appears here
         </p>
       )}
       <FieldDocs
-        docs={harnessFieldDocs}
-        title="The harness file"
-        ariaLabel="harness file documentation"
+        docs={harnessProfileFieldDocs}
+        title="The harness profile file"
+        ariaLabel="harness profile file documentation"
         highlight={highlight}
       />
-      <section className="harness-example" aria-label="example harness file">
+      <section className="harness-example" aria-label="example harness profile file">
         <h3>Example</h3>
         <pre>
           <code>{`---
 label: Review environment
-harness: pi-bare
-agent: pi
+basedOnHarnessProfile: pi-bare
 model: mistral/deepseek-v4-1-flash-1017
 effort: low
 enabledModels: [deepseek/deepseek-flash, zai/glm-5.3-flash]

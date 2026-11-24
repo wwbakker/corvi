@@ -22,14 +22,21 @@ let tmp: string;
 let url: string;
 let server: ReturnType<typeof Bun.spawn>;
 
-const source = ["---", "label: Review environment", "harness: pi-bare", "---", "notes", ""].join("\n");
+const source = [
+  "---",
+  "label: Review environment",
+  "basedOnHarnessProfile: pi-bare",
+  "---",
+  "notes",
+  "",
+].join("\n");
 const CHANGE = "PAGE-harnesses";
 const BROKEN = "PAGE-broken-harness";
 
 beforeAll(async () => {
   tmp = await testTempDir("harnesses-page");
   ({ server, url } = await startTestServer(tmp));
-  const written = await fetch(`${url}/api/harness-files`, {
+  const written = await fetch(`${url}/api/harness-profile-files`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ scope: "global", id: "review-env", text: source }),
@@ -38,7 +45,7 @@ beforeAll(async () => {
   const created = await fetch(`${url}/api/changes`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ id: CHANGE, title: "Harness page", state: "Ideation" }),
+    body: JSON.stringify({ id: CHANGE, title: "Harness profile page", state: "Ideation" }),
   });
   expect(created.status).toBe(201);
   const broken = await fetch(`${url}/api/changes`, {
@@ -50,16 +57,16 @@ beforeAll(async () => {
   const patched = await fetch(`${url}/api/changes/${BROKEN}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ userHarness: "global:gone" }),
+    body: JSON.stringify({ userHarnessProfile: "global:gone" }),
   });
   expect(patched.status).toBe(200);
-  const brokenHarness = await fetch(`${url}/api/harness-files`, {
+  const brokenHarness = await fetch(`${url}/api/harness-profile-files`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       scope: "global",
       id: "bad-env",
-      text: "---\nlabel: Bad environment\nharness: missing\n---\n",
+      text: "---\nlabel: Bad environment\nbasedOnHarnessProfile: missing\n---\n",
     }),
   });
   expect(brokenHarness.status).toBe(200);
@@ -73,7 +80,7 @@ afterAll(async () => {
 });
 
 test.skipIf(!usable)(
-  "the Harnesses page edits a file beside its resolved view",
+  "the Harness profiles page edits a file beside its resolved view",
   async () => {
     await withPage(browser, async (page) => {
       await page.goto(`${url}/harnesses`, { waitUntil: "domcontentloaded" });
@@ -109,18 +116,20 @@ test.skipIf(!usable)(
       }));
       expect(bottoms.dock).toBe(bottoms.editor);
       // The view endpoint honours views=0: selectors do not pay for a generated plan.
-      const summary = (await (await fetch(`${url}/api/changes/${CHANGE}/harnesses?views=0`)).json()) as {
-        harnesses: { view?: unknown }[];
+      const summary = (await (
+        await fetch(`${url}/api/changes/${CHANGE}/harness-profiles?views=0`)
+      ).json()) as {
+        harnessProfiles: { view?: unknown }[];
       };
-      expect(summary.harnesses.every((harness) => harness.view === undefined)).toBe(true);
-      const full = (await (await fetch(`${url}/api/changes/${CHANGE}/harnesses`)).json()) as {
-        harnesses: { view?: unknown }[];
+      expect(summary.harnessProfiles.every((harness) => harness.view === undefined)).toBe(true);
+      const full = (await (await fetch(`${url}/api/changes/${CHANGE}/harness-profiles`)).json()) as {
+        harnessProfiles: { view?: unknown }[];
       };
-      expect(full.harnesses.some((harness) => harness.view !== undefined)).toBe(true);
+      expect(full.harnessProfiles.some((harness) => harness.view !== undefined)).toBe(true);
       // A relative repository path is refused at the wire, not turned into an empty key segment.
-      expect((await fetch(`${url}/api/harnesses?repository=relative`)).status).toBe(400);
+      expect((await fetch(`${url}/api/harness-profiles?repository=relative`)).status).toBe(400);
       // A workspace outside the config is refused rather than joined into a path.
-      expect((await fetch(`${url}/api/harnesses?workspace=../../anything`)).status).toBe(400);
+      expect((await fetch(`${url}/api/harness-profiles?workspace=../../anything`)).status).toBe(400);
       // The resolved view is the generator's, for the active change: the chain reaches pi-bare
       // and the extensions section marks Corvi's own extension.
       await page.waitForFunction(
@@ -137,6 +146,7 @@ test.skipIf(!usable)(
       // The field documentation is docked beside it and names the harness fields.
       const fields = await page.locator(".harness-docs .action-docs .field h4 code").allTextContents();
       expect(fields).toContain("harness");
+      expect(fields).toContain("basedOnHarnessProfile");
       expect(fields).toContain("extensions");
       // Every control is named: docs toggle, save, cancel, delete.
       for (const name of ["Hide docs", "Cancel", "Save", "Delete"]) {
@@ -148,11 +158,11 @@ test.skipIf(!usable)(
 );
 
 test.skipIf(!usable)(
-  "Settings has Harness defaults, and the new-terminal dialog opens from the + tab",
+  "Settings has Harness profile defaults, and the new-terminal dialog opens from the + tab",
   async () => {
     await withPage(browser, async (page) => {
       await page.goto(`${url}/settings#harness-defaults`, { waitUntil: "domcontentloaded" });
-      await page.waitForSelector("text=Harness defaults");
+      await page.waitForSelector("text=Harness profile defaults");
       expect(await page.getByLabel("Shell panes").count()).toBe(1);
       expect(await page.getByLabel("New subagents").count()).toBe(1);
 
@@ -164,14 +174,14 @@ test.skipIf(!usable)(
       // Both change selectors live in the Actions → Harnesses… dialog, not the title row.
       expect(await page.getByLabel("change user harness").isVisible()).toBe(false);
       await page.locator(".change-bar button.actions").click();
-      await page.locator(".change-bar .menu-items button", { hasText: "Harnesses…" }).click();
+      await page.locator(".change-bar .menu-items button", { hasText: "Harness profiles…" }).click();
       await page.waitForSelector(".harness-choice-dialog[open]");
       expect(await page.getByLabel("change user harness").isVisible()).toBe(true);
       expect(await page.getByLabel("subagent harness").isVisible()).toBe(true);
       expect(await page.locator(".harness-choice-dialog").textContent()).toContain("Default");
       // One top-right control, and no stray text after it.
       expect((await page.locator(".harness-choice-dialog > header").textContent())?.trim()).toBe(
-        "Harnesses×",
+        "Harness profiles×",
       );
       await page.keyboard.press("Escape");
       await page.waitForSelector(".harness-choice-dialog[open]", { state: "detached" });
@@ -186,14 +196,14 @@ test.skipIf(!usable)(
       expect(directoryOptions.some((text) => text.startsWith("Current pane ("))).toBe(true);
       expect(directoryOptions).toContain("Change root");
       // The harness choice is meaningless for a shell, and the dialog says so by disabling it.
-      expect(await page.getByLabel("terminal harness").isDisabled()).toBe(true);
-      await page.getByRole("radio", { name: /Harness/ }).click();
-      expect(await page.getByLabel("terminal harness").isDisabled()).toBe(false);
+      expect(await page.getByLabel("terminal harness profile").isDisabled()).toBe(true);
+      await page.getByRole("radio", { name: /Harness profile/ }).click();
+      expect(await page.getByLabel("terminal harness profile").isDisabled()).toBe(false);
       await page.getByRole("radio", { name: /Shell/ }).click();
-      expect(await page.getByLabel("terminal harness").isDisabled()).toBe(true);
+      expect(await page.getByLabel("terminal harness profile").isDisabled()).toBe(true);
       await directory.selectOption("change");
-      await page.getByRole("radio", { name: /Harness/ }).click();
-      const harnessSelect = page.getByLabel("terminal harness");
+      await page.getByRole("radio", { name: /Harness profile/ }).click();
+      const harnessSelect = page.getByLabel("terminal harness profile");
       await harnessSelect.selectOption("global:review-env");
       // Starting a shell still persists the harness choice; choices are remembered across opens.
       await page.keyboard.press("1");
@@ -202,15 +212,15 @@ test.skipIf(!usable)(
       await page.locator(".window-tab.new").click();
       await page.waitForSelector(".new-terminal-dialog[open]");
       expect(await page.getByLabel("terminal directory").inputValue()).toBe("change");
-      await page.getByRole("radio", { name: /Harness/ }).click();
-      expect(await page.getByLabel("terminal harness").inputValue()).toBe("global:review-env");
-      await page.getByLabel("terminal harness").selectOption("");
+      await page.getByRole("radio", { name: /Harness profile/ }).click();
+      expect(await page.getByLabel("terminal harness profile").inputValue()).toBe("global:review-env");
+      await page.getByLabel("terminal harness profile").selectOption("");
       await page.keyboard.press("1");
       await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
       await page.locator(".window-tab.new").click();
       await page.waitForSelector(".new-terminal-dialog[open]");
-      await page.getByRole("radio", { name: /Harness/ }).click();
-      expect(await page.getByLabel("terminal harness").inputValue()).toBe("");
+      await page.getByRole("radio", { name: /Harness profile/ }).click();
+      expect(await page.getByLabel("terminal harness profile").inputValue()).toBe("");
       await page.keyboard.press("Escape");
       await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
       // The tooltip no longer names the retired chord.

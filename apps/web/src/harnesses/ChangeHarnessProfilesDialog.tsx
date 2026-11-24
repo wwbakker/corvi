@@ -1,14 +1,14 @@
-/** The change's harness choices, in one dialog opened from the Actions menu. The title row holds
+/** The change's harness-profile choices, in one dialog opened from the Actions menu. The title row holds
  * the change's identity and its menus; harness selection is a setting, not a title. */
 import { type JSX, useEffect, useRef } from "react";
 import type { CorviClient } from "@corvi/client";
 import { ChangeId } from "@corvi/contracts/changes";
 import type { Change } from "../app-root/api.ts";
 
-import { SubagentHarnessSelect } from "./SubagentHarnessSelect.tsx";
-import { UserHarnessSelect } from "./UserHarnessSelect.tsx";
+import { SubagentHarnessProfileSelect } from "./SubagentHarnessProfileSelect.tsx";
+import { UserHarnessProfileSelect } from "./UserHarnessProfileSelect.tsx";
 
-export function ChangeHarnessesDialog({
+export function ChangeHarnessProfilesDialog({
   open,
   change,
   client,
@@ -36,7 +36,7 @@ export function ChangeHarnessesDialog({
     <dialog
       ref={dialog}
       className="harness-choice-dialog"
-      aria-label="change harnesses"
+      aria-label="change harness profiles"
       onCancel={(event) => {
         event.preventDefault();
         onClose();
@@ -51,39 +51,41 @@ export function ChangeHarnessesDialog({
       }}
     >
       <header>
-        <h2>Harnesses</h2>
+        <h2>Harness profiles</h2>
         <span className="spacer" />
         <button type="button" className="close" aria-label="close harnesses" onClick={onClose}>
           ×
         </button>
       </header>
       <p className="hint">
-        Every new pane starts with a harness. <strong>Default</strong> follows Settings → Harness defaults for
-        this workspace; a choice here overrides it for this change only. Changes apply to new panes, never to
-        a shell that is already running.
+        Every new pane starts in a harness profile. <strong>Default</strong> follows Settings → Harness
+        profile defaults for this workspace; a choice here overrides it for this change only. Changes apply to
+        new panes, never to a shell that is already running.
       </p>
       <div className="harness-choice-form">
-        <UserHarnessSelect
+        <UserHarnessProfileSelect
           changeId={change.id}
           client={client}
-          stored={change.userHarness}
+          stored={change.userHarnessProfile}
           disabled={blocked}
           label="Shell panes"
           onChanged={onChanged}
         />
-        <SubagentHarnessSelect
+        <SubagentHarnessProfileSelect
           changeId={ChangeId.make(change.id)}
           client={client}
-          value={change.subagentHarness}
+          value={change.subagentHarnessProfile}
           disabled={blocked}
           label="New subagents"
           onChange={(key) => {
-            void client.changes.rename(ChangeId.make(change.id), { subagentHarness: key }).then(onChanged);
+            void client.changes
+              .rename(ChangeId.make(change.id), { subagentHarnessProfile: key })
+              .then(onChanged);
           }}
         />
       </div>
       <footer>
-        <span className="hint">The harness is also shown in each tab&apos;s tooltip.</span>
+        <span className="hint">The harness profile is also shown in each tab&apos;s tooltip.</span>
         <span className="spacer" />
         <button type="button" className="create" onClick={onClose}>
           Done

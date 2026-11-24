@@ -220,7 +220,7 @@ it: resuming the edit, or an explicit save, follows the normal save policy. The 
 selector and the action menus are held back until it recovers.
 
 The title row's **Actions** menu is the change's and the window's at once: **Harnesses…** opens
-the change's shell-pane and subagent harness choices; the change's endings
+the change's shell-pane and subagent harness-profile choices; the change's endings
 first, then the actions that fit the window you are on — a prompt for the agent window you are
 looking at, a command for a plain shell — and the terminal cheat sheet. Each
 action is a file on disk; the **Actions** and **Subagents** pages list
@@ -247,11 +247,14 @@ shortcuts.
 
 ## Checking the interface
 
-Developer commands:
+Two screenshot commands, for two different questions.
 
 ```sh
 bunx playwright install chromium
-bun run shot
+bun run screens                   # against the branch point with main
+bun run screens --against <ref>   # against main, origin/main, a sha, HEAD~1
+bun run screens --only dashboard  # one surface, while iterating
+bun run shot                      # the same surfaces on a running instance
 bun run app:permissions
 bun run app:run
 bun run app:drive
@@ -259,13 +262,32 @@ bun run app:drive --shot --notify
 bun run app:sandbox 4090 --open
 ```
 
-Screenshots use `CORVI_URL` (default `http://127.0.0.1:4000`) and are written under `shots/`.
-Besides the wizard, settings and file pages, the harness captures a change's dashboard in each of
-the themes, its terminal page and the Appearance section; those need a change on the instance
-(seed an isolated one), and are skipped when there is none. It drives the page in a browser, so it
-does not capture the native macOS title bar — that needs the app on macOS.
-Chromium because that is the engine the app renders in: its window is Electron, and Electron is
-Chromium.
+`bun run screens` is the comparison: it renders every surface twice — once from this checkout, once
+from the page bundle built out of an earlier revision — and writes `before/`, `after/`, `diff/` and
+a gallery page under `shots/screens/`. Use it to see what an interface change moved. It compares
+against the branch point with `main` (`git merge-base HEAD main`) by default, so the difference is
+this branch's rather than whatever landed on `main` since; `--against <ref>` names any revision. It
+builds both page bundles itself and serves what it built, so it never reads a stale
+`apps/web/dist`, and it holds a lock while it runs: one run at a time, and a second run stops and
+says who holds it. `--fail-on-diff` makes any difference non-zero, for a pre-release check.
+
+`bun run shot` is the walk of a running instance, for when you are looking at a dev server and
+want its pages as pictures. It reads `CORVI_URL` (default `http://127.0.0.1:4000`), starts no
+server, builds nothing and stubs nothing, and writes `shots/live/NN-<surface>.png` — so the
+pictures are the instance's own data, including what a machine without `az` or `gh` shows. It
+walks the same list of surfaces as `screens`, plus the two only a running instance has: a
+change's terminal page (typed into its own shell) and the Appearance section of Settings. The
+change pages need a change on the instance — seed an isolated one — and are skipped, and named in
+the output, when there is none. A brand-new instance is a normal target: a surface whose setup
+needs content it does not have (an action file to edit, an uncommitted change to review) is
+skipped with the reason, and the rest are still pictures. A surface that does not arrive is
+reported and fails the command. `shot` holds `shots/live.lock` while it runs, so two shots cannot
+race; it does not conflict with a `screens` run, which owns its own fixture, output and lock.
+
+Neither command keeps a baseline or gates a merge: a person reads the pictures and decides. Both
+drive the page in a browser, so neither captures the native macOS title bar — that needs the app
+on macOS. Chromium because that is the engine the app renders in: its window is Electron, and
+Electron is Chromium.
 
 **Never test against the installed app.** Use isolated data and an explicitly owned development
 server. A desktop sandbox must have its own identity; copying an installed bundle while retaining

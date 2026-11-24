@@ -18,7 +18,7 @@ import { ContextsSection } from "./ContextsSection.tsx";
 import { ExtensionSettingsSection } from "./ExtensionSettingsSection.tsx";
 import {
   EnvironmentSection,
-  HarnessDefaultsSection,
+  HarnessProfileDefaultsSection,
   IdeationSection,
   LocationsSection,
   NotificationsSection,
@@ -252,7 +252,7 @@ export function SettingsPage({
         { id: "worktrees", label: "Worktrees" },
         { id: "ideation", label: "Ideation" },
         { id: "environment", label: "Environment" },
-        { id: "harness-defaults", label: "Harness defaults" },
+        { id: "harness-defaults", label: "Harness profile defaults" },
       ],
     },
     {
@@ -474,7 +474,7 @@ export function SettingsPage({
               {selectedId === "ideation" && <IdeationSection scope={sectionScope} />}
 
               {selectedId === "harness-defaults" && (
-                <HarnessDefaultsSection scope={sectionScope} workspaceId={workspace?.id} />
+                <HarnessProfileDefaultsSection scope={sectionScope} workspaceId={workspace?.id} />
               )}
               {selectedId === "environment" && (
                 <EnvironmentSection scope={sectionScope} inheritedEnv={draft.env ?? effective.env} />

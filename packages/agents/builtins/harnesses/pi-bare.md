@@ -1,6 +1,6 @@
 ---
 label: Bare Pi
-harness: pi
+basedOnHarnessProfile: pi
 extensions: { mode: none }
 skills: { mode: none }
 ---

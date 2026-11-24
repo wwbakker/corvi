@@ -22,6 +22,24 @@ import { Dot } from "../../dashboard/client/WidgetRows.tsx";
 const CONTINUE_NOTE =
   "The machine was interrupted mid-task. Continue. If you were waiting for information, say so.";
 
+/** The harness profile a row runs in, and why: a pin names the profile the profile's own base or
+ * the change's selector chose, and an unpinned instance follows the settings default. */
+const harnessOf = (instance: SubagentInstanceDto): { readonly short: string; readonly full: string } => {
+  if (instance.harnessProfileKey === undefined) {
+    return {
+      short: `${instance.harness} · default`,
+      full: `${instance.harness}: the settings-chain default decides the harness profile`,
+    };
+  }
+  const from =
+    instance.harnessProfileFrom === "profile"
+      ? "chosen by its profile"
+      : instance.harnessProfileFrom === "change"
+        ? "chosen by the change's selector"
+        : "pinned at creation";
+  return { short: instance.harnessProfileKey, full: `${instance.harnessProfileKey} (${from})` };
+};
+
 /** The row's dot: interrupted and awaiting a reply are what asks for you; a working subagent is
  * busy rather than fine; a detached one has nothing to say. */
 const dotOf = (instance: SubagentInstanceDto): string | undefined =>
@@ -131,11 +149,11 @@ export function SubagentsCard({
         <div className="item" key={instance.id}>
           <span className="toggle-spacer" />
           <Dot state={dotOf(instance)} />
-          <span className="label" title={instance.profile}>
+          <span className="label" title={`${instance.profile} · ${harnessOf(instance).full}`}>
             {instance.label}
           </span>
-          <span className="detail">
-            {instance.presence} · {instance.activity}
+          <span className="detail" title={harnessOf(instance).full}>
+            {instance.presence} · {instance.activity} · {harnessOf(instance).short}
           </span>
           {instance.interrupted && <span className="badge warn">interrupted</span>}
           {instance.awaitingReply && <span className="badge warn">awaiting reply</span>}
