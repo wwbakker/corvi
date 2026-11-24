@@ -255,7 +255,6 @@ bun run screens                   # against the branch point with main
 bun run screens --against <ref>   # against main, origin/main, a sha, HEAD~1
 bun run screens --only dashboard  # one surface, while iterating
 bun run shot                      # the same surfaces on a running instance
-CORVI_ENGINE=webkit bun run shot
 bun run app:permissions
 bun run app:run
 bun run app:drive
@@ -287,9 +286,8 @@ race; it does not conflict with a `screens` run, which owns its own fixture, out
 
 Neither command keeps a baseline or gates a merge: a person reads the pictures and decides. Both
 drive the page in a browser, so neither captures the native macOS title bar — that needs the app
-on macOS. Chromium is the primary engine because Electron uses it; `CORVI_ENGINE=webkit` runs
-either walk in WebKit, which needs a working Playwright WebKit installation
-(`bunx playwright install webkit`).
+on macOS. Chromium because that is the engine the app renders in: its window is Electron, and
+Electron is Chromium.
 
 **Never test against the installed app.** Use isolated data and an explicitly owned development
 server. A desktop sandbox must have its own identity; copying an installed bundle while retaining

@@ -4,7 +4,14 @@ import { type Browser, type Locator, type Page } from "playwright";
 
 import type { HostStatusDto } from "@corvi/contracts/api";
 
-import { closePages, openEngine, startTestServer, stopTestServer, testTempDir, withPage } from "./helpers.ts";
+import {
+  closePages,
+  openBrowser,
+  startTestServer,
+  stopTestServer,
+  testTempDir,
+  withPage,
+} from "./helpers.ts";
 
 /**
  * The terminal host's restart surface: the icon that appears only while the host is not the one
@@ -15,7 +22,7 @@ import { closePages, openEngine, startTestServer, stopTestServer, testTempDir, w
  * (`packages/contracts`), and the server under it is the ordinary one.
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 

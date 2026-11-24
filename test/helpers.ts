@@ -3,7 +3,7 @@ import { createServer } from "node:net";
 import type { AddressInfo } from "node:net";
 import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { chromium, webkit, type Browser, type Page } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import { claimRunPidFile, isRunToken } from "../scripts/clean-test.ts";
 import { testTempBase } from "../scripts/test-temp.ts";
 import { budget } from "../scripts/timing.ts";
@@ -21,6 +21,7 @@ import type { Capabilities } from "../apps/server/src/integrations/api/capabilit
 import { setRepos } from "../apps/server/src/change/provisioning.ts";
 import { sh, type ShellResult } from "../apps/server/src/capabilities/shell.ts";
 import { HOST_DIR, hostBuildId } from "../apps/server/src/terminals/host/identity.ts";
+import { env } from "@corvi/configuration/node";
 import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
 import {
@@ -570,23 +571,43 @@ export const reservePort = async (): Promise<number> => {
 /** The viewport the page tests drive, and the numbers a layout assertion reads. */
 export const VIEWPORT = { width: 1280, height: 900 } as const;
 
-/** The engine the page tests drive. Chromium is the app's own engine (Electron); `CORVI_ENGINE`
- * runs the same file in WebKit where Playwright's bundle supports it. A missing engine is a skip,
- * not a failure, and a bundle older than the web sources is refused before the browser starts —
- * a page test must not read yesterday's UI. The caller keeps its `let browser: Browser` and this
- * fills it; tests guard on `usable` before using it. */
-export const openEngine = async (assign: (browser: Browser) => void): Promise<boolean> => {
-  const engineName = process.env.CORVI_ENGINE === "webkit" ? "webkit" : "chromium";
-  const engine = engineName === "webkit" ? webkit : chromium;
-  if (!(await Bun.file(engine.executablePath()).exists())) return false;
-  // A stale bundle is a failure, not a skip: the engine is there and the page would be old.
-  requireFreshWebBundle();
+/** Whether the browser is installed on this machine. A missing browser is a skip, not a failure:
+ * the rest of Corvi works without one, so a red suite would only report the machine. */
+export const browserAvailable = async (): Promise<boolean> => {
   try {
-    assign(await engine.launch());
-    return true;
+    return await Bun.file(chromium.executablePath()).exists();
   } catch {
     return false;
   }
+};
+
+/** Whether a run shows the browser window, read from the environment it is given. `CORVI_HEADED`
+ * set to anything opens it — `bun run test:e2e:headed`, and `scripts/shot.ts`, which reads the same
+ * name the same way. Headless otherwise, because CI has no display and that is the run the suite is
+ * judged in. Pure and exported so a unit test can pin the switch without starting a browser. */
+export const headlessFor = (environ: Readonly<Record<string, string | undefined>>): boolean =>
+  !environ[env("HEADED")];
+
+/** The browser a page test drives: Chromium, because the app's window is Electron and Electron is
+ * Chromium. The flags keep a window that other windows cover compositing, so a watched run shows
+ * the page the test reads rather than a frame from whenever it last painted. */
+export const launchBrowser = (): Promise<Browser> =>
+  chromium.launch({
+    headless: headlessFor(process.env),
+    args: ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding"],
+  });
+
+/** Fill the caller's `let browser: Browser` with the browser a page test drives, and say whether
+ * there was one to fill it with. A browser that is not installed is a skip: the rest of Corvi works
+ * without one, so a red suite would only report the machine. One that is installed and cannot start
+ * is a failure — that is a broken install or a headed run with no display, and it must say so rather
+ * than skip. A bundle older than the web sources is refused before the browser starts: a page test
+ * must not read yesterday's UI. Tests guard on `usable` before using the browser. */
+export const openBrowser = async (assign: (browser: Browser) => void): Promise<boolean> => {
+  if (!(await browserAvailable())) return false;
+  requireFreshWebBundle();
+  assign(await launchBrowser());
+  return true;
 };
 
 /** Run `body` on a fresh page at the shared viewport, closing it whatever happens. A page that is

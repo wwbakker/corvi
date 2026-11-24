@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { type Browser, type Locator, type Page } from "playwright";
 import {
   closePages,
-  openEngine,
+  openBrowser,
   startTestServer,
   stopTestServer,
   testTempDir,
@@ -22,7 +22,7 @@ import {
  * the disabled-extension and remote messages have a real scope to land on.
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 

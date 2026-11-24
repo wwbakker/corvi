@@ -24,6 +24,7 @@ For a focused run, the wrapper's modes are available as scripts:
 ```sh
 bun run test:unit         # the non-browser files, across workers
 bun run test:e2e          # every browser end-to-end file, one at a time
+bun run test:e2e:headed   # the same, with a browser window you can watch
 bun run test:e2e:terminal # the browser end-to-end files named test/terminal*.test.ts
 bun run test:e2e:rest     # every other browser end-to-end file
 ```
@@ -52,6 +53,27 @@ all wrapper safeguards; do not use it as the final check.
 
 `bun run screens` is a local tool outside this suite, not a test to run in CI and not a replacement
 for the page tests ([Checking the interface](../manual/interface.md)).
+
+## Watching a browser test
+
+Browser tests are headless by default: that is the only mode CI can run, and the suite is judged
+there. `CORVI_HEADED=1` opens the window instead — `bun run test:e2e:headed` for the browser suite,
+or any mode through the runner for the files you mean:
+
+```sh
+bun run test:e2e:headed test/pages.test.ts -t "the notes card"
+CORVI_HEADED=1 bun scripts/test-run.ts e2e-rest --repeat=3
+```
+
+Extra arguments reach the runner as usual, so a file filter, `-t` and `--repeat` all apply. The
+launch keeps Chromium's two occlusion flags, so a window that another window covers still paints
+and a watched run shows the page the test reads. Watching is for seeing a page the way a person
+does and for finding where a flake stalls; it is not verification, since frame timing and focus
+differ from the headless run.
+
+A browser that is not installed is a skip — the rest of Corvi works without one. A browser that is
+installed and cannot start is a failure, because that is a broken install or a headed run on a box
+with no display, and neither is something a green suite should hide.
 
 ## CI and flakes
 

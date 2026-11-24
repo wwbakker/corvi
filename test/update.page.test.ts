@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { type Browser, type Page } from "playwright";
 import {
   closePages,
-  openEngine,
+  openBrowser,
   testTempDir,
   startTestServer,
   stopTestServer,
@@ -22,7 +22,7 @@ import {
  * the server's schema declares (packages/client's test pins the encoding).
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 

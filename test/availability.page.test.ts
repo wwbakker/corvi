@@ -8,7 +8,7 @@ import {
   budget,
   checkoutsOf,
   closePages,
-  openEngine,
+  openBrowser,
   openFirstWindow,
   runSh,
   testTempDir,
@@ -30,7 +30,7 @@ import { startFakeRemote, type FakeRemote } from "./fakeRemote.ts";
  * - when it comes up and Retry now is pressed, it recovers without a reload.
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 

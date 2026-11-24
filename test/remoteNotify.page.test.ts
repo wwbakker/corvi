@@ -8,7 +8,7 @@ import { serve, type Serving } from "../apps/server/src/capabilities/serve.ts";
 import { guard, json } from "../apps/server/src/capabilities/web.ts";
 import {
   closePages,
-  openEngine,
+  openBrowser,
   stopRunHost,
   testTempDir,
   until,
@@ -23,7 +23,7 @@ import {
  * click opens the remote change — not a local one, and not the local origin.
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 

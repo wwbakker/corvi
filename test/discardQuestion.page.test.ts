@@ -5,7 +5,7 @@ import { type Browser, type Locator, type Page } from "playwright";
 import {
   closePages,
   gitRepo,
-  openEngine,
+  openBrowser,
   startTestServer,
   stopTestServer,
   testTempDir,
@@ -21,7 +21,7 @@ import {
  * clicks.
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 

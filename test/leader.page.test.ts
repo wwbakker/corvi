@@ -3,13 +3,15 @@ import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { type Browser, type Page } from "playwright";
 import {
+  budget,
   closePages,
   gitRepo,
-  openEngine,
+  openBrowser,
   openFirstWindow,
   startTestServer,
   stopTestServer,
   testTempDir,
+  waitFor,
   withPage,
 } from "./helpers.ts";
 
@@ -21,7 +23,7 @@ import {
  * the focus live.
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 
@@ -995,7 +997,6 @@ test("the window tabs are one control, with the list's key over the strip", asyn
     await page.waitForSelector(".leader-layer");
     // The list's key is G, now that "+" has F; the strip is no longer numbered in place, so no tab
     // carries a key and no box is drawn around them.
-    const cap = await capAt(page, "G");
     const drawn = await layer(page);
     // No box around the tabs: they are not a group to number any more, so nothing is outlined
     // over them (the column's own lists are, elsewhere on the page).
@@ -1017,11 +1018,30 @@ test("the window tabs are one control, with the list's key over the strip", asyn
     // The strip is `display: contents`, so the key sits on the row's last window — at its trailing
     // corner, over the windows as a group rather than on any one of them. (The layer's coordinates
     // are fractional; the boxes read here are rounded.)
-    const last = await page.evaluate(() => {
-      const tabs = [...document.querySelectorAll<HTMLElement>(".change-tabs [data-window-index]")];
-      const box = tabs.at(-1)!.getBoundingClientRect();
-      return { right: Math.round(box.right), top: Math.round(box.top) };
+    //
+    // A window's title arrives from its shell, so the strip keeps widening after the key is drawn
+    // and the layer re-renders when it does: reading the key and the tab once caught the pair
+    // between two renders, which is how the last tab's trailing edge came to be 82px off. Wait for
+    // the two to agree, then assert.
+    const trailingCorner = async (): Promise<{
+      readonly cap: Layer["keys"][number];
+      readonly last: { readonly right: number; readonly top: number };
+    }> => ({
+      cap: await capAt(page, "G"),
+      last: await page.evaluate(() => {
+        const tabs = [...document.querySelectorAll<HTMLElement>(".change-tabs [data-window-index]")];
+        const box = tabs.at(-1)!.getBoundingClientRect();
+        return { right: Math.round(box.right), top: Math.round(box.top) };
+      }),
     });
+    const onCorner = ({ cap, last }: Awaited<ReturnType<typeof trailingCorner>>): boolean =>
+      Math.abs(cap.x + 9 - last.right) <= 1 && Math.abs(cap.y + 9 - last.top) <= 1;
+    await waitFor(
+      "the key to sit on the strip's trailing corner",
+      async () => onCorner(await trailingCorner()),
+      budget(8_000),
+    );
+    const { cap, last } = await trailingCorner();
     expect(Math.abs(cap.x + 9 - last.right)).toBeLessThanOrEqual(1);
     expect(Math.abs(cap.y + 9 - last.top)).toBeLessThanOrEqual(1);
 

@@ -62,18 +62,19 @@ const SCRUBBED = [
   "PI_CODING_AGENT_SESSION_DIR",
 ] as const;
 
-/** The browser end-to-end files import a Playwright browser at runtime, or the shared
- * `openEngine` that launches one. The Playwright test stays line-oriented because the shell `grep`
- * this replaces was: a multi-line import (or a type-only one, whose braces name no browser) is not
- * a browser file by that signal. The helper import is matched as a whole because the page tests
- * import it in a multi-line braces list. */
+/** The browser end-to-end files import a Playwright browser at runtime, or a launch helper from
+ * `./helpers.ts`. The Playwright test stays line-oriented because the shell `grep` this replaces
+ * was: a multi-line import (or a type-only one, whose braces name no browser) is not a browser file
+ * by that signal. The helper import is matched inside its braces because the page tests list it
+ * among several, and it covers `launchBrowser` too: a file that launches a browser itself must not
+ * run in the parallel unit shard. */
 const PLAYWRIGHT_IMPORT =
   /^[ \t]*import[ \t]+\{[^}]*(chromium|webkit|firefox)[^}]*\}[ \t]*from[ \t]*"playwright"/;
-const OPEN_ENGINE_IMPORT =
-  /^[ \t]*import[ \t]+\{[^}]*\bopenEngine\b[^}]*\}[ \t]*from[ \t]*"\.\/helpers\.ts";/m;
+const LAUNCH_HELPER_IMPORT =
+  /^[ \t]*import[ \t]+\{[^}]*\b(openBrowser|launchBrowser|browserAvailable)\b[^}]*\}[ \t]*from[ \t]*"\.\/helpers\.ts";/m;
 
 export const importsBrowserAtRuntime = (source: string): boolean =>
-  source.split("\n").some((line) => PLAYWRIGHT_IMPORT.test(line)) || OPEN_ENGINE_IMPORT.test(source);
+  source.split("\n").some((line) => PLAYWRIGHT_IMPORT.test(line)) || LAUNCH_HELPER_IMPORT.test(source);
 
 /** The terminal group is a name, not a claim about what the test drives. `.*` spans separators
  * like the shell glob `test/terminal*.test.ts` it replaces. */

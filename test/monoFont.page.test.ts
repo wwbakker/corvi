@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { type Browser, type Page } from "playwright";
 import {
   closePages,
-  openEngine,
+  openBrowser,
   openFirstWindow,
   startTestServer,
   stopTestServer,
@@ -18,7 +18,7 @@ import {
  * boxes.
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 

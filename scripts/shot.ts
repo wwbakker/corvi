@@ -4,7 +4,6 @@
  *
  *   bun run shot                    # Chromium, against http://127.0.0.1:4000
  *   CORVI_HEADED=1 bun run shot     # with a window, when captures come out stale
- *   CORVI_ENGINE=webkit bun run shot
  *   CORVI_URL=... bun run shot
  *
  * What this file is: the walk of a running Corvi, for when you are looking at a dev server and
@@ -29,17 +28,16 @@
  * tree's own state).
  *
  * Against an isolated instance, never the installed app: a change page opens a terminal, and a
- * change's checkout is where the typed commands run. Chromium by default because that is what the
- * app is — the window is Electron, and Electron is Chromium (docs/manual/interface.md). WebKit is
- * a variable away for checking the page in another browser. A window that other windows cover
- * stops painting, and the capture then serves a stale frame; the launch flags keep it compositing,
- * and `CORVI_HEADED=1` opens it as a real window for the cases that still come out stale. Read a
- * shot against what you expect to see before trusting it.
+ * change's checkout is where the typed commands run. Chromium because that is what the app is —
+ * the window is Electron, and Electron is Chromium (docs/manual/interface.md). A window that other
+ * windows cover stops painting, and the capture then serves a stale frame; the launch flags keep it
+ * compositing, and `CORVI_HEADED=1` opens it as a real window for the cases that still come out
+ * stale. Read a shot against what you expect to see before trusting it.
  */
 import { mkdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { env } from "@corvi/configuration/node";
-import { CAPTURE_ENGINE, captureSurface, takeActiveBrowser, type Finding } from "./screen-capture.ts";
+import { captureSurface, takeActiveBrowser, type Finding } from "./screen-capture.ts";
 import { SURFACES, changeRoute, fileNameOf, isChangeSurface } from "./screen-catalog.ts";
 import { releaseLock, takeLock } from "./screen-lock.ts";
 import { cleanupOnce, installSignalCleanup } from "./run-lifecycle.ts";
@@ -62,13 +60,11 @@ let outputOwned = false;
 const headed = process.env[env("HEADED")] !== undefined;
 
 /** A flag this walk does not take is refused rather than ignored: it has no flags by design (its
- * variables are `CORVI_URL`, `CORVI_HEADED` and `CORVI_ENGINE`), and a typo must not become a
- * quiet run against the default instance. */
+ * variables are `CORVI_URL` and `CORVI_HEADED`), and a typo must not become a quiet run against the
+ * default instance. */
 const unknownFlag = process.argv.slice(2).find((argument) => argument.startsWith("--"));
 if (unknownFlag !== undefined) {
-  console.error(
-    `shot: unknown flag ${unknownFlag}; shot takes no flags (use CORVI_URL, CORVI_HEADED and CORVI_ENGINE)`,
-  );
+  console.error(`shot: unknown flag ${unknownFlag}; shot takes no flags (use CORVI_URL and CORVI_HEADED)`);
   process.exit(2);
 }
 
@@ -112,7 +108,7 @@ const walk = async (): Promise<void> => {
   await rm(OUT, { recursive: true, force: true });
   await mkdir(OUT, { recursive: true });
 
-  console.log(`shot: ${CAPTURE_ENGINE} against ${url}`);
+  console.log(`shot: chromium against ${url}`);
   if (changeId === undefined) {
     const names = skipped.map(({ surface, index }) => fileNameOf(index, surface).replace(/\.png$/, ""));
     console.log(

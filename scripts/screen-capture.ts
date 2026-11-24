@@ -10,9 +10,8 @@
  * answered on the page at all. Those stubs are not part of the walk: a live capture must show the
  * instance's own answers, so they arrive as `stub`, which only the fixture walk gives.
  *
- * The engine is Chromium — the app's own, since the window is Electron — and `CORVI_ENGINE=webkit`
- * runs the same walk in the other browser. A comparison run should leave it unset: both of its
- * passes must be one engine for the pixels to cancel.
+ * The engine is Chromium — the app's own, since the window is Electron — and one comparison run is
+ * one engine, so its two passes cancel.
  *
  * Everything that decides a pixel is stated here rather than inherited: one viewport per surface
  * (the catalog's, or 1280x900), one theme per surface (written into the cookie before the
@@ -29,7 +28,7 @@
  */
 import { join } from "node:path";
 import { env } from "@corvi/configuration/node";
-import { chromium, webkit, type Browser, type BrowserContext, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { budget, settleLayout } from "./timing.ts";
 import { clippingOf, describeClipping, type ClippingBox } from "./screen-clipping.ts";
 import {
@@ -98,10 +97,6 @@ export type SurfaceCapture = {
   readonly findings: readonly Finding[];
   readonly skipped?: { readonly reason: string };
 };
-
-/** The engine this walk runs: Chromium unless `CORVI_ENGINE` names WebKit. */
-export const CAPTURE_ENGINE: "chromium" | "webkit" =
-  (process.env[env("ENGINE")] ?? "") === "webkit" ? "webkit" : "chromium";
 
 /** What the page still says it is loading, as `"text" (path)` per element: read after the wait
  * ran out, because the wait itself only knows that something is still there. Only what is drawn
@@ -282,21 +277,15 @@ const openBrowser = async (
   surface: Surface,
   options: CaptureOptions,
 ): Promise<{ readonly browser: Browser; readonly context: BrowserContext }> => {
-  const engine = CAPTURE_ENGINE === "webkit" ? webkit : chromium;
-  const browser = await engine.launch({
+  const browser = await chromium.launch({
     headless: !options.headed,
     // Raster the whole frame: partial raster lets a capture take a tile that is still being
-    // painted at another scale, which moves an antialiased edge by one level between runs. The
-    // flags are Chromium's; WebKit takes none.
-    ...(CAPTURE_ENGINE === "chromium"
-      ? {
-          args: [
-            "--disable-backgrounding-occluded-windows",
-            "--disable-renderer-backgrounding",
-            "--disable-partial-raster",
-          ],
-        }
-      : {}),
+    // painted at another scale, which moves an antialiased edge by one level between runs.
+    args: [
+      "--disable-backgrounding-occluded-windows",
+      "--disable-renderer-backgrounding",
+      "--disable-partial-raster",
+    ],
   });
   const context = await browser.newContext({
     viewport: surface.viewport ?? VIEWPORT,

@@ -9,7 +9,7 @@ import { DEVICE_COOKIE } from "../apps/server/src/devices/server/index.ts";
 import {
   budget,
   closePages,
-  openEngine,
+  openBrowser,
   testTempDir,
   startTestServer,
   stopTestServer,
@@ -27,7 +27,7 @@ import {
  * are pinned in test/externalListener.test.ts.
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 

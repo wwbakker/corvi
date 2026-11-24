@@ -3,11 +3,13 @@ import { mkdir, rm } from "node:fs/promises";
 import { connect } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium, type Browser, type Page } from "playwright";
+import { type Browser, type Page } from "playwright";
 import {
+  browserAvailable,
   budget,
   checkoutsOf,
   closePages,
+  launchBrowser,
   openFirstWindow,
   requireFreshWebBundle,
   runSh,
@@ -359,14 +361,7 @@ const pasteText = async (page: Page, text: string): Promise<void> => {
   await page.keyboard.press("Control+Shift+V");
 };
 
-const haveBrowser = await (async (): Promise<boolean> => {
-  try {
-    return await Bun.file(chromium.executablePath()).exists();
-  } catch {
-    return false;
-  }
-})();
-const usable = haveBrowser;
+const usable = await browserAvailable();
 if (usable) requireFreshWebBundle();
 
 let tmp: string;
@@ -445,7 +440,7 @@ beforeAll(async () => {
       body: JSON.stringify({ id: change, checkouts: checkoutsOf([at]) }),
     });
   }
-  browser = await chromium.launch();
+  browser = await launchBrowser();
 }, budget(120_000));
 
 afterEach(async () => {

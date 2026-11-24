@@ -4,7 +4,7 @@ import { basename, join } from "node:path";
 import { type Browser, type Page } from "playwright";
 import {
   closePages,
-  openEngine,
+  openBrowser,
   runSh,
   serverEnv,
   testTempDir,
@@ -25,7 +25,7 @@ import { editorText, fillEditor } from "./editor.ts";
  * profiles directory with it. If a browser is not installed the page checks skip.
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 

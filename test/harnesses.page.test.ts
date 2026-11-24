@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { type Browser } from "playwright";
 import {
   closePages,
-  openEngine,
+  openBrowser,
   openFirstWindow,
   startTestServer,
   stopTestServer,
@@ -14,7 +14,7 @@ import {
 /** The Harnesses page and the new-terminal dialog through the page: the resolved view beside the
  * editor, the settings defaults section, and the dialog the "+" tab opens. */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 
