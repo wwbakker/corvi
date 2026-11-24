@@ -54,7 +54,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { readdir, realpath, rm } from "node:fs/promises";
+import { readdir, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sh } from "./sh.ts";
@@ -184,6 +184,37 @@ const liveToken = (token: string, roots: readonly string[]): boolean => {
     }
   }
   return false;
+};
+
+/** What a dead run still owns: the processes that carry its token (the server by its marker, the
+ * terminal host by the run's path in its socket) and the paths the cleaner attributes to it that
+ * still hold a live host. A lock take-over asks this before it trusts a dead pid. */
+export type RunLeftovers = {
+  readonly processes: readonly { readonly pid: number; readonly command: string }[];
+  readonly paths: readonly string[];
+};
+
+export const leftoversOf = async (token: string): Promise<RunLeftovers> => {
+  const running = (await processes()).filter(
+    (process_) =>
+      (isKillable(process_.command) && tokenOf(process_.command) === token) ||
+      (/(?:^|\/)(?:bun|node)(?: |$).*terminals\/host\/main\.ts/.test(process_.command) &&
+        tokenFromPath(process_.command) === token),
+  );
+  const roots = await testRoots();
+  const unique = [...new Set(await Promise.all(roots.map((root) => realpath(root).catch(() => root))))];
+  const paths: string[] = [];
+  for (const root of unique) {
+    for (const entry of await readdir(root).catch(() => [])) {
+      if (tokenFromPath(entry) !== token && tokenFromPidFile(entry) !== token) continue;
+      const path = join(root, entry);
+      const host = Number(
+        await readFile(join(path, "state", "corvi", "host.sock.pid"), "utf8").catch(() => ""),
+      );
+      if (Number.isInteger(host) && host > 0 && pidAlive(host)) paths.push(path);
+    }
+  }
+  return { processes: running, paths };
 };
 
 /** The only processes this tool is ever allowed to end: the runtimes a test server can be. */

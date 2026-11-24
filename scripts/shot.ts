@@ -1,246 +1,246 @@
-/** Screenshots the running app so the UI can be inspected without a human describing it.
+/**
+ * Screenshots every surface the catalog names, on a running instance: the live walk,
+ * `bun run shot`.
  *
  *   bun run shot                    # Chromium, against http://127.0.0.1:4000
  *   CORVI_HEADED=1 bun run shot     # with a window, when captures come out stale
  *   CORVI_ENGINE=webkit bun run shot
  *   CORVI_URL=... bun run shot
  *
- * Writes to shots/. Requires `bunx playwright install chromium` once (webkit too, only for the
- * other-engine run).
+ * What this file is: the walk of a running Corvi, for when you are looking at a dev server and
+ * want the pages as pictures. It reads the change the catalog's change entries are about from the
+ * instance itself — the first change that is not an idea; when there is none, those entries are
+ * skipped and named — and writes `shots/live/NN-<surface>.png` in catalog order, honouring each
+ * entry's theme and viewport. A surface that does not arrive is reported and fails the command: a
+ * person running this wants to know which page did not come up, not a folder that quietly holds
+ * fewer pictures. A surface whose setup needs content a brand-new instance does not have — an
+ * action file to edit, an uncommitted change to review — is skipped with a line naming it and the
+ * reason, and the rest are still captured. The distinction is the walk's: a failed setup is fatal
+ * in `bun run screens`, whose fixture promises that content.
  *
- * Chromium by default because that is what the app is: the window is Electron, and Electron is
- * Chromium (docs/manual/interface.md). WebKit is a variable away for checking the page in
- * another browser — the page is a web page first, and browsers remain a first-class view.
+ * Two shots cannot race on `shots/live`: the walk holds `shots/live.lock` (`scripts/screen-lock.ts`).
  *
- * A window that other windows cover stops painting, and the capture then serves a frame from
- * whenever it last did — a shot that disagrees with the page. The launch flags keep it
- * compositing anyway; `CORVI_HEADED=1` opens it as a real window for the cases that still come
- * out stale. Read a shot against what you expect to see before trusting it. */
-import { mkdir } from "node:fs/promises";
-import { chromium, webkit } from "playwright";
+ * What it is not: a comparison and not a fixture. It starts no server, builds nothing, stubs
+ * nothing and compares nothing — the pictures are the instance's own data, including the answers
+ * a machine without `az` or `gh` gives, because a `shot` of stub data would be a picture of
+ * nothing. The comparison against an earlier revision is `bun run screens` (`scripts/screens.ts`),
+ * which shares this walk's capture (`scripts/screen-capture.ts`) and skips this walk's `live`
+ * entries (the terminal page and the Appearance section, which need a real shell or the settings
+ * tree's own state).
+ *
+ * Against an isolated instance, never the installed app: a change page opens a terminal, and a
+ * change's checkout is where the typed commands run. Chromium by default because that is what the
+ * app is — the window is Electron, and Electron is Chromium (docs/manual/interface.md). WebKit is
+ * a variable away for checking the page in another browser. A window that other windows cover
+ * stops painting, and the capture then serves a stale frame; the launch flags keep it compositing,
+ * and `CORVI_HEADED=1` opens it as a real window for the cases that still come out stale. Read a
+ * shot against what you expect to see before trusting it.
+ */
+import { mkdir, rm } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { env } from "@corvi/configuration/node";
+import { CAPTURE_ENGINE, captureSurface, takeActiveBrowser, type Finding } from "./screen-capture.ts";
+import { SURFACES, changeRoute, fileNameOf, isChangeSurface } from "./screen-catalog.ts";
+import { releaseLock, takeLock } from "./screen-lock.ts";
+import { cleanupOnce, installSignalCleanup } from "./run-lifecycle.ts";
 
-const url = process.env[env("URL")] ?? "http://127.0.0.1:4000";
+/** The instance to walk, from `CORVI_URL`: the dev server the app starts by default. */
+const url = (process.env[env("URL")] ?? "http://127.0.0.1:4000").replace(/\/+$/, "");
 
-/** The engine of the app's own window: Chromium, via Electron. `CORVI_ENGINE` overrides it. */
-const engineName = process.env[env("ENGINE")] ?? "chromium";
-const engine = engineName === "webkit" ? webkit : chromium;
-await mkdir("shots", { recursive: true });
+/** Where the images go, from the repository root. Cleared at the start of every run, so the list
+ * this run prints is the whole of what is there. */
+const OUT = join("shots", "live");
 
-const browser = await engine.launch({
-  headless: !process.env[env("HEADED")],
-  args: ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding"],
-});
-console.log(`${engine === webkit ? "webkit" : "chromium"} against ${url}`);
-const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-const errors: string[] = [];
-page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
-page.on("pageerror", (e) => errors.push(e.message));
+/** This walk's own lock, beside the images it guards. */
+const LOCK = resolve("shots", "live.lock");
 
-const shot = async (name: string): Promise<void> => {
-  // Bring the window up and let the last change settle: a capture taken mid-update shows the
-  // form of a moment ago.
-  await page.bringToFront();
-  await page.waitForTimeout(200);
-  await page.screenshot({ path: `shots/${name}.png`, fullPage: true });
-  console.log(`shots/${name}.png`);
+/** Set by a signal: the walk stops rather than starting another surface, and its cleanup removes
+ * the output directory only once this run has cleared it. */
+let interrupted = false;
+let outputOwned = false;
+
+const headed = process.env[env("HEADED")] !== undefined;
+
+/** A flag this walk does not take is refused rather than ignored: it has no flags by design (its
+ * variables are `CORVI_URL`, `CORVI_HEADED` and `CORVI_ENGINE`), and a typo must not become a
+ * quiet run against the default instance. */
+const unknownFlag = process.argv.slice(2).find((argument) => argument.startsWith("--"));
+if (unknownFlag !== undefined) {
+  console.error(
+    `shot: unknown flag ${unknownFlag}; shot takes no flags (use CORVI_URL, CORVI_HEADED and CORVI_ENGINE)`,
+  );
+  process.exit(2);
+}
+
+/** The instant relative times are measured from: now, because this is a picture of the instance
+ * as it is. It is frozen for the run, so `3h ago` does not move between two surfaces. */
+const now = new Date();
+
+/** One change on the instance, as the catalog needs it: which change the change pages are about,
+ * and whether it has started. */
+type ListedChange = {
+  readonly id: string;
+  readonly state?: string;
 };
 
-try {
-  await page.goto(url, { waitUntil: "networkidle" });
-  await shot("1-home");
-
-  // Leader mode: Ctrl+Space lays the column's keys over its controls, and the bottom row's over
-  // its own (app-root/leader.tsx). The overview has no view controls, so the page's keys are the
-  // column's alone here.
-  await page.keyboard.press("Control+Space");
-  await page.waitForSelector(".leader-layer");
-  await shot("1b-leader");
-  await page.keyboard.press("Escape");
-  await page.waitForSelector(".leader-layer", { state: "detached" });
-
-  await page.locator(".sidebar .ideas-row .create").click();
-  // One screen now: the seeded plan on the left, the sections on the right. The steps arrive
-  // with the wizard's fetch, and each is collapsed to its pick — a field with an "Edit…" that
-  // opens its own browser in a dialog — so the tool works against any configuration: an
-  // instance with an issue integration, or one without.
-  await page.waitForSelector(".wizard-body");
-  await page.waitForTimeout(500);
-  await shot("2-wizard");
-
-  // The jira story browser behind its field's "Edit…". Picking an issue names the change — by
-  // writing the plan's heading while it is still the template's — so the screen after this one
-  // shows the title following it.
-  const jiraEdit = page
-    .locator(".wizard-sections .field", { has: page.locator("span.label", { hasText: "Jira" }) })
-    .getByRole("button", { name: "Edit…" });
-  if (await jiraEdit.isVisible().catch(() => false)) {
-    await jiraEdit.click();
-    await page.waitForSelector("dialog[open]");
-    await page.waitForTimeout(500);
-    const issues = page.locator("dialog[open] .table tbody tr:not(.group)");
-    if (
-      await issues
-        .first()
-        .isVisible()
-        .catch(() => false)
-    ) {
-      await issues.first().click();
-      await page.waitForTimeout(200);
-    }
-    await shot("2b-jira-browser");
-    await page.locator("dialog[open]").getByRole("button", { name: "Close" }).click();
-    await page.waitForTimeout(200);
+/** What the instance lists. A refusal here is the command's whole failure: without the change
+ * list there is nothing to walk, and guessing an id would photograph the plan fallback. */
+const listedChanges = async (): Promise<ListedChange[]> => {
+  const response = await fetch(`${url}/api/changes`);
+  if (!response.ok) {
+    throw new Error(`${url}/api/changes answered ${response.status}: ${await response.text()}`);
   }
-  await shot("3-wizard-named");
+  return (await response.json()) as ListedChange[];
+};
 
-  // The repositories behind their field's "Edit…": the same directory browser as always, in a
-  // dialog over the small list of what is picked.
-  await page.locator(".wizard-sections .repos-field").getByRole("button", { name: "Edit…" }).click();
-  await page.waitForSelector("dialog[open] .browser");
-  // Tick the first repository, so the shot shows the browser in use. Rows settle when the listing
-  // arrives — the empty hint is not a row — and the first row is not always a repository: a
-  // starting directory of plain directories needs one step in first.
-  const rows = page.locator("dialog[open] .entries li:not(.hint)");
-  const add = page.locator("dialog[open] .entries button:enabled", { hasText: /^Add$/ }).first();
-  await rows.first().waitFor();
-  if (await add.isVisible().catch(() => false)) {
-    await add.click();
+/** The walk itself, with the lock already held. */
+const walk = async (): Promise<void> => {
+  const changes = await listedChanges();
+  // The first change that is not an idea: an idea has no dashboard, no review and no terminal
+  // worth a picture, and this is the change the catalog's change entries are about.
+  const change = changes.find((record) => record.state !== "Ideation");
+  const changeId = change?.id;
+
+  const walkable = SURFACES.map((surface, index) => ({ surface, index })).filter(
+    ({ surface }) => changeId !== undefined || !isChangeSurface(surface),
+  );
+  const skipped = SURFACES.map((surface, index) => ({ surface, index })).filter(
+    ({ surface }) => changeId === undefined && isChangeSurface(surface),
+  );
+
+  outputOwned = true;
+  await rm(OUT, { recursive: true, force: true });
+  await mkdir(OUT, { recursive: true });
+
+  console.log(`shot: ${CAPTURE_ENGINE} against ${url}`);
+  if (changeId === undefined) {
+    const names = skipped.map(({ surface, index }) => fileNameOf(index, surface).replace(/\.png$/, ""));
+    console.log(
+      `shot: no change on this instance — ${names.join(", ")} ${skipped.length === 1 ? "was" : "were"} skipped`,
+    );
   } else {
-    // A starting directory of plain directories needs one step in first — and one with nothing
-    // to add yet (a bare instance) skips the pick rather than holding the captures up.
-    const dir = page.locator("dialog[open] .entries button.dir").first();
-    if (await dir.isVisible().catch(() => false)) {
-      await dir.click();
-      await rows.first().waitFor();
-      if (await add.isVisible().catch(() => false)) await add.click();
+    console.log(`shot: change ${changeId}`);
+  }
+
+  const findings: Finding[] = [];
+  const written: string[] = [];
+  let skippedCount = 0;
+  for (const { surface, index } of walkable) {
+    if (interrupted) break;
+    const captured = await captureSurface(surface, index, {
+      pass: "after",
+      out: OUT,
+      origin: url,
+      serverUrl: url,
+      change: changeId ?? "",
+      now,
+      headed,
+      // A running instance may have no action file to edit, no uncommitted change to review and
+      // no plan text to fill the editor. That is content it does not have, not a surface that
+      // failed to arrive, so the setup's failure is named as a skip. An arrival or data failure
+      // is still fatal: a surface that does not come up is what this command exists to report.
+      setupFailure: "skip",
+    });
+    findings.push(...captured.findings);
+    const name = fileNameOf(index, surface);
+    if (captured.skipped !== undefined) {
+      skippedCount++;
+      console.log(`  ${name}: skipped — ${captured.skipped.reason}`);
+    } else if (captured.path !== undefined) {
+      written.push(captured.path);
+      console.log(`  ${captured.path}`);
+    } else {
+      console.log(`  ${name}: nothing captured`);
     }
   }
-  // The branch lists arrive with the row; the shot should show them.
-  await page.waitForTimeout(300);
-  await shot("4-wizard-repos");
-  await page.locator("dialog[open]").getByRole("button", { name: "Close" }).click();
 
-  // The settings page: the two axes — the scope bar (Global and the workspaces) and the section
-  // tabs — so the inheritance a workspace shows can be read off the capture.
-  await page.goto(`${url}/settings`, { waitUntil: "networkidle" });
-  await shot("5-settings-global");
-  const ideation = page.locator(".tabs.sections .tab", { hasText: "Ideation" });
-  if (await ideation.isVisible().catch(() => false)) {
-    await ideation.click();
-    await page.waitForTimeout(200);
-    await shot("5b-settings-ideation");
+  if (interrupted) return;
+
+  // Drift, reported rather than failed: a page or change tab this instance offers without a
+  // catalog entry is exactly the gap this tool exists to close, and a live instance is where it
+  // shows first. The comparison run (`scripts/screens.ts`) treats the same finding as fatal.
+  const routes = new Set(SURFACES.map((surface) => surface.route));
+  const drift = (surface: string, detail: string): void => {
+    findings.push({ surface, kind: "coverage", detail, fatal: false, pass: "after" });
+  };
+  try {
+    const response = await fetch(`${url}/api/pages`);
+    if (!response.ok) throw new Error(`/api/pages answered ${response.status}`);
+    const body = (await response.json()) as { pages?: { id: string }[] };
+    for (const page of body.pages ?? []) {
+      if (routes.has(`/${page.id}`)) continue;
+      drift(page.id, `/api/pages offers "${page.id}" and no catalog entry captures /${page.id}`);
+    }
+  } catch (error) {
+    console.warn(
+      `shot: could not check page coverage: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
-  const scope = page.locator(".tabs.scopes .tab:not(.current)").first();
-  if (await scope.isVisible().catch(() => false)) {
-    await scope.click();
-    await page.waitForTimeout(200);
-    await shot("6-settings-workspace");
-    const environment = page.locator(".tabs.sections .tab", { hasText: "Environment" });
-    if (await environment.isVisible().catch(() => false)) {
-      await environment.click();
-      await shot("7-settings-environment");
+  if (changeId !== undefined) {
+    try {
+      const response = await fetch(`${url}/api/changes/${encodeURIComponent(changeId)}/tabs`);
+      if (!response.ok) throw new Error(`the change's /tabs answered ${response.status}`);
+      const body = (await response.json()) as { tabs?: { id: string }[] };
+      for (const tab of body.tabs ?? []) {
+        if (routes.has(changeRoute(tab.id))) continue;
+        drift(
+          tab.id,
+          `a change's /tabs offers "${tab.id}" and no catalog entry captures ${changeRoute(tab.id)}`,
+        );
+      }
+    } catch (error) {
+      console.warn(
+        `shot: could not check change-tab coverage: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
-  // The Actions page and its editor: the files behind the menu, by scope, then one file in the
-  // editor's frame — the Markdown source with the fields' documentation beside it, the caret's
-  // field lit. The panel is toggled and put back where it was, so the captures never decide the
-  // preference for the instance being shot.
-  await page.goto(`${url}/actions`, { waitUntil: "networkidle" });
-  await shot("8-actions-list");
-  // The create flow's template picker: Blank and the built-ins, with a preview of the text a
-  // copy carries.
-  await page.locator(".widget", { hasText: "Global" }).getByRole("button", { name: "New" }).click();
-  await page.waitForSelector("dialog.template-picker");
-  await page.locator(".template-choice", { hasText: "Review the diff" }).click();
-  await shot("8b-actions-picker");
-  await page.locator("dialog.template-picker").getByRole("button", { name: "Cancel" }).click();
-  const edit = page.locator(".widget p").getByRole("button", { name: "Edit" }).first();
-  if (await edit.isVisible().catch(() => false)) {
-    await edit.click();
-    await page.waitForSelector(".actions-page.editing");
-    await page.waitForSelector(".md-editor .cm-placeholder", { state: "detached" });
-    await shot("9-actions-editor");
-    // The caret on the frontmatter's first field lights its entry beside the editor.
-    await page.locator(".cm-line").nth(1).click();
-    await page.waitForTimeout(200);
-    await shot("10-actions-editor-field");
-    await page.getByRole("button", { name: "Hide docs" }).click();
-    await page.waitForSelector(".action-docs", { state: "detached" });
-    await shot("11-actions-editor-no-docs");
-    await page.getByRole("button", { name: "Show docs" }).click();
-    await page.waitForSelector(".action-docs");
-  }
-  // The Subagents page: the profile files by scope, and the same picker over them.
-  await page.goto(`${url}/subagents`, { waitUntil: "networkidle" });
-  await shot("12-subagents-list");
-  await page.locator(".widget", { hasText: "Global" }).getByRole("button", { name: "New" }).click();
-  await page.waitForSelector("dialog.template-picker");
-  await page.locator(".template-choice", { hasText: "Reviewer" }).click();
-  await shot("13-subagents-picker");
-  await page.locator("dialog.template-picker").getByRole("button", { name: "Cancel" }).click();
 
-  // A change's own page and the looks it can wear. The change is the instance's own (these
-  // captures are meant for an isolated one, seeded with a change); without one they are skipped
-  // rather than making data on somebody's real instance.
-  const changes = (await fetch(`${url}/api/changes`).then((response) => response.json())) as {
-    id: string;
-    state?: string;
-  }[];
-  // A change that has started, when there is one: its dashboard has the state cards beside the
-  // documents, which is what the picture is for.
-  const change = (changes.find((record) => record.state !== "Ideation") ?? changes[0])?.id;
-  if (change === undefined) {
-    console.log("no change on this instance: the change-page, theme and terminal shots were skipped");
+  const fatal = findings.filter((finding) => finding.fatal);
+  console.log(
+    `\n${written.length} of ${walkable.length} surfaces written to ${OUT}` +
+      (skippedCount > 0 ? ` (${skippedCount} skipped)` : ""),
+  );
+  if (findings.length === 0) {
+    console.log("no findings");
   } else {
-    const changeUrl = (page: string): string => `${url}/changes/${encodeURIComponent(change)}/${page}`;
-    // Dusk is the default, and the one the manual's pictures are taken in.
-    await page.context().addCookies([{ name: "corvi:theme", value: "dusk", url }]);
-    await page.goto(changeUrl("dashboard"), { waitUntil: "domcontentloaded" });
-    await page.waitForSelector(".change-bar .change-name");
-    await page.waitForTimeout(500);
-    await shot("14-change-dashboard");
-
-    // The change's own row: the views, the terminal and its "+", then the title row's menus.
-    await page.keyboard.press("Control+Space");
-    await page.waitForSelector(".leader-layer");
-    await shot("14b-leader-change");
-    await page.keyboard.press("Escape");
-    await page.waitForSelector(".leader-layer", { state: "detached" });
-
-    // Every theme, on the same page: the four looks the choice offers, in Settings' order.
-    for (const theme of ["ultramarine", "raven", "spaces"]) {
-      await page.context().addCookies([{ name: "corvi:theme", value: theme, url }]);
-      await page.goto(changeUrl("dashboard"), { waitUntil: "domcontentloaded" });
-      await page.waitForSelector(".change-bar .change-name");
-      await page.waitForTimeout(500);
-      await shot(`15-theme-${theme}`);
+    console.log(`${findings.length} finding(s):`);
+    for (const finding of findings) {
+      console.log(
+        `  ${finding.fatal ? "fatal" : "note "}  ${finding.surface}: ${finding.kind}: ${finding.detail}`,
+      );
     }
-
-    // Back to Dusk for the terminal: the page's chrome and an attached shell.
-    await page.context().addCookies([{ name: "corvi:theme", value: "dusk", url }]);
-    await page.goto(changeUrl("terminals"), { waitUntil: "domcontentloaded" });
-    await page.waitForSelector(".terminal-screen .xterm-screen");
-    await page.waitForTimeout(800);
-    // Two harmless commands in the change's own checkout, so the capture shows a screen with a
-    // shell in it rather than an empty one. Nothing outside the checkout is touched.
-    await page.locator(".terminal-screen").click();
-    await page.keyboard.type("echo 'corvi terminal on a host session'");
-    await page.keyboard.press("Enter");
-    await page.waitForTimeout(300);
-    await page.keyboard.type("ls");
-    await page.keyboard.press("Enter");
-    await page.waitForTimeout(400);
-    await shot("18-change-terminal");
-
-    // Where the theme is chosen: the Appearance section of Settings.
-    await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
-    await page.getByRole("button", { name: "Appearance" }).click();
-    await page.waitForSelector(".theme-choices");
-    await page.waitForTimeout(300);
-    await shot("19-settings-appearance");
   }
-} finally {
-  if (errors.length) console.log("console errors:\n" + errors.join("\n"));
-  await browser.close();
-}
+  if (fatal.length > 0) {
+    console.log(`\n${fatal.length} surface(s) did not arrive; the command fails.`);
+    process.exitCode = 1;
+  }
+};
+
+const main = async (): Promise<void> => {
+  const token = `${Date.now().toString(36)}.${process.pid.toString(36)}`;
+  const cleanUp = cleanupOnce(async (): Promise<void> => {
+    const browser = takeActiveBrowser();
+    if (browser !== undefined) await browser.close().catch(() => undefined);
+    if (interrupted && outputOwned) await rm(OUT, { recursive: true, force: true });
+    await releaseLock(LOCK, token);
+  });
+  installSignalCleanup(cleanUp, () => {
+    interrupted = true;
+  });
+  const refused = await takeLock(LOCK, "shot", token);
+  if (refused !== undefined) {
+    console.error(refused);
+    process.exitCode = 2;
+    return;
+  }
+  try {
+    await walk();
+  } finally {
+    await cleanUp();
+  }
+};
+
+await main().catch((error: unknown) => {
+  console.error(`shot: ${error instanceof Error ? error.message : String(error)}`);
+  process.exitCode = 1;
+});
