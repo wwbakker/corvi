@@ -11,6 +11,7 @@ import {
   checkoutsOf,
   closePages,
   openEngine,
+  openFirstWindow,
   runSh,
   stopRunHost,
   testTempDir,
@@ -134,6 +135,29 @@ beforeAll(async () => {
       },
       "/api/changes/:id/terminal/socket": (req, srv) =>
         srv.upgrade(req, { data: {} as never }) ? undefined : new Response("no upgrade", { status: 400 }),
+
+      // The remote's own windows: its change has one, which is what a socket attaches to. A
+      // terminal URL is asked for a change that has a window, and never for one that does not.
+      "/api/terminals": {
+        GET: (req) => {
+          record(req);
+          return json({
+            [REMOTE_CHANGE.id]: [
+              {
+                index: 0,
+                id: "remote-window",
+                label: "remote",
+                detail: "",
+                attention: false,
+                active: true,
+                activity: false,
+                panes: ["remote-window"],
+                activePane: "remote-window",
+              },
+            ],
+          });
+        },
+      },
 
       // The remote's own page list, so a remote workspace's sidebar comes from the remote.
       "/api/pages": {
@@ -538,14 +562,20 @@ test.skipIf(!usable)(
     try {
       // Open the local twin's terminal once so it has a window entry in the column.
       await page.goto(`${url}/changes/${REMOTE_CHANGE.id}/terminals`, { waitUntil: "domcontentloaded" });
+      await openFirstWindow(page);
       await page.waitForSelector(".terminal-screen[data-attached]", { timeout: budget(30_000) });
+      const localWindowId = await page
+        .locator(".change-tabs [data-window-id]")
+        .first()
+        .getAttribute("data-window-id");
 
       // The remote change's terminal URL answer is held on its own page load...
       await page.goto(`${url}/changes/${REMOTE_CHANGE.id}/terminals?source=remote-client`, {
         waitUntil: "domcontentloaded",
       });
-      // Only the local twin has a window (the fake remote serves none), so it is the one entry.
-      const localWindow = page.locator(".sidebar .entry.window").first();
+      // The window entry to come back to, by the id it has: both changes have a window now, and a
+      // position in the column is not an identity.
+      const localWindow = page.locator(`.sidebar .entry.window[data-window-id="${localWindowId}"]`);
       await localWindow.waitFor({ timeout: budget(20_000) });
       // ...and the page leaves for the local twin's terminal (client-side) before it arrives.
       await localWindow.click();

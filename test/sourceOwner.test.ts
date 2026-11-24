@@ -249,7 +249,7 @@ test("a generation change retires an in-flight read as stale and an in-flight wr
 
   const write = h.owner
     .clientFor("r")
-    .terminals.windowAction(ChangeId.make("C"), { action: "select", index: 0 });
+    .terminals.windowAction(ChangeId.make("C"), { action: "select", window: "w-1" });
   h.owner.applyEvent(
     JSON.stringify(snapshot({ instance: "i1", revision: 3, availability: [entry("r", available, "g3", 3)] })),
   );
@@ -380,8 +380,11 @@ test("a capability acquired before a retarget is spent: old sends never reach th
   // stale, and none of them leaves the browser as a request.
   expect((await refusal(oldClient.terminals.list()))?.kind).toBe("stale-target");
   expect(
-    (await refusal(oldClient.terminals.windowAction(ChangeId.make("C1"), { action: "select", index: 0 })))
-      ?.kind,
+    (
+      await refusal(
+        oldClient.terminals.windowAction(ChangeId.make("C1"), { action: "select", window: "w-1" }),
+      )
+    )?.kind,
   ).toBe("stale-target");
   expect((await refusal(oldWire.request("PUT", "/ext/notes/x", Schema.Struct({}))))?.kind).toBe(
     "stale-target",

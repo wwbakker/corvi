@@ -103,21 +103,13 @@ export const runActionFor = (
       ),
     );
     const harnessEnv = harness?.env;
-    // A change whose only windows are subagent windows must not get a throwaway shell just to
-    // have somewhere to paste: list what exists, and start a host window only when there is
-    // nothing to target at all.
-    let windows = yield* listWindows(change.id);
-    if (windows.length === 0) {
-      yield* Effect.tryPromise({
-        try: () =>
-          ensureActiveHostWindow(change.id, dir, { cols: 100, rows: 30 }, undefined, async () =>
-            harness === undefined ? {} : { env: harness.env, harness: harness.key },
-          ),
-        catch: (error) =>
-          new BadRequestError({ message: error instanceof Error ? error.message : String(error) }),
-      });
-      windows = yield* listWindows(change.id);
-    }
+    // A change with no window at all gets one to deliver into; a window it already has — a
+    // subagent's included — is what the action pastes into. Finding the window and opening one
+    // are one registry step, so two runs arriving together cannot each open a shell.
+    yield* ensureActiveHostWindow(change.id, dir, { cols: 100, rows: 30 }, async () =>
+      harness === undefined ? {} : { env: harness.env, harness: harness.key },
+    ).pipe(Effect.mapError((failure) => new BadRequestError({ message: failure.message })));
+    const windows = yield* listWindows(change.id);
     const candidates: readonly CandidateWindow[] = windows.map((window) => ({
       window: window.id,
       label: window.label,

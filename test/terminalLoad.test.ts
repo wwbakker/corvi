@@ -151,3 +151,41 @@ test("a rename is refused without its window or its title, and keeps a title whe
     title: "Load window",
   });
 });
+
+test("a select is refused without a window id, and takes the id it is given", async () => {
+  // Two windows of its own, so the case does not depend on an earlier test having opened one.
+  await newPane();
+  await newPane();
+  const post = (body: unknown): Promise<Response> =>
+    fetch(`${baseUrl}/api/changes/${CHANGE}/terminal/windows`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  const listed = (await (await fetch(`${baseUrl}/api/changes/${CHANGE}/terminal/windows`)).json()) as {
+    id: string;
+    active: boolean;
+  }[];
+  // A window you open leads the row and is the one on screen, so the two just opened are first.
+  const [newerWindow, olderWindow] = listed;
+  expect(newerWindow?.active).toBe(true);
+
+  // A position says nothing about which window is meant — an activated window leads the row — so
+  // there is no index form to send: the refusal names what is missing rather than selecting by
+  // position.
+  const noWindow = await post({ action: "select" });
+  expect(noWindow.status).toBe(400);
+  expect(await noWindow.text()).toContain("select needs a window id");
+
+  // A named window that is gone is a failure, not a silent no-op.
+  const gone = await post({ action: "select", window: "w-not-a-window" });
+  expect(gone.status).toBe(400);
+  expect(await gone.text()).toContain("no window w-not-a-window");
+
+  // By id it selects exactly that window.
+  const selected = await post({ action: "select", window: olderWindow!.id });
+  expect(selected.status).toBe(200);
+  const after = (await selected.json()) as { id: string; active: boolean }[];
+  expect(after.find((entry) => entry.id === olderWindow!.id)?.active).toBe(true);
+  expect(after.find((entry) => entry.id === newerWindow!.id)?.active).toBe(false);
+});

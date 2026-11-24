@@ -2,7 +2,15 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { type Browser, type Page } from "playwright";
 import { CORVI_COLOURS, coloursOf, THEMES, type ThemeId } from "../apps/web/src/domain/theme.ts";
-import { closePages, openEngine, startTestServer, stopTestServer, testTempDir, withPage } from "./helpers.ts";
+import {
+  closePages,
+  openEngine,
+  openFirstWindow,
+  startTestServer,
+  stopTestServer,
+  testTempDir,
+  withPage,
+} from "./helpers.ts";
 
 /**
  * The themes through the product: chosen in Settings, applied to the page at once without a
@@ -249,6 +257,8 @@ test.skipIf(!usable)(
     await withPage(browser, async (page) => {
       await chooseByCookie(page, "dusk");
       await page.goto(`${url}/changes/PROJ-2/terminals`, { waitUntil: "domcontentloaded" });
+      // A window is opened, not implied: the change starts with none.
+      await openFirstWindow(page);
       await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 20_000 });
       await page.waitForFunction(
         () =>

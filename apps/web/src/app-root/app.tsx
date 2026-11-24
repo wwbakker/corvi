@@ -301,6 +301,10 @@ function App(): JSX.Element {
   // change's windows, whichever change you are looking at. Pushed by the server, so this costs
   // one connection and no polling.
   const terminals = useWindows();
+  // Whether a window exists decides whether there is anything to attach to: a change with none
+  // shows its empty terminal view instead, and nothing asks the server for a socket URL.
+  const changeWindows =
+    selected === null ? undefined : terminals.windows[changeKey(selectedSource, selected)];
   // The page's own intent keeps a terminal page live. The remembered flag keeps a terminal that
   // was opened earlier attached while the same change shows a non-terminal view, so Plan and back
   // do not clear the URL and close the socket. The OR is what makes a direct A -> B terminal
@@ -314,7 +318,7 @@ function App(): JSX.Element {
     selectedSource,
     selected,
     Boolean(change?.completedAt),
-    onTerminal || wantsTerminal,
+    (onTerminal || wantsTerminal) && (changeWindows?.length ?? 0) > 0,
   );
 
   // Spaces lights the page with the open change's own colour pair; the overview, the wizard and
@@ -395,13 +399,13 @@ function App(): JSX.Element {
 
   // A notification click comes back with the source it was about: activate the window, then open
   // that source's change — resolved by (source, change), so a remote notice for a change that
-  // shares an id with a local one does not open the local one. The window id is looked up in the
-  // live list, because the index it had when the notification was made may belong to another
-  // window by the time it is clicked.
+  // shares an id with a local one does not open the local one. The window is selected by the id
+  // the notice carries: the index it had when the notification was made may belong to another
+  // window by the time it is clicked, and it may have gone altogether, which the server answers
+  // rather than the page guessing at a position.
   const openWindow = (source: string, change: string, windowId: string): void => {
-    const index = (terminals.windows[changeKey(source, change)] ?? []).find((w) => w.id === windowId)?.index;
     setView({ name: "change", source, id: change, page: "terminals" });
-    if (index !== undefined) terminals.select(source, change, index);
+    terminals.select(source, change, windowId);
   };
   const openWindowRef = useRef(openWindow);
   openWindowRef.current = openWindow;
@@ -620,8 +624,8 @@ function App(): JSX.Element {
             page: lastViewOf(changeKey(c.source ?? "", c.id)),
           })
         }
-        onSelectWindow={(c, index) => {
-          terminals.select(c.source ?? "", c.id, index);
+        onSelectWindow={(c, windowId) => {
+          terminals.select(c.source ?? "", c.id, windowId);
           setView({ name: "change", source: c.source ?? "", id: c.id, page: "terminals" });
         }}
       />
@@ -724,11 +728,16 @@ function App(): JSX.Element {
                 platform={platform}
                 provision={view.provision}
                 onOpenPage={(page) => setView({ ...view, page, provision: undefined })}
-                terminal={{ ...terminal, create: () => void terminals.create(selectedSource, view.id) }}
+                terminal={terminal}
                 windows={terminals.windows[changeKey(selectedSource, view.id)] ?? []}
+                // An answered list with no entry for this change means it has no windows; a source
+                // that has not answered is not known. Source-level, so a change worked on elsewhere
+                // reads as "none" until the next look corrects it.
+                windowsKnown={terminals.fresh[selectedSource] === true}
                 windowError={terminals.errors[changeKey(selectedSource, view.id)]}
-                onSelectWindow={(index) => {
-                  terminals.select(selectedSource, view.id, index);
+                onWindowsCreated={(windows) => terminals.adopt(selectedSource, view.id, windows)}
+                onSelectWindow={(windowId) => {
+                  terminals.select(selectedSource, view.id, windowId);
                   // On the dashboard the tab is the way in: selecting a window you cannot see would
                   // be a click that does nothing visible.
                   setView({ name: "change", source: view.source, id: view.id, page: "terminals" });
@@ -738,7 +747,6 @@ function App(): JSX.Element {
                   // up. The dialog's own action creates the window once a choice is made.
                   setView({ name: "change", source: view.source, id: view.id, page: "terminals" });
                 }}
-                onRefreshWindows={() => terminals.refresh()}
                 onMoveWindow={(from, to) => terminals.move(selectedSource, view.id, from, to)}
                 onRenameWindow={(windowId, title) =>
                   terminals.rename(selectedSource, view.id, windowId, title)

@@ -24,6 +24,7 @@ import {
 } from "./server/files.ts";
 import { harnessListFor } from "./server/views.ts";
 import { openHarnessWindow } from "./server/env.ts";
+import { listWindows } from "../terminals/server/index.ts";
 import { harnessChoices } from "./server/choices.ts";
 
 export const harnessRoutes = guard({
@@ -109,7 +110,11 @@ export const harnessRoutes = guard({
       withChange(req.params.id, (change) =>
         Effect.gen(function* () {
           const body = yield* bodyAs(req, OpenHarnessWindowSchema);
-          return json(yield* openHarnessWindow(change, body), 201);
+          const opened = yield* openHarnessWindow(change, body);
+          // The answer is the change's windows, like every other create: the page applies it instead
+          // of reading the list back, so there is no moment where it knows the change has nothing.
+          const windows = yield* listWindows(change.id);
+          return json({ ...opened, windows }, 201);
         }),
       ),
   },

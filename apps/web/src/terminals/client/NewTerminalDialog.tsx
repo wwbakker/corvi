@@ -2,8 +2,14 @@
  * leader's positional key. 1/Enter starts a shell; 2 starts a harness; the dialog owns its keys
  * while it is open. */
 import { type JSX, useEffect, useRef, useState } from "react";
+
+/** What opened the dialog. The leader key is advertised by the keycaps, so the dialog shows the
+ * keys it answers to; the "+" tab is a control you already pressed, and a key hint there is a
+ * second set of instructions for a choice the pointer is making. */
+export type NewTerminalOpener = "keyboard" | "pointer";
 import { ChangeId } from "@corvi/contracts/changes";
 import type { Change } from "../../app-root/api.ts";
+import type { TerminalWindow } from "../../domain/terminal.ts";
 import type { CorviClient } from "@corvi/client";
 import { getPref, setPref } from "../../app-root/prefs.ts";
 
@@ -15,6 +21,7 @@ const LAST_HARNESS = "corvi:new-terminal-harness";
 
 export function NewTerminalDialog({
   open,
+  opener,
   change,
   client,
   currentDirectory,
@@ -22,13 +29,21 @@ export function NewTerminalDialog({
   onCreated,
 }: {
   open: boolean;
+  /** How it was opened: with the keys showing, or with the pointer. */
+  opener: NewTerminalOpener;
   change: Change;
   client: CorviClient;
   /** Where the active pane's shell is now, the dialog's default directory. */
   currentDirectory?: string;
   onClose: () => void;
-  onCreated: () => void;
+  /** The change's windows after the create, which is what the page applies to its window list.
+   * Both paths answer with the list: a window action's answer is the list, and a harness window's
+   * carries it beside the new pane's id. */
+  onCreated: (windows: readonly TerminalWindow[]) => void | Promise<void>;
 }): JSX.Element {
+  // The chips are the leader's promise kept: they are in the dialog because a modal one lives in
+  // the browser's top layer, where the leader's own overlay cannot be drawn.
+  const keysShown = opener === "keyboard";
   const dialog = useRef<HTMLDialogElement>(null);
   const [kind, setKind] = useState<Kind>(() => (getPref(LAST_KIND) === "harness" ? "harness" : "shell"));
   const [directory, setDirectory] = useState(() => getPref(LAST_DIR) ?? "current");
@@ -101,18 +116,21 @@ export function NewTerminalDialog({
       // (the server's sentinel), or one checkout's absolute path. Always sent explicitly, so the
       // same label cannot mean two things for a shell and a harness.
       const target = directory === "current" ? "current" : directory === "" ? "change" : directory;
-      if (wanted === "shell") {
-        await client.terminals.windowAction(ChangeId.make(change.id), {
-          action: "new",
-          directory: target,
-        });
-      } else {
-        await client.harnesses.openWindow(ChangeId.make(change.id), {
-          harness: harness === "" ? userDefault : harness,
-          directory: target,
-        });
-      }
-      onCreated();
+      const windows =
+        wanted === "shell"
+          ? await client.terminals.windowAction(ChangeId.make(change.id), {
+              action: "new",
+              directory: target,
+            })
+          : (
+              await client.harnesses.openWindow(ChangeId.make(change.id), {
+                harness: harness === "" ? userDefault : harness,
+                directory: target,
+              })
+            ).windows;
+      // The answer is handed over before the dialog closes: the page applies it, so the view it
+      // moves to already knows about the window it is showing.
+      await onCreated(windows);
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -170,7 +188,7 @@ export function NewTerminalDialog({
           onClick={() => setKind("shell")}
           onDoubleClick={() => void start("shell")}
         >
-          <kbd>1</kbd>
+          {keysShown && <kbd>1</kbd>}
           <strong>Shell</strong>
           <span className="hint">a shell with the change&apos;s user harness</span>
         </button>
@@ -182,7 +200,7 @@ export function NewTerminalDialog({
           onClick={() => setKind("harness")}
           onDoubleClick={() => void start("harness")}
         >
-          <kbd>2</kbd>
+          {keysShown && <kbd>2</kbd>}
           <strong>Harness</strong>
           <span className="hint">start Pi with a harness, in a new window named after it</span>
         </button>
@@ -226,9 +244,11 @@ export function NewTerminalDialog({
       </div>
       {error !== null && <div className="error-banner">{error}</div>}
       <footer>
-        <span className="hint">
-          <kbd>1</kbd> shell · <kbd>2</kbd> harness · <kbd>Enter</kbd> open · <kbd>Esc</kbd> close
-        </span>
+        {keysShown && (
+          <span className="hint">
+            <kbd>1</kbd> shell · <kbd>2</kbd> harness · <kbd>Enter</kbd> open · <kbd>Esc</kbd> close
+          </span>
+        )}
         <span className="spacer" />
         <button type="button" className="create" disabled={busy} onClick={() => void start(kind)}>
           {busy ? "Opening…" : kind === "shell" ? "Open shell" : "Start harness"}

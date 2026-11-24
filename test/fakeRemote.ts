@@ -103,6 +103,25 @@ export const startFakeRemote = async (port: number, options: FakeRemoteOptions):
           kilobytes: 1,
         })),
       );
+    // A remote with a terminal has a window: the page attaches to a window it can see, so a
+    // change with none is left alone (its empty terminal view offers the "+" instead).
+    if (path === "/api/terminals" && options.terminal === true) {
+      return json({
+        [options.changeId]: [
+          {
+            index: 0,
+            id: "w-1",
+            label: "remote",
+            detail: "",
+            attention: false,
+            active: true,
+            activity: false,
+            panes: ["w-1"],
+            activePane: "w-1",
+          },
+        ],
+      });
+    }
     if (path.startsWith("/api/terminals")) return json({});
     if (path.startsWith("/api/dashboard/")) return json([]);
     if (path.startsWith("/api/wizard")) return json({ steps: [], planTemplate: "" });

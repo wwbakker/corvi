@@ -345,6 +345,9 @@ export const TerminalWindowSchema = Schema.Struct({
   harness: Schema.optional(Schema.String),
   /** The full directory the active pane's shell is in now. */
   cwd: Schema.optional(Schema.String),
+  /** Where that directory is as the page shows it: change-relative inside the change, absolute
+   * outside it. */
+  where: Schema.optional(Schema.String),
 });
 export type TerminalWindowDto = typeof TerminalWindowSchema.Type;
 
@@ -487,11 +490,11 @@ export type ReposBodyDto = typeof ReposBodySchema.Type;
 export const ForceBodySchema = Schema.Struct({ force: Schema.optional(Schema.Boolean) });
 export type ForceBodyDto = typeof ForceBodySchema.Type;
 
-/** The window actions the terminal bar offers. `split`/`close-pane`/`focus-pane`/`rename` name
- * the window and, where it matters, the pane session; `select`/`move` keep their index. */
+/** The window actions the terminal bar offers. `select`/`split`/`close-pane`/`focus-pane`/`rename`
+ * name the window by its id and, where it matters, the pane session; `move` is the one positional
+ * action, because a dragged tab is a position. */
 export const WindowActionBodySchema = Schema.Struct({
   action: Schema.Literals(["new", "select", "move", "split", "close-pane", "focus-pane", "rename"]),
-  index: Schema.optional(Schema.Number),
   from: Schema.optional(Schema.Number),
   to: Schema.optional(Schema.Number),
   direction: Schema.optional(Schema.Literals(["right", "down"])),

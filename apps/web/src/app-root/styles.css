@@ -513,6 +513,37 @@ button:disabled {
   cursor: default;
 }
 
+/* A control never sizes itself from what it shows. What it holds — a path, a branch, a change's
+   title — is text we did not write, and it can be longer than the row, the card or the dialog the
+   control sits in: a select that took its width from its longest option would widen all three
+   until something scrolled sideways. So a control takes the width it is given, and a select
+   truncates its closed label; the open list still shows every option whole. The terminal's helper
+   textarea is left out: xterm carries every keystroke through that box and reads it back, and a
+   width clamped there loses typed input. */
+select,
+input,
+textarea:not(.xterm-helper-textarea) {
+  min-width: 0;
+  max-width: 100%;
+}
+
+select {
+  text-overflow: ellipsis;
+}
+
+/* The grids those controls sit in: an auto track is as wide as its widest item, which hands the
+   sizing back to the untruncated text and undoes the rule above. A track that is allowed to
+   shrink is what lets the control be narrower than its longest value. */
+.form,
+.form label,
+dialog label,
+.harness-docs-head label,
+.harness-select,
+.harness-default,
+.change-harness {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 /* Text inputs fill their field; a checkbox is a checkbox and wants none of this. */
 input:not([type="checkbox"]):not([type="radio"]) {
   font: inherit;
@@ -554,6 +585,19 @@ a {
   /* The document no longer scrolls: a normal page scrolls here, and a flush frame or the
      dashboard hands that job to the region that should have it (their rules below). */
   overflow-y: auto;
+}
+
+/* A page whose first row is the chrome — the page's header, the wizard's, or the change's two
+   rows — gives its top padding to that row. The chrome is sticky, and a sticky box's margin edge
+   is clamped to the scrollport: a negative top margin is discarded there rather than lifting the
+   row, so the padding is what has to go for the row's own top edge to be the window's, level with
+   the column's brand row. A page that opens with something else (a list still loading, a page
+   with no chrome row of its own) keeps the padding. An extension page is the one page the shell
+   wraps in a fieldset, between it and the content. */
+.content:not(.flush):has(> .page > :is(header, .change-chrome):first-child),
+.content:not(.flush):has(> .wizard > header:first-child),
+.content:not(.flush):has(> .widgets-fieldset > .page > header:first-child) {
+  padding-top: 0;
 }
 
 /* The banner and the page, sharing the space beside the navigation column: the banner is a row
@@ -1170,16 +1214,18 @@ body.drawer-open {
 }
 
 /* Edge to edge, because it is the window's chrome: the content's own padding comes back on the row,
-   so it reaches the top and the sides of the window — a drag area that stops 24px short is a drag
-   area you miss. The terminal page is already flush: it has no padding to give back. */
+   so it reaches the sides of the window — a drag area that stops 24px short is a drag area you
+   miss. Only the sides: the row's top edge is the window's, so it takes no negative top margin (the
+   scrollport's clamp would drop it anyway); the padding the row sits in is what goes instead, in
+   the rule under `.content`. The terminal page is already flush: it has no padding to give back. */
 .content:not(.flush) .page > header,
 .content:not(.flush) .wizard > header {
-  margin: -16px -24px 16px;
+  margin: 0 -24px 16px;
   padding-inline: 24px;
 }
 
 /* The change's two chrome rows are one sticky block, so there is no second offset to keep in sync
-   when the window's row grows. The wrapper bleeds to the window's edges and carries the space below
+   when the window's row grows. The wrapper bleeds to the window's sides and carries the space below
    the block, and each row keeps its own padding. In the flush frame there is no page padding to give
    back, so the wrapper is already at the window's edge. (The terminal page dresses its own row
    further down.) */
@@ -1193,7 +1239,7 @@ body.drawer-open {
 }
 
 .content:not(.flush) .page > .change-chrome {
-  margin: -16px -24px 16px;
+  margin: 0 -24px 16px;
 }
 
 /* The change's title row: the name, id and branch on the left; the state and the actions on the
@@ -1409,6 +1455,8 @@ body.drawer-open {
   overflow: hidden;
 }
 
+/* A heading is text we wrote, but it names a column of values we did not: it is capped like the
+   cells under it, so a heading can never be what widens the table. */
 .table th {
   text-align: left;
   font-size: 12px;
@@ -1417,18 +1465,50 @@ body.drawer-open {
   color: var(--muted);
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
+  max-width: 30ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
+/* A group header spans the row and names the group — a sprint, a day — so it is prose rather than
+   a column: it wraps anywhere and never sets the board's width. A long sprint name is a single
+   token, which only `anywhere` can break. */
+.table tr.group th {
+  max-width: none;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* A table never widens the box it is in. Its cells hold keys, statuses, branches and ticket titles
+   we did not write, and one long one would otherwise push the table past the page or the dialog,
+   hanging a scrollbar on the surface around it. The identifiers stay on one line and are capped —
+   what does not fit is an ellipsis — while the summary below wraps, because that is the column
+   that reads as prose and takes the width the identifiers leave. */
 .table td {
   padding: 7px 12px;
   border-bottom: 1px solid var(--line);
   white-space: nowrap; /* keys, statuses and sprint names read badly when wrapped */
+  max-width: 30ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* Only the summary wraps; it is the one column that needs the leftover width. */
 .table td.summary {
   white-space: normal;
   width: 100%;
+  max-width: none;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+
+/* A table in a dialog is the list that dialog is about — issues, a board — and it scrolls in its
+   own box: the dialog stays the window's height and the buttons under the table stay in it. The
+   scroll is on a frame around the table, because a table box ignores a height cap, and a
+   block-level one shrink-wraps its own rows short of the card's edge. */
+dialog .table-frame {
+  max-height: 40vh;
+  overflow: auto;
 }
 
 .table tbody tr {
@@ -1496,13 +1576,36 @@ button.primary:not(:disabled) {
   gap: 8px;
 }
 
-/* The wizard: one screen. The plan fills the left half; the sections — each step's pick, the
-   change's details, the repositories — stack down the right and scroll their own column. */
+/* The wizard is one screen: the row at the window's top, an error banner if there is one, and the
+   body taking what the window has left. The chain is the flex chain's rather than a viewport
+   constant, so the banner costs the body exactly its own height, the page's padding is not
+   restated anywhere, and a window too short for the body's minimum scrolls the content as a long
+   page does. */
+.content:has(> .wizard) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.wizard {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* One title bar whatever the window's height: when the body cannot shrink any further, the page
+   scrolls rather than the header giving up its row. */
+.wizard > header {
+  flex: none;
+}
+
+/* The plan fills the left half; the sections — each step's pick, the change's details, the
+   repositories — stack down the right and scroll their own column. */
 .wizard-body {
   display: flex;
   gap: 16px;
-  /* Everything around it: the window's title bar row and the page's own padding. */
-  height: calc(100vh - var(--titlebar-height) - 96px);
+  flex: 1;
   min-height: 360px;
 }
 
@@ -1655,7 +1758,8 @@ button.primary:not(:disabled) {
 }
 
 /* A repository block's name inside a widget: a sub-heading, quieter than the widget's title,
-   with its New button on the same line. */
+   with its New button on the same line. The name is one we did not write, so it wraps rather than
+   pushing the card wider than the page. */
 .widget h4 {
   margin: 10px 0 4px;
   font-size: 13px;
@@ -1663,15 +1767,20 @@ button.primary:not(:disabled) {
   display: flex;
   align-items: center;
   gap: 8px;
+  overflow-wrap: anywhere;
 }
 
 /* The create flow's template picker: one row per choice with its one-line description, the
-   chosen text's preview below, and the id plus the actions on the last line. */
+   chosen text's preview below, and the id plus the actions on the last line. The choices are the
+   list that grows with what there is to copy, so it scrolls in its own box: the id field and the
+   Cancel and Create buttons under it stay in the frame however many built-ins there are. */
 .template-picker .template-choices {
   display: flex;
   flex-direction: column;
   gap: 4px;
   margin-bottom: 8px;
+  max-height: min(40vh, 320px);
+  overflow-y: auto;
 }
 
 .template-picker .template-choice {
@@ -1719,18 +1828,25 @@ button.primary:not(:disabled) {
   margin: 2px 0 10px 18px;
 }
 
-/* A summary beside a widget's title, inside the heading: smaller than the title, and with no
-   margins of its own. A margin here is part of the flex line, so it would make the heading —
-   and with it the whole card — grow the moment the text appears. */
+/* The row's label and its file name are both values we did not write, so each may shrink and break
+   anywhere rather than widening the card; the buttons stay whole on the right. */
 .widget .file-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   margin: 6px 0;
 }
+.widget .file-row > strong,
+.widget .file-row > code,
 .widget .file-row .summary {
+  min-width: 0;
   overflow-wrap: anywhere;
 }
+
+/* A summary beside a widget's title, inside the heading: smaller than the title, and with no
+   margins of its own. A margin here is part of the flex line, so it would make the heading —
+   and with it the whole card — grow the moment the text appears. */
 .widget h3 .summary {
   color: var(--muted);
   font-size: 12px;
@@ -1750,6 +1866,9 @@ button.primary:not(:disabled) {
 
 .item {
   display: flex;
+  /* The row's values are ones we did not write — a repository, a window, a checkout's path — so the
+     row wraps rather than widening the card: what does not fit on the first line takes the next. */
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 6px 0;
@@ -1759,17 +1878,22 @@ button.primary:not(:disabled) {
 /* The row's identity — a repository, a branch, a window — is short and fits one line; the long
    detail beside it absorbs the row's squeeze and wraps as it always did. A label that is prose,
    though — a ticket or issue row's `KEY summary` — may shrink and break anywhere rather than
-   overflow the card and widen the page. */
+   overflow the card and widen the page. Each side keeps a readable minimum, and it is also the
+   width the line weighs when it decides whether both fit: below their minimums the row takes two
+   lines instead of squeezing a path into a column of single letters. */
 .item .label {
   flex: 0 1 auto;
-  min-width: 0;
+  min-width: 10ch;
   overflow-wrap: anywhere;
 }
 
-/* Its zero basis is what keeps a short identity label whole: the detail starts at nothing, grows
-   into the spare space and takes the shrinking, instead of sharing a deficit with the label. */
+/* The detail then grows into whatever is left of its line. Its basis is half the row, so a long
+   detail claims a readable line of its own instead of being squeezed into whatever a long label
+   leaves over. */
 .item .detail {
-  flex: 1 1 0;
+  flex: 1 1 50%;
+  min-width: 10ch;
+  overflow-wrap: anywhere;
   color: var(--muted);
 }
 
@@ -1846,6 +1970,11 @@ dialog {
   border-radius: 10px;
   padding: 20px;
   width: min(560px, 90vw);
+  /* A dialog is as tall as the window, not as tall as its contents: a long list — changes, harness
+     files, windows — scrolls inside the dialog instead of pushing its frame past the window it is
+     drawn in, which would put the footer's buttons out of reach. */
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
 }
 
 dialog::backdrop {
@@ -2674,6 +2803,20 @@ button.create:hover:not(:disabled) {
   margin: 14px;
   border: 1px solid var(--line);
   border-radius: 14px;
+}
+
+/* The terminal view of a change that has no window: the same frame the pane sits in, so the row's
+   + and the hint read as one page rather than a stray line under the tabs. */
+.page.terminal-page .terminal-empty {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  margin: 14px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  padding: 24px;
+  text-align: center;
 }
 
 /* The frame fills what is left of the page rather than the viewport arithmetic it needs when a
@@ -3937,8 +4080,8 @@ button.danger:disabled {
 /* Editing an action: the editor's frame, as the plan's is — the Markdown source fills what the
    header and the path line leave, and the field documentation docks to its right
    (apps/web/src/actions/ActionEditor.tsx). The frame is the window's height minus the page's
-   padding (16px above, 48px below), so the two columns end where the page does and neither can
-   hang a scrollbar on the window. */
+   padding below it (48px): the header row above it starts at the window's edge, so the frame runs
+   from there to where the page ends, and neither column can hang a scrollbar on the window. */
 /* The file pages stack their cards; the cards get the dashboard's air between them, so the
    page reads as a column of things rather than one long sheet. */
 .page.actions-page > .widget + .widget,
@@ -3958,8 +4101,29 @@ button.danger:disabled {
 .page.harnesses-page.editing {
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - 64px);
+  height: calc(100dvh - 48px);
+  /* The frame clips what is past it, so the path line under the header has to wrap: a deep one
+     would otherwise disappear off the edge instead of reading. */
   overflow: hidden;
+}
+
+.page.actions-page.editing > .hint,
+.page.subagents-page.editing > .hint,
+.page.harnesses-page.editing > .hint {
+  flex: none;
+  overflow-wrap: anywhere;
+}
+
+/* The frame's title is the file's id, a name we did not write, and the row above the editor is one
+   title bar: it truncates rather than pushing Save and Delete off the frame. */
+.page.actions-page.editing > header h2,
+.page.subagents-page.editing > header h2,
+.page.harnesses-page.editing > header h2 {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .action-editor {
@@ -4094,12 +4258,14 @@ button.danger:disabled {
 }
 
 /* A note about the file rather than a section: the size of the field hints inside the forms it
-   introduces, and no larger. */
+   introduces, and no larger. It names the config's own path, which is a path we did not write, so
+   a deep one wraps instead of running past the page. */
 .page.settings > .hint.intro {
   flex: none;
   margin: 0 0 12px;
   font-size: smaller;
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .page.settings .settings-body {
@@ -4575,9 +4741,12 @@ button.danger:disabled {
 }
 
 /* The checkouts card: one row per repository link, its projected state, and the branch the
-   location actually holds. The detail sits at the far right, so a column of rows scans. */
+   location actually holds. The detail sits at the far right, so a column of rows scans. Every
+   value in the row is one we did not write — a repository's name, the checkout's own path — so the
+   row wraps and each of them may shrink and break rather than widening the card. */
 .checkouts .checkout-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 8px;
   padding: 6px 0 6px 18px;
@@ -4586,6 +4755,13 @@ button.danger:disabled {
 
 .checkouts .checkout-row:first-of-type {
   border-top: none;
+}
+
+.checkouts .checkout-name,
+.checkouts .checkout-state,
+.checkouts .checkout-detail {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .checkouts .checkout-name {
@@ -5004,6 +5180,98 @@ a:focus-visible {
 
 .harness-docs .harness-section li.harness-item {
   padding: 2px 0;
+}
+
+/* The select-terminal dialog: the change's windows as rows to pick from, the list the window tabs'
+   own key opens. The number is the row's position — the key that picks it — and the place is the
+   server's own change-relative form, so a row never has to guess where a window is. */
+.select-terminal-dialog {
+  width: min(520px, calc(100vw - 32px));
+}
+.select-terminal-dialog > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.select-terminal-dialog > header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.select-terminal-dialog .terminal-rows {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  max-height: min(50vh, 420px);
+  overflow-y: auto;
+}
+.select-terminal-dialog .terminal-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  text-align: left;
+}
+/* The row the arrows are on: the next `Enter` goes here, so it is marked the way a selected row
+   is everywhere else. */
+.select-terminal-dialog .terminal-row.current {
+  background: var(--selection);
+  border-color: var(--focus, var(--accent));
+}
+.select-terminal-dialog .terminal-row .ic {
+  display: inline-flex;
+  flex: none;
+}
+.select-terminal-dialog .terminal-row .label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* The window already on screen: an old label, quieter than the pick the cursor is on. */
+.select-terminal-dialog .terminal-row .on-screen {
+  flex: none;
+  color: var(--accent);
+  font-size: 12px;
+}
+/* A path we did not write: it shrinks, and the head of it goes rather than the tail, because the
+   end of a path is what tells two places apart. The direction is the box's alone: the ring of the
+   rule is what the omission is anchored to, so it must not reach the path, or the bidi algorithm
+   resolves the leading neutrals the other way and `/tmp/x` reads `tmp/x/`. */
+.select-terminal-dialog .terminal-row .where {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  color: var(--muted);
+  font-size: 12px;
+  direction: rtl;
+  text-align: right;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* The path is a run of its own inside that box: it keeps its own base direction, decided by its
+   first strong character the way `dir=auto` does, so its characters run left to right while the
+   box still clips its head. */
+.select-terminal-dialog .terminal-row .where > bdi {
+  unicode-bidi: isolate;
+}
+.select-terminal-dialog .terminal-row kbd {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+}
+.select-terminal-dialog footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
 }
 
 /* The change harness dialog: one column, the two selectors with room to explain themselves. */

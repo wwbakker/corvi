@@ -167,7 +167,7 @@ export function Sidebar({
   hostReason?: string;
   onRestartHost: () => void;
   onOpenChange: (change: Change) => void;
-  onSelectWindow: (change: Change, index: number) => void;
+  onSelectWindow: (change: Change, windowId: string) => void;
   /** Whether the narrow window's drawer is open: on a wide window the column is always there and
    * this changes nothing. */
   open: boolean;
@@ -323,7 +323,7 @@ export function Sidebar({
             // Focus is what a mousedown moves, and a terminal you cannot type in after
             // clicking is useless. Preventing the default keeps it in the terminal.
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onSelectWindow(c, w.index)}
+            onClick={() => onSelectWindow(c, w.id)}
           >
             <span className={w.state === "ok" ? "state-ok" : "state-idle"}>
               {w.icon === "agent" ? <AgentIcon title={w.label} /> : <TerminalIcon title={w.label} />}

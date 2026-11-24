@@ -99,5 +99,8 @@ export const presentWindow = (raw: RawWindow): PresentedWindow => {
     activePane: raw.activePane,
     ...(raw.harness === undefined ? {} : { harness: raw.harness }),
     ...(raw.cwd === undefined ? {} : { cwd: raw.cwd }),
+    // Where the window is, as the page shows it: the raw facts carry the change-relative form
+    // (windows.ts), because the page does not know the change's root.
+    ...(raw.where === undefined ? {} : { where: raw.where }),
   };
 };

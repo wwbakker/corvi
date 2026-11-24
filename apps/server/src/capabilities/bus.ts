@@ -74,12 +74,16 @@ function forget(client: Client): void {
   if (clients.size === 0) stopWatcher();
 }
 
-/** Tell everyone that something changed, now rather than within a tick.
+/** Tell everyone that something changed, now rather than within a tick — and forget what the
+ * watcher last saw, so its next look says whatever is true by then instead of deduplicating
+ * against what this said.
  *
- * Used by the routes that make the change themselves, so your own action lands immediately. The
- * watcher would catch it anyway, which is what makes this an optimisation and not a duty: a route
- * that forgets to call it is late, not broken. The watched state forgets the event too, so the
- * watcher's next look says it again rather than deduplicating against what the action just said.
+ * For the window registry it is a duty, not an optimisation: every window and pane announces from
+ * the funnel that opens it (`openHostWindow`, `splitPaneAsync`), because the watcher compares
+ * sampled states and a window created and gone inside one interval would never be mentioned — the
+ * pages that had seen it would keep a tab for it for ever. The other watched events (`changes`,
+ * `power`, `notify`) call it from the route that made them, so the page that asked does not wait
+ * for the next look.
  */
 export function announce(event: EventName): void {
   forgetWatchedNews(event);

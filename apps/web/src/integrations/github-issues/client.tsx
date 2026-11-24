@@ -220,48 +220,50 @@ function IssuePicker({
         </div>
       )}
 
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Issue</th>
-            <th>Labels</th>
-            <th>Assignees</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {(listing?.issues ?? []).map((issue) => (
-            <tr
-              key={issue.number}
-              className={selected === issue.number ? "selected" : ""}
-              onClick={() => select(selected === issue.number ? null : issue)}
-            >
-              <td>
-                <b>#{issue.number}</b> {issue.title}
-              </td>
-              <td>{issue.labels.join(", ") || "—"}</td>
-              <td>{issue.assignees.join(", ") || "—"}</td>
-              <td>
-                {issue.url && (
-                  <a href={issue.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
-                    link
-                  </a>
-                )}
-              </td>
-            </tr>
-          ))}
-          {listing?.repository && listing.issues.length === 0 && !loading && (
+      <div className="table-frame">
+        <table className="table">
+          <thead>
             <tr>
-              <td colSpan={4}>no open issues</td>
+              <th>Issue</th>
+              <th>Labels</th>
+              <th>Assignees</th>
+              <th />
             </tr>
-          )}
-          {!listing && (
-            <tr>
-              <td colSpan={4}>{loading ? "loading…" : "—"}</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {(listing?.issues ?? []).map((issue) => (
+              <tr
+                key={issue.number}
+                className={selected === issue.number ? "selected" : ""}
+                onClick={() => select(selected === issue.number ? null : issue)}
+              >
+                <td className="summary">
+                  <b>#{issue.number}</b> {issue.title}
+                </td>
+                <td>{issue.labels.join(", ") || "—"}</td>
+                <td>{issue.assignees.join(", ") || "—"}</td>
+                <td>
+                  {issue.url && (
+                    <a href={issue.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+                      link
+                    </a>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {listing?.repository && listing.issues.length === 0 && !loading && (
+              <tr>
+                <td colSpan={4}>no open issues</td>
+              </tr>
+            )}
+            {!listing && (
+              <tr>
+                <td colSpan={4}>{loading ? "loading…" : "—"}</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
 
       {chosen && listing?.repository && (
         <NewIssueDialog

@@ -9,6 +9,7 @@ import {
   checkoutsOf,
   closePages,
   openEngine,
+  openFirstWindow,
   runSh,
   testTempDir,
   until,
@@ -113,6 +114,8 @@ test.skipIf(!usable)(
         await page.waitForTimeout(500);
         await banner.waitFor();
         await page.goto(`${url}/changes/${LOCAL}/terminals`, { waitUntil: "domcontentloaded" });
+        // The change starts with no window: opening one is what attaches a pane.
+        await openFirstWindow(page);
         await page.waitForSelector(".terminal-screen[data-attached]", { timeout: budget(30_000) });
         remote = await fakeRemote(remotePort);
         await page.goto(url, { waitUntil: "domcontentloaded" });

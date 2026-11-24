@@ -18,6 +18,7 @@ import { makeScreen, SCREEN_SCROLLBACK } from "../apps/server/src/terminals/serv
 import {
   keptOpenPanes,
   liveSnapshotKeys,
+  newWindowAsync,
   newWindowRunningAsync,
 } from "../apps/server/src/terminals/server/windows.ts";
 import {
@@ -211,6 +212,17 @@ const fakeSocket = (session: TerminalSession): FakeSocket => {
   };
   return socket;
 };
+/** The change's first window, opened explicitly, and a page's session on it: a session attaches to
+ * a window, and only an explicit open creates one. */
+const openShell = async (
+  change: string,
+  at: string,
+  size: { cols: number; rows: number } = { cols: 80, rows: 24 },
+): Promise<Awaited<ReturnType<typeof openSession>>> => {
+  await newWindowAsync(change, at, size);
+  return openSession(change, size);
+};
+
 const text = (frames: (string | Uint8Array)[]): string =>
   frames
     .filter((frame): frame is Uint8Array => typeof frame !== "string")
@@ -224,7 +236,7 @@ const control = (frames: (string | Uint8Array)[]): Record<string, unknown>[] =>
 test(
   "a page gets the server's snapshot first, then the live bytes after its offset",
   async () => {
-    const session = await openSession("SNAP-1", dir, { cols: 80, rows: 24 });
+    const session = await openShell("SNAP-1", dir);
     const command = "echo FIRST_$(( 0 + 1 ))_MARK\n";
     await runAndWait(session, command);
     // The host's byte offset advances before the screen applies the output; the snapshot the page
@@ -261,7 +273,7 @@ test(
 test(
   "the backpressure bound closes a page that stops draining, without an exit",
   async () => {
-    const session = await openSession("SNAP-BP", dir, { cols: 80, rows: 24 });
+    const session = await openShell("SNAP-BP", dir);
     const ws = fakeSocket(session);
     terminalSockets.open(ws);
     await waitFor(
@@ -291,7 +303,7 @@ test(
   async () => {
     process.env.CORVI_BACKPRESSURE_GRACE_MS = "400";
     try {
-      const session = await openSession("SNAP-BP-GRACE", dir, { cols: 80, rows: 24 });
+      const session = await openShell("SNAP-BP-GRACE", dir);
       const ws = fakeSocket(session);
       // Over the bound from the first live byte: a large snapshot draining on a slow link.
       ws.bufferedAmount = (1 << 20) + 1;
@@ -324,7 +336,7 @@ test(
 test(
   "a session that exits while attached tells the page before closing",
   async () => {
-    const session = await openSession("SNAP-EXIT", dir, { cols: 80, rows: 24 });
+    const session = await openShell("SNAP-EXIT", dir);
     const ws = fakeSocket(session);
     terminalSockets.open(ws);
     session.write("echo EXIT_$(( 0 + 1 ))_MARK\n");
@@ -344,7 +356,7 @@ test(
 test(
   "a second page over one session detaches the first with a detached frame, not an exit",
   async () => {
-    const first = await openSession("SNAP-DETACHED", dir, { cols: 80, rows: 24 });
+    const first = await openShell("SNAP-DETACHED", dir);
     const one = fakeSocket(first);
     terminalSockets.open(one);
     await waitFor(
@@ -355,7 +367,7 @@ test(
 
     // A second socket over the same session supersedes the first with a frame that says so, then
     // closes it. The page reads that as "take it back", not as the session ending.
-    const second = await openSession("SNAP-DETACHED", dir, { cols: 80, rows: 24 });
+    const second = await openSession("SNAP-DETACHED", { cols: 80, rows: 24 });
     const two = fakeSocket(second);
     terminalSockets.open(two);
     await waitFor(
@@ -377,7 +389,7 @@ test(
 test(
   "a session that exits with no page releases its screen when not kept open",
   async () => {
-    const session = await openSession("SNAP-DETACH", dir, { cols: 80, rows: 24 });
+    const session = await openShell("SNAP-DETACH", dir);
     expect(hubStats().hubs).toBe(1);
     const client = await hostClient();
     await client.kill(session.sessionId);
@@ -405,7 +417,7 @@ test(
       budget(15_000),
     );
 
-    const session = await openSession(change, changeDir, { cols: 80, rows: 24 }, id);
+    const session = await openSession(change, { cols: 80, rows: 24 }, id);
     const ws = fakeSocket(session);
     terminalSockets.open(ws);
     await waitFor(
@@ -457,7 +469,7 @@ test(
     seed.dispose();
     setSnapshot(id, incarnation, seeded.data, 0);
 
-    const session = await openSession(change, changeDir, { cols: 80, rows: 24 }, id);
+    const session = await openSession(change, { cols: 80, rows: 24 }, id);
     const ws = fakeSocket(session);
     terminalSockets.open(ws);
     await waitFor(
@@ -477,7 +489,7 @@ test(
   async () => {
     process.env.CORVI_SCREEN_CADENCE_MS = "300";
     try {
-      const session = await openSession("SNAP-CADENCE", dir, { cols: 80, rows: 24 });
+      const session = await openShell("SNAP-CADENCE", dir);
       const command = "echo CADENCE_MARK\n";
       await runAndWait(session, command);
       await waitFor(
@@ -495,7 +507,7 @@ test(
 test(
   "flushScreens writes a dirty screen synchronously",
   async () => {
-    const session = await openSession("SNAP-FLUSH", dir, { cols: 80, rows: 24 });
+    const session = await openShell("SNAP-FLUSH", dir);
     const command = "echo FLUSH_MARK\n";
     await runAndWait(session, command);
     // The host's bytes reach the screen asynchronously; flush only once the marker is applied.
@@ -513,7 +525,7 @@ test(
 test(
   "a screen stays warm and keeps being fed with no page",
   async () => {
-    const session = await openSession("SNAP-WARM", dir, { cols: 80, rows: 24 });
+    const session = await openShell("SNAP-WARM", dir);
     // Attach once so the screen is served, then detach: the screen belongs to the session and must
     // stay warm, not be released after a grace.
     const first = fakeSocket(session);
@@ -594,7 +606,7 @@ test(
     seed.dispose();
     setSnapshot(id, incarnation, seeded.data, emitted);
 
-    const session = await openSession(change, changeDir, { cols: 80, rows: 24 }, id);
+    const session = await openSession(change, { cols: 80, rows: 24 }, id);
     const snapshots: { data: string; offset: number }[] = [];
     session.attach(
       () => undefined,
@@ -611,7 +623,7 @@ test(
 test(
   "a stale session cannot attach after closeAttachments",
   async () => {
-    const session = await openSession("SNAP-STALE", dir, { cols: 80, rows: 24 });
+    const session = await openShell("SNAP-STALE", dir);
     expect(hubStats().hubs).toBe(1);
     // The reset disposes the screen and forgets the hub; a session object from before it must be
     // refused rather than touch the disposed screen.
@@ -635,7 +647,7 @@ test(
 test(
   "a killed non-kept session disposes its hub and refuses a stale attach",
   async () => {
-    const session = await openSession("SNAP-EXIT-STALE", dir, { cols: 80, rows: 24 });
+    const session = await openShell("SNAP-EXIT-STALE", dir);
     expect(hubStats().hubs).toBe(1);
     // A non-kept session exit disposes the hub. A session object from before the exit must be
     // refused rather than touch the disposed screen.
@@ -677,7 +689,7 @@ test(
       async () => (await (await hostClient()).list()).some((entry) => entry.id === id && !entry.alive),
       budget(15_000),
     );
-    const session = await openSession(change, changeDir, { cols: 80, rows: 24 }, id);
+    const session = await openSession(change, { cols: 80, rows: 24 }, id);
     const ws = fakeSocket(session);
     terminalSockets.open(ws);
     await waitFor(
@@ -712,7 +724,7 @@ test("an over-cap screen serializes to a truncated screen, never the empty senti
 test(
   "an over-cap screen does not blank the page and does not drop the stored screen",
   async () => {
-    const session = await openSession("SNAP-OVER", dir, { cols: 500, rows: 50 });
+    const session = await openShell("SNAP-OVER", dir, { cols: 500, rows: 50 });
     const command = "echo OVERCAP-BASE\n";
     await runAndWait(session, command);
     flushScreens();

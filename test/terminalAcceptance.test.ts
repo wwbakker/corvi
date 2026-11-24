@@ -6,6 +6,7 @@ import {
   budget,
   checkoutsOf,
   closePages,
+  openFirstWindow,
   requireFreshWebBundle,
   runSh,
   testTempDir,
@@ -107,6 +108,20 @@ const createChange = async (id: string): Promise<string> => {
 const openTerminal = async (change: string, page = "terminals"): Promise<Page> => {
   const found = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   await found.goto(`${url}/changes/${change}/${page}`);
+  // A window is opened, not implied: a change starts with none, and the terminal view attaches to
+  // a window it has. Wait for the view to know which it is before deciding.
+  if (page === "terminals") {
+    await found.waitForFunction(
+      () =>
+        document.querySelector(".change-tabs [data-window-index]") !== null ||
+        document.querySelector(".terminal-empty") !== null,
+      null,
+      { timeout: 20_000 },
+    );
+    if ((await found.locator(".change-tabs [data-window-index]").count()) === 0) {
+      await openFirstWindow(found);
+    }
+  }
   await found.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await found.locator(".terminal-screen").click();
   await awaitAttached(found);
@@ -264,6 +279,8 @@ test.skipIf(!usable)(
     const page = await openTerminal(id);
     const tabs = page.locator(".window-tab:not(.new)");
     await tabs.first().waitFor({ timeout: 15_000 });
+    // The first window's id: a window opened later leads the row, so the position is not a name.
+    const firstId = await tabs.first().getAttribute("data-window-id");
 
     // Window 1: its own shell, with a variable only it has, and a distinctive screen.
     const marker = join(dir, "win-set.txt");
@@ -296,7 +313,10 @@ test.skipIf(!usable)(
     ).toBe(true);
     expect(await terminalText(page)).not.toContain("W1-DEEP-80");
 
-    await tabs.first().click();
+    const secondId = await page
+      .locator(`.window-tab:not(.new):not([data-window-id="${firstId}"])`)
+      .getAttribute("data-window-id");
+    await page.locator(`.window-tab[data-window-id="${firstId}"]`).click();
     expect(
       await until(async () => (await terminalText(page)).includes("W1-DEEP-80"), true, budget(20_000)),
     ).toBe(true);
@@ -318,7 +338,7 @@ test.skipIf(!usable)(
     const survived = join(dir, "win-survived.txt");
     await runCommand(page, `echo "$WIN_ONE" > ${survived}`, survived, "yes\n");
     expect(await fileText(survived)).toBe("yes\n");
-    await tabs.nth(1).click();
+    await page.locator(`.window-tab[data-window-id="${secondId}"]`).click();
     expect(
       await until(async () => (await terminalText(page)).includes("W2-DEEP-80"), true, budget(20_000)),
     ).toBe(true);
@@ -375,6 +395,9 @@ test.skipIf(!usable)(
         terminalRequests.push(request.url());
     });
     await page.goto(`${url}/changes/${id}/terminals`);
+    // The pane attaches to a window, so the window comes first: opened from the "+" on the empty
+    // terminal view, the way a person opens it.
+    await openFirstWindow(page);
     await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
     await page.locator(".terminal-screen").click();
     await awaitAttached(page);
@@ -462,6 +485,12 @@ test.skipIf(!usable)(
     expect(
       await until(async () => (await terminalText(page)).includes("ACTION-FROZEN"), true, budget(20_000)),
     ).toBe(true);
+    // A kept-open window whose pty has ended says so in the pane, scoped to this terminal's shell:
+    // the change's other shells are unaffected, and no reload or tab is promised as the fix.
+    const gone = ((await page.locator(".terminal-gone").first().textContent()) ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    expect(gone).toBe("The shell in this terminal has ended. Other terminals in this change are unaffected.");
 
     // The agent-status channel, through the endpoint the CLI uses. It is a live fact about a
     // running process, so it is reported for the change's live shell — the frozen command window's

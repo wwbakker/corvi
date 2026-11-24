@@ -5,6 +5,8 @@
  * `@corvi/agents/harness-discovery`; this file is what both sides of the wire agree on. */
 import { Schema } from "effect";
 
+import { TerminalWindowSchema } from "./api.ts";
+
 /** The agent a harness runs. Pi is first: it is the environment a harness generates. */
 export const HarnessAgent = Schema.Literals(["pi", "opencode"]);
 export type HarnessAgent = typeof HarnessAgent.Type;
@@ -215,8 +217,12 @@ export const OpenHarnessWindowSchema = Schema.Struct({
 });
 export type OpenHarnessWindowDto = typeof OpenHarnessWindowSchema.Type;
 
+/** A new window's pane, and the change's windows as they now are. A create answers with the list
+ * the page applies, the same way a window action does: the page never has to read the list back to
+ * learn about a window it just opened. */
 export const HarnessWindowResponseSchema = Schema.Struct({
   window: Schema.String,
+  windows: Schema.Array(TerminalWindowSchema),
 });
 export type HarnessWindowResponseDto = typeof HarnessWindowResponseSchema.Type;
 

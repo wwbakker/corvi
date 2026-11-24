@@ -86,7 +86,11 @@ opaque to it and is how the server re-associates windows after a restart.
   that outlives the kill cannot resurrect the window. A restart keeps labels, titles and order;
   `new`/`select`/`move`/`rename` and `split`/`close-pane`/`focus-pane` mutate it, and opening a pane
   creates its screen. This is what the tab strip and navigation read; the page still renders one
-  pane per window until 5b composes the grid.
+  pane per window until 5b composes the grid. A window is created only by an explicit open — the
+  `+` dialog, a split, a harness window, or the one an action run opens for a change that has none
+  (`ensureActiveHostWindow`); attaching never creates one. Every creation announces the `windows`
+  event from `openHostWindow`/`splitPaneAsync`, so a window that comes and goes between two of the
+  watcher's looks is still heard.
 - `snapshots.ts` — the persisted server screens, keyed by `(sessionId, incarnation)`, 1 MiB each,
   loaded on start and pruned to live + kept incarnations.
 - `status.ts` — the agent-status store: `working`/`waiting`/`clear`, validated, incarnation-keyed,
@@ -102,7 +106,8 @@ opaque to it and is how the server re-associates windows after a restart.
   the pane session to attach; absent means the active window's active pane.
 - `GET /api/changes/:id/terminal` — the socket URL and why a terminal cannot start.
 - `GET /api/changes/:id/terminal/windows`, `POST` actions `new`/`select`/`move`/`split`/`close-pane`/
-  `focus-pane`/`rename`, `GET /api/terminals`.
+  `focus-pane`/`rename`, `GET /api/terminals`. `select` names its window by id; `move` is the one
+  positional action, because a dragged tab is a position.
 - `POST /api/terminals/status` — the agent-status channel.
 
 ## The page — `apps/web/src/terminals/client/`

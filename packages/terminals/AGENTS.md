@@ -5,9 +5,9 @@
 The pure terminal vocabulary shared by the server and the page, and the command window's
 presentation.
 
-- `./model`: the platform word, the new-window key test, the CSI-u sequences a terminal cannot
-  encode by itself, the command option names a kept/finished window carries, and the
-  `CommandFailure`/`NewWindowOptions` types the delivery path shares. No imports.
+- `./model`: the platform word, the CSI-u sequences a terminal cannot encode by itself, the
+  command option names a kept/finished window carries, and the `CommandFailure`/`NewWindowOptions`
+  types the delivery path shares. No imports.
 - `./presenter`: `commandWindowPresenter`, which reads the command option names and says what a
   run window is (finished, wanting you). Pure, over `@corvi/contracts`' presenter types.
 
@@ -24,8 +24,8 @@ app (`apps/server/src/terminals/server/presenter.ts`); the routes stay in
 
 ## Public entrypoints
 
-- `@corvi/terminals/model`: `Platform`, `isNewWindowKey`, `csiuFor`, `COMMAND_*_OPTION`,
-  `CommandFailure`, `NewWindowOptions`
+- `@corvi/terminals/model`: `Platform`, `csiuFor`, `COMMAND_*_OPTION`, `CommandFailure`,
+  `NewWindowOptions`
 - `@corvi/terminals/presenter`: `commandWindowPresenter`
 
 ## Dependencies

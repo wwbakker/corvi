@@ -365,11 +365,15 @@ export const openSubagent = (
       }
       const window = yield* launcher(change, record);
       yield* opened(change, id, window);
-      yield* Effect.sync(() => announce("windows"));
       // The launcher returned the window's registration id; select exactly it.
       yield* selectWindowById(change.id, window).pipe(
         Effect.mapError((failure) => new BadRequestError({ message: failure.message })),
       );
+      // The registry said the window exists when it opened it; this says the selection that just
+      // followed, bringing it to the front. A selection is not a creation, so nothing else says it,
+      // and a page that did not ask for this window would otherwise learn of it at the watcher's
+      // next look.
+      yield* Effect.sync(() => announce("windows"));
       return yield* refreshSubagent(change, id);
     }),
   );

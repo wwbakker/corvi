@@ -60,7 +60,7 @@ test("a window action queued before a retarget is refused by the owner, not sent
   await until(() => owner.availability().entries.r?.generation, "g2");
 
   const before = fetches;
-  await store.select("r", "C1", 0);
+  await store.select("r", "C1", "w1");
   await Bun.sleep(10);
 
   // The queued action acquired the g1 capability: the owner refuses it as stale and no request to
@@ -73,7 +73,7 @@ test("a window action queued before a retarget is refused by the owner, not sent
   store.reconfigure("r", "g2", true);
   await Bun.sleep(10);
   const after = fetches;
-  await store.select("r", "C1", 0);
+  await store.select("r", "C1", "w1");
   await Bun.sleep(10);
   expect(fetches).toBeGreaterThan(after);
 });

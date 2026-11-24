@@ -656,6 +656,19 @@ export const withPage = async <T>(
   }
 };
 
+/** Open a change's first terminal window the way a person does: the row's "+" tab, then `1` in
+ * the dialog. A window is created only by an explicit open, so a test that expects a shell opens
+ * one rather than relying on arriving at the page. The page is a change's page already — the tab
+ * row is what carries the "+" — and the dialog's success leaves it on the terminal view, where
+ * the pane attaches to the window it just made. */
+export const openFirstWindow = async (page: Page): Promise<void> => {
+  await page.locator(".change-tabs button.window-tab.new").click();
+  await page.waitForSelector(".new-terminal-dialog[open]");
+  await page.keyboard.press("1");
+  await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
+  await page.waitForSelector(".change-tabs [data-window-index]");
+};
+
 /**
  * The one seam between the Promise-shaped tests and the Effect API.
  *
