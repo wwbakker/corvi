@@ -1565,7 +1565,9 @@ test.skipIf(!usable)(
       { width: 1000, height: 600 },
     );
   },
-  30_000,
+  // The scaled budget, not a raw number: this test walks ten pages and opens four terminal windows,
+  // so a slow runner must get the same factor as the waits inside it (CI triples both).
+  budget(30_000),
 );
 
 /** A change with `count` terminal windows, created idempotently, so a test body can run again

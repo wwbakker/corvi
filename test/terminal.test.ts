@@ -862,7 +862,9 @@ test.skipIf(!usable)(
   "the tab menu closes on Escape and on a click elsewhere, and never opens on the fixed tabs",
   async () => {
     const { page } = await openTerminal(id);
-    const tab = page.locator(".window-tab:not(.new)").first();
+    // The window the page is attached to: a window opened later leads the row, and another test's
+    // window may never have announced its place, so the first tab is not "this change's shell".
+    const tab = page.locator(".window-tab.current").first();
     await tab.waitFor({ timeout: 20_000 });
     const menu = page.locator(".window-menu");
     // The name follows what runs in front of the shell and arrives asynchronously; record it only
@@ -918,7 +920,7 @@ test.skipIf(!usable)(
   "cancelling or escaping a rename keeps the name and gives the terminal the keyboard",
   async () => {
     const { page } = await openTerminal(id);
-    const tab = page.locator(".window-tab:not(.new)").first();
+    const tab = page.locator(".window-tab.current").first();
     await tab.waitFor({ timeout: 20_000 });
     await waitFor(
       "the window to be named after its shell",
