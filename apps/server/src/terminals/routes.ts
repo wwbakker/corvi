@@ -4,7 +4,7 @@ import { WINDOW_TITLE_MAX } from "@corvi/contracts/terminal";
 import { changeDir, readChange } from "../change/server/index.ts";
 import type { Change } from "@corvi/changes/record";
 import type { HarnessPaneProvider } from "./server/windows.ts";
-import { inertWarningLine, writeToPane } from "./server/windows.ts";
+import { inertWarningLine, NoTerminalWindowError, writeToPane } from "./server/windows.ts";
 import { userHarnessLaunch } from "../harnesses/server/index.ts";
 import { BadRequestError, InternalError } from "@corvi/contracts/errors";
 import { runRoute } from "../capabilities/effect/run.ts";
@@ -19,7 +19,6 @@ import {
   newWindow,
   newWindowHere,
   renameWindow,
-  selectWindow,
   selectWindowById,
   splitPane,
   terminalSocketPath,
@@ -35,10 +34,9 @@ import { hostStatus } from "./server/hostStatus.ts";
 import { restartHostClient } from "./server/host.ts";
 import { bodyAs, json, withChange } from "../capabilities/web.ts";
 
-/** A window action: what to do, with the indices and ids the action needs. */
+/** A window action: what to do, with the ids and (for a drag) the positions it needs. */
 const WindowBody = Schema.Struct({
   action: Schema.String,
-  index: Schema.optional(Schema.Number),
   from: Schema.optional(Schema.Number),
   to: Schema.optional(Schema.Number),
   direction: Schema.optional(Schema.Literals(["right", "down"])),
@@ -96,16 +94,17 @@ const harnessPane = (
 };
 
 export const terminalsRoutes = guard({
-  // The terminal's socket: one WebSocket per connection, attached to the change's active host
-  // session. The session is started before the upgrade, so a failure — the wrong runtime, no
-  // host — comes back as an HTTP answer the pane can show rather than a socket that opens and
-  // stays silent.
+  // The terminal's socket: one WebSocket per connection, attached to a host session the change
+  // already has. The session is resolved before the upgrade, so a failure — the wrong runtime, no
+  // host, no window — comes back as an HTTP answer the pane can show rather than a socket that
+  // opens and stays silent.
   "/api/changes/:id/terminal/socket": async (req, srv) => {
     const id = decodeURIComponent(req.params.id);
-    const dir = await terminalDir(id);
-    if (!dir) return new Response("no terminal for this change", { status: 404 });
+    // A change with no terminal to attach to — unknown, or completed — answers before a socket is
+    // started. Which window, if any, is the registry's answer below.
+    if (!(await terminalDir(id))) return new Response("no terminal for this change", { status: 404 });
     const query = new URL(req.url).searchParams;
-    // The page fits its terminal before connecting, so this is the size the shell starts at;
+    // The page fits its terminal before connecting, so this is the size the shell was started at;
     // a missing or malformed pair falls back to the classic 80x24.
     const cols = Number(query.get("cols") ?? 80);
     const rows = Number(query.get("rows") ?? 24);
@@ -114,21 +113,21 @@ export const terminalsRoutes = guard({
     const sessionId = query.get("session") ?? undefined;
     let session: TerminalSession;
     try {
-      // The pane's harness is resolved only if a window is actually created, under the registry's
-      // lock; an existing window is attached as it is. A broken harness never takes a terminal away.
-      const change = await Effect.runPromise(readChange(id));
-      const pane = change === null ? undefined : harnessPane(change);
-      session = await openSession(id, dir, { cols: cols || 80, rows: rows || 24 }, sessionId, pane?.provider);
-      const warning = pane?.warning();
-      if (warning !== undefined) session.write(inertWarningLine(warning));
+      // Attaching never creates a window: one the change does not have is a refusal, which the
+      // pane shows like any other failure.
+      session = await openSession(id, { cols: cols || 80, rows: rows || 24 }, sessionId);
     } catch (e) {
+      // A change that exists with no window is a state, not a fault, and it answers like the
+      // missing terminal above. The page asks for a socket URL only when a window exists, so a
+      // race — the last window going as the pane mounts — is the one way here.
+      if (e instanceof NoTerminalWindowError) return json({ error: e.message }, 404);
       // The client reads `{ error }` (apps/web/src/app-root/api.ts); this is the one failure that never
       // becomes a typed taxonomy error, so it is shaped here.
       return json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
     const data: TerminalSocket = { session };
-    // The pty is started before the handshake, so a malformed one leaves `handleUpgrade` without
-    // a callback: `onAbort` (fired when the raw socket closes first) is what kills it.
+    // The session is resolved before the handshake, so a malformed one leaves `handleUpgrade`
+    // without a callback: `onAbort` (fired when the raw socket closes first) is what kills it.
     const options = { data: data as never, onAbort: () => session.kill() } as never;
     if (srv.upgrade(req, options)) return undefined;
     session.kill(); // the upgrade never happened: nothing else will close the pty
@@ -183,8 +182,8 @@ export const terminalsRoutes = guard({
       ),
   },
 
-  // The change's terminal: where its socket is, and whether the change may have one. The pane
-  // asks for this when a terminal is opened; the connection itself is what starts the session.
+  // The change's terminal: where its socket is, and whether the change may have one. The pane asks
+  // for this when a window is opened; the connection attaches to that window's session.
   "/api/changes/:id/terminal": {
     GET: (req) =>
       withChange(req.params.id, (c) =>
@@ -234,14 +233,15 @@ export const terminalsRoutes = guard({
               yield* Effect.promise(() => writeToPane(created, warning));
             }
           } else if (body.action === "select") {
-            // A caller that names a window id selects by stable identity under the registry lock;
-            // the strip's ordinary select keeps its index. A named window that is gone is
-            // reported, not silently ignored.
-            if (windowId !== undefined) {
-              yield* selectWindowById(c.id, windowId).pipe(
-                Effect.mapError((failure) => new BadRequestError({ message: failure.message })),
-              );
-            } else yield* selectWindow(c.id, body.index ?? 0);
+            // A window is selected by its id, which is stable across a reorder; a position is not
+            // (an activated window leads the row), so there is no index form to send. A window
+            // that is gone is reported, not silently ignored.
+            if (windowId === undefined) {
+              return yield* new BadRequestError({ message: "select needs a window id" });
+            }
+            yield* selectWindowById(c.id, windowId).pipe(
+              Effect.mapError((failure) => new BadRequestError({ message: failure.message })),
+            );
           } else if (body.action === "move") {
             yield* moveWindow(c.id, body.from ?? 0, body.to ?? 0);
           } else if (body.action === "rename") {

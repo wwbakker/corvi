@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { hostClient, closeHostClient } from "../apps/server/src/terminals/server/host.ts";
 import { closeAttachments, hubStats, openSession } from "../apps/server/src/terminals/server/session.ts";
+import { newWindowAsync } from "../apps/server/src/terminals/server/windows.ts";
 import { testTempDir, waitFor } from "./helpers.ts";
 
 /**
@@ -51,6 +52,16 @@ const collector = (): Collector => {
     onStop: (reason) => stops.push(reason),
   };
 };
+/** The change's first window, opened explicitly, and a page's session on it: a session attaches to
+ * a window, and only an explicit open creates one. */
+const openShell = async (
+  change: string,
+  size: { cols: number; rows: number } = { cols: 80, rows: 24 },
+): Promise<Awaited<ReturnType<typeof openSession>>> => {
+  await newWindowAsync(change, dir, size);
+  return openSession(change, size);
+};
+
 /** The live bytes a collector has received, as text. */
 const live = (collector: Collector): string =>
   Buffer.concat(collector.chunks.map((chunk) => Buffer.from(chunk))).toString("utf8");
@@ -100,7 +111,7 @@ afterAll(async () => {
 });
 
 test("the screen is fed with no page attached", async () => {
-  const session = await openSession("HUB-1", dir, { cols: 80, rows: 24 });
+  const session = await openShell("HUB-1");
   const before = collector();
   session.attach(before.send, before.snapshot, before.onStop);
   // Prove the attach works at all, then detach so the next output is produced with no page.
@@ -131,7 +142,7 @@ test("the screen is fed with no page attached", async () => {
   // A reattach is a new socket (a new `openSession`), not a second `attach` on the same object.
   // The previous page's socket is still closing, so its subscriber is still in the hub: the
   // reattach supersedes it and is served the screen, rather than being answered with `exit`.
-  const reattached = await openSession("HUB-1", dir, { cols: 80, rows: 24 });
+  const reattached = await openSession("HUB-1", { cols: 80, rows: 24 });
   const second = collector();
   reattached.attach(second.send, second.snapshot, second.onStop);
   expect(first.stops).toEqual(["detached"]);
@@ -145,7 +156,7 @@ test("the screen is fed with no page attached", async () => {
 }, 60_000);
 
 test("detaching never kills the shell or the screen, and re-attaching resumes from it", async () => {
-  const session = await openSession("HUB-2", dir, { cols: 80, rows: 24 });
+  const session = await openShell("HUB-2");
   const first = collector();
   session.attach(first.send, first.snapshot, first.onStop);
   session.write("echo ALIVE_$(( 0 + 1 ))_MARK\n");
@@ -169,7 +180,7 @@ test("detaching never kills the shell or the screen, and re-attaching resumes fr
 }, 60_000);
 
 test("a second openSession over one session supersedes the first page, not fans out", async () => {
-  const first = await openSession("HUB-4", dir, { cols: 80, rows: 24 });
+  const first = await openShell("HUB-4");
   first.write("echo FIRST_$(( 0 + 1 ))_MARK\n");
   const one = collector();
   first.attach(one.send, one.snapshot, one.onStop);
@@ -178,7 +189,7 @@ test("a second openSession over one session supersedes the first page, not fans 
   // A second session object over the same host session and incarnation. The per-object guard in
   // `openSession` cannot see it; the hub supersedes the old page, so the reattach is served the
   // screen and the old page is told it was detached instead of both receiving the stream.
-  const second = await openSession("HUB-4", dir, { cols: 80, rows: 24 });
+  const second = await openSession("HUB-4", { cols: 80, rows: 24 });
   const two = collector();
   second.attach(two.send, two.snapshot, two.onStop);
   expect(one.stops).toEqual(["detached"]);
@@ -192,14 +203,14 @@ test("a second openSession over one session supersedes the first page, not fans 
 }, 60_000);
 
 test("a superseded page is detached; the session's real end is still exit", async () => {
-  const first = await openSession("HUB-6", dir, { cols: 80, rows: 24 });
+  const first = await openShell("HUB-6");
   const one = collector();
   first.attach(one.send, one.snapshot, one.onStop);
   await waitFor("the first snapshot", async () => one.snapshots.length > 0, 25_000);
 
   // A second session object over the same host session supersedes the first: that page is told it
   // was detached, not that the session is gone.
-  const second = await openSession("HUB-6", dir, { cols: 80, rows: 24 });
+  const second = await openSession("HUB-6", { cols: 80, rows: 24 });
   const two = collector();
   second.attach(two.send, two.snapshot, two.onStop);
   await waitFor("the second snapshot", async () => two.snapshots.length > 0, 25_000);
@@ -216,8 +227,8 @@ test("a superseded page is detached; the session's real end is still exit", asyn
 }, 60_000);
 
 test("two concurrent attaches: the newcomer is queued, and the screen keeps every byte", async () => {
-  const a = await openSession("HUB-5", dir, { cols: 80, rows: 24 });
-  const b = await openSession("HUB-5", dir, { cols: 80, rows: 24 });
+  const a = await openShell("HUB-5");
+  const b = await openSession("HUB-5", { cols: 80, rows: 24 });
   // A stream whose tail races the attach's serialize window.
   a.write("seq 1 300 | sed 's/^/RACE-/'; echo RACE-DONE\n");
   const one = collector();
@@ -238,7 +249,7 @@ test("two concurrent attaches: the newcomer is queued, and the screen keeps ever
   await Bun.sleep(300);
   const total = (await (await hostClient()).list()).find((entry) => entry.id === a.sessionId)?.lastSeq ?? 0;
   a.kill();
-  const c = await openSession("HUB-5", dir, { cols: 80, rows: 24 });
+  const c = await openSession("HUB-5", { cols: 80, rows: 24 });
   const probe = collector();
   c.attach(probe.send, probe.snapshot, probe.onStop);
   await waitFor("the probe snapshot", async () => probe.snapshots.length > 0, 15_000);
@@ -247,7 +258,7 @@ test("two concurrent attaches: the newcomer is queued, and the screen keeps ever
 }, 60_000);
 
 test("attach/detach does not leak host listeners", async () => {
-  const session = await openSession("HUB-3", dir, { cols: 80, rows: 24 });
+  const session = await openShell("HUB-3");
   for (let cycle = 0; cycle < 3; cycle++) {
     const seen = collector();
     session.attach(seen.send, seen.snapshot, seen.onStop);
@@ -267,7 +278,7 @@ test("attach/detach does not leak host listeners", async () => {
 }, 60_000);
 
 test("a hub whose host connection closed is reaped and its page told the session ended", async () => {
-  const session = await openSession("HUB-HOST-LOST", dir, { cols: 80, rows: 24 });
+  const session = await openShell("HUB-HOST-LOST");
   const page = collector();
   session.attach(page.send, page.snapshot, page.onStop);
   await waitFor("the snapshot", async () => page.snapshots.length > 0, 25_000);

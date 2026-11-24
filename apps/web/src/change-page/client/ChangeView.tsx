@@ -26,7 +26,8 @@ import { changeNav, resolveChangePage, type ChangeTabInfo } from "./changeTabs.t
 import { forgetChange, seeView } from "../../app-root/remember.ts";
 import { changeActions } from "./changeActions.ts";
 import { ChangeControls } from "./ChangeControls.tsx";
-import { NewTerminalDialog } from "../../terminals/client/NewTerminalDialog.tsx";
+import { NewTerminalDialog, type NewTerminalOpener } from "../../terminals/client/NewTerminalDialog.tsx";
+import { SelectTerminalDialog } from "../../terminals/client/SelectTerminalDialog.tsx";
 import { ChangeHarnessesDialog } from "../../harnesses/ChangeHarnessesDialog.tsx";
 import { ChangeDashboard } from "./ChangeDashboard.tsx";
 import { PlanPage } from "./PlanPage.tsx";
@@ -34,7 +35,7 @@ import { TranscriptsPage } from "./TranscriptsPage.tsx";
 import { useTerminalActions } from "../../actions/terminalActions.ts";
 import { TabHost, type WidgetInfo } from "../../integrations/client.tsx";
 import { DashboardIcon, PageIcon, PlanIcon, ReviewIcon } from "../../app-root/icons.tsx";
-import { useLeaderGroup, type LeaderTarget } from "../../app-root/leader.tsx";
+import { useLeaderGroup } from "../../app-root/leader.tsx";
 
 /** The message to show for whatever a request threw: typed client errors and plain errors both
  * carry one. */
@@ -55,6 +56,7 @@ export function ChangeView({
   provision,
   terminal,
   windows,
+  windowsKnown,
   windowError,
   onSelectWindow,
   onNewWindow,
@@ -62,7 +64,7 @@ export function ChangeView({
   onRenameWindow,
   onOpenPage,
   onChanged,
-  onRefreshWindows,
+  onWindowsCreated,
 }: {
   id: string;
   /** Which server owns this change: `""` for the local one, the local workspace id for a remote
@@ -81,16 +83,19 @@ export function ChangeView({
     error: string | null;
     /** The change's workspace is unavailable; the pane says why instead of connecting. */
     unavailable?: RemoteAvailabilityReasonDto | null;
-    create: () => void;
   };
   /** This change's terminal windows: what the terminal page's tabs are. */
   windows: TerminalWindow[];
+  /** Whether the window list has been read at all. An unread list is not an empty one: the page
+   * must not say "no terminal" on the strength of a read that has not happened. */
+  windowsKnown: boolean;
   /** What this change's last terminal selection/creation failed with, if anything. */
   windowError?: string;
-  /** Switching the session to one of its windows. */
-  onSelectWindow: (index: number) => void;
-  /** Another window beside the current one. The terminal's own chord does this from inside it;
-   * this is the tab that does. */
+  /** Switching the session to one of its windows, named by id: the row reorders, so a position
+   * is not the window it points at by the time the choice is sent. */
+  onSelectWindow: (windowId: string) => void;
+  /** Bring the terminal view up for a new window. The window itself is created by the dialog, on
+   * its own success path; this only makes sure the page is where the new shell will be. */
   onNewWindow: () => void;
   /** A dragged tab landed: the window at `from` takes the place of the one at `to`. */
   onMoveWindow: (from: number, to: number) => void;
@@ -101,13 +106,17 @@ export function ChangeView({
   onOpenPage: (page: Page) => void;
   /** The change was renamed, completed or otherwise altered: the lists elsewhere are stale. */
   onChanged: () => void;
-  /** A window was opened by the new-terminal dialog: the window lists are stale. */
-  onRefreshWindows: () => void;
+  /** The new-terminal dialog opened windows: its answer is the change's list, which the store
+   * takes as a mutation's answer, so no read is needed and none leaves a gap to see. */
+  onWindowsCreated: (windows: readonly TerminalWindow[]) => Promise<void>;
   /** The server's platform: what the terminal's key hints and shortcut assume. */
   platform: Platform;
 }): JSX.Element {
   const client = useChangeClient();
-  const [newTerminalOpen, setNewTerminalOpen] = useState(false);
+  // Null while the dialog is closed; otherwise how it was opened, which is what its key hints
+  // answer to.
+  const [newTerminal, setNewTerminal] = useState<NewTerminalOpener | null>(null);
+  const [selectTerminalOpen, setSelectTerminalOpen] = useState(false);
   const [harnessDialogOpen, setHarnessDialogOpen] = useState(false);
   // The change's own source, not the chosen workspace: a direct link or "All work" banners too.
   const availability = useSourceAvailability(source);
@@ -422,34 +431,48 @@ export function ChangeView({
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
   const tabRowRef = useRef<HTMLDivElement>(null);
   const newWindowRef = useRef<HTMLButtonElement>(null);
-  /** Every new terminal goes through the dialog: the "+" tab, its leader key, and the terminal's
-   * own chord all land here. */
-  const openNewTerminal = (): void => {
-    setNewTerminalOpen(true);
-    onNewWindow();
+  /** Every new terminal goes through the dialog: the "+" tab and its leader key both land here.
+   * Opening it is all this does — nothing is created, and the page does not move — so Cancel
+   * leaves the change exactly as it was. */
+  const openNewTerminal = (opener: NewTerminalOpener): void => {
+    setNewTerminal(opener);
   };
+  const hasWindows = windows.length > 0;
   const statusRef = useRef<HTMLButtonElement>(null);
   const actionsRef = useRef<HTMLButtonElement>(null);
-  const windowTabs = (): readonly LeaderTarget[] => {
-    const strip = tabRowRef.current?.querySelector<HTMLElement>("nav.window-tabs") ?? null;
-    return strip === null
-      ? []
-      : [...strip.querySelectorAll<HTMLElement>("[data-window-index]")].map((element) => ({ element }));
+  /** The element the window list's key sits on: the row's last window, because the strip around it
+   * is `display: contents` and has no box of its own to put a keycap on. With no windows there is
+   * nothing to pick, so the entry has no element and takes no key — a key that would open an empty
+   * list is the same lie as a key on a control that is not there. Read from the page rather than
+   * from the render that registered the group: the group's factory runs when the keys come up, and
+   * the windows are whatever is there then. */
+  const windowListTarget = (): HTMLElement | null => {
+    const tabs = tabRowRef.current?.querySelectorAll<HTMLElement>("nav.window-tabs [data-window-index]");
+    return tabs === null || tabs === undefined || tabs.length === 0 ? null : (tabs[tabs.length - 1] ?? null);
   };
-  // The view row's keys. The wizard registers the same letters under its own id: the two surfaces
-  // never mount together, so one row serves both and a key means the same position in each. Each
-  // cap sits above its control's trailing corner: the tabs are 2px apart, so a cap to the right of
-  // one would land on the next, and the label under an inside cap reads as part of the key.
+  // The view row's keys, in the order the controls are drawn: the views, "+", the window list, then
+  // the title row's two menus (which sit above the row but come last). The wizard registers the
+  // same letters under its own id: the two surfaces never mount together, so one row serves both
+  // and a key means the same position in each. Each cap sits above its control's trailing corner:
+  // the tabs are 2px apart, so a cap to the right of one would land on the next, and the label
+  // under an inside cap reads as part of the key.
   useLeaderGroup("view", "asdfghjkl", () => [
     ...nav.map((tab) => ({
       kind: "target" as const,
       element: tabRefs.current.get(tab.id) ?? null,
       align: "above" as const,
     })),
-    // The terminal tabs are a group to pick from: boxed while the keys are up, with its key above
-    // the group's right end rather than on the first tab.
-    { kind: "selector", align: "above", items: windowTabs },
-    { kind: "target", element: newWindowRef.current, align: "above" },
+    // "+" opens the new-terminal dialog with its key hints showing: the leader is what advertised
+    // the keys, so the dialog keeps the promise.
+    {
+      kind: "target",
+      element: newWindowRef.current,
+      align: "above",
+      run: () => openNewTerminal("keyboard"),
+    },
+    // The window list is one control to pick from, not a group of numbered tabs: its key opens the
+    // dialog, which lists the windows with their places, one row each.
+    { kind: "target", element: windowListTarget(), align: "above", run: () => setSelectTerminalOpen(true) },
     { kind: "target", element: statusRef.current, keep: true },
     { kind: "target", element: actionsRef.current, keep: true },
   ]);
@@ -459,6 +482,17 @@ export function ChangeView({
    * are composed in 5b; the page renders the active one for now. */
   const activeWindow = windows.find((window) => window.active);
   const activePaneId = activeWindow?.activePane ?? activeWindow?.id ?? null;
+
+  // A change you arrive at with no window keeps its terminal view: that is where "+" is, and it is
+  // how the first window is opened. The last window going is the other case — the shell you were
+  // typing in exited and the view has nothing left to show — so the dashboard, where the change
+  // still is, is where you land.
+  const hadWindows = useRef(hasWindows);
+  useEffect(() => {
+    const before = hadWindows.current;
+    hadWindows.current = hasWindows;
+    if (before && !hasWindows && windowsKnown && active.kind === "terminals") onOpenPage("dashboard");
+  }, [hasWindows, windowsKnown, active.kind, onOpenPage]);
 
   /** The change's views, and its terminal windows beside them, in one row under the title: a view
    * and a window are both one click away, and the separator is what says they are different kinds
@@ -496,7 +530,6 @@ export function ChangeView({
         leaderNewRef={newWindowRef}
         terminals={active.kind === "terminals"}
         windows={windows}
-        platform={platform}
         disabled={blocked}
         onSelectWindow={onSelectWindow}
         onNewWindow={openNewTerminal}
@@ -643,8 +676,10 @@ export function ChangeView({
         </div>
       )}
       {/* The terminal page's pane: the only place a pty is attached, so it is unmounted while a
-          non-terminal view shows and re-attaches when you come back. */}
-      {terminalOpened && (
+          non-terminal view shows and re-attaches when you come back — and it exists only while the
+          change has a window to attach to. A change with none shows the empty view below instead,
+          and no socket is asked for. */}
+      {terminalOpened && hasWindows && (
         <div
           className={active.kind === "terminals" ? "terminal-host view-arrives" : "terminal-host"}
           hidden={active.kind !== "terminals"}
@@ -658,8 +693,15 @@ export function ChangeView({
             visible={active.kind === "terminals"}
             focusRequest={focusRequest}
             platform={platform}
-            onNewWindow={openNewTerminal}
           />
+        </div>
+      )}
+      {/* Nothing to attach to, and the list that says so has been read: the view is a place you
+          can sit, with the "+" the way in. Left blank while the list is unread, which is not the
+          same claim as "none". */}
+      {active.kind === "terminals" && windowsKnown && !hasWindows && (
+        <div className="terminal-empty">
+          <p className="hint">No terminal in this change yet — open one with +.</p>
         </div>
       )}
       {change !== undefined && (
@@ -674,15 +716,28 @@ export function ChangeView({
       )}
       {change !== undefined && (
         <NewTerminalDialog
-          open={newTerminalOpen}
+          open={newTerminal !== null}
+          opener={newTerminal ?? "pointer"}
           change={change}
           client={client}
           currentDirectory={activeWindow?.cwd}
-          onClose={() => setNewTerminalOpen(false)}
-          onCreated={() => {
-            onRefreshWindows();
+          onClose={() => setNewTerminal(null)}
+          onCreated={async (windows) => {
+            // OK is what opens a terminal. The dialog's answer is the change's windows, so the
+            // store has them before the page moves: there is no round trip in which the terminal
+            // view would say the change has none.
+            await onWindowsCreated(windows);
+            onNewWindow();
             setFocusRequest((n) => n + 1);
           }}
+        />
+      )}
+      {change !== undefined && (
+        <SelectTerminalDialog
+          open={selectTerminalOpen}
+          windows={windows}
+          onPick={onSelectWindow}
+          onClose={() => setSelectTerminalOpen(false)}
         />
       )}
     </div>

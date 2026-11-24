@@ -33,9 +33,11 @@ lands on the view you last had open there, within the running app: restarting op
 again. Leaving Settings with unsaved edits asks first however you go — clicking or Back — see
 [configuration](configuration.md).
 
-Opening a dashboard does not start a terminal. A terminal starts or attaches when opened. The
-new-window control creates another window, normally in the current window's working directory, and
-makes it the current one. Background work that opens a window — an action run, a subagent — leaves
+A terminal window is created only by an explicit open. **+**, or its leader key, opens the dialog
+that creates one, normally in the current window's working directory, and the window it opens
+becomes the current one; a change with no window shows only that **+** and one line saying there is
+no terminal yet, and nothing is started just by arriving at the page. Opening a dashboard does not
+start a terminal either. Background work that opens a window — an action run, a subagent — leaves
 the terminal you are looking at selected.
 
 A remote workspace that cannot be reached stays selectable in the workspace menu; the menu and
@@ -57,14 +59,19 @@ no keys of their own — the overview, Actions, Subagents, Settings — the colu
 way around.
 
 The groups are picked from a key on the group itself: `E` sits at the middle of the **Ideas** list,
-`R` at the middle of **Changes**, and `F` over the right end of a change's terminal tabs (an open
-menu is numbered as soon as it appears). A group is boxed while the keys are showing, and a group
-with nothing in it takes no key and no box. A group with one item goes straight to it; a longer one
-is numbered `1`–`9` and `0`, with the arrows to walk it and `Enter` to choose. Picking an idea or a
-change leaves the keys up — it is somewhere to go, so the next key is the view or terminal you were
-on your way to. A terminal or a menu item ends the mode, because that is where you type or where
-the action is. The view's own keys sit above their control's trailing corner, in the line over the
-tabs, where the label under them stays readable.
+`R` at the middle of **Changes** (an open menu is numbered as soon as it appears). A group is boxed
+while the keys are showing, and a group with nothing in it takes no key and no box. A group with one
+item goes straight to it; a longer one is numbered `1`–`9` and `0`, with the arrows to walk it and
+`Enter` to choose. Picking an idea or a change leaves the keys up — it is somewhere to go, so the
+next key is the view or terminal you were on your way to. A terminal or a menu item ends the mode,
+because that is where you type or where the action is. The view's own keys sit above their
+control's trailing corner, in the line over the tabs, where the label under them stays readable.
+
+In a change's row `F` is **+**, and its dialog opens with the keys it answers to showing; `G` over
+the window tabs opens **Select terminal**, the change's windows one row each with the icon, the
+name and where it is. A digit `1`–`9` picks a row (`0` the tenth), the arrows walk the list, `Enter`
+opens the row they are on, and `Esc` closes it without moving. With no windows there is nothing to
+pick, so the entry takes no key.
 
 `Escape` puts a layer away at a time — a number selection, then an open menu, then the keycaps
 themselves — and `Ctrl+Space` leaves the mode outright. `[` and `]` are Back and Forward while the
@@ -72,8 +79,10 @@ keys are showing. A key that has nothing mapped does nothing. The mode does not 
 is: that dialog's own keys are the whole surface then. On a narrow window the column opens as the
 drawer while the keys are up.
 
-The terminal's own chords — new window, find, font size, copy and paste — are on its cheat sheet,
-which carries this section's keys too (see [terminals](terminals.md)).
+The terminal's own chords — find, font size, copy and paste — are on its cheat sheet, which
+carries this section's keys too (see [terminals](terminals.md)). A new terminal is opened with
+**+** or its leader key, and the change's windows with the key over their tabs; the terminal has no
+new-window chord of its own.
 
 `Ctrl+Space` is the whole app's, terminals included, so it never reaches a shell. An input method
 may claim it first: on macOS the system offers it for **Select the previous input source** when
@@ -179,7 +188,9 @@ its state selector and **Actions** menu on the right — a finished change shows
 when cancelled, **Reopen** instead of that menu. Renaming is the menu's **Rename change**
 entry, which opens a field in place of the name. Under the title row is the change's one **tab
 row**: **Plan**, **Dashboard**, **Changes** and any other tab an extension contributes, a
-separator, then the change's terminal windows with their status marks and **+** for a new window.
+separator, then **+** for a new window and the change's terminal windows with their status marks.
+A window you open takes the leading place in that group; background work — an action run, a
+subagent — appears at its end.
 In the desktop app the title row is the window's title bar — the part you drag the window by — and
 the tab row under it is not part of that drag area. The **Plan** tab is
 `PLAN.md` as Markdown source filling the tab — the markup stays visible, in a monospace face,

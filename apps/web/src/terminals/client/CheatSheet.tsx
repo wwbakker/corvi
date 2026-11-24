@@ -20,7 +20,6 @@ const APP_CHORDS: [string, string][] = [
 
 /** Chords the page takes, which differ by platform the way the rest of the app's do. */
 const CHORDS_MAC: [string, string][] = [
-  ["⌘T", "new window"],
   ["⌘F", "find in the terminal (Enter next, ⇧Enter previous, Esc closes)"],
   ["⌘+ / ⌘- / ⌘0", "font size up / down / reset"],
   ["⌥-drag", "select text while a mouse-aware program (pi) is running"],
@@ -31,7 +30,6 @@ const CHORDS_MAC: [string, string][] = [
 ];
 
 const CHORDS_LINUX: [string, string][] = [
-  ["ctrl-alt-t", "new window"],
   ["ctrl+f", "find in the terminal (Enter next, shift+Enter previous, Esc closes)"],
   ["ctrl+ / ctrl- / ctrl0", "font size up / down / reset"],
   ["shift-drag", "select text while a mouse-aware program (pi) is running"],

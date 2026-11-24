@@ -45,7 +45,7 @@ import {
   snapshotOf,
   type SnapshotInput,
 } from "./snapshots.ts";
-import { ensureActiveHostWindow, isKeptOpen } from "./windows.ts";
+import { activeHostPane, isKeptOpen } from "./windows.ts";
 
 /** How often a dirty screen is written to the store. Serializing a 5,000-row screen is ~17 ms and
  * only dirty screens are serialized, so a busy session costs at most one such write per cadence
@@ -787,20 +787,19 @@ export const ensureScreen = async (
   await ensureAttached(hub);
 };
 
-/** Start (or reuse) the change's active host window and hand back a session the socket drives.
- * Async so the route can start the host before upgrading. */
+/** Hand back a session the socket drives, for a window the change already has. Async so the host
+ * can be reached before the upgrade. */
 export const openSession = async (
   changeId: string,
-  dir: string,
   size: { readonly cols: number; readonly rows: number },
   paneSessionId?: string,
-  pane?: import("./windows.ts").HarnessPaneProvider,
 ): Promise<TerminalSession> => {
   const unavailable = terminalUnavailable();
   if (unavailable !== undefined) throw new Error(unavailable);
   // `paneSessionId` names the pane the page wants to attach to; absent means the active window's
-  // active pane. A named pane that is gone is refused: it must not fall through to another shell.
-  const sessionId = await ensureActiveHostWindow(changeId, dir, size, paneSessionId, pane);
+  // active pane. A named pane that is gone is refused, and a change with no window is refused
+  // too: neither may fall through to, or start, a shell.
+  const sessionId = await activeHostPane(changeId, paneSessionId);
   const client = await hostClient();
   // A window created before a page attached (a new tab, a subagent window) was opened at a
   // default size. Set the pty to the size the page actually has before anything is drawn into it,

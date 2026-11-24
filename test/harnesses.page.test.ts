@@ -1,7 +1,15 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { type Browser } from "playwright";
-import { closePages, openEngine, startTestServer, stopTestServer, testTempDir, withPage } from "./helpers.ts";
+import {
+  closePages,
+  openEngine,
+  openFirstWindow,
+  startTestServer,
+  stopTestServer,
+  testTempDir,
+  withPage,
+} from "./helpers.ts";
 
 /** The Harnesses page and the new-terminal dialog through the page: the resolved view beside the
  * editor, the settings defaults section, and the dialog the "+" tab opens. */
@@ -150,9 +158,9 @@ test.skipIf(!usable)(
 
       await page.goto(`${url}/changes/${CHANGE}/terminals`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".window-tabs");
-      // The first shell exists, so the dialog defaults to its directory — a real location, not
+      // The first shell is opened, so the dialog defaults to its directory — a real location, not
       // the ambiguous "change root" the old dialog used for both kinds.
-      await page.waitForSelector('.window-tab[data-window-index="0"]', { timeout: 20_000 });
+      await openFirstWindow(page);
       // Both change selectors live in the Actions → Harnesses… dialog, not the title row.
       expect(await page.getByLabel("change user harness").isVisible()).toBe(false);
       await page.locator(".change-bar button.actions").click();
@@ -220,7 +228,7 @@ test.skipIf(!usable)(
       await page.goto(`${url}/changes/${BROKEN}/terminals`, { waitUntil: "domcontentloaded" });
       // The first shell opens without the harness environment; the failure is reported in the
       // pane/log, not as a 400 that takes the terminal page down.
-      await page.waitForSelector('.window-tab[data-window-index="0"]', { timeout: 20_000 });
+      await openFirstWindow(page);
       expect(await page.locator(".terminal-screen").count()).toBeGreaterThan(0);
     });
   },

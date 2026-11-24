@@ -47,6 +47,10 @@ export type RawWindow = {
   harness?: string;
   /** The directory the pane's shell is in now, when the host can read it. */
   cwd?: string;
+  /** The same directory as the page shows it: relative to the change when the pane is inside it,
+   * the absolute path when it is not. `place` is the short form a name is composed from; this one
+   * has to tell two windows' places apart, so it keeps the whole path it was given. */
+  where?: string;
 };
 
 /** How a window is presented. The first presenter that answers a field wins; fields left out
@@ -121,6 +125,9 @@ export type TerminalWindow = {
   readonly activePane: string;
   /** The full directory the pane's shell is in now. */
   cwd?: string;
+  /** Where that directory is, as the page shows it: change-relative inside the change, absolute
+   * outside it. The page does not know the change's root, so the server is what says this. */
+  where?: string;
   /** The harness this tab's Pi environment belongs to, shown beside the name. */
   harness?: string;
 };

@@ -1,6 +1,6 @@
 /**
- * The terminal's pure vocabulary, shared by the page and the server: the key that opens a new
- * window, and the sequences a terminal cannot encode by itself.
+ * The terminal's pure vocabulary, shared by the page and the server: the sequences a terminal
+ * cannot encode by itself, and the option names a command window carries.
  *
  * Everything here is deliberately self-contained — no imports, no closure, no runtime — because
  * these are facts about keyboards rather than about either half, and keeping them here is what
@@ -19,15 +19,6 @@ type Keyish = {
   altKey: boolean;
   shiftKey: boolean;
   isComposing?: boolean;
-};
-
-export const isNewWindowKey = (e: Keyish, platform: Platform): boolean => {
-  // macOS: cmd-t, with ctrl and alt excluded so the shell's control chords stay the shell's.
-  const cmd = e.metaKey && !e.ctrlKey && !e.altKey;
-  // ctrl-alt rather than meta on Linux: Super is the window manager's, and a keydown that
-  // reaches the page with it held is a coin toss.
-  const linux = e.ctrlKey && e.altKey && !e.metaKey;
-  return e.key === "t" && (cmd || (platform === "linux" && linux));
 };
 
 /** The CSI u sequences for the Enters a terminal cannot encode: `ESC [ 1 3 ; <modifier> u`.

@@ -38,6 +38,15 @@ const flattenWindows = (
   return windows;
 };
 
+/** Which sources have answered with a list. A change missing from an answered list has no windows;
+ * one missing from a source that has not answered yet is not known either way, and the page must
+ * not say "none" on the strength of a read that has not happened. */
+const flattenFresh = (bySource: Readonly<Record<string, SourceWindows>>): Record<string, boolean> => {
+  const fresh: Record<string, boolean> = {};
+  for (const [source, entry] of Object.entries(bySource)) fresh[source] = entry.fresh;
+  return fresh;
+};
+
 /** The same key for a mutation failure, so a change's page can say what failed. */
 const flattenErrors = (
   errors: Readonly<Record<string, Readonly<Record<string, string>>>>,
@@ -58,10 +67,15 @@ const flattenErrors = (
  */
 export function useWindows(): {
   windows: Record<string, TerminalWindow[]>;
+  /** By source: whether its list has been read. An empty answer and no answer are different. */
+  fresh: Record<string, boolean>;
   /** What a selection/creation/move failed with, by `changeKey`, until the next success. */
   errors: Record<string, string>;
-  select: (source: string, id: string, index: number) => void;
-  create: (source: string, id: string) => Promise<void>;
+  /** Bring one of the change's windows to the front, named by its id. */
+  select: (source: string, id: string, windowId: string) => void;
+  /** Apply the windows a create answered with, through the change's queue: the page never reads
+   * the list back to learn about a window it just opened. */
+  adopt: (source: string, id: string, windows: readonly TerminalWindow[]) => Promise<void>;
   move: (source: string, id: string, from: number, to: number) => void;
   /** Name a window from its tab, or clear the name (blank) back to the default. */
   rename: (source: string, id: string, windowId: string, title: string) => void;
@@ -116,16 +130,21 @@ export function useWindows(): {
   useServerEvent("source", reload);
 
   const windows = useMemo(() => flattenWindows(state.bySource), [state.bySource]);
+  const fresh = useMemo(() => flattenFresh(state.bySource), [state.bySource]);
   const errors = useMemo(() => flattenErrors(state.errors), [state.errors]);
 
   return {
     windows,
+    fresh,
     errors,
     select: useCallback(
-      (source: string, id: string, index: number) => void current.select(source, id, index),
+      (source: string, id: string, windowId: string) => void current.select(source, id, windowId),
       [current],
     ),
-    create: useCallback((source: string, id: string) => current.create(source, id), [current]),
+    adopt: useCallback(
+      (source: string, id: string, windows: readonly TerminalWindow[]) => current.adopt(source, id, windows),
+      [current],
+    ),
     /** Where a dragged tab landed: the window at `from` takes `to`'s place. */
     move: useCallback(
       (source: string, id: string, from: number, to: number) => void current.move(source, id, from, to),

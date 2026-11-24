@@ -73,8 +73,10 @@ export type WindowsStore = {
    * the old target's data, in-flight reads and queued writes; `maySend` false keeps the last
    * known list marked stale; a recovery re-reads. */
   readonly reconfigure: (sourceId: string, generation: string, maySend: boolean) => void;
-  readonly select: (sourceId: string, changeId: string, index: number) => Promise<void>;
-  readonly create: (sourceId: string, changeId: string) => Promise<void>;
+  readonly select: (sourceId: string, changeId: string, windowId: string) => Promise<void>;
+  /** Apply the list a create already answered with: the same turn in the change's queue as a
+   * mutation's own answer, without a second request. */
+  readonly adopt: (sourceId: string, changeId: string, windows: readonly TerminalWindow[]) => Promise<void>;
   readonly move: (sourceId: string, changeId: string, from: number, to: number) => Promise<void>;
   /** Name a window from its tab, or clear the name (blank) back to the default. */
   readonly rename: (sourceId: string, changeId: string, windowId: string, title: string) => Promise<void>;
@@ -92,6 +94,12 @@ type SourceFacts = {
   reread: boolean;
   reconcile: boolean;
 };
+
+/** One write for the change's queue: a window action to send, or a list a create already brought
+ * back. Both take the same turn, so no answer can land between two writes of one change. */
+type WindowWrite =
+  | { readonly kind: "action"; readonly action: WindowActionBodyDto }
+  | { readonly kind: "answer"; readonly windows: readonly TerminalWindow[] };
 
 /** One change's mutation queue: `tail` serializes conflicting operations so the server sees them
  * in the order the user asked for them. */
@@ -255,7 +263,7 @@ export const makeWindowsStore = (transport: WindowsTransport): WindowsStore => {
     }
   };
 
-  const enqueue = (sourceId: string, changeId: string, action: WindowActionBodyDto): Promise<void> => {
+  const enqueue = (sourceId: string, changeId: string, write: WindowWrite): Promise<void> => {
     // A removed source has nowhere to send: refuse at entry rather than queue work that can
     // never be published.
     if (!configured.has(sourceId)) return Promise.resolve();
@@ -272,13 +280,16 @@ export const makeWindowsStore = (transport: WindowsTransport): WindowsStore => {
     const run = change.tail.then(async () => {
       // The source may have been removed or its target retired while this waited for its turn.
       // Re-check before the write leaves: a queued send must not reach the transport, and its
-      // outcome is known — nothing was sent.
+      // outcome is known — nothing was sent. An answer is not a send: the create it reports has
+      // already happened, and it is the publishing that cannot.
       if (!isCurrent(sourceId, facts)) {
         markError(
           sourceId,
           changeId,
           generation,
-          "the workspace became unavailable before saving; nothing was sent",
+          write.kind === "action"
+            ? "the workspace became unavailable before saving; nothing was sent"
+            : "the window was opened, but the list could not be updated: the workspace changed",
         );
         return;
       }
@@ -286,9 +297,16 @@ export const makeWindowsStore = (transport: WindowsTransport): WindowsStore => {
       // outcome is genuinely unknown and is reported as such rather than replayed.
       let sent = false;
       try {
-        sent = true;
-        inflightWrites.set(writeKey, { sourceId, changeId });
-        const windows = await transport.act(sourceId, generation, changeId, action);
+        let windows: readonly TerminalWindow[];
+        if (write.kind === "action") {
+          sent = true;
+          inflightWrites.set(writeKey, { sourceId, changeId });
+          windows = await transport.act(sourceId, generation, changeId, write.action);
+        } else {
+          // The request was made by the caller (a create that answered with the list); only its
+          // place in the queue and the publish are the store's.
+          windows = write.windows;
+        }
         if (!isCurrent(sourceId, facts)) return;
         const current = snapshot.bySource[sourceId];
         const errors = clearError(snapshot.errors, sourceId, changeId);
@@ -393,15 +411,18 @@ export const makeWindowsStore = (transport: WindowsTransport): WindowsStore => {
       if (!maySend) return;
       if (!wasSendable || changed) void readSource(sourceId);
     },
-    select: (sourceId: string, changeId: string, index: number): Promise<void> =>
-      enqueue(sourceId, changeId, { action: "select", index }),
-    create: (sourceId: string, changeId: string): Promise<void> =>
-      enqueue(sourceId, changeId, { action: "new" }),
+    select: (sourceId: string, changeId: string, windowId: string): Promise<void> =>
+      // A window is named, not counted: the list the caller read a position from may have been
+      // reordered or shortened by the time this leaves, and the server answers a window that is
+      // gone rather than selecting whatever took its place.
+      enqueue(sourceId, changeId, { kind: "action", action: { action: "select", window: windowId } }),
+    adopt: (sourceId: string, changeId: string, windows: readonly TerminalWindow[]): Promise<void> =>
+      enqueue(sourceId, changeId, { kind: "answer", windows }),
     move: (sourceId: string, changeId: string, from: number, to: number): Promise<void> =>
-      enqueue(sourceId, changeId, { action: "move", from, to }),
+      enqueue(sourceId, changeId, { kind: "action", action: { action: "move", from, to } }),
     rename: (sourceId: string, changeId: string, windowId: string, title: string): Promise<void> =>
       // The answer is the fresh list, so the strip and the column update without a re-read.
-      enqueue(sourceId, changeId, { action: "rename", window: windowId, title }),
+      enqueue(sourceId, changeId, { kind: "action", action: { action: "rename", window: windowId, title } }),
   };
 };
 

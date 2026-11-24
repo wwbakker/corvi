@@ -15,9 +15,20 @@ import {
   type TerminalSession,
 } from "../apps/server/src/terminals/server/session.ts";
 import { clearSnapshots, setSnapshot, snapshotOf } from "../apps/server/src/terminals/server/snapshots.ts";
-import { newSubagentWindowAsync } from "../apps/server/src/terminals/server/windows.ts";
+import { newSubagentWindowAsync, newWindowAsync } from "../apps/server/src/terminals/server/windows.ts";
 import * as registry from "../apps/server/src/terminals/server/registry.ts";
 import { testTempDir, waitFor } from "./helpers.ts";
+
+/** The change's first window, opened explicitly, and a page's session on it: a session attaches to
+ * a window, and only an explicit open creates one. */
+const openShell = async (
+  change: string,
+  at: string,
+  size: { cols: number; rows: number } = { cols: 80, rows: 24 },
+): Promise<Awaited<ReturnType<typeof openSession>>> => {
+  await newWindowAsync(change, at, size);
+  return openSession(change, size);
+};
 
 /**
  * Warm agent screens and the one remaining reprint: a host-ring gap. Every screen attaches at
@@ -146,7 +157,7 @@ test("a warm unviewed screen serves without a reprint", async () => {
   await waitFor("the fixture base", async () => (await lastSeq(id)) >= fixtureBase.length, 15_000);
   // The window opened its screen and attached it: the first view is a serialize-and-send, with no
   // pty jiggle and so no numbered marker.
-  const session = await openSession(change, dir, { cols: 100, rows: 30 }, id);
+  const session = await openSession(change, { cols: 100, rows: 30 }, id);
   const ws = fakeSocket(session);
   terminalSockets.open(ws);
   await waitFor(
@@ -197,7 +208,7 @@ test("an agent hub seeds from the store like any other screen", async () => {
   closeAttachments();
   setSnapshot(id, incarnation, "SEEDED-AGENT-SCREEN", 0);
 
-  const session = await openSession(change, dir, { cols: 100, rows: 30 }, id);
+  const session = await openSession(change, { cols: 100, rows: 30 }, id);
   const ws = fakeSocket(session);
   terminalSockets.open(ws);
   await waitFor(
@@ -217,7 +228,7 @@ test("a live seeded agent hub reprints once on a host-ring gap", async () => {
   // The seed is a real stored screen for a still-live session, and the attach resumes behind the
   // ring's oldest byte: the gap path must keep the seed and still reprint once.
   setSnapshot(id, incarnation, "SEEDED-GAP-SCREEN", 0);
-  const session = await openSession(change, dir, { cols: 100, rows: 30 }, id);
+  const session = await openSession(change, { cols: 100, rows: 30 }, id);
   const ws = fakeSocket(session);
   terminalSockets.open(ws);
   await waitFor(
@@ -242,7 +253,7 @@ test("a host-ring gap reprints once and still serves a snapshot", async () => {
   const { id } = await gapWindow(change);
   // No stored screen, and the attach resumes at offset 0 behind the ring's oldest byte: the replay
   // is truncated, so the first view jiggles the pty and the fixture prints REPRINT-1.
-  const session = await openSession(change, dir, { cols: 100, rows: 30 }, id);
+  const session = await openSession(change, { cols: 100, rows: 30 }, id);
   const ws = fakeSocket(session);
   const openedAt = Date.now();
   terminalSockets.open(ws);
@@ -264,7 +275,7 @@ test("a host-ring gap reprints once and still serves a snapshot", async () => {
   await Bun.sleep(50); // let the live reprint bytes (including a late REPRINT-2) reach the screen
   const firstMax = maxReprint(pageText(ws.frames));
   session.kill();
-  const second = await openSession(change, dir, { cols: 100, rows: 30 }, id);
+  const second = await openSession(change, { cols: 100, rows: 30 }, id);
   const again = fakeSocket(second);
   terminalSockets.open(again);
   await waitFor(
@@ -281,7 +292,7 @@ test("a gap window that keeps painting still gets a quick snapshot and converges
   try {
     const change = "REPRINT-PAINTING";
     const { id } = await gapWindow(change);
-    const session = await openSession(change, dir, { cols: 100, rows: 30 }, id);
+    const session = await openSession(change, { cols: 100, rows: 30 }, id);
     const ws = fakeSocket(session);
     const openedAt = Date.now();
     terminalSockets.open(ws);
@@ -324,7 +335,7 @@ test("an unviewed gap does not reprint until the first view, and counters reset"
     screens: [],
   });
 
-  const session = await openSession(change, dir, { cols: 100, rows: 30 }, id);
+  const session = await openSession(change, { cols: 100, rows: 30 }, id);
   const ws = fakeSocket(session);
   terminalSockets.open(ws);
   await waitFor(
@@ -405,7 +416,7 @@ test("a dead kept-open hub persists on exit and seeds on restore", async () => {
     registry.records(change).map((record) => (record.id === id ? { ...record, keepOpen: true } : record)),
   );
 
-  const session = await openSession(change, dir, { cols: 100, rows: 30 }, id);
+  const session = await openSession(change, { cols: 100, rows: 30 }, id);
   const ws = fakeSocket(session);
   terminalSockets.open(ws);
   // Served: a snapshot, or a reset when the shell has not printed the marker yet — the window was
@@ -426,7 +437,7 @@ test("a dead kept-open hub persists on exit and seeds on restore", async () => {
 
   // A restart: the hub is gone, the host session is dead, and the page reopens it from the store.
   closeAttachments();
-  const restored = await openSession(change, dir, { cols: 100, rows: 30 }, id);
+  const restored = await openSession(change, { cols: 100, rows: 30 }, id);
   const again = fakeSocket(restored);
   terminalSockets.open(again);
   await waitFor(
@@ -443,7 +454,7 @@ test("a second open during a background gap reprint supersedes, with one reprint
     const change = "REPRINT-QUEUE";
     // The delay is read when the fixture starts, so it must be set before the window opens.
     const { id } = await gapWindow(change);
-    const first = await openSession(change, dir, { cols: 100, rows: 30 }, id);
+    const first = await openSession(change, { cols: 100, rows: 30 }, id);
     const one = fakeSocket(first);
     terminalSockets.open(one); // starts the first view; its delayed reprint follows the snapshot
     await waitFor(
@@ -455,7 +466,7 @@ test("a second open during a background gap reprint supersedes, with one reprint
     // first page leaves while the reprint is in flight, and the second is served a snapshot plus
     // the reprint bytes. It must not be told the session ended, and the reprint runs once.
     first.kill();
-    const second = await openSession(change, dir, { cols: 100, rows: 30 }, id);
+    const second = await openSession(change, { cols: 100, rows: 30 }, id);
     const two = fakeSocket(second);
     terminalSockets.open(two);
     await waitFor(
@@ -475,7 +486,7 @@ test("a second open during a background gap reprint supersedes, with one reprint
 
 test("bytes held when a page leaves mid-snapshot are still fed, so the next view is served", async () => {
   const change = "REPRINT-DRAIN";
-  const session = await openSession(change, dir, { cols: 80, rows: 24 });
+  const session = await openShell(change, dir);
   const id = session.sessionId;
   const incarnation = session.incarnation;
   // A cutoff the screen has not reached keeps the serve waiting with its hold open (the real race
@@ -493,7 +504,7 @@ test("bytes held when a page leaves mid-snapshot are still fed, so the next view
   // `whenApplied` waits on a byte the screen never saw.
   session.kill();
   applyCutoffForTest(id, incarnation, 1000, "CUTOFF");
-  const second = await openSession(change, dir, { cols: 80, rows: 24 });
+  const second = await openSession(change, { cols: 80, rows: 24 });
   const two = fakeSocket(second);
   terminalSockets.open(two);
   await waitFor(
@@ -506,7 +517,7 @@ test("bytes held when a page leaves mid-snapshot are still fed, so the next view
 
 test("a send that throws mid-replay still leaves the rest of the hold for the screen", async () => {
   const change = "REPRINT-SEND";
-  const session = await openSession(change, dir, { cols: 80, rows: 24 });
+  const session = await openShell(change, dir);
   const id = session.sessionId;
   const incarnation = session.incarnation;
   setReceivedForTest(id, incarnation, 1000);
@@ -534,7 +545,7 @@ test("a send that throws mid-replay still leaves the rest of the hold for the sc
   // Let the serve reach its cutoff; its replay sends the first held chunk, which throws.
   applyCutoffForTest(id, incarnation, 1000, "CUTOFF");
   await Bun.sleep(50);
-  const second = await openSession(change, dir, { cols: 80, rows: 24 });
+  const second = await openSession(change, { cols: 80, rows: 24 });
   const two = fakeSocket(second);
   terminalSockets.open(two);
   await waitFor(
@@ -551,7 +562,7 @@ test("a page that leaves mid-reprint leaves no ghost subscriber", async () => {
   try {
     const change = "REPRINT-GHOST";
     const { id } = await gapWindow(change);
-    const session = await openSession(change, dir, { cols: 100, rows: 30 }, id);
+    const session = await openSession(change, { cols: 100, rows: 30 }, id);
     const ws = fakeSocket(session);
     terminalSockets.open(ws);
     await waitFor(
@@ -571,7 +582,7 @@ test("a page that leaves mid-reprint leaves no ghost subscriber", async () => {
 test("a session exit during a reprint disposes the hub and does not count a reprint", async () => {
   const change = "REPRINT-EXIT";
   const { id, incarnation } = await gapWindow(change);
-  const session = await openSession(change, dir, { cols: 100, rows: 30 }, id);
+  const session = await openSession(change, { cols: 100, rows: 30 }, id);
   const snapshots: string[] = [];
   let stopped: "exit" | "detached" | undefined;
   session.attach(
@@ -603,7 +614,7 @@ test("a session exit during a reprint disposes the hub and does not count a repr
 test("a resize around a gap reprint ends at the latest grid", async () => {
   const change = "REPRINT-RESIZE";
   const { id, incarnation } = await gapWindow(change);
-  const session = await openSession(change, dir, { cols: 100, rows: 30 }, id);
+  const session = await openSession(change, { cols: 100, rows: 30 }, id);
   const ws = fakeSocket(session);
   terminalSockets.open(ws);
   await waitFor(

@@ -6,6 +6,7 @@ import {
   closePages,
   gitRepo,
   openEngine,
+  openFirstWindow,
   startTestServer,
   stopTestServer,
   testTempDir,
@@ -38,7 +39,7 @@ beforeAll(async () => {
   const repos = join(tmp, "repos");
   await mkdir(repos, { recursive: true });
   const checkout = await gitRepo(repos, "alpha");
-  for (const id of ["STARTED-1", "STARTED-2"]) {
+  for (const id of ["STARTED-1", "STARTED-2", "SELECT-1", "KEYS-1"]) {
     const started = await fetch(`${url}/api/changes`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -135,8 +136,72 @@ const capAt = async (page: Page, label: string): Promise<Layer["keys"][number]> 
 const focused = (page: Page): Promise<string> =>
   page.evaluate(() => document.activeElement?.className || document.activeElement?.tagName || "");
 
-/** The terminal's line under the cursor, read from xterm's own buffer. */
-type TerminalHost = {
+/** One window opened in a directory of the test's choosing, answering the change's windows as the
+ * server presents them — `where` included, which is what the dialog shows. */
+const openWindowAt = async (
+  changeId: string,
+  directory: string,
+): Promise<{ readonly id: string; readonly where?: string }[]> => {
+  const response = await fetch(`${url}/api/changes/${changeId}/terminal/windows`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "new", directory }),
+  });
+  expect(response.ok).toBe(true);
+  return (await response.json()) as { readonly id: string; readonly where?: string }[];
+};
+
+/** The window list's leader key, and the dialog it opens. */
+const openSelectDialog = async (page: Page): Promise<void> => {
+  await page.keyboard.press("Control+Space");
+  await page.waitForSelector(".leader-layer");
+  await page.keyboard.press("g");
+  await page.waitForSelector(".select-terminal-dialog[open]");
+};
+
+/** The dialog's rows as drawn: the window each one names, its name and place, its number, and
+ * whether it is the window on screen. */
+type DialogRow = {
+  readonly id: string;
+  readonly label: string;
+  readonly where: string;
+  readonly icon: number;
+  readonly current: boolean;
+  readonly number: string;
+};
+
+const dialogRows = (page: Page): Promise<DialogRow[]> =>
+  page.locator(".select-terminal-dialog .terminal-row").evaluateAll((elements) =>
+    elements.map((element) => ({
+      id: element.getAttribute("data-window-id") ?? "",
+      label: element.querySelector(".label")?.textContent?.trim() ?? "",
+      where: element.querySelector(".where")?.textContent?.trim() ?? "",
+      icon: element.querySelectorAll(".ic svg").length,
+      current: element.getAttribute("aria-current") === "true",
+      number: element.querySelector("kbd")?.textContent?.trim() ?? "",
+    })),
+  );
+
+/** The window the dialog's cursor is on, by id. */
+const highlightedRow = (page: Page): Promise<string | null> =>
+  page.evaluate(
+    () =>
+      document
+        .querySelector(".select-terminal-dialog .terminal-row.current")
+        ?.getAttribute("data-window-id") ?? null,
+  );
+
+/** Wait until the tab of this window is the one on screen: the switch is the session's, so it
+ * lands a round trip after the pick. */
+const waitForCurrentTab = (page: Page, windowId: string): Promise<unknown> =>
+  page.waitForFunction(
+    (wanted) =>
+      document.querySelector(`.window-tab[data-window-id="${wanted}"]`)?.classList.contains("current") ===
+      true,
+    windowId,
+  );
+
+/** The terminal's line under the cursor, read from xterm's own buffer. */ type TerminalHost = {
   corviTerminal?: {
     buffer: {
       active: {
@@ -257,6 +322,8 @@ test("the chord works from inside the terminal, keeps keys out of it, and gives 
   if (!usable) return;
   await withPage(browser, async (page) => {
     await page.goto(`${url}/changes/LEADER-1/terminals`, { waitUntil: "domcontentloaded" });
+    // A window is opened, not implied: arriving at the terminal view starts nothing.
+    await openFirstWindow(page);
     await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 20_000 });
     await page.locator(".terminal-screen").click();
     expect(await focused(page)).toContain("xterm-helper-textarea");
@@ -373,31 +440,41 @@ test("the chord works from inside the terminal, keeps keys out of it, and gives 
     await page.waitForSelector(".leader-layer", { state: "detached" });
     expect(await focused(page)).toContain("xterm-helper-textarea");
 
-    // G opens another window; the mode ends with the navigation. The first window has to be in
-    // the client's list: a change with no window has nothing to add one to.
-    await page.waitForSelector('[data-window-index="0"]', { timeout: 10_000 }).catch(async (e) => {
-      throw e;
-    });
+    // F is "+": it opens another window's dialog, with its keys showing, and the mode ends with
+    // the navigation. The first window has to be in the client's list: a change with no window has
+    // nothing to add one to.
+    await page.waitForSelector('[data-window-index="0"]', { timeout: 10_000 });
     await page.keyboard.press("Control+Space");
     await page.waitForSelector(".leader-layer");
-    await page.keyboard.press("g");
+    await page.keyboard.press("f");
     await page.waitForSelector(".new-terminal-dialog[open]");
+    expect(await page.locator(".new-terminal-dialog .choice kbd").count()).toBe(2);
     await page.keyboard.press("1");
     await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
     await page.waitForSelector('[data-window-index="1"]');
     await page.waitForSelector(".leader-layer", { state: "detached" });
+    // A window you open leads the row, so the window that was there is the row's second position.
+    await page.waitForFunction(() => document.querySelector(".change-tabs [data-window-index='1']") !== null);
 
-    // F numbers the change's terminals; a digit picks one and the mode ends on it.
+    // G opens the window list; a digit picks a row and the page switches to that window.
     await page.keyboard.press("Control+Space");
     await page.waitForSelector(".leader-layer");
-    await page.keyboard.press("f");
-    await page.waitForSelector(".leader-key.number");
-    expect(await page.locator(".leader-key.number").count()).toBe(2);
-    await page.keyboard.press("1");
+    await page.keyboard.press("g");
+    await page.waitForSelector(".select-terminal-dialog[open]");
     await page.waitForSelector(".leader-layer", { state: "detached" });
+    expect(await page.locator(".select-terminal-dialog .terminal-row").count()).toBe(2);
+    // The row's own window, by id: the list reorders as windows come and go, so the position is
+    // only what the number beside the row means, not an identity.
+    const picked = await page.evaluate(() =>
+      document.querySelectorAll(".select-terminal-dialog .terminal-row")[1]?.getAttribute("data-window-id"),
+    );
+    expect(picked).toBeTruthy();
+    await page.keyboard.press("2");
+    await page.waitForSelector(".select-terminal-dialog[open]", { state: "detached" });
     // The switch is the session's: wait for the tab to say it is the one on screen.
-    await page.waitForFunction(() =>
-      document.querySelector('.window-tab[data-window-index="0"]')?.classList.contains("current"),
+    await page.waitForFunction(
+      (id) => document.querySelector(`.window-tab[data-window-id="${id}"]`)?.classList.contains("current"),
+      picked,
     );
   });
 }, 30_000);
@@ -613,10 +690,12 @@ test("a change's own row is keyed, and its menus are numbered", async () => {
     await page.waitForSelector(".leader-layer");
     // The badges are computed at render from the controls; wait for the set rather than reading
     // once, which can land on the commit that is still adding them.
+    // F is "+", which is always there; G is the window list, and this change has no windows to
+    // pick from, so that entry has no element and takes no key.
     await page.waitForFunction(
       () => {
         const shown = [...document.querySelectorAll(".leader-key")].map((badge) => badge.textContent);
-        return ["A", "S", "D", "G", "H", "J"].every((key) => shown.includes(key));
+        return ["A", "S", "D", "F", "H", "J"].every((key) => shown.includes(key));
       },
       null,
       { timeout: 5000 },
@@ -625,7 +704,7 @@ test("a change's own row is keyed, and its menus are numbered", async () => {
       await page.evaluate(() =>
         [...document.querySelectorAll(".leader-key")].map((badge) => badge.textContent),
       ),
-    ).not.toContain("F");
+    ).not.toContain("G");
 
     // J opens the actions menu, which is numbered; the mode stays.
     await page.keyboard.press("j");
@@ -899,14 +978,13 @@ test("a list taller than the window keeps its key at the middle of what is on sc
   );
 }, 40_000);
 
-test("the terminal tabs wear their box, and their key sits over the whole group", async () => {
+test("the window tabs are one control, with the list's key over the strip", async () => {
   if (!usable) return;
   await withPage(browser, async (page) => {
     await page.goto(`${url}/changes/STARTED-2/terminals`, { waitUntil: "domcontentloaded" });
-    // The session starts with the page, and its first window is what the + adds beside: until then
-    // the + has nothing to add to.
-    await page.waitForSelector('.change-tabs [data-window-index="0"]', { timeout: 20_000 });
-    // A second window, so the group is a strip rather than one tab.
+    // A first window, opened from the +: the view itself starts nothing.
+    await openFirstWindow(page);
+    // A second window, so the strip is more than one tab.
     await page.locator(".change-tabs button.window-tab.new").click();
     await page.waitForSelector(".new-terminal-dialog[open]");
     await page.keyboard.press("1");
@@ -915,37 +993,216 @@ test("the terminal tabs wear their box, and their key sits over the whole group"
 
     await page.keyboard.press("Control+Space");
     await page.waitForSelector(".leader-layer");
-    const cap = await capAt(page, "F");
+    // The list's key is G, now that "+" has F; the strip is no longer numbered in place, so no tab
+    // carries a key and no box is drawn around them.
+    const cap = await capAt(page, "G");
     const drawn = await layer(page);
-
-    const strip = await page.evaluate(() => {
-      const tabs = [...document.querySelectorAll<HTMLElement>(".change-tabs [data-window-index]")];
-      const first = tabs[0]!.getBoundingClientRect();
-      const last = tabs.at(-1)!.getBoundingClientRect();
+    // No box around the tabs: they are not a group to number any more, so nothing is outlined
+    // over them (the column's own lists are, elsewhere on the page).
+    const tabsSpan = await page.evaluate(() => {
+      const boxes = [...document.querySelectorAll<HTMLElement>(".change-tabs [data-window-index]")].map(
+        (tab) => tab.getBoundingClientRect(),
+      );
       return {
-        left: Math.round(first.left),
-        right: Math.round(last.right),
-        top: Math.round(first.top),
-        bottom: Math.round(first.bottom),
+        left: Math.round(Math.min(...boxes.map((box) => box.left))),
+        right: Math.round(Math.max(...boxes.map((box) => box.right))),
       };
     });
+    expect(
+      drawn.outlines.filter(
+        (outline) => outline.x + outline.width > tabsSpan.left && outline.x < tabsSpan.right,
+      ).length,
+    ).toBe(0);
 
-    // The box is around the tabs, drawn before the group is numbered.
-    const box = drawn.outlines.find((outline) => Math.abs(outline.x - (strip.left - 4)) <= 1);
-    expect(box?.resting).toBe(true);
-    expect(Math.abs((box?.width ?? 0) - (strip.right - strip.left + 8))).toBeLessThanOrEqual(1);
+    // The strip is `display: contents`, so the key sits on the row's last window — at its trailing
+    // corner, over the windows as a group rather than on any one of them. (The layer's coordinates
+    // are fractional; the boxes read here are rounded.)
+    const last = await page.evaluate(() => {
+      const tabs = [...document.querySelectorAll<HTMLElement>(".change-tabs [data-window-index]")];
+      const box = tabs.at(-1)!.getBoundingClientRect();
+      return { right: Math.round(box.right), top: Math.round(box.top) };
+    });
+    expect(Math.abs(cap.x + 9 - last.right)).toBeLessThanOrEqual(1);
+    expect(Math.abs(cap.y + 9 - last.top)).toBeLessThanOrEqual(1);
 
-    // The key is centred on the group's trailing edge, and its own centre on the strip's top edge:
-    // over the whole strip rather than on the first tab, and clear of the tabs' labels. (The
-    // layer's coordinates are fractional; the tab boxes read here are rounded.)
-    expect(Math.abs(cap.x + 9 - strip.right)).toBeLessThanOrEqual(1);
-    expect(Math.abs(cap.y + 9 - strip.top)).toBeLessThanOrEqual(1);
+    // "+" comes first in the group: the control that opens a window sits before the windows it
+    // adds to, and a window opened from it arrives at that end of the row too.
+    const order = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>(".change-tabs .window-tabs > button.window-tab")].map(
+        (tab) => (tab.classList.contains("new") ? "new" : `w${tab.dataset.windowIndex}`),
+      ),
+    );
+    expect(order).toEqual(["new", "w0", "w1"]);
 
-    // A window is where you type: picking one puts the keys away rather than leaving them over the
-    // shell.
-    await page.keyboard.press("f");
-    await page.waitForSelector(".leader-key.number");
-    await page.keyboard.press("1");
+    // A window is where you type: the key leaves the mode with the navigation, and the dialog it
+    // opened is the page's until it closes.
+    await page.keyboard.press("g");
+    await page.waitForSelector(".select-terminal-dialog[open]");
     await page.waitForSelector(".leader-layer", { state: "detached" });
+  });
+}, 40_000);
+
+test("the select-terminal dialog lists each window's place, read left to right", async () => {
+  if (!usable) return;
+  await withPage(browser, async (page) => {
+    // Four shapes of place: the change root, a change-relative path led by a digit, one led by a
+    // letter, and the absolute path a pane outside the change gets. The places come from the
+    // server, in the form it presents them in.
+    const changeDir = join(tmp, "changes", "SELECT-1");
+    await mkdir(join(changeDir, "2024", "notes"), { recursive: true });
+    await mkdir(join(changeDir, "src", "2024", "docs"), { recursive: true });
+    await page.goto(`${url}/changes/SELECT-1/terminals`, { waitUntil: "domcontentloaded" });
+    await openFirstWindow(page);
+    await openWindowAt("SELECT-1", join(changeDir, "2024", "notes"));
+    await openWindowAt("SELECT-1", join(changeDir, "src", "2024", "docs"));
+    const outside = await openWindowAt("SELECT-1", join(tmp, "repos", "alpha"));
+    const outsideWhere = outside.find((window) => window.where?.startsWith("/"))?.where ?? "";
+    expect(outsideWhere.endsWith(join("repos", "alpha"))).toBe(true);
+    await page.waitForFunction(
+      () => document.querySelectorAll(".change-tabs [data-window-index]").length >= 4,
+      null,
+      { timeout: 30_000 },
+    );
+
+    await openSelectDialog(page);
+    await page.waitForFunction(
+      () => document.querySelectorAll(".select-terminal-dialog .terminal-row").length >= 4,
+    );
+
+    // Each row carries the window's icon, its name and where it is. The place is the
+    // change-relative path, not the bare basename a name falls back to.
+    const rows = await dialogRows(page);
+    expect(rows.length).toBe(4);
+    expect(rows.every((row) => row.icon === 1)).toBe(true);
+    // The rows carry the names the tabs carry, in the row's order.
+    const tabLabels = await page.locator(".change-tabs [data-window-index] .label").allTextContents();
+    expect(rows.map((row) => row.label)).toEqual(tabLabels.map((label) => label.trim()));
+    // A window you open leads the row: the newest is the pane outside the change, then the two
+    // nested directories, then the change root, which says the change's own directory name.
+    expect(rows.map((row) => row.where)).toEqual([outsideWhere, "src/2024/docs", "2024/notes", "SELECT-1"]);
+    expect(rows[0]?.current).toBe(true);
+
+    // The place box truncates from the head, which is why it is right-to-left, but the path keeps
+    // its own direction: measured from the rendered glyphs, every place's characters advance left
+    // to right, and the absolute path's leading slash is its leftmost character. A box direction
+    // reaching the text would put the slash at the far right (`tmp/x/`) and a leading number at
+    // the end (`notes/2024`).
+    const places = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>(".select-terminal-dialog .terminal-row .where")].map(
+        (box) => {
+          // The isolated run the box holds, in the shape the dialog renders it.
+          const run = box.firstElementChild ?? box;
+          const text = run.firstChild;
+          const whole = text?.textContent ?? "";
+          const xs =
+            text === null
+              ? []
+              : [...whole].map((_, at) => {
+                  const range = document.createRange();
+                  range.setStart(text, at);
+                  range.setEnd(text, at + 1);
+                  return range.getBoundingClientRect().x;
+                });
+          return { where: whole, xs };
+        },
+      ),
+    );
+    expect(places.map((place) => place.where)).toEqual(rows.map((row) => row.where));
+    for (const place of places) {
+      expect(place.xs.length).toBe([...place.where].length);
+      for (let at = 1; at < place.xs.length; at++) {
+        expect(place.xs[at]).toBeGreaterThan(place.xs[at - 1]!);
+      }
+    }
+    const absolute = places.find((place) => place.where === outsideWhere)!;
+    expect(absolute.where.startsWith("/")).toBe(true);
+    expect(Math.min(...absolute.xs)).toBe(absolute.xs[0]!);
+
+    // Escape closes the list and leaves the window on screen where it was.
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".select-terminal-dialog[open]", { state: "detached" });
+    expect(
+      await page.evaluate(() =>
+        document.querySelector('.window-tab[data-window-index="0"]')?.classList.contains("current"),
+      ),
+    ).toBe(true);
+
+    // The key again, and `2`: the second row's window — named by id, since the number only says
+    // where in the list it sits — becomes the one on screen.
+    await openSelectDialog(page);
+    await page.keyboard.press("2");
+    await page.waitForSelector(".select-terminal-dialog[open]", { state: "detached" });
+    await waitForCurrentTab(page, rows[1]!.id);
+  });
+}, 60_000);
+
+test("the select-terminal dialog's arrows, Enter and `0` pick the row they name", async () => {
+  if (!usable) return;
+  await withPage(browser, async (page) => {
+    await page.goto(`${url}/changes/KEYS-1/terminals`, { waitUntil: "domcontentloaded" });
+    await openFirstWindow(page);
+    // Ten windows, so the last row has the `0` chip and the list is long enough for the arrows to
+    // have somewhere to go.
+    for (let at = 1; at < 10; at++) await openWindowAt("KEYS-1", join(tmp, "changes", "KEYS-1"));
+    await page.waitForFunction(
+      () => document.querySelectorAll(".change-tabs [data-window-index]").length >= 10,
+      null,
+      { timeout: 60_000 },
+    );
+
+    // The tenth row carries `0`: the row past the ninth has no digit of its own.
+    await openSelectDialog(page);
+    const rows = await dialogRows(page);
+    expect(rows.length).toBe(10);
+    expect(rows.map((row) => row.number)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]);
+    // The dialog opens on the window on screen, and `ArrowDown` walks off it: the row it lands on
+    // is the one `Enter` takes.
+    expect(rows[0]?.current).toBe(true);
+    await page.keyboard.press("ArrowDown");
+    expect(await highlightedRow(page)).toBe(rows[1]!.id);
+    await page.keyboard.press("Enter");
+    await page.waitForSelector(".select-terminal-dialog[open]", { state: "detached" });
+    await waitForCurrentTab(page, rows[1]!.id);
+
+    // `0` is the tenth row, not a tenth of the way down the list.
+    await openSelectDialog(page);
+    await page.keyboard.press("0");
+    await page.waitForSelector(".select-terminal-dialog[open]", { state: "detached" });
+    await waitForCurrentTab(page, rows[9]!.id);
+
+    // `ArrowUp` walks back up the list the same way.
+    await openSelectDialog(page);
+    await page.keyboard.press("ArrowUp");
+    expect(await highlightedRow(page)).toBe(rows[8]!.id);
+    await page.keyboard.press("ArrowUp");
+    expect(await highlightedRow(page)).toBe(rows[7]!.id);
+    await page.keyboard.press("Enter");
+    await page.waitForSelector(".select-terminal-dialog[open]", { state: "detached" });
+    await waitForCurrentTab(page, rows[7]!.id);
+  });
+}, 180_000);
+
+test("the new-terminal dialog shows its keys only when the keyboard opened it", async () => {
+  if (!usable) return;
+  await withPage(browser, async (page) => {
+    await page.goto(`${url}/changes/STARTED-1/terminals`, { waitUntil: "domcontentloaded" });
+    await openFirstWindow(page);
+
+    // The pointer pressed the "+" tab: no keycaps, and no key line in the footer.
+    await page.locator(".change-tabs button.window-tab.new").click();
+    await page.waitForSelector(".new-terminal-dialog[open]");
+    expect(await page.locator(".new-terminal-dialog kbd").count()).toBe(0);
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
+
+    // The leader key did: the chips say which key picks which choice, and the footer says the rest.
+    await page.keyboard.press("Control+Space");
+    await page.waitForSelector(".leader-layer");
+    await page.keyboard.press("f");
+    await page.waitForSelector(".new-terminal-dialog[open]");
+    expect(await page.locator(".new-terminal-dialog .choice kbd").count()).toBe(2);
+    expect(await page.locator(".new-terminal-dialog footer kbd").count()).toBe(4);
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
   });
 }, 40_000);

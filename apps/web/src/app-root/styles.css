@@ -2805,6 +2805,20 @@ button.create:hover:not(:disabled) {
   border-radius: 14px;
 }
 
+/* The terminal view of a change that has no window: the same frame the pane sits in, so the row's
+   + and the hint read as one page rather than a stray line under the tabs. */
+.page.terminal-page .terminal-empty {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  margin: 14px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  padding: 24px;
+  text-align: center;
+}
+
 /* The frame fills what is left of the page rather than the viewport arithmetic it needs when a
    header sits above it, and touches the edges: no border, no rounding. */
 .page.terminal-page .terminal {
@@ -5166,6 +5180,98 @@ a:focus-visible {
 
 .harness-docs .harness-section li.harness-item {
   padding: 2px 0;
+}
+
+/* The select-terminal dialog: the change's windows as rows to pick from, the list the window tabs'
+   own key opens. The number is the row's position — the key that picks it — and the place is the
+   server's own change-relative form, so a row never has to guess where a window is. */
+.select-terminal-dialog {
+  width: min(520px, calc(100vw - 32px));
+}
+.select-terminal-dialog > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.select-terminal-dialog > header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.select-terminal-dialog .terminal-rows {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  max-height: min(50vh, 420px);
+  overflow-y: auto;
+}
+.select-terminal-dialog .terminal-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  text-align: left;
+}
+/* The row the arrows are on: the next `Enter` goes here, so it is marked the way a selected row
+   is everywhere else. */
+.select-terminal-dialog .terminal-row.current {
+  background: var(--selection);
+  border-color: var(--focus, var(--accent));
+}
+.select-terminal-dialog .terminal-row .ic {
+  display: inline-flex;
+  flex: none;
+}
+.select-terminal-dialog .terminal-row .label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* The window already on screen: an old label, quieter than the pick the cursor is on. */
+.select-terminal-dialog .terminal-row .on-screen {
+  flex: none;
+  color: var(--accent);
+  font-size: 12px;
+}
+/* A path we did not write: it shrinks, and the head of it goes rather than the tail, because the
+   end of a path is what tells two places apart. The direction is the box's alone: the ring of the
+   rule is what the omission is anchored to, so it must not reach the path, or the bidi algorithm
+   resolves the leading neutrals the other way and `/tmp/x` reads `tmp/x/`. */
+.select-terminal-dialog .terminal-row .where {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  color: var(--muted);
+  font-size: 12px;
+  direction: rtl;
+  text-align: right;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* The path is a run of its own inside that box: it keeps its own base direction, decided by its
+   first strong character the way `dir=auto` does, so its characters run left to right while the
+   box still clips its head. */
+.select-terminal-dialog .terminal-row .where > bdi {
+  unicode-bidi: isolate;
+}
+.select-terminal-dialog .terminal-row kbd {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+}
+.select-terminal-dialog footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
 }
 
 /* The change harness dialog: one column, the two selectors with room to explain themselves. */

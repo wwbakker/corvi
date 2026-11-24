@@ -7,16 +7,17 @@ import {
   type RefObject,
 } from "react";
 import { AgentIcon, PlusIcon, TerminalIcon } from "../../app-root/icons.tsx";
-import type { Platform } from "@corvi/terminals/model";
 import { WINDOW_TITLE_MAX, type TerminalWindow } from "../../domain/terminal.ts";
+import type { NewTerminalOpener } from "./NewTerminalDialog.tsx";
 
 /** The change's terminal windows as tabs, under the change's views: the same icon in the same
  * colour as the column's window rows, the same name, and "+" to open another. They share the
- * row with the views because a window is one click from any of them. */
+ * row with the views because a window is one click from any of them. "+" comes first in the group
+ * — beside the separator that says these are windows — because a window you open arrives at the
+ * row's start too, so the control and what it creates are in the same place. */
 export function WindowTabs({
   terminals,
   windows,
-  platform,
   disabled,
   onSelectWindow,
   onNewWindow,
@@ -30,16 +31,15 @@ export function WindowTabs({
   terminals: boolean;
   /** This change's terminal windows: what the terminal page's tabs are. */
   windows: TerminalWindow[];
-  /** The server's platform: what the new-terminal tab's shortcut assumes. */
-  platform: Platform;
   /** The change's workspace is unavailable: the cached tabs stay readable and named, but selecting
    * or creating one would reach the remote, so they are disabled (the gate would refuse anyway). */
   disabled?: boolean;
-  /** Switching the session to one of its windows. */
-  onSelectWindow: (index: number) => void;
-  /** Another window beside the current one. The terminal's own chord does this from inside it;
-   * this is the tab that does. */
-  onNewWindow: () => void;
+  /** Switching the session to one of its windows, by the window's id: the row reorders and
+   * shrinks under the tabs, so a tab's position is not the window it names. */
+  onSelectWindow: (windowId: string) => void;
+  /** Another window beside the current one, and how it was asked for: the tab you clicked, or the
+   * leader key, which the dialog answers with its own key hints. */
+  onNewWindow: (opener: NewTerminalOpener) => void;
   /** A dragged tab landed: the window at `from` takes the place of the one at `to`. */
   onMoveWindow: (from: number, to: number) => void;
   /** Name a window from its tab's menu, or clear the name (blank) back to the default. */
@@ -49,8 +49,8 @@ export function WindowTabs({
   /** The new-terminal tab, where the leader's keycap for it sits (app-root/leader.tsx). */
   leaderNewRef?: RefObject<HTMLButtonElement | null>;
 }): JSX.Element {
-  // Which window tab a drag is carrying, and which one it is over: "new" is the row's fixed end
-  // and takes no part in either.
+  // Which window tab a drag is carrying, and which one it is over: "new" is not a window and takes
+  // no part in either, whichever end of the row it sits at.
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   // The tab's own menu: where it was opened, and for which window. The "new" tab is not a
@@ -160,6 +160,20 @@ export function WindowTabs({
 
   return (
     <nav className="window-tabs">
+      {/* The window you open lands at this end of the row, so the control that opens it does too.
+          A change with no window still has this control: it is the way the first one is opened, and
+          the dialog it opens is what creates a window — never arriving at the page. */}
+      <button
+        ref={leaderNewRef}
+        className="window-tab new"
+        disabled={disabled}
+        aria-label="new terminal"
+        title="new terminal"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => onNewWindow("pointer")}
+      >
+        <PlusIcon title="new terminal" />
+      </button>
       {windows.map((w) => {
         const classes = ["window-tab"];
         if (w.active && terminals) classes.push("current");
@@ -178,7 +192,7 @@ export function WindowTabs({
             // Focus is what a mousedown moves, and a terminal you cannot type in after clicking
             // a tab is useless; the drag rides the same mousedown (see startDrag).
             onMouseDown={(e) => startDrag(e, w.index)}
-            onClick={() => onSelectWindow(w.index)}
+            onClick={() => onSelectWindow(w.id)}
             onContextMenu={(e) => openMenu(e, w)}
           >
             <span className={w.state === "ok" ? "state-ok" : "state-idle"}>
@@ -190,19 +204,6 @@ export function WindowTabs({
           </button>
         );
       })}
-      {/* A session that has not started yet has nothing to add a window to; opening the
-          terminal starts it, with the first window. */}
-      <button
-        ref={leaderNewRef}
-        className="window-tab new"
-        disabled={disabled}
-        aria-label="new terminal"
-        title="new terminal"
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={onNewWindow}
-      >
-        <PlusIcon title="new terminal" />
-      </button>
       {menu && (
         <div
           className="window-menu"

@@ -129,6 +129,37 @@ test("a kept command window freezes with its label and fires the notify edge", a
   expect(frozen?.note).toContain("exit code 0");
 }, 40_000);
 
+test("two runs arriving together on a windowless change open one window", async () => {
+  const racing: Change = { ...change, id: "PROJ-action-race" };
+  await mkdir(join(process.env.CORVI_ROOT ?? "", racing.id), { recursive: true });
+  for (const [id, label] of [
+    ["race-a", "First"],
+    ["race-b", "Second"],
+  ] as const) {
+    await Effect.runPromise(
+      writeActionFile({
+        scope: "global",
+        id,
+        text: `---\nlabel: ${label}\nkind: prompt\ntarget: active\n---\n${label} prompt\n`,
+      }),
+    );
+  }
+  // Both runs find the change windowless before either has opened a window: the find and the
+  // create have to be one registry step, or each opens a shell of its own.
+  const [first, second] = await Promise.all([
+    Effect.runPromise(runActionFor(racing, "global:race-a")),
+    Effect.runPromise(runActionFor(racing, "global:race-b")),
+  ]);
+  const windows = await listWindowsAsync(racing.id);
+  expect(windows).toHaveLength(1);
+  expect(first.window?.id).toBe(windows[0]?.id);
+  expect(second.window?.id).toBe(windows[0]?.id);
+  const sessions = (await (await hostClient()).list()).filter(
+    (entry) => entry.metadata?.change === racing.id && entry.alive,
+  );
+  expect(sessions).toHaveLength(1);
+}, 40_000);
+
 test("an agent-target action uses a running host agent window instead of a fresh pi", async () => {
   const session = await newWindowAsync(change.id, join(process.env.CORVI_ROOT ?? own, change.id));
   const hostSession = (await (await hostClient()).list()).find((entry) => entry.id === session.id);

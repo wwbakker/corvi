@@ -16,7 +16,7 @@ import {
 import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { csiuFor, isNewWindowKey, type Platform } from "@corvi/terminals/model";
+import { csiuFor, type Platform } from "@corvi/terminals/model";
 import type { RemoteAvailabilityReasonDto } from "@corvi/contracts/availability";
 import { shouldKeepSocket } from "./socketTarget.ts";
 import { monoFontStack, loadSymbolsFont } from "../../app-root/monoFont.ts";
@@ -160,7 +160,7 @@ const readFontSize = (): number => {
  * itself.
  *
  * Which window you are in, and how to get to another, is the navigation column's job. This is the
- * terminal, the focus, and the new-window chord. The server owns the screen (a headless xterm fed
+ * terminal and the focus. The server owns the screen (a headless xterm fed
  * every host byte, `apps/server/src/terminals/server/screen.ts`); this xterm is its renderer — the
  * scrollback, selection, scrollbar, find and links are drawn here, and a connect replays the
  * server's snapshot before the live bytes.
@@ -177,7 +177,6 @@ export function TerminalPane({
   visible,
   focusRequest,
   platform,
-  onNewWindow,
 }: {
   changeId: string;
   url: string | null;
@@ -188,17 +187,14 @@ export function TerminalPane({
   /** The owning workspace is unavailable: no socket is opened, and the pane says why instead of
    * reconnecting. Undefined for the local server, which is always reachable. */
   unavailable?: RemoteAvailabilityReasonDto | null;
-  /** Whether this is the page in front: what to focus, when to connect, and when the
-   * new-window chord belongs to us. */
+  /** Whether this is the page in front: what to focus and when to connect. */
   visible: boolean;
   /** A counter the page bumps when something that took the keyboard — the cheat sheet — has closed:
    * nothing in here would put the focus back by itself, and a terminal you have to click before
    * typing is a terminal you have clicked twice. */
   focusRequest?: number;
-  /** The server's platform, which decides the chord: cmd-t on macOS, ctrl-alt-t on Linux (the
-   * same test the server's own key handling applies, from @corvi/terminals/model). */
+  /** The server's platform: the option-drag selection and the click hints follow it. */
   platform: Platform;
-  onNewWindow: () => void;
 }): JSX.Element {
   const host = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
@@ -669,19 +665,6 @@ export function TerminalPane({
     element.addEventListener("keydown", onKey, true);
     return () => element.removeEventListener("keydown", onKey, true);
   }, []);
-
-  // The new-window chord, from the page and from inside the terminal, which is where the
-  // keyboard usually is.
-  useEffect(() => {
-    if (!visible) return;
-    const key = (e: KeyboardEvent): void => {
-      if (!isNewWindowKey(e, platform)) return;
-      e.preventDefault();
-      onNewWindow();
-    };
-    window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
-  }, [visible, onNewWindow, platform]);
 
   // Opening it should be enough to start typing — and so should closing anything that took the
   // keyboard away, which is what `focusRequest` counts.

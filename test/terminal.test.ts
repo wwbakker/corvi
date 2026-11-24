@@ -8,6 +8,7 @@ import {
   budget,
   checkoutsOf,
   closePages,
+  openFirstWindow,
   requireFreshWebBundle,
   runSh,
   testTempDir,
@@ -380,6 +381,14 @@ const live = "PROJ-LIVE";
 const rapid = "PROJ-RAPID";
 /** Its own change, so the ended-shell test's exit does not remove a window another test expects. */
 const exits = "PROJ-EXIT";
+/** A change with two windows to start with: exiting one leaves the other. */
+const exitsTwo = "PROJ-EXIT-TWO";
+/** A change that is never given a window, so its terminal view is the empty one. */
+const empty = "PROJ-EMPTY";
+/** A change whose dialog is opened and cancelled before any window exists. */
+const dialogOnly = "PROJ-DIALOG";
+/** A change whose first window is opened while the window-list read is slow. */
+const createOnly = "PROJ-CREATE";
 
 const startServer = async (port = 0): Promise<void> => {
   ({ server, url } = await startTestServer(tmp, {
@@ -423,6 +432,19 @@ beforeAll(async () => {
     method: "POST",
     body: JSON.stringify({ id: exits, checkouts: checkoutsOf([repo5]) }),
   });
+  for (const [change, repo] of [
+    [exitsTwo, "repo6"],
+    [empty, "repo7"],
+    [dialogOnly, "repo8"],
+    [createOnly, "repo9"],
+  ] as const) {
+    const at = join(tmp, repo);
+    await runSh(["git", "init", "-b", "main", at]);
+    await fetch(`${url}/api/changes`, {
+      method: "POST",
+      body: JSON.stringify({ id: change, checkouts: checkoutsOf([at]) }),
+    });
+  }
   browser = await chromium.launch();
 }, budget(120_000));
 
@@ -440,10 +462,43 @@ afterAll(async () => {
 const openTerminal = async (change: string): Promise<{ page: Page; dir: string }> => {
   const page = watchPage(await browser.newPage({ viewport: { width: 1200, height: 800 } }));
   await page.goto(`${url}/changes/${change}/terminals`);
+  // A window is opened, not implied. Wait for the view to know which it is — a window tab, or the
+  // empty view with its "+" — and open the change's first window when there is none; a change an
+  // earlier test left a window on attaches to that one.
+  await page.waitForFunction(
+    () =>
+      document.querySelector(".change-tabs [data-window-index]") !== null ||
+      document.querySelector(".terminal-empty") !== null,
+    null,
+    { timeout: 20_000 },
+  );
+  if ((await page.locator(".change-tabs [data-window-index]").count()) === 0) await openFirstWindow(page);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
   await awaitAttached(page);
   return { page, dir: join(tmp, "changes", change) };
+};
+
+/** The change's windows, as the server lists them: what "no window" is measured against. */
+const windowsOf = async (change: string): Promise<{ id: string; active: boolean }[]> =>
+  (await (await fetch(`${url}/api/changes/${change}/terminal/windows`)).json()) as {
+    id: string;
+    active: boolean;
+  }[];
+
+/** The live host sessions of one change. A window is a host session, so this is the count a
+ * read of the window list cannot be wrong about: a shell started behind the page's back shows
+ * here even if nothing attached to it. */
+const hostSessionsOf = async (change: string): Promise<string[]> => {
+  const host = await ensureHost({
+    socket: join(tmp, "state", "corvi", "host.sock"),
+    checkout: process.cwd(),
+    buildId: hostBuildId(HOST_DIR),
+    runtime: "node",
+  });
+  const live = (await host.client.list()).filter((entry) => entry.metadata?.change === change && entry.alive);
+  host.client.close();
+  return live.map((entry) => entry.id);
 };
 
 test("the keys a terminal cannot encode are sent as CSI u", () => {
@@ -629,6 +684,9 @@ test.skipIf(!usable)(
     const tabs = page.locator(".window-tab:not(.new)");
     await tabs.first().waitFor({ timeout: 15_000 });
     expect(await tabs.count()).toBe(1);
+    // The first window's id: a window you open later takes the row's leading place, so the
+    // position says nothing about which window is which.
+    const firstWindowId = await tabs.first().getAttribute("data-window-id");
 
     // A marker in the first window's shell. The checked file holds the variable's own value, so it
     // can only pass once the export ran.
@@ -669,17 +727,18 @@ test.skipIf(!usable)(
       "none\n",
     );
 
-    // Selecting the first tab attaches back to its own shell, marker intact. Both tabs share a label
-    // (two shells in the change directory), so the index is what says the switch landed; the pane's
-    // own attach follows it, and `runCommand` waits for that before typing.
-    await tabs.first().click();
+    // Selecting the first window's tab attaches back to its own shell, marker intact. Both tabs
+    // share a label (two shells in the change directory), so the window's id is what says the
+    // switch landed; the pane's own attach follows it, and `runCommand` waits for that before
+    // typing.
+    await page.locator(`.window-tab[data-window-id="${firstWindowId}"]`).click();
     expect(
       await until(
-        () => page.locator(".window-tab.current").getAttribute("data-window-index"),
-        "0",
+        () => page.locator(".window-tab.current").getAttribute("data-window-id"),
+        firstWindowId,
         budget(20_000),
       ),
-    ).toBe("0");
+    ).toBe(firstWindowId);
     // The column followed the switch to the same window the tab names.
     expect(await page.locator(".sidebar .entry.sub.window.current").getAttribute("data-window-id")).toBe(
       await page.locator(".window-tab.current").getAttribute("data-window-id"),
@@ -699,7 +758,9 @@ test.skipIf(!usable)(
   "a window is named where its shell is, with what runs there in brackets",
   async () => {
     const { page, dir } = await openTerminal(id);
-    const tab = page.locator(".window-tab:not(.new)").first();
+    // The tab of the window the page is attached to: a window opened earlier may now be a later
+    // position, and the pane types into the active one.
+    const tab = page.locator(".window-tab.current").first();
     await tab.waitFor({ timeout: 20_000 });
     const windowId = await tab.getAttribute("data-window-id");
     expect(windowId).toBeTruthy();
@@ -905,6 +966,9 @@ test.skipIf(!usable)(
     const { page } = await openTerminal(rapid);
     const tabs = page.locator(".window-tab:not(.new)");
     await tabs.first().waitFor({ timeout: 15_000 });
+    // Which tab is which is its own business: a window opened later leads the row, so the two are
+    // told apart by their ids.
+    const aId = await tabs.first().getAttribute("data-window-id");
 
     // One marker per window's shell, so the rendered buffer says which screen the pane holds.
     await typeUntilText(page, "echo RAPID_A_MARK", "RAPID_A_MARK");
@@ -913,21 +977,24 @@ test.skipIf(!usable)(
     await page.keyboard.press("1");
     await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
     expect(await until(() => tabs.count(), 2)).toBe(2);
+    const bId = await page
+      .locator(`.window-tab:not(.new):not([data-window-id="${aId}"])`)
+      .getAttribute("data-window-id");
     await typeUntilText(page, "echo RAPID_B_MARK", "RAPID_B_MARK");
 
     // A -> B -> A back to back: the second click lands as soon as it can, before B's screen has had
     // time to settle. Repeated, because the bug is about arrival order. (The guard itself is pinned
     // deterministically in test/socketTarget.test.ts.)
     for (let round = 0; round < 5; round++) {
-      await tabs.nth(1).click();
-      await tabs.nth(0).click();
+      await page.locator(`.window-tab[data-window-id="${bId}"]`).click();
+      await page.locator(`.window-tab[data-window-id="${aId}"]`).click();
       expect(
         await until(
-          () => page.locator(".window-tab.current").getAttribute("data-window-index"),
-          "0",
+          () => page.locator(".window-tab.current").getAttribute("data-window-id"),
+          aId,
           budget(20_000),
         ),
-      ).toBe("0");
+      ).toBe(aId);
       // A's screen came back, and B's is not in it.
       await until(async () => (await terminalText(page)).includes("RAPID_A_MARK"), true, budget(20_000));
       expect(await terminalText(page)).not.toContain("RAPID_B_MARK");
@@ -941,8 +1008,9 @@ test.skipIf(!usable)(
   "a delayed window list never claims the session is gone",
   async () => {
     const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-    // Hold the window list past the old five-second inference while the pane's own URL and socket
-    // resolve: an empty list is not evidence that the shells are lost.
+    // Hold the window list: the pane attaches to a window, so nothing is asked for until the list
+    // says the change has one — and until then the view claims nothing either, neither that the
+    // change has no terminal nor that the shells are lost.
     let held = 0;
     await page.route("**/api/terminals", async (route) => {
       held += 1;
@@ -950,15 +1018,17 @@ test.skipIf(!usable)(
       await route.continue();
     });
     await page.goto(`${url}/changes/${id}/terminals`);
-    await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
-    await awaitAttached(page);
-    // Past the old threshold, with the list still held: no destructive loss message.
-    await Bun.sleep(6000);
-    expect(await page.locator(".terminal-gone").count()).toBe(0);
-    await awaitAttached(page);
-    // The list arrives and the strip appears without a reload.
-    await page.locator(".window-tab:not(.new)").first().waitFor({ timeout: 20_000 });
+    await page.waitForSelector(".change-tabs .tab");
     expect(held).toBeGreaterThan(0);
+    expect(await page.locator(".terminal-screen").count()).toBe(0);
+    expect(await page.locator(".terminal-empty").count()).toBe(0);
+    expect(await page.locator(".terminal-gone").count()).toBe(0);
+    // The list arrives and the strip appears without a reload; the pane attaches to the window the
+    // change already had, with no loss message.
+    await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 20_000 });
+    await awaitAttached(page);
+    await page.locator(".window-tab:not(.new)").first().waitFor({ timeout: 20_000 });
+    expect(await page.locator(".terminal-gone").count()).toBe(0);
     await page.close();
   },
   budget(120_000),
@@ -1039,7 +1109,7 @@ test.skipIf(!usable)(
 );
 
 test.skipIf(!usable)(
-  "exiting the shell says the session ended, not that the shell was lost",
+  "exiting the only shell leaves no window, starts nothing, and lands on the dashboard",
   async () => {
     const { page } = await openTerminal(exits);
     await awaitAttached(page);
@@ -1047,17 +1117,180 @@ test.skipIf(!usable)(
     // in the previous window's shell; take it deliberately before typing a command that must
     // reach this pty.
     await focusVisiblePane(page);
+    expect(await hostSessionsOf(exits)).toHaveLength(1);
+
     await page.keyboard.type("exit\n");
-    await page.locator(".terminal-gone").waitFor({ timeout: budget(20_000) });
-    const text = ((await page.locator(".terminal-gone").textContent()) ?? "").replace(/\s+/g, " ").trim();
-    // Purely factual and scoped: no claim that the whole change lost its shells, and no action
-    // promise (a reload or a tab is transient here and must not be presented as the fix).
-    expect(text).toBe("The shell in this terminal has ended. Other terminals in this change are unaffected.");
-    expect(text).not.toContain("Reload");
-    expect(text).not.toContain("shells in it");
+    // The shell that was the whole terminal view is gone, so the change has no window left and the
+    // terminal view has nothing to show: the dashboard is where the change still is.
+    await page.waitForURL(`**/changes/${exits}/dashboard`, { timeout: budget(20_000) });
+    expect(await windowsOf(exits)).toEqual([]);
+    // And no shell was started in its place. The list already said so; this is the pty count, which
+    // a window the page never attached to would have shown up in.
+    await Bun.sleep(2000);
+    expect(await hostSessionsOf(exits)).toEqual([]);
     await page.close();
   },
   budget(90_000),
+);
+
+test.skipIf(!usable)(
+  "with two windows, exiting one leaves the other and starts nothing",
+  async () => {
+    const { page } = await openTerminal(exitsTwo);
+    const tabs = page.locator(".window-tab:not(.new)");
+    await tabs.first().waitFor({ timeout: 15_000 });
+    // A second window, so there is one to be left with. It leads the row and is the one on screen.
+    await page.locator(".window-tab.new").click();
+    await page.waitForSelector(".new-terminal-dialog[open]");
+    await page.keyboard.press("1");
+    await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
+    expect(await until(() => tabs.count(), 2)).toBe(2);
+    await awaitAttached(page);
+    expect(await hostSessionsOf(exitsTwo)).toHaveLength(2);
+
+    await focusVisiblePane(page);
+    await page.keyboard.type("exit\n");
+    // The window that exited is dropped and the change keeps the other one: the page stays on the
+    // terminal view, which is where the window it still has belongs.
+    expect(await until(() => tabs.count(), 1)).toBe(1);
+    expect(new URL(page.url()).pathname).toBe(`/changes/${exitsTwo}/terminals`);
+    expect(await windowsOf(exitsTwo)).toHaveLength(1);
+    // The survivor is a real shell, not a window record with nothing behind it.
+    const after = join(tmp, "changes", exitsTwo, "after-exit.txt");
+    await runCommand(page, `pwd > ${after}`, after, `${join(tmp, "changes", exitsTwo)}\n`);
+    // One pty left, and no second one started for the window that went.
+    await Bun.sleep(2000);
+    expect(await hostSessionsOf(exitsTwo)).toHaveLength(1);
+    await page.close();
+  },
+  budget(120_000),
+);
+
+test.skipIf(!usable)(
+  "a change with no windows shows the + and says how to open one",
+  async () => {
+    const page = watchPage(await browser.newPage({ viewport: { width: 1200, height: 800 } }));
+    // The empty state is a claim about a read, so it waits for one: hold the window list, check
+    // that the view says nothing yet, then let it answer.
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route("**/api/terminals", async (route) => {
+      await held;
+      await route.continue();
+    });
+    await page.goto(`${url}/changes/${empty}/terminals`);
+    await page.waitForSelector(".change-tabs .tab");
+    expect(await page.locator(".terminal-empty").count()).toBe(0);
+    expect(await page.locator(".terminal-screen").count()).toBe(0);
+    release();
+
+    const hint = page.locator(".terminal-empty .hint");
+    await hint.waitFor({ timeout: budget(20_000) });
+    expect((await hint.textContent())?.trim()).toBe("No terminal in this change yet — open one with +.");
+    // The window group is the "+" alone: nothing to switch to, and nothing to attach to.
+    expect(await page.locator(".window-tab.new").count()).toBe(1);
+    expect(await page.locator(".window-tab:not(.new)").count()).toBe(0);
+    expect(await page.locator(".terminal-screen").count()).toBe(0);
+
+    // The "+" is the way in: it opens the first window, and the view becomes the terminal.
+    await page.locator(".window-tab.new").click();
+    await page.waitForSelector(".new-terminal-dialog[open]");
+    await page.keyboard.press("1");
+    await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
+    await page
+      .locator(".window-tab:not(.new)")
+      .first()
+      .waitFor({ timeout: budget(20_000) });
+    await page.locator(".terminal-empty").waitFor({ state: "detached", timeout: budget(20_000) });
+    await page.waitForSelector(".terminal-screen[data-attached]", { timeout: budget(30_000) });
+    expect(await windowsOf(empty)).toHaveLength(1);
+    await page.close();
+  },
+  budget(90_000),
+);
+
+test.skipIf(!usable)(
+  "opening the new-terminal dialog from the dashboard creates nothing before OK",
+  async () => {
+    const page = watchPage(await browser.newPage({ viewport: { width: 1200, height: 800 } }));
+    await page.goto(`${url}/changes/${dialogOnly}`);
+    await page.waitForSelector(".change-tabs button.window-tab.new");
+    await page.locator(".change-tabs button.window-tab.new").click();
+    await page.waitForSelector(".new-terminal-dialog[open]");
+    // Nothing exists while the dialog is open: no window, no shell, and the page it was opened
+    // from is still the page.
+    expect(new URL(page.url()).pathname).toBe(`/changes/${dialogOnly}`);
+    expect(await windowsOf(dialogOnly)).toEqual([]);
+    expect(await page.locator(".terminal-screen").count()).toBe(0);
+    await Bun.sleep(1500);
+    expect(await hostSessionsOf(dialogOnly)).toEqual([]);
+
+    // Cancel creates nothing either.
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
+    expect(await windowsOf(dialogOnly)).toEqual([]);
+
+    // OK is what opens it: the dialog's success lands on the terminal view for its new window.
+    await page.locator(".change-tabs button.window-tab.new").click();
+    await page.waitForSelector(".new-terminal-dialog[open]");
+    await page.keyboard.press("1");
+    await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
+    await page.waitForURL(`**/changes/${dialogOnly}/terminals`, { timeout: budget(20_000) });
+    await page.waitForSelector(".terminal-screen[data-attached]", { timeout: budget(30_000) });
+    expect(await windowsOf(dialogOnly)).toHaveLength(1);
+    await page.close();
+  },
+  budget(120_000),
+);
+
+test.skipIf(!usable)(
+  "OK never shows the empty terminal view, even while the window list read is held",
+  async () => {
+    const page = watchPage(await browser.newPage({ viewport: { width: 1200, height: 800 } }));
+    await page.goto(`${url}/changes/${createOnly}/terminals`);
+    // The empty view proves the first read answered, which is what makes the claim live; then the
+    // next read is held, so a create that only asks for a re-read leaves the page on that claim
+    // for the whole round trip.
+    await page.locator(".terminal-empty .hint").waitFor({ timeout: 20_000 });
+    await page.route("**/api/terminals", async (route) => {
+      await Bun.sleep(1500);
+      await route.continue();
+    });
+
+    // Back to the dashboard, then the "+" dialog: the page is off the terminal view before the
+    // observation starts, so nothing it records can come from the empty view it was legitimately
+    // showing a moment ago.
+    await page.locator(".change-tabs .tab", { hasText: "Dashboard" }).click();
+    await page.waitForURL(`**/changes/${createOnly}/dashboard`, { timeout: budget(20_000) });
+    await page.locator(".change-tabs button.window-tab.new").click();
+    await page.waitForSelector(".new-terminal-dialog[open]");
+    // Every commit from here on is checked — the dashboard, the dialog, and the terminal view OK
+    // lands on: the claim must never be painted, not merely be gone by the end.
+    expect(await page.locator(".terminal-empty").count()).toBe(0);
+    await page.evaluate(() => {
+      const seen: boolean[] = [];
+      (window as unknown as { __empty: boolean[] }).__empty = seen;
+      const record = (): void => {
+        seen.push(document.querySelector(".terminal-empty") !== null);
+      };
+      new MutationObserver(record).observe(document.body, { subtree: true, childList: true });
+      record();
+    });
+    // OK: the create's own answer is what the window list is made of, so there is no moment where
+    // the page knows the change has no window.
+    await page.keyboard.press("1");
+    await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
+    await page.locator(".window-tab:not(.new)").first().waitFor({ timeout: 20_000 });
+    await page.waitForURL(`**/changes/${createOnly}/terminals`, { timeout: budget(20_000) });
+    await page.waitForSelector(".terminal-screen[data-attached]", { timeout: budget(30_000) });
+    expect(
+      await page.evaluate(() => (window as unknown as { __empty: boolean[] }).__empty.some(Boolean)),
+    ).toBe(false);
+    await page.close();
+  },
+  budget(120_000),
 );
 
 test.skipIf(!usable)(
@@ -2018,6 +2251,7 @@ test.skipIf(!usable)(
     const { page } = await openTerminal(live);
     const tabs = page.locator(".window-tab:not(.new)");
     await tabs.first().waitFor({ timeout: 15_000 });
+    const liveId = await tabs.first().getAttribute("data-window-id");
 
     // A marker drawn once, then a loop that keeps the screen updating at a fixed position forever:
     // the screen never goes idle, so a page-side snapshot cadence would never run. The server's
@@ -2035,7 +2269,7 @@ test.skipIf(!usable)(
     await page.keyboard.press("1");
     await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
     expect(await until(() => tabs.count(), 2)).toBe(2);
-    await tabs.first().click();
+    await page.locator(`.window-tab[data-window-id="${liveId}"]`).click();
     expect(
       await until(async () => (await terminalText(page)).includes("SRV-LIVE-MARKER"), true, budget(20_000)),
     ).toBe(true);

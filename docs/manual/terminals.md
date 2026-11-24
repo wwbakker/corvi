@@ -8,7 +8,10 @@ Each change's terminals are **host sessions** in the terminal host: one long-liv
 Corvi state directory (`host.sock`) that owns the ptys. The page attaches over a WebSocket and
 renders with xterm.js.
 
-Opening a terminal starts or attaches a session. Opening a dashboard does not. Closing the page or
+A window is created only by an explicit open: the **+** dialog, or background work — an action run,
+a subagent, a split. Arriving at a change's terminal view attaches to the window the change already
+has and starts nothing; a change with none shows only **+** and a line saying there is no terminal
+yet, with that **+** as the way in. Opening a dashboard starts nothing either. Closing the page or
 restarting Corvi detaches without losing shells: the host outlives the server that started it, so
 the shells keep running and the next page resumes them (restoring the scrollback from the screen
 the server keeps, which also survives a Corvi restart). Completing or cancelling a change
@@ -73,13 +76,18 @@ they wrap onto another line at the row's left edge instead of showing a horizont
 the row grows with them. The window's actions — the ones that fit the window you are on, and the
 terminal cheat sheet — are entries of the change's **Actions** menu in the title row.
 
-The **+** at the end of the row — **Cmd-T** on macOS, **Ctrl-Alt-T** on Linux — creates another
-host session in the current window's directory. It becomes the current window. Work that opens a
-window in the background — an action run, a subagent — does not: it leaves the terminal you are looking at
-selected, so an idle shell is never taken over by something you did not open. Explicitly opening a
-terminal — a window tab, a notification, or a subagent entry — selects it. In a normal Chrome tab,
-Cmd-T remains a browser shortcut; the desktop app can deliver it to Corvi. Keyboard focus stays
-with the terminal while switching windows.
+The **+** at the start of the window group creates another host session in the current window's
+directory — the first one, in a change that has none — and the window it opens takes the leading
+place in the row. The window tabs' leader key opens **Select terminal**: the change's windows, one
+row each, with the window's icon, its name and where it is — relative to the change, or the
+absolute path for a pane outside it. A digit picks a row (`0` is the tenth), the arrows walk the
+list, `Enter` takes the row they are on, and a click takes the one under the pointer; `Esc` closes
+the list without moving. Work that opens a window in the background — an action run, a subagent —
+does not: it lands at the row's end and leaves the terminal you are looking at selected, so an idle
+shell is never taken over by something you did not open. An action run pasted into a change that
+has no window at all creates the one it needs. Explicitly opening a terminal — a window tab, a
+notification, or a subagent entry — selects it. Keyboard focus stays with the terminal while
+switching windows.
 
 The terminal owns the screen: drag to select, the wheel or the scrollbar scrolls back, and the
 right-click menu holds Copy, Paste, Select all, Clear, Find and Open link. A dot indicates output
@@ -245,6 +253,7 @@ The `+` tab (and its leader key) opens one dialog for every new terminal. `1` or
 directory and harness you chose. The directory list always offers the **current pane's** directory
 (the default), the **change root**, and each checkout as distinct choices; the harness list names
 the change's default and is disabled while Shell is selected, because a shell always uses the
-change's user harness. The dialog owns its keys while it is open: `Esc`
-closes it. Every tab carries the harness it runs under, and the terminal's own new-window chord
-opens the same dialog.
+change's user harness. The dialog owns its keys while it is open: `Esc` closes it. Opened from its
+leader key it shows those keys beside the choices and in its footer; opened with the pointer it
+does not, because a key hint there is a second set of instructions for a choice already being
+made. Every tab carries the harness it runs under.

@@ -18,6 +18,7 @@ import type { CommandFailure, NewWindowOptions } from "@corvi/terminals/model";
 import type { RawWindow } from "../../integrations/types.ts";
 import { WINDOW_TITLE_MAX } from "@corvi/contracts/terminal";
 import { env, stateDir } from "@corvi/configuration/node";
+import { announce } from "../../capabilities/bus.ts";
 import { childEnv } from "../../capabilities/env.ts";
 import { changeDir, listChanges, readChange } from "../../change/server/index.ts";
 import { hostClient, hostRunning, type SessionInfo } from "./host.ts";
@@ -185,17 +186,33 @@ const commandOptions = (record: WindowRecord, session: SessionInfo | undefined):
   };
 };
 
+/** How a directory outside the change is said: the last segment where a name has to stay short
+ * (`placeOf`), the whole path where two places have to be told apart (`whereOf`). */
+type Outside = "segment" | "path";
+
+/** One rule for where a session is, relative to its change: the directory's own name at the root,
+ * the path inside the change, and — outside it — whatever `outside` asks for. Both forms named
+ * below are this function, so the path rule cannot drift between a window's name and its place. */
+const locationOf = (changeDir: string, cwd: string | undefined, outside: Outside): string | undefined => {
+  if (cwd === undefined || cwd === "") return undefined;
+  const rel = relative(changeDir, cwd);
+  if (rel === "") return basename(changeDir);
+  if (rel.startsWith("..") || isAbsolute(rel)) return outside === "path" ? cwd : basename(cwd);
+  return rel;
+};
+
 /** Where a session is now, as a window may be named by it: its announced cwd relative to the
  * change (`corvi`, `corvi/packages/terminals`). The change's own root is its directory name, and a
  * cwd outside the change (or reached through another path to the same place) is its last segment —
  * a window never carries a path that says nothing, and the relative form is what makes it short. */
-export const placeOf = (changeDir: string, cwd: string | undefined): string | undefined => {
-  if (cwd === undefined || cwd === "") return undefined;
-  const rel = relative(changeDir, cwd);
-  if (rel === "") return basename(changeDir);
-  if (rel.startsWith("..") || isAbsolute(rel)) return basename(cwd);
-  return rel;
-};
+export const placeOf = (changeDir: string, cwd: string | undefined): string | undefined =>
+  locationOf(changeDir, cwd, "segment");
+
+/** Where a window is, in the form the page shows it: the change-relative path inside the change,
+ * the absolute path outside it. Where a name can give the path up to stay short, this one says as
+ * much as it was given: two windows in different places have to be told apart. */
+export const whereOf = (changeDir: string, cwd: string | undefined): string | undefined =>
+  locationOf(changeDir, cwd, "path");
 
 /** The raw window a host session presents as. A labelled one (an action run) uses the label as
  * its name and lets the presenter speak; a plain shell uses its directory. `title` is the name the
@@ -209,6 +226,10 @@ const hostRaw = (
   status: AgentStatus | undefined,
 ): RawWindow => {
   const place = placeOf(dir, session?.workingDirectory);
+  // Where the pane is now, as both the page's `cwd` and its `where` want it: the announced
+  // directory once the shell has said one, and the directory it was opened in until then.
+  const cwd = session?.workingDirectory ?? session?.cwd;
+  const where = whereOf(dir, cwd);
   return {
     index: 0,
     id: record.id,
@@ -229,9 +250,8 @@ const hostRaw = (
     ...(record.harness === undefined && session?.metadata?.harness === undefined
       ? {}
       : { harness: session?.metadata?.harness ?? record.harness }),
-    ...((session?.workingDirectory ?? session?.cwd) === undefined
-      ? {}
-      : { cwd: session?.workingDirectory ?? session?.cwd }),
+    ...(cwd === undefined ? {} : { cwd }),
+    ...(where === undefined ? {} : { where }),
     panes: [...record.panes],
     activePane: record.activePane,
     subagent: (session?.metadata?.subagentId?.trim() ?? "") !== "",
@@ -327,9 +347,12 @@ export const liveSnapshotKeys = (
 export type WindowIntent = "activate" | "background";
 
 /** Rebuild, apply a patch, and persist. With `intent: "activate"` the window becomes the active
- * one; with `intent: "background"` the existing selection is kept, and `mergeRecords` leaves the
- * first window active when the change had none (so the registry stays usable). Caller holds the
- * registry lock. */
+ * one and leads the row; with `intent: "background"` the existing selection is kept, and
+ * `mergeRecords` leaves the first window active when the change had none (so the registry stays
+ * usable). The order differs for the same reason the selection does: a window you opened is the
+ * one you are looking at, so it belongs at the row's start, while background work — an action run,
+ * a subagent — is news about a window you did not open and must not displace the ones you
+ * arranged. Caller holds the registry lock. */
 const persistWindow = async (
   changeId: string,
   id: string,
@@ -353,15 +376,17 @@ const persistWindow = async (
           ...patch,
         },
       ];
-  return save(
-    changeId,
-    present.map((record) => {
-      if (record.id !== id) return intent === "activate" ? { ...record, active: false } : record;
-      return intent === "activate"
-        ? { ...record, ...patch, active: true, activity: false }
-        : { ...record, ...patch };
-    }),
-  );
+  const patched = present.map((record) => {
+    if (record.id !== id) return intent === "activate" ? { ...record, active: false } : record;
+    return intent === "activate"
+      ? { ...record, ...patch, active: true, activity: false }
+      : { ...record, ...patch };
+  });
+  if (intent !== "activate") return save(changeId, patched);
+  return save(changeId, [
+    ...patched.filter((record) => record.id === id),
+    ...patched.filter((record) => record.id !== id),
+  ]);
 };
 
 /** The host-session options a window beyond the defaults needs: a different working directory
@@ -406,6 +431,11 @@ const openHostWindow = async (
   // pane gets its own id.
   await openPane(changeId, id, id, dir, command, size, options);
   await persistWindow(changeId, id, intent, extra);
+  // A window that appears is said out loud, here rather than at the routes that open one: the
+  // watcher compares sampled states, so a window created and gone inside one of its intervals
+  // would never be mentioned and the pages would keep a tab for it. Announcing clears the
+  // watcher's last sample, so its next look speaks whatever the state is by then.
+  announce("windows");
   return id;
 };
 
@@ -658,20 +688,6 @@ const liveSubagentsAsync = async (changeId: string): Promise<Map<string, LiveSub
 export const liveSubagents = (changeId: string): Effect.Effect<Map<string, LiveSubagent>, CommandFailure> =>
   Effect.tryPromise({ try: () => liveSubagentsAsync(changeId), catch: asFailure });
 
-export const selectWindowAsync = (changeId: string, index: number): Promise<void> =>
-  withRegistryLock(async () => {
-    const records = await listRecords(changeId);
-    if (index < 0 || index >= records.length) return;
-    save(
-      changeId,
-      records.map((record, at) => ({
-        ...record,
-        active: at === index,
-        activity: at === index ? false : record.activity,
-      })),
-    );
-  });
-
 /** Bring the window named by id to the front, under the registry lock. A window id is stable
  * across a reorder, so a caller that knows it (an explicit open) does not have to rely on a
  * position another read computed. A missing window is a failure, not a silent no-op: the caller
@@ -776,6 +792,9 @@ export const splitPaneAsync = (
       if (hostRunning()) await (await hostClient()).kill(paneId).catch(() => undefined);
       throw error;
     }
+    // A pane that appears changes the change's window list, and can be gone again before the
+    // watcher looks: same reason as a new window (`openHostWindow`).
+    announce("windows");
     return paneId;
   });
 
@@ -828,27 +847,40 @@ export const focusPaneAsync = (changeId: string, windowId: string, paneSessionId
     );
   });
 
+/** A change that exists and has no window: an answer for the socket route, not a fault. */
+export class NoTerminalWindowError extends Error {}
+
 /** The host session the change's socket attaches to. A caller that names a pane gets exactly
- * that pane: an absent one is refused rather than silently falling through to the active window
- * or starting a shell, because a stale identity (a subagent's closed window, a pane whose tab is
- * gone) must never carry keystrokes into, or create, an unrelated session. A caller that names no
- * pane keeps the default: the active window's active pane, or a new window when there is none. */
-export const ensureActiveHostWindow = (
-  changeId: string,
-  dir: string,
-  size: { readonly cols: number; readonly rows: number },
-  sessionId?: string,
-  pane?: HarnessPaneProvider,
-): Promise<string> =>
+ * that pane: an absent one is refused rather than silently falling through to the active window,
+ * because a stale identity (a subagent's closed window, a pane whose tab is gone) must never carry
+ * keystrokes into an unrelated session. A caller that names no pane gets the active window's active
+ * pane, and a change with no window at all is refused: a window is created only by an explicit
+ * open, and a page arriving at a terminal is not one. */
+export const activeHostPane = (changeId: string, sessionId?: string): Promise<string> =>
   withRegistryLock(async () => {
     const records = await listRecords(changeId);
     if (sessionId !== undefined) {
       if (records.some((record) => record.panes.includes(sessionId))) return sessionId;
       throw new Error(`no live pane ${sessionId} in change ${changeId}`);
     }
-    const active =
-      records.find((record) => record.active && record.kind === "host") ??
-      records.find((record) => record.kind === "host");
+    const active = records.find((record) => record.active) ?? records[0];
+    if (active !== undefined && active.activePane !== "") return active.activePane;
+    throw new NoTerminalWindowError("no terminal window in this change");
+  });
+
+/** The change's active pane, opening a shell window when the change has none. Finding and opening
+ * are one registry step, so two callers arriving together cannot each open one: the second sees
+ * the first's window and takes it. This is the one entry point that opens a window nobody asked
+ * for, and it is for background work that needs somewhere to deliver — never for attaching. */
+export const ensureActiveHostWindowAsync = (
+  changeId: string,
+  dir: string,
+  size: { readonly cols: number; readonly rows: number },
+  pane?: HarnessPaneProvider,
+): Promise<string> =>
+  withRegistryLock(async () => {
+    const records = await listRecords(changeId);
+    const active = records.find((record) => record.active) ?? records[0];
     if (active !== undefined && active.activePane !== "") return active.activePane;
     const resolved = pane === undefined ? {} : await pane();
     return openHostWindow(
@@ -927,8 +959,13 @@ export const newWindowHere = (
     catch: asFailure,
   });
 
-export const selectWindow = (changeId: string, index: number): Effect.Effect<void, CommandFailure> =>
-  Effect.tryPromise({ try: () => selectWindowAsync(changeId, index), catch: asFailure });
+export const ensureActiveHostWindow = (
+  changeId: string,
+  dir: string,
+  size: { readonly cols: number; readonly rows: number },
+  pane?: HarnessPaneProvider,
+): Effect.Effect<string, CommandFailure> =>
+  Effect.tryPromise({ try: () => ensureActiveHostWindowAsync(changeId, dir, size, pane), catch: asFailure });
 
 export const selectWindowById = (changeId: string, windowId: string): Effect.Effect<void, CommandFailure> =>
   Effect.tryPromise({ try: () => selectWindowByIdAsync(changeId, windowId), catch: asFailure });

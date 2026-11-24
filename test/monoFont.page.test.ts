@@ -1,7 +1,15 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { type Browser, type Page } from "playwright";
-import { closePages, openEngine, startTestServer, stopTestServer, testTempDir, withPage } from "./helpers.ts";
+import {
+  closePages,
+  openEngine,
+  openFirstWindow,
+  startTestServer,
+  stopTestServer,
+  testTempDir,
+  withPage,
+} from "./helpers.ts";
 
 /**
  * The monospace font through the product: the bundled Nerd Fonts symbols reach every monospace
@@ -37,6 +45,8 @@ const terminalFontFamily = (page: Page): Promise<string | undefined> =>
 
 const openTerminal = async (page: Page): Promise<void> => {
   await page.goto(`${url}/changes/PROJ-1/terminals`, { waitUntil: "domcontentloaded" });
+  // A window is opened, not implied: the change starts with none.
+  await openFirstWindow(page);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 20_000 });
   await page.waitForFunction(
     () =>

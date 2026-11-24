@@ -2,13 +2,12 @@ import { afterAll, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 
 import { closeHostClient, hostClient } from "../apps/server/src/terminals/server/host.ts";
 import * as registry from "../apps/server/src/terminals/server/registry.ts";
 import {
   closePaneAsync,
-  ensureActiveHostWindow,
   focusPaneAsync,
   isKeptOpen,
   currentPaneDirectory,
@@ -20,12 +19,13 @@ import {
   newWindowRunningAsync,
   renameWindowAsync,
   writeToPane,
-  selectWindowAsync,
   selectWindowByIdAsync,
   splitPaneAsync,
   stopHostTerminals,
+  whereOf,
 } from "../apps/server/src/terminals/server/windows.ts";
 import { stateDir } from "@corvi/configuration/node";
+import { watch } from "../apps/server/src/capabilities/watch.ts";
 import { WINDOW_TITLE_MAX } from "@corvi/contracts/terminal";
 import { TerminalSessions, terminalSessionsLayer } from "../apps/server/src/change/lifecycle-layer.ts";
 import { budget, testTempDir, waitFor } from "./helpers.ts";
@@ -96,26 +96,36 @@ test("where a session is, named relative to its change", () => {
   expect(placeOf("/private/tmp/c/ID", "/tmp/c/ID/corvi")).toBe("corvi");
   expect(placeOf("/c/ID", undefined)).toBeUndefined();
   expect(placeOf("/c/ID", "")).toBeUndefined();
+
+  // The page shows the path a window's place is rather than the segment a name can spare: the same
+  // change-relative form inside the change, and the absolute path for a pane outside it.
+  expect(whereOf("/c/ID", "/c/ID")).toBe("ID");
+  expect(whereOf("/c/ID", "/c/ID/corvi/packages/terminals")).toBe("corvi/packages/terminals");
+  expect(whereOf("/c/ID", "/Users/me/corvi")).toBe("/Users/me/corvi");
+  expect(whereOf("/c/ID", undefined)).toBeUndefined();
 });
 
-test("new windows persist in order with one active; select and move mutate them", async () => {
+test("a window you open leads the row; select and move mutate it", async () => {
   const first = await newWindowAsync(changeId, dir);
   const second = await newWindowAsync(changeId, dir);
   let records = registry.records(changeId);
-  expect(records.map((record) => record.id)).toEqual([first.id, second.id]);
+  // The newest one is the one you are looking at, so it is the row's first.
+  expect(records.map((record) => record.id)).toEqual([second.id, first.id]);
   expect(records.filter((record) => record.active)).toHaveLength(1);
   expect(records.find((record) => record.active)?.id).toBe(second.id);
 
-  await selectWindowAsync(changeId, 0);
+  // Selecting is not opening: the row keeps its order and only the active flag moves.
+  await selectWindowByIdAsync(changeId, first.id);
   records = registry.records(changeId);
-  expect(records[0]?.active).toBe(true);
-  expect(records[1]?.active).toBe(false);
+  expect(records.map((record) => record.id)).toEqual([second.id, first.id]);
+  expect(records[0]?.active).toBe(false);
+  expect(records[1]?.active).toBe(true);
 
   await moveWindowAsync(changeId, 0, 1);
-  expect(ids()).toEqual([second.id, first.id]);
+  expect(ids()).toEqual([first.id, second.id]);
 
   // A fresh read sees the same list: what a restart's rebuild starts from.
-  expect(registry.read().changes[changeId]?.map((record) => record.id)).toEqual([second.id, first.id]);
+  expect(registry.read().changes[changeId]?.map((record) => record.id)).toEqual([first.id, second.id]);
 }, 30_000);
 
 test("a window can be named from its record: trimmed, persisted, cleared, and only while it exists", async () => {
@@ -191,7 +201,9 @@ test("a harness window opened for the user is the active tab, not a background o
 test("the first, split and action panes all carry their harness key", async () => {
   const change = "REG-HARNESS";
   const pane = async (): Promise<{ harness: string }> => ({ harness: "global:review" });
-  await ensureActiveHostWindow(change, dir, { cols: 80, rows: 24 }, undefined, pane);
+  // The first window is opened explicitly, the way the "+" dialog does it, with the harness the
+  // provider resolves.
+  await newWindowAsync(change, dir, { cols: 80, rows: 24 }, pane);
   let windows = await listWindowsAsync(change);
   expect(windows[0]?.harness).toBe("global:review");
 
@@ -297,11 +309,13 @@ test("a background window does not take the active one; explicit creation does",
   expect(records.find((record) => record.id === explicit.id)?.active).toBe(true);
   expect(records.find((record) => record.id === background)?.active).toBe(false);
 
-  // The strip's new-window control is explicit: its window becomes the active one.
+  // The strip's new-window control is explicit: its window becomes the active one and leads the
+  // row, while the background window stays at the end where it was added.
   const chosen = await newWindowAsync(backgroundChange, dir);
   records = registry.records(backgroundChange);
   expect(records.find((record) => record.id === chosen.id)?.active).toBe(true);
   expect(records.find((record) => record.id === explicit.id)?.active).toBe(false);
+  expect(records.map((record) => record.id)).toEqual([chosen.id, explicit.id, background]);
   await stopHostTerminals(backgroundChange);
 }, 60_000);
 
@@ -311,7 +325,8 @@ test("select-window-by-id selects exactly that window; a missing id is a failure
   const second = await newWindowAsync(byIdChange, dir);
   expect(registry.records(byIdChange).find((record) => record.active)?.id).toBe(second.id);
 
-  // The stable id picks the first window even though the second is active and later in order.
+  // The stable id picks the first window even though the second is the active one and leads the
+  // row.
   await selectWindowByIdAsync(byIdChange, first.id);
   expect(registry.records(byIdChange).find((record) => record.active)?.id).toBe(first.id);
 
@@ -472,7 +487,7 @@ test("the socket resolves the pane it names, not the active one", async () => {
   const { openSession, closeAttachments, flushScreens } =
     await import("../apps/server/src/terminals/server/session.ts");
   // The page names the first pane; the session it gets is that pane's, not the active one.
-  const session = await openSession(changeId, dir, { cols: 80, rows: 24 }, firstPane);
+  const session = await openSession(changeId, { cols: 80, rows: 24 }, firstPane);
   expect(session.sessionId).toBe(firstPane);
   flushScreens();
   closeAttachments();
@@ -488,7 +503,7 @@ test("a named pane that is gone is refused; no other session is attached or crea
     await import("../apps/server/src/terminals/server/session.ts");
   // An explicitly named pane that no longer exists fails closed: it must not attach the active
   // window and must not start a shell.
-  await expect(openSession(staleChange, dir, { cols: 80, rows: 24 }, "w-gone-pane")).rejects.toThrow(
+  await expect(openSession(staleChange, { cols: 80, rows: 24 }, "w-gone-pane")).rejects.toThrow(
     /no live pane w-gone-pane/,
   );
 
@@ -497,11 +512,42 @@ test("a named pane that is gone is refused; no other session is attached or crea
   expect(registry.records(staleChange).find((record) => record.id === window.id)?.panes).toEqual([window.id]);
 
   // The ordinary unnamed attach keeps its behavior: the active pane.
-  const session = await openSession(staleChange, dir, { cols: 80, rows: 24 });
+  const session = await openSession(staleChange, { cols: 80, rows: 24 });
   expect(session.sessionId).toBe(window.id);
   flushScreens();
   closeAttachments();
   await stopHostTerminals(staleChange);
+}, 60_000);
+
+test("a window created and gone between two looks is still announced", async () => {
+  const blinking = "REG-BLINK";
+  // A watcher reads every change and drops registry entries for the ones that no longer exist;
+  // this file's changes live only in the registry, so its prune is put back before the next test.
+  const saved = registry.read();
+  const news: string[] = [];
+  const watcher = Effect.runFork(watch((entry) => news.push(entry.event)));
+  try {
+    // The watcher's first look is its greeting: it starts with nothing remembered and says what it
+    // can see. Waiting for it is what makes the state before the window the one it has sampled.
+    await waitFor(
+      "the watcher's first look",
+      async () => news.filter((event) => event === "windows").length === 1,
+      budget(15_000),
+    );
+    // A window that exists for less than one of the watcher's intervals: by its next look the
+    // state is the one it already saw, so a comparison of sampled states can never mention it.
+    // Only the creation's own word can, and that is what this pins.
+    await newWindowRunningAsync(blinking, dir, "true", { intent: "background" });
+    await waitFor(
+      "the news after the creation",
+      async () => news.filter((event) => event === "windows").length > 1,
+      budget(5_000),
+    );
+  } finally {
+    await Effect.runPromise(Fiber.interrupt(watcher));
+    await stopHostTerminals(blinking);
+    for (const [id, records] of Object.entries(saved.changes)) registry.save(id, records);
+  }
 }, 60_000);
 
 test(

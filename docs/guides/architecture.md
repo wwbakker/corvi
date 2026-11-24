@@ -58,7 +58,7 @@ unrelated issue, build, and agent operations.
 | `configuration` | Validated configuration snapshots, workspace selection, precedence and updates | Integration execution or a mutable singleton configuration object |
 | `changes` | Change invariants, persistence, archive location and reopening, plan/notes documents, shelves and associated metadata | Git commands, terminals, provider calls, HTTP or dashboard cards |
 | `repositories` | Repository facts, branches, worktree operations, safety assessment, diffs, commits and captured work (patches) | Corvi change-directory policy, persisted changes, GitHub calls or widgets |
-| `terminals` | The vocabulary shared by server and page: the new-window key, the CSI u sequences a terminal cannot encode, the command option names, and the pure window presenters | Agent conversation identity, change transitions or notifications policy |
+| `terminals` | The vocabulary shared by server and page: the CSI u sequences a terminal cannot encode, the command option names, and the pure window presenters | Agent conversation identity, change transitions or notifications policy |
 | `agents` | Corvi-facing session identity, supported capabilities, prompts, status, and where each harness keeps its sessions (transcripts) | A provider's SDK types or the assumption that every agent is a terminal |
 | `actions` | Action files and their vocabulary, scope precedence, placeholder rendering, delivery to terminal sessions | Terminal/session mechanics, change lifecycle, HTTP handlers or JSX |
 | `workflows` | Create/provision/complete/cancel, multi-repository operations, overview aggregation and action orchestration | Vendor CLI/HTTP encoding, storage primitives, JSX or HTTP responses |
