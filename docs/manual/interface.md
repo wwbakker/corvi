@@ -252,7 +252,6 @@ Developer commands:
 ```sh
 bunx playwright install chromium
 bun run shot
-CORVI_ENGINE=webkit bun run shot
 bun run app:permissions
 bun run app:run
 bun run app:drive
@@ -265,8 +264,8 @@ Besides the wizard, settings and file pages, the harness captures a change's das
 the themes, its terminal page and the Appearance section; those need a change on the instance
 (seed an isolated one), and are skipped when there is none. It drives the page in a browser, so it
 does not capture the native macOS title bar — that needs the app on macOS.
-Chromium is the primary engine because Electron uses it. Optional WebKit checks require a
-working Playwright WebKit installation.
+Chromium because that is the engine the app renders in: its window is Electron, and Electron is
+Chromium.
 
 **Never test against the installed app.** Use isolated data and an explicitly owned development
 server. A desktop sandbox must have its own identity; copying an installed bundle while retaining

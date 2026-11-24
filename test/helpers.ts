@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { cpus, loadavg } from "node:os";
 import { join } from "node:path";
-import { chromium, webkit, type Browser, type Page } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import { claimRunPidFile, isRunToken } from "../scripts/clean-test.ts";
 import { testTempBase } from "../scripts/test-temp.ts";
 import { Effect, Layer, Result, Schema } from "effect";
@@ -21,6 +21,7 @@ import type { Capabilities } from "../apps/server/src/integrations/api/capabilit
 import { setRepos } from "../apps/server/src/change/provisioning.ts";
 import { sh, type ShellResult } from "../apps/server/src/capabilities/shell.ts";
 import { HOST_DIR, hostBuildId } from "../apps/server/src/terminals/host/identity.ts";
+import { env } from "@corvi/configuration/node";
 import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
 import {
@@ -618,19 +619,36 @@ export const reservePort = async (): Promise<number> => {
 /** The viewport the page tests drive, and the numbers a layout assertion reads. */
 export const VIEWPORT = { width: 1280, height: 900 } as const;
 
-/** The engine the page tests drive. Chromium is the app's own engine (Electron); `CORVI_ENGINE`
- * runs the same file in WebKit where Playwright's bundle supports it. A missing engine is a skip,
- * not a failure, and a bundle older than the web sources is refused before the browser starts —
- * a page test must not read yesterday's UI. The caller keeps its `let browser: Browser` and this
- * fills it; tests guard on `usable` before using it. */
+/** Whether the browser is installed on this machine. A missing browser is a skip, not a failure:
+ * the rest of Corvi works without one, so a red suite would only report the machine. */
+export const browserAvailable = async (): Promise<boolean> => {
+  try {
+    return await Bun.file(chromium.executablePath()).exists();
+  } catch {
+    return false;
+  }
+};
+
+/** The browser a page test drives: Chromium, because the app's window is Electron and Electron is
+ * Chromium. It is headless unless `CORVI_HEADED=1` asks to watch it, as `bun run test:e2e:headed`
+ * does — CI has no display, so headless is what the suite is judged in. The flags keep a window that
+ * other windows cover compositing, so a watched run shows the page the test reads rather than a
+ * frame from whenever it last painted. */
+export const launchBrowser = (): Promise<Browser> =>
+  chromium.launch({
+    headless: !process.env[env("HEADED")],
+    args: ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding"],
+  });
+
+/** Fill the caller's `let browser: Browser` with the engine a page test drives. A bundle older than
+ * the web sources is refused before the browser starts — a page test must not read yesterday's UI.
+ * Tests guard on `usable` before using the browser; a browser that cannot launch is a skip. */
 export const openEngine = async (assign: (browser: Browser) => void): Promise<boolean> => {
-  const engineName = process.env.CORVI_ENGINE === "webkit" ? "webkit" : "chromium";
-  const engine = engineName === "webkit" ? webkit : chromium;
-  if (!(await Bun.file(engine.executablePath()).exists())) return false;
-  // A stale bundle is a failure, not a skip: the engine is there and the page would be old.
+  if (!(await browserAvailable())) return false;
+  // A stale bundle is a failure, not a skip: the browser is there and the page would be old.
   requireFreshWebBundle();
   try {
-    assign(await engine.launch());
+    assign(await launchBrowser());
     return true;
   } catch {
     return false;

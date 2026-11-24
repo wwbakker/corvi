@@ -2,36 +2,30 @@
  *
  *   bun run shot                    # Chromium, against http://127.0.0.1:4000
  *   CORVI_HEADED=1 bun run shot     # with a window, when captures come out stale
- *   CORVI_ENGINE=webkit bun run shot
  *   CORVI_URL=... bun run shot
  *
- * Writes to shots/. Requires `bunx playwright install chromium` once (webkit too, only for the
- * other-engine run).
+ * Writes to shots/. Requires `bunx playwright install chromium` once.
  *
- * Chromium by default because that is what the app is: the window is Electron, and Electron is
- * Chromium (docs/manual/interface.md). WebKit is a variable away for checking the page in
- * another browser — the page is a web page first, and browsers remain a first-class view.
+ * Chromium because that is what the app is: its window is Electron, and Electron is Chromium
+ * (docs/manual/interface.md).
  *
  * A window that other windows cover stops painting, and the capture then serves a frame from
  * whenever it last did — a shot that disagrees with the page. The launch flags keep it
  * compositing anyway; `CORVI_HEADED=1` opens it as a real window for the cases that still come
  * out stale. Read a shot against what you expect to see before trusting it. */
 import { mkdir } from "node:fs/promises";
-import { chromium, webkit } from "playwright";
+import { chromium } from "playwright";
 import { env } from "@corvi/configuration/node";
 
 const url = process.env[env("URL")] ?? "http://127.0.0.1:4000";
 
-/** The engine of the app's own window: Chromium, via Electron. `CORVI_ENGINE` overrides it. */
-const engineName = process.env[env("ENGINE")] ?? "chromium";
-const engine = engineName === "webkit" ? webkit : chromium;
 await mkdir("shots", { recursive: true });
 
-const browser = await engine.launch({
+const browser = await chromium.launch({
   headless: !process.env[env("HEADED")],
   args: ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding"],
 });
-console.log(`${engine === webkit ? "webkit" : "chromium"} against ${url}`);
+console.log(`chromium against ${url}`);
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 const errors: string[] = [];
 page.on("console", (m) => m.type() === "error" && errors.push(m.text()));

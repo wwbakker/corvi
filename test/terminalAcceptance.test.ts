@@ -1,11 +1,13 @@
 import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
 import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { type Browser, type Page } from "playwright";
 import {
+  browserAvailable,
   budget,
   checkoutsOf,
   closePages,
+  launchBrowser,
   openFirstWindow,
   requireFreshWebBundle,
   runSh,
@@ -33,14 +35,7 @@ import { HOST_DIR, hostBuildId } from "../apps/server/src/terminals/host/identit
  *
  * Skipped where the browser is missing, since the rest of Corvi works without it.
  */
-const haveBrowser = await (async (): Promise<boolean> => {
-  try {
-    return await Bun.file(chromium.executablePath()).exists();
-  } catch {
-    return false;
-  }
-})();
-const usable = haveBrowser;
+const usable = await browserAvailable();
 if (usable) requireFreshWebBundle();
 
 let tmp: string;
@@ -79,7 +74,7 @@ beforeAll(async () => {
   await chmod(fakePi, 0o755);
   fakePath = `${fakeBin}:${process.env.PATH ?? ""}`;
   ({ server, url } = await startTestServer(tmp, { env: { PATH: fakePath } }));
-  browser = await chromium.launch();
+  browser = await launchBrowser();
 }, budget(120_000));
 
 afterEach(async () => {

@@ -23,12 +23,10 @@ import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "@corvi/web/chrome";
 /**
  * Every page, in the engine the app renders in.
  *
- * The app's window is Electron, and Electron is Chromium, so Chromium is the default here — it
- * is also the engine `bun run shot` drives, and the one every browser check in this repository
- * agrees on. `CORVI_ENGINE=webkit` runs the same file in WebKit where Playwright's bundle starts
- * (on macOS natively; on Linux only where its Ubuntu-built libraries match), which is the
- * browser-side check for Safari. Skipped rather than failed where the chosen engine cannot
- * launch: a red suite for a missing browser says nothing about Corvi.
+ * The app's window is Electron, and Electron is Chromium, so Chromium is what these tests drive —
+ * the engine `bun run shot` captures too, and the one every browser check in this repository
+ * agrees on. A missing Chromium is skipped rather than failed: a red suite for an absent browser
+ * says nothing about Corvi.
  *
  * This is a smoke test with three teeth: it opens every route and fails on anything the engine
  * complains about; it round-trips the settings page through the real file; and it pins the
