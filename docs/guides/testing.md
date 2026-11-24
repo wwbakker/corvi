@@ -50,6 +50,9 @@ archive, configuration, and state directory and runs owned-resource cleanup on e
 test can help development, but is not completion verification. Bare `bun test` does not provide
 all wrapper safeguards; do not use it as the final check.
 
+`bun run screens` is a local tool outside this suite, not a test to run in CI and not a replacement
+for the page tests ([Checking the interface](../manual/interface.md)).
+
 ## CI and flakes
 
 CI installs Bun 1.4.5 and Node 26.13.1 — the versions the suite is verified in. Keep the
