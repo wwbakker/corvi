@@ -4,7 +4,7 @@ import { basename, join } from "node:path";
 import { type Browser, type Page } from "playwright";
 import {
   closePages,
-  openEngine,
+  openBrowser,
   runSh,
   serverEnv,
   testTempDir,
@@ -29,7 +29,7 @@ import { editorText, fillEditor } from "./editor.ts";
  * installed the page checks skip; the fixture's API assertions still run.
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 

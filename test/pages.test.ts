@@ -6,7 +6,7 @@ import {
   budget,
   checkoutsOf,
   closePages,
-  openEngine,
+  openBrowser,
   runSh,
   serverEnv,
   settleLayout,
@@ -34,7 +34,7 @@ import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "@corvi/web/chrome";
  * elsewhere, without a browser.
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 

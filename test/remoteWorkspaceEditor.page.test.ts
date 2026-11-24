@@ -5,7 +5,7 @@ import { type Browser } from "playwright";
 import { MASK } from "../apps/server/src/settings/server/secrets.ts";
 import {
   closePages,
-  openEngine,
+  openBrowser,
   stopRunHost,
   testTempDir,
   until,
@@ -20,7 +20,7 @@ import {
  * masked, then edit and remove it. No hand-editing `config.json`.
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 

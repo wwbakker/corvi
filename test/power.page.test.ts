@@ -8,7 +8,7 @@ import { serve, type Serving } from "../apps/server/src/capabilities/serve.ts";
 import { guard, json } from "../apps/server/src/capabilities/web.ts";
 import {
   closePages,
-  openEngine,
+  openBrowser,
   stopRunHost,
   testTempDir,
   until,
@@ -27,7 +27,7 @@ import {
  * stream, so the remote path goes through the real gateway and fan-in.
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 

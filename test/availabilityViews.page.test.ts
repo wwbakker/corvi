@@ -7,7 +7,7 @@ import { type Browser } from "playwright";
 import {
   budget,
   closePages,
-  openEngine,
+  openBrowser,
   testTempDir,
   until,
   startTestServer,
@@ -23,7 +23,7 @@ import { startFakeRemote, type FakeRemote } from "./fakeRemote.ts";
  * detail and plan without a reload.
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 

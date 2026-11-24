@@ -4,7 +4,7 @@ import { type Browser, type Page } from "playwright";
 import { CORVI_COLOURS, coloursOf, THEMES, type ThemeId } from "../apps/web/src/domain/theme.ts";
 import {
   closePages,
-  openEngine,
+  openBrowser,
   openFirstWindow,
   startTestServer,
   stopTestServer,
@@ -22,7 +22,7 @@ import {
  * id → pair mapping are pinned (`theme.test.ts`).
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 

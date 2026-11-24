@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { type Browser } from "playwright";
 import {
   closePages,
-  openEngine,
+  openBrowser,
   testTempDir,
   startTestServer,
   stopTestServer,
@@ -21,7 +21,7 @@ import {
  * depend on whether this machine runs Tailscale.
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 

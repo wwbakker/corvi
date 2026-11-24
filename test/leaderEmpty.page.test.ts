@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { type Browser, type Page } from "playwright";
 import {
   closePages,
-  openEngine,
+  openBrowser,
   startTestServer,
   stopTestServer,
   testTempDir,
@@ -21,7 +21,7 @@ import {
  * ideas and started changes from the moment it is up, and emptying it would break the rest of it.
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 

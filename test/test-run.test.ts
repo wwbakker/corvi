@@ -70,7 +70,7 @@ test("classification is the line-oriented Playwright import or a shared launch h
   expect(importsBrowserAtRuntime('import type { Browser } from "playwright";')).toBe(false);
   expect(importsBrowserAtRuntime('import { chromium } from "playwright-core";')).toBe(false);
   // The page tests launch through the shared helper, so that import is the browser signal now.
-  expect(importsBrowserAtRuntime('import {\n  openEngine,\n} from "./helpers.ts";')).toBe(true);
+  expect(importsBrowserAtRuntime('import {\n  openBrowser,\n} from "./helpers.ts";')).toBe(true);
   // A file that launches the browser itself names the helper and no engine at all.
   expect(importsBrowserAtRuntime('import {\n  launchBrowser,\n  testTempDir,\n} from "./helpers.ts";')).toBe(
     true,
@@ -82,7 +82,7 @@ test("classification is the line-oriented Playwright import or a shared launch h
   expect(isTerminalGroup("test/terminalAcceptance.test.ts")).toBe(true);
   expect(isTerminalGroup("test/pages.test.ts")).toBe(false);
   expect(classify("test/pages.test.ts", 'import { chromium } from "playwright";')).toBe("e2e-rest");
-  expect(classify("test/pages.test.ts", 'import {\n  openEngine,\n} from "./helpers.ts";')).toBe("e2e-rest");
+  expect(classify("test/pages.test.ts", 'import {\n  openBrowser,\n} from "./helpers.ts";')).toBe("e2e-rest");
   expect(classify("test/terminal.test.ts", 'import { chromium } from "playwright";')).toBe("e2e-terminal");
   expect(classify("test/terminal.test.ts", 'import { launchBrowser } from "./helpers.ts";')).toBe(
     "e2e-terminal",
@@ -99,7 +99,7 @@ test("a temp fixture: a single-line import is e2e, multi-line and type-only are 
     writeFileSync(join(root, "test/type-only.test.ts"), 'import type { Page } from "playwright";\n');
     writeFileSync(join(root, "test/terminalThing.test.ts"), 'import { chromium } from "playwright";\n');
     writeFileSync(join(root, "test/other.test.ts"), "// not a browser file\n");
-    writeFileSync(join(root, "test/engine.test.ts"), 'import {\n  openEngine,\n} from "./helpers.ts";\n');
+    writeFileSync(join(root, "test/engine.test.ts"), 'import {\n  openBrowser,\n} from "./helpers.ts";\n');
     writeFileSync(join(root, "test/launch.test.ts"), 'import {\n  launchBrowser,\n} from "./helpers.ts";\n');
     writeFileSync(join(root, "test/unit.test.ts"), 'import { runEffect } from "./helpers.ts";\n');
 

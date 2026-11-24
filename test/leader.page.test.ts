@@ -5,7 +5,7 @@ import { type Browser, type Page } from "playwright";
 import {
   closePages,
   gitRepo,
-  openEngine,
+  openBrowser,
   openFirstWindow,
   startTestServer,
   stopTestServer,
@@ -21,7 +21,7 @@ import {
  * the focus live.
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 

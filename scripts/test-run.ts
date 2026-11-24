@@ -71,7 +71,7 @@ const SCRUBBED = [
 const PLAYWRIGHT_IMPORT =
   /^[ \t]*import[ \t]+\{[^}]*(chromium|webkit|firefox)[^}]*\}[ \t]*from[ \t]*"playwright"/;
 const LAUNCH_HELPER_IMPORT =
-  /^[ \t]*import[ \t]+\{[^}]*\b(openEngine|launchBrowser|browserAvailable)\b[^}]*\}[ \t]*from[ \t]*"\.\/helpers\.ts";/m;
+  /^[ \t]*import[ \t]+\{[^}]*\b(openBrowser|launchBrowser|browserAvailable)\b[^}]*\}[ \t]*from[ \t]*"\.\/helpers\.ts";/m;
 
 export const importsBrowserAtRuntime = (source: string): boolean =>
   source.split("\n").some((line) => PLAYWRIGHT_IMPORT.test(line)) || LAUNCH_HELPER_IMPORT.test(source);

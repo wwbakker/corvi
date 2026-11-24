@@ -5,7 +5,7 @@ import { type Browser } from "playwright";
 import {
   budget,
   closePages,
-  openEngine,
+  openBrowser,
   testTempDir,
   until,
   startTestServer,
@@ -24,7 +24,7 @@ import {
  * browser is not installed the page checks skip.
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 

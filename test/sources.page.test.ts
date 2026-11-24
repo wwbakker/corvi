@@ -10,7 +10,7 @@ import {
   budget,
   checkoutsOf,
   closePages,
-  openEngine,
+  openBrowser,
   openFirstWindow,
   runSh,
   stopRunHost,
@@ -29,7 +29,7 @@ import {
  * `/remote/<source>/…`.
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 

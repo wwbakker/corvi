@@ -8,7 +8,7 @@ import { type Browser } from "playwright";
 import {
   budget,
   closePages,
-  openEngine,
+  openBrowser,
   serverEnv,
   stopRunHost,
   testRun,
@@ -28,7 +28,7 @@ import { startFakeRemote, type FakeRemote } from "./fakeRemote.ts";
  * - a remote terminal stops sending input and closes when its workspace goes unavailable.
  */
 let browser: Browser;
-const usable = await openEngine((opened) => {
+const usable = await openBrowser((opened) => {
   browser = opened;
 });
 

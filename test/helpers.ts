@@ -643,7 +643,7 @@ export const launchBrowser = (): Promise<Browser> =>
 /** Fill the caller's `let browser: Browser` with the engine a page test drives. A bundle older than
  * the web sources is refused before the browser starts — a page test must not read yesterday's UI.
  * Tests guard on `usable` before using the browser; a browser that cannot launch is a skip. */
-export const openEngine = async (assign: (browser: Browser) => void): Promise<boolean> => {
+export const openBrowser = async (assign: (browser: Browser) => void): Promise<boolean> => {
   if (!(await browserAvailable())) return false;
   // A stale bundle is a failure, not a skip: the browser is there and the page would be old.
   requireFreshWebBundle();
