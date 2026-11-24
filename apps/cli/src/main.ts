@@ -74,10 +74,11 @@ usage: corvi [--json] [--change <id>] [--server <url>] <group> <command> [args]
                                        extension-facing: relay a settled reply, naming the
                                        inbound message it answers
 
-  harness list                        the harnesses this change can use (their keys)
-  harness show <key>                  one harness's resolved view
-  harness write|delete <id> --scope global|workspace|repository
-                                       add, replace or remove a harness file
+  harness list                        the programs (pi, opencode) and their built-in profiles
+  harness profile list                the harness profiles this change can use (their keys)
+  harness profile show <key>          one profile's resolved view
+  harness profile write|delete <id> --scope global|workspace|repository
+                                       add, replace or remove a harness profile file
 
 Each group prints its own usage: corvi change, corvi action, corvi subagent, corvi harness.
 
@@ -134,21 +135,23 @@ usage: corvi status <working|waiting|clear> [--name <agent>] [--session-name <na
 The session id and incarnation come from the environment (CORVI_SESSION_ID,
 CORVI_SESSION_INCARNATION); outside a Corvi host session there is nothing to report to.
 `,
-  harness: `corvi harness — the named Pi environments, and the files behind them
+  harness: `corvi harness — the programs a pane can run, and the profiles that configure them
 
 usage: corvi harness <command> [args]
 
-  list                          the harnesses this change can use (their keys)
-  show <key>                    one harness's resolved view: chain, sections, warnings
-  write <id> --scope <global|workspace|repository> [--workspace <id>] [--repository <name>] [--from <file>]
+  list                          the programs (pi, opencode) and their built-in profiles
+  profile list                  the harness profiles this change can use (their keys)
+  profile show <key>            one profile's resolved view: chain, sections, warnings
+  profile write <id> --scope <global|workspace|repository> [--workspace <id>] [--repository <name>] [--from <file>]
                                 add or replace one; text from --from, or stdin
-  delete <id> --scope <global|workspace|repository> [--workspace <id>] [--repository <name>]
+  profile delete <id> --scope <global|workspace|repository> [--workspace <id>] [--repository <name>]
                                 remove one
 
-A harness is one Markdown file: frontmatter for the environment (harness, agent, model, effort,
+A harness is the program a pane runs: pi or opencode. A harness profile is one Markdown file
+describing an environment: frontmatter for it (harness, basedOnHarnessProfile, model, effort,
 enabledModels, instructions, extensions/skills/packages/mcp), the body for notes. A repository
-harness is <checkout>/.corvi/harnesses/<id>.md. Every Corvi pane starts Pi with a generated agent
-directory for its harness; 'show' prints what that directory will contain.
+profile is <checkout>/.corvi/harnesses/<id>.md. Every Corvi pane starts Pi with a generated agent
+directory for its profile; 'profile show' prints what that directory will contain.
 `,
   subagent: `corvi subagent — persistent subagents for this change
 
@@ -211,13 +214,16 @@ export const COMMANDS: Readonly<Record<string, readonly string[]>> = {
   change: ["list", "create", "show", "complete", "cancel", "phase", "repository"],
   action: ["list", "run", "profile"],
   subagent: ["list", "show", "create", "open", "close", "send", "await", "result", "next", "turn", "profile"],
-  harness: ["list", "write", "delete", "show"],
+  harness: ["list", "profile"],
   status: ["working", "waiting", "clear"],
 };
 
 /** The `profile` subfamilies, checked beside the groups — a typo is a usage error (2) and must
  * not pay a round of probes first (or be reported as "no server"). */
 const PROFILE_COMMANDS: readonly string[] = ["list", "write", "delete"];
+
+/** The `harness profile` subcommands: a harness profile can also be shown resolved. */
+const HARNESS_PROFILE_COMMANDS: readonly string[] = ["list", "show", "write", "delete"];
 
 /** The `change repository` subcommands, checked for the same reason as the profile family. */
 const REPOSITORY_COMMANDS: readonly string[] = ["list", "add", "remove"];
@@ -240,8 +246,21 @@ const validateCommand = (positionals: readonly string[]): void => {
       EXIT.usage,
     );
   }
-  if (command === "profile" && sub !== undefined && !PROFILE_COMMANDS.includes(sub)) {
+  if (
+    (group === "action" || group === "subagent") &&
+    command === "profile" &&
+    sub !== undefined &&
+    !PROFILE_COMMANDS.includes(sub)
+  ) {
     throw new CliFailure(`unknown profile command: ${sub}`, EXIT.usage);
+  }
+  if (
+    group === "harness" &&
+    command === "profile" &&
+    sub !== undefined &&
+    !HARNESS_PROFILE_COMMANDS.includes(sub)
+  ) {
+    throw new CliFailure(`unknown harness profile command: ${sub}`, EXIT.usage);
   }
   if (command === "repository" && sub !== undefined && !REPOSITORY_COMMANDS.includes(sub)) {
     throw new CliFailure(`unknown repository command: ${sub}`, EXIT.usage);
@@ -498,7 +517,16 @@ const subagentCommand = async (
       emit(io, json, {
         value: instance,
         human: (value) =>
-          `${value.id}\t${value.presence}\t${value.interrupted ? "interrupted" : value.activity}`,
+          [
+            `${value.id}\t${value.presence}\t${value.interrupted ? "interrupted" : value.activity}`,
+            // Why this subagent runs where it runs: a pin says which profile chose it; absent
+            // means the settings-chain default decides on every start.
+            value.harnessProfileKey === undefined
+              ? `harness profile: ${value.harness} (the settings default decides)`
+              : `harness profile: ${value.harnessProfileKey}${
+                  value.harnessProfileFrom === undefined ? "" : ` (${value.harnessProfileFrom})`
+                }`,
+          ].join("\n"),
       });
       return EXIT.ok;
     }
@@ -610,7 +638,7 @@ const subagentCommand = async (
 };
 
 /** A file's identity in the key format discovery uses (`global:reviewer`,
- * `workspace:personal:reviewer`, `repository:orders-api:reviewer` — `@corvi/agents/discovery`),
+ * `workspace:personal:reviewer`, `repository:orders-api:reviewer` — `@corvi/agents/subagent-profile-discovery`),
  * for output that can be pasted back into a command. */
 const fileKey = (file: {
   readonly scope: string;
@@ -1021,10 +1049,10 @@ const statusCommand = async (client: CorviClient, args: ParsedArgs, json: boolea
 };
 
 /** The view as a few human lines: the chain, each section's items and their states, warnings. */
-const harnessViewLines = (view: {
+const harnessProfileViewLines = (view: {
   readonly key: string;
   readonly label: string;
-  readonly agent: string;
+  readonly harness: string;
   readonly generatedDir: string;
   readonly chain: readonly { readonly id: string }[];
   readonly sections: Readonly<
@@ -1036,7 +1064,7 @@ const harnessViewLines = (view: {
   readonly warnings: readonly { readonly message: string }[];
 }): string[] => {
   const lines = [
-    `${view.key}\t${view.label}\t${view.agent}`,
+    `${view.key}\t${view.label}\t${view.harness}`,
     `generated: ${view.generatedDir}`,
     `chain: ${view.chain.map((link) => link.id).join(" -> ")}`,
   ];
@@ -1049,7 +1077,13 @@ const harnessViewLines = (view: {
   return lines;
 };
 
-/** `corvi harness`: the harness files, and one harness's resolved environment. */
+/** The programs a Corvi pane can start, and the built-in profile each one's default is. */
+const HARNESS_PROGRAMS: readonly { readonly harness: string; readonly profile: string }[] = [
+  { harness: "pi", profile: "builtin:pi" },
+  { harness: "opencode", profile: "builtin:opencode" },
+];
+
+/** `corvi harness`: the programs, and the profiles behind them. */
 const harnessCommand = async (
   client: CorviClient,
   changeId: string | undefined,
@@ -1063,14 +1097,27 @@ const harnessCommand = async (
     return;
   }
   if (sub === "list") {
-    const listed = await client.harnesses.list(requireChange(changeId));
+    emit(io, json, {
+      value: { harnesses: HARNESS_PROGRAMS },
+      human: () => HARNESS_PROGRAMS.map((one) => `${one.harness}\t${one.profile}`).join("\n"),
+    });
+    return;
+  }
+  // `profile`: the files, and one profile's resolved environment.
+  const profileSub = args.positionals[2];
+  if (profileSub === undefined) {
+    io.out(GROUP_HELP.harness ?? "");
+    return;
+  }
+  if (profileSub === "list") {
+    const listed = await client.harnessProfiles.list(requireChange(changeId));
     emit(io, json, {
       value: listed,
       human: (value) =>
-        value.harnesses
+        value.harnessProfiles
           .map(
             (harness) =>
-              `${harness.key}\t${harness.agent ?? "?"}\t${harness.label}${
+              `${harness.key}\t${harness.harness ?? "?"}\t${harness.label}${
                 harness.problem === undefined ? "" : `\t(${harness.problem})`
               }`,
           )
@@ -1078,26 +1125,29 @@ const harnessCommand = async (
     });
     return;
   }
-  if (sub === "show") {
-    const key = args.positionals[2];
-    if (key === undefined || key === "") throw new CliFailure("harness show needs a key", EXIT.usage);
-    const listed = await client.harnesses.list(requireChange(changeId));
+  if (profileSub === "show") {
+    const key = args.positionals[3];
+    if (key === undefined || key === "") {
+      throw new CliFailure("harness profile show needs a key", EXIT.usage);
+    }
+    const listed = await client.harnessProfiles.list(requireChange(changeId));
     const found =
-      listed.harnesses.find((harness) => harness.key === key) ??
-      listed.harnesses.find((harness) => harness.id === key);
-    if (found === undefined) throw new CliFailure(`no such harness: ${key}`, EXIT.refused);
+      listed.harnessProfiles.find((harness) => harness.key === key) ??
+      listed.harnessProfiles.find((harness) => harness.id === key);
+    if (found === undefined) throw new CliFailure(`no such harness profile: ${key}`, EXIT.refused);
     emit(io, json, {
       value: found,
       human: (value) =>
         value.view === undefined
-          ? [`${value.key}\t${value.label}\t${value.agent ?? "?"}`, value.problem ?? "no resolved view"].join(
-              "\n",
-            )
-          : harnessViewLines(value.view).join("\n"),
+          ? [
+              `${value.key}\t${value.label}\t${value.harness ?? "?"}`,
+              value.problem ?? "no resolved view",
+            ].join("\n")
+          : harnessProfileViewLines(value.view).join("\n"),
     });
     return;
   }
-  await profileFileCommand(client.harnesses, changeId, args, json, io, 1, "harness");
+  await profileFileCommand(client.harnessProfiles, changeId, args, json, io, 2, "harness profile");
 };
 
 const dispatch = async (

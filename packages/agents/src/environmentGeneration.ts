@@ -1,8 +1,8 @@
-/** What a resolved harness becomes as a Pi agent directory — pure, over a base agent directory
+/** What a resolved profile becomes as a Pi agent directory — pure, over a base agent directory
  * already read.
  *
  * The plan is the single answer the launch writes and the Harnesses page shows: the same
- * `HarnessGenerationPlan` carries the generated `settings.json`, `mcp.json` and `AGENTS.md`, the
+ * `EnvironmentGenerationPlan` carries the generated `settings.json`, `mcp.json` and `AGENTS.md`, the
  * shared-state links, and the resolved view (chain, every extension/skill/package/MCP server with
  * its effective state and why, and the warnings). Page and launch cannot disagree because they
  * are one call.
@@ -18,7 +18,7 @@
  *
  * The base agent directory contributes what a default Pi start would: the entries under its
  * `extensions/` and `skills/`, the `packages` in its `settings.json`, the servers in its
- * `mcp.json`, and its `AGENTS.md`. Corvi's own extension is added by every harness unless the
+ * `mcp.json`, and its `AGENTS.md`. Corvi's own extension is added by every profile unless the
  * file excludes it by the name `corvi`.
  *
  * Paths use `/` on purpose: Corvi's server runs on macOS and Linux, and this module stays free of
@@ -26,16 +26,16 @@
  */
 import { Schema } from "effect";
 
-import type { HarnessAgent, HarnessSectionMode } from "@corvi/contracts/harnesses";
-import type { HarnessFields, HarnessSection, HarnessSectionName } from "./harnessFields.ts";
-import type { HarnessWarning, ResolvedHarness } from "./harnessDiscovery.ts";
+import type { Harness, HarnessSectionMode } from "@corvi/contracts/harness-profiles";
+import type { HarnessProfileFields, HarnessSection, HarnessSectionName } from "./harnessProfileFields.ts";
+import type { HarnessProfileWarning, ResolvedHarnessProfile } from "./harnessProfileDiscovery.ts";
 
-/** Corvi's extension, by the name a harness file excludes it with. */
+/** Corvi's extension, by the name a profile file excludes it with. */
 export const CORVI_EXTENSION_NAME = "corvi";
 
 /** The files and directories a generated agent directory links to the base agent directory, so
  * credentials, model configuration, trust, sessions and packages stay shared with every other
- * harness. */
+ * profile. */
 export const SHARED_STATE_NAMES: readonly { readonly name: string; readonly kind: "file" | "directory" }[] = [
   { name: "auth.json", kind: "file" },
   { name: "mcp-auth.json", kind: "file" },
@@ -53,7 +53,7 @@ export const SHARED_STATE_NAMES: readonly { readonly name: string; readonly kind
 ];
 
 /** One entry under the base agent directory's `extensions/` or `skills/`. */
-export type HarnessDirectoryItem = {
+export type EnvironmentDirectoryItem = {
   readonly name: string;
   readonly path: string;
   readonly location: "extensions" | "skills" | "agents-skills";
@@ -61,24 +61,24 @@ export type HarnessDirectoryItem = {
 
 /** One package declared by the base `settings.json`, with the entry as written so a selected
  * package keeps its object form. */
-export type HarnessPackageItem = {
+export type EnvironmentPackageItem = {
   readonly name: string;
   readonly source: string;
   readonly entry: string | Readonly<Record<string, unknown>>;
 };
 
 /** What the base agent directory offers, read before planning. */
-export type HarnessCatalogs = {
-  readonly extensions: readonly HarnessDirectoryItem[];
-  readonly skills: readonly HarnessDirectoryItem[];
-  readonly packages: readonly HarnessPackageItem[];
+export type EnvironmentCatalogs = {
+  readonly extensions: readonly EnvironmentDirectoryItem[];
+  readonly skills: readonly EnvironmentDirectoryItem[];
+  readonly packages: readonly EnvironmentPackageItem[];
   readonly mcp: readonly string[];
 };
 
 /** The absolute paths the plan resolves names and relative entries against. `agentDir` is the
  * base `~/.pi/agent` (or `PI_CODING_AGENT_DIR`); `corviExtension` is this checkout's
  * `integrations/pi/src`. */
-export type HarnessBasePaths = {
+export type EnvironmentBasePaths = {
   readonly agentDir: string;
   readonly extensionsDir: string;
   readonly skillsDir: string;
@@ -89,8 +89,8 @@ export type HarnessBasePaths = {
 
 /** The base state the plan starts from. `present` says whether a directory could be listed, so
  * an agent directory that has none is not named in the generated settings. */
-export type HarnessBase = {
-  readonly paths: HarnessBasePaths;
+export type EnvironmentBase = {
+  readonly paths: EnvironmentBasePaths;
   readonly present: {
     readonly extensionsDir: boolean;
     readonly skillsDir: boolean;
@@ -100,112 +100,112 @@ export type HarnessBase = {
   readonly agentsMd?: string;
   /** Whether the base has an `AGENTS.override.md`; the link is only made when it does. */
   readonly agentsOverride?: boolean;
-  readonly catalogs: HarnessCatalogs;
+  readonly catalogs: EnvironmentCatalogs;
 };
 
 /** The scope roots a relative `include`/`exclude` path resolves against: the global config
  * directory, a workspace's config directory, or a checkout root. */
-export type HarnessScopeRoots = {
+export type HarnessProfileScopeRoots = {
   readonly global: string;
   readonly workspaces: readonly { readonly id: string; readonly dir: string }[];
   readonly repositories: readonly { readonly name: string; readonly dir: string }[];
 };
 
-/** The scope root of a discovered harness, or `undefined` for a built-in. */
-export const harnessScopeRoot = (
-  harness: Pick<ResolvedHarness, "source" | "origin">,
-  roots: HarnessScopeRoots,
+/** The scope root of a discovered profile, or `undefined` for a built-in. */
+export const harnessProfileScopeRoot = (
+  profile: Pick<ResolvedHarnessProfile, "source" | "origin">,
+  roots: HarnessProfileScopeRoots,
 ): string | undefined => {
-  switch (harness.source) {
+  switch (profile.source) {
     case "global":
       return roots.global;
     case "workspace":
-      return roots.workspaces.find((workspace) => workspace.id === harness.origin)?.dir;
+      return roots.workspaces.find((workspace) => workspace.id === profile.origin)?.dir;
     case "repository":
-      return roots.repositories.find((repository) => repository.name === harness.origin)?.dir;
+      return roots.repositories.find((repository) => repository.name === profile.origin)?.dir;
     case "builtin":
       return undefined;
   }
 };
 
 /** How one discovered item ends up in the generated environment. */
-export type HarnessItemState = "included" | "excluded";
+export type EnvironmentItemState = "included" | "excluded";
 /** Why it is there, or not there. "added-by-corvi" is Corvi's own extension, which no base
  * directory declared. */
-export type HarnessItemOrigin = "inherited" | "included" | "excluded" | "added-by-corvi";
+export type EnvironmentItemOrigin = "inherited" | "included" | "excluded" | "added-by-corvi";
 
-export type HarnessItemLocation =
+export type EnvironmentItemLocation =
   "extensions" | "skills" | "agents-skills" | "settings" | "mcp" | "corvi" | "builtin" | "file";
 
 /** One discovered item as the page shows it: what it is, its effective state, and where that
  * came from. A path entry that matched no base item is a `file` item. */
-export type HarnessResolvedItem = {
+export type EnvironmentItem = {
   readonly name: string;
-  readonly state: HarnessItemState;
-  readonly origin: HarnessItemOrigin;
-  readonly location: HarnessItemLocation;
+  readonly state: EnvironmentItemState;
+  readonly origin: EnvironmentItemOrigin;
+  readonly location: EnvironmentItemLocation;
   readonly path?: string;
   readonly source?: string;
   readonly byCorvi?: boolean;
 };
 
-export type HarnessResolvedSection = {
+export type EnvironmentSection = {
   readonly mode: HarnessSectionMode;
-  readonly items: readonly HarnessResolvedItem[];
+  readonly items: readonly EnvironmentItem[];
 };
 
-export type HarnessEnvironmentView = {
+export type EnvironmentView = {
   readonly key: string;
   readonly id: string;
   readonly label: string;
-  readonly source: ResolvedHarness["source"];
+  readonly source: ResolvedHarnessProfile["source"];
   readonly sourceLabel?: string;
-  readonly agent: HarnessAgent;
-  readonly chain: ResolvedHarness["chain"];
+  readonly harness: Harness;
+  readonly chain: ResolvedHarnessProfile["chain"];
   readonly generatedDir: string;
   readonly model?: { readonly provider?: string; readonly id: string };
   readonly effort?: string;
   readonly enabledModels?: readonly string[];
   readonly instructions: {
-    readonly origin: "harness" | "base" | "none";
+    readonly origin: "profile" | "base" | "none";
     readonly text?: string;
   };
   readonly sections: {
-    readonly extensions: HarnessResolvedSection;
-    readonly skills: HarnessResolvedSection;
-    readonly packages: HarnessResolvedSection;
-    readonly mcp: HarnessResolvedSection;
+    readonly extensions: EnvironmentSection;
+    readonly skills: EnvironmentSection;
+    readonly packages: EnvironmentSection;
+    readonly mcp: EnvironmentSection;
   };
-  readonly warnings: readonly HarnessWarning[];
+  readonly warnings: readonly HarnessProfileWarning[];
 };
 
-export type HarnessSharedState = {
+export type EnvironmentSharedState = {
   readonly name: string;
   readonly target: string;
   readonly kind: "file" | "directory";
 };
 
 /** Everything the writer needs, and the view the page shows. */
-export type HarnessGenerationPlan = {
+export type EnvironmentGenerationPlan = {
   readonly dir: string;
   readonly settingsJson: string;
   readonly mcpJson: string;
-  /** The generated `AGENTS.md`; absent means the harness and the base both have none. */
+  /** The generated `AGENTS.md`; absent means the profile and the base both have none. */
   readonly agentsMd?: string;
-  readonly sharedState: readonly HarnessSharedState[];
-  readonly view: HarnessEnvironmentView;
+  readonly sharedState: readonly EnvironmentSharedState[];
+  readonly view: EnvironmentView;
 };
 
-export type HarnessGenerationOperation = "read" | "write" | "unsupported-agent";
+export type EnvironmentGenerationOperation = "read" | "write" | "unsupported-harness";
 
 /** A generation failure. `path` names the file for read/write failures; `agent` names the
  * unsupported agent when generation is asked for one. */
-export class HarnessGenerationError extends Schema.TaggedError<HarnessGenerationError>()(
-  "HarnessGenerationError",
+export class EnvironmentGenerationError extends Schema.TaggedError<EnvironmentGenerationError>()(
+  "EnvironmentGenerationError",
   {
-    operation: Schema.Literals(["read", "write", "unsupported-agent"]),
+    operation: Schema.Literals(["read", "write", "unsupported-harness"]),
     path: Schema.optional(Schema.String),
-    agent: Schema.optional(Schema.String),
+    harness: Schema.optional(Schema.String),
     message: Schema.String,
     cause: Schema.optional(Schema.Unknown),
   },
@@ -214,7 +214,7 @@ export class HarnessGenerationError extends Schema.TaggedError<HarnessGeneration
 // --- Path helpers ----------------------------------------------------------------------------
 
 /** One directory name, with anything that could leave the tree or confuse a separator replaced.
- * A change id, workspace id, repository name and harness id are already file-shaped; this keeps a
+ * A change id, workspace id, repository name and profile id are already file-shaped; this keeps a
  * foreign one from writing outside the state directory. */
 const safeSegment = (value: string): string => {
   // A reversible escape: unsafe characters become `-x<codepoint>`, so two ids that differ only by
@@ -244,23 +244,23 @@ const withoutRefSuffix = (source: string): string => {
 
 /** `<stateDir>/harnesses/<changeId>/<source>/<origin>/<id>` (no origin segment for built-in and
  * global harnesses). The path is stable across regenerations, which is what lets an existing
- * shell find the same harness on its next `pi` start. */
-export const generatedHarnessDir = (
+ * shell find the same profile on its next `pi` start. */
+export const generatedEnvironmentDir = (
   stateDir: string,
   changeId: string,
-  harness: Pick<ResolvedHarness, "source" | "origin" | "id">,
+  profile: Pick<ResolvedHarnessProfile, "source" | "origin" | "id">,
 ): string => {
   const segments = [
-    harnessStateDir(stateDir, changeId),
-    safeSegment(harness.source),
-    ...(harness.origin === undefined ? [] : [safeSegment(harness.origin)]),
-    safeSegment(harness.id),
+    environmentStateDir(stateDir, changeId),
+    safeSegment(profile.source),
+    ...(profile.origin === undefined ? [] : [safeSegment(profile.origin)]),
+    safeSegment(profile.id),
   ];
   return segments.join("/");
 };
 
 /** The generated state of one change: everything under it goes when the change is archived. */
-export const harnessStateDir = (stateDir: string, changeId: string): string =>
+export const environmentStateDir = (stateDir: string, changeId: string): string =>
   [withoutTrailingSlashes(stateDir), "harnesses", safeSegment(changeId)].join("/");
 
 const joinPath = (base: string, entry: string): string => `${withoutTrailingSlashes(base)}/${entry}`;
@@ -303,7 +303,7 @@ const isPathEntry = (entry: string): boolean =>
   entry.includes("\\");
 
 /** Resolve a path entry against the file's scope root, expanding `~` from the home directory.
- * `undefined` when a relative path has no scope root (a built-in harness). */
+ * `undefined` when a relative path has no scope root (a built-in profile). */
 const resolvePathEntry = (
   entry: string,
   scopeBase: string | undefined,
@@ -317,12 +317,12 @@ const resolvePathEntry = (
 
 const effectiveMode = (section: HarnessSection): HarnessSectionMode => section.mode ?? "all";
 
-const matchesDirectoryItem = (item: HarnessDirectoryItem, entry: string): boolean =>
+const matchesDirectoryItem = (item: EnvironmentDirectoryItem, entry: string): boolean =>
   item.name === entry || lastSegment(item.path) === entry;
 
 const dedupe = <T>(values: readonly T[]): readonly T[] => [...new Set(values)];
 
-const warningKey = (warning: HarnessWarning): string => {
+const warningKey = (warning: HarnessProfileWarning): string => {
   switch (warning.kind) {
     case "unknown-name":
       return `unknown:${warning.section}:${warning.name}`;
@@ -333,9 +333,9 @@ const warningKey = (warning: HarnessWarning): string => {
   }
 };
 
-const dedupeWarnings = (warnings: readonly HarnessWarning[]): readonly HarnessWarning[] => {
+const dedupeWarnings = (warnings: readonly HarnessProfileWarning[]): readonly HarnessProfileWarning[] => {
   const seen = new Set<string>();
-  const kept: HarnessWarning[] = [];
+  const kept: HarnessProfileWarning[] = [];
   for (const warning of warnings) {
     const key = warningKey(warning);
     if (seen.has(key)) continue;
@@ -351,8 +351,8 @@ type PackageEntry = string | Readonly<Record<string, unknown>>;
 
 type SectionPlan<T extends string | PackageEntry = string> = {
   readonly entries: readonly T[];
-  readonly items: readonly HarnessResolvedItem[];
-  readonly warnings: readonly HarnessWarning[];
+  readonly items: readonly EnvironmentItem[];
+  readonly warnings: readonly HarnessProfileWarning[];
 };
 
 const SECTION_LABEL: Record<HarnessSectionName, { readonly one: string; readonly list: string }> = {
@@ -363,11 +363,11 @@ const SECTION_LABEL: Record<HarnessSectionName, { readonly one: string; readonly
 };
 
 /** Another section that does contain this name: the actionable half of an unknown-name warning.
- * A harness that put a skill under `extensions.include` is told where it belongs. */
+ * A profile that put a skill under `extensions.include` is told where it belongs. */
 const crossSectionHint = (
   section: HarnessSectionName,
   name: string,
-  base: HarnessBase,
+  base: EnvironmentBase,
 ): string | undefined => {
   const inSection = (other: HarnessSectionName): boolean => {
     switch (other) {
@@ -395,7 +395,7 @@ const unknownName = (
   name: string,
   where: string,
   hint?: string,
-): HarnessWarning => ({
+): HarnessProfileWarning => ({
   kind: "unknown-name",
   section,
   name,
@@ -405,12 +405,12 @@ const unknownName = (
 const unresolvedPath = (
   section: HarnessSectionName,
   entry: string,
-  source: ResolvedHarness["source"],
-): HarnessWarning => ({
+  source: ResolvedHarnessProfile["source"],
+): HarnessProfileWarning => ({
   kind: "unresolved-path",
   section,
   entry,
-  message: `"${entry}" is a path, but a ${source} harness has no directory to resolve it from`,
+  message: `"${entry}" is a path, but a ${source} profile has no directory to resolve it from`,
 });
 
 type ClassifiedEntries = {
@@ -426,13 +426,13 @@ const classifyEntries = (
   matches: (name: string) => boolean,
   scopeBase: string | undefined,
   homeDir: string,
-  source: ResolvedHarness["source"],
+  source: ResolvedHarnessProfile["source"],
   where: string,
   hintFor?: (name: string) => string | undefined,
-): { readonly classified: ClassifiedEntries; readonly warnings: readonly HarnessWarning[] } => {
+): { readonly classified: ClassifiedEntries; readonly warnings: readonly HarnessProfileWarning[] } => {
   const names: string[] = [];
   const paths: string[] = [];
-  const warnings: HarnessWarning[] = [];
+  const warnings: HarnessProfileWarning[] = [];
   for (const entry of entries) {
     if (isPathEntry(entry)) {
       const path = resolvePathEntry(entry, scopeBase, homeDir);
@@ -448,7 +448,7 @@ const classifyEntries = (
 
 /** A base settings resource entry keeps its meaning in the generated settings: a relative path
  * resolves from the agent directory, `~` from HOME, and a `builtin:` name is not a path at all. */
-const absoluteResourcePath = (entry: string, base: HarnessBasePaths): string => {
+const absoluteResourcePath = (entry: string, base: EnvironmentBasePaths): string => {
   const prefix = entry.startsWith("!") || entry.startsWith("+") || entry.startsWith("-") ? entry[0] : "";
   const rest = prefix === "" ? entry : entry.slice(1);
   if (rest === "" || rest.startsWith("/") || rest.startsWith("builtin:")) return entry;
@@ -457,7 +457,7 @@ const absoluteResourcePath = (entry: string, base: HarnessBasePaths): string => 
   return `${prefix}${normalizePath(joinPath(base.agentDir, rest))}`;
 };
 
-/** The base settings' own resource entries for one list, inherited by every harness. */
+/** The base settings' own resource entries for one list, inherited by every profile. */
 const baseResourceEntries = (
   settings: Readonly<Record<string, unknown>>,
   key: "extensions" | "skills",
@@ -476,11 +476,11 @@ const builtinEntryOf = (entry: string): { readonly name: string; readonly exclud
 };
 
 const planExtensions = (
-  harness: ResolvedHarness,
-  base: HarnessBase,
+  profile: ResolvedHarnessProfile,
+  base: EnvironmentBase,
   scopeBase: string | undefined,
 ): SectionPlan => {
-  const section = harness.fields.extensions;
+  const section = profile.fields.extensions;
   const mode = effectiveMode(section);
   const baseItems = base.catalogs.extensions;
   const corviPath = normalizePath(base.paths.corviExtension);
@@ -502,7 +502,7 @@ const planExtensions = (
     known,
     scopeBase,
     base.paths.homeDir,
-    harness.source,
+    profile.source,
     "the base agent directory",
     (name) => crossSectionHint("extensions", name, base),
   );
@@ -512,7 +512,7 @@ const planExtensions = (
     known,
     scopeBase,
     base.paths.homeDir,
-    harness.source,
+    profile.source,
     "the base agent directory",
     (name) => crossSectionHint("extensions", name, base),
   );
@@ -562,7 +562,7 @@ const planExtensions = (
   }
   if (corviIncluded) entries.push(corviPath);
   // Built-ins load regardless of the section mode, so including or excluding one is always an
-  // entry. A harness include after a base exclusion re-enables it.
+  // entry. A profile include after a base exclusion re-enables it.
   for (const builtin of includeBuiltins) entries.push(`+${builtin}`);
   for (const builtin of excludeBuiltins) entries.push(`-${builtin}`);
   if (mode === "all") {
@@ -570,7 +570,7 @@ const planExtensions = (
     for (const path of excludePaths) if (path !== corviPath) entries.push(`-${path}`);
   }
 
-  const items: HarnessResolvedItem[] = baseItems.map((item) => {
+  const items: EnvironmentItem[] = baseItems.map((item) => {
     const explicitlyExcluded =
       excludedItems.has(item) || [...excludePaths].some((path) => isWithin(path, item.path));
     const includedByEntry =
@@ -594,7 +594,7 @@ const planExtensions = (
       location: "file",
     });
   }
-  const builtinStates = new Map<string, HarnessResolvedItem>();
+  const builtinStates = new Map<string, EnvironmentItem>();
   const rememberBuiltin = (name: string, excluded: boolean): void => {
     builtinStates.set(name, {
       name,
@@ -624,11 +624,11 @@ const planExtensions = (
 };
 
 const planSkills = (
-  harness: ResolvedHarness,
-  base: HarnessBase,
+  profile: ResolvedHarnessProfile,
+  base: EnvironmentBase,
   scopeBase: string | undefined,
 ): SectionPlan => {
-  const section = harness.fields.skills;
+  const section = profile.fields.skills;
   const mode = effectiveMode(section);
   const items = base.catalogs.skills;
   const known = (name: string): boolean => items.some((item) => matchesDirectoryItem(item, name));
@@ -638,7 +638,7 @@ const planSkills = (
     known,
     scopeBase,
     base.paths.homeDir,
-    harness.source,
+    profile.source,
     "the base agent directory or ~/.agents/skills",
     (name) => crossSectionHint("skills", name, base),
   );
@@ -648,7 +648,7 @@ const planSkills = (
     known,
     scopeBase,
     base.paths.homeDir,
-    harness.source,
+    profile.source,
     "the base agent directory or ~/.agents/skills",
     (name) => crossSectionHint("skills", name, base),
   );
@@ -698,7 +698,7 @@ const planSkills = (
     for (const path of excludePaths) entries.push(`-${path}`);
   }
 
-  const resolved: HarnessResolvedItem[] = items.map((item) => {
+  const resolved: EnvironmentItem[] = items.map((item) => {
     const explicitlyExcluded =
       excludedItems.has(item) || [...excludePaths].some((path) => isWithin(path, item.path));
     const includedByEntry =
@@ -758,7 +758,7 @@ export const packageNameOf = (source: string): string => {
 
 /** A local package source is made absolute because the generated `settings.json` lives elsewhere;
  * npm, git and URL sources are identity and stay as written. */
-const absolutePackageSource = (source: string, paths: HarnessBasePaths): string => {
+const absolutePackageSource = (source: string, paths: EnvironmentBasePaths): string => {
   if (source === "~") return normalizePath(paths.homeDir);
   if (source.startsWith("~/")) return normalizePath(joinPath(paths.homeDir, source.slice(2)));
   if (source === "." || source === ".." || source.startsWith("./") || source.startsWith("../")) {
@@ -768,8 +768,8 @@ const absolutePackageSource = (source: string, paths: HarnessBasePaths): string 
 };
 
 const packageEntryOf = (
-  item: HarnessPackageItem,
-  paths: HarnessBasePaths,
+  item: EnvironmentPackageItem,
+  paths: EnvironmentBasePaths,
 ): string | Readonly<Record<string, unknown>> =>
   typeof item.entry === "string"
     ? absolutePackageSource(item.entry, paths)
@@ -785,23 +785,23 @@ const isPackagePathEntry = (entry: string): boolean =>
   entry === "~";
 
 const planPackages = (
-  harness: ResolvedHarness,
-  base: HarnessBase,
+  profile: ResolvedHarnessProfile,
+  base: EnvironmentBase,
   scopeBase: string | undefined,
 ): SectionPlan<PackageEntry> => {
-  const section = harness.fields.packages;
+  const section = profile.fields.packages;
   const mode = effectiveMode(section);
   const items = base.catalogs.packages;
-  const matches = (item: HarnessPackageItem, entry: string): boolean =>
+  const matches = (item: EnvironmentPackageItem, entry: string): boolean =>
     item.name === entry || item.source === entry;
   const resolvePackagePaths = (
     entries: readonly string[],
-  ): { readonly paths: ReadonlySet<string>; readonly warnings: readonly HarnessWarning[] } => {
+  ): { readonly paths: ReadonlySet<string>; readonly warnings: readonly HarnessProfileWarning[] } => {
     const paths = new Set<string>();
-    const warnings: HarnessWarning[] = [];
+    const warnings: HarnessProfileWarning[] = [];
     for (const entry of entries.filter(isPackagePathEntry)) {
       const path = resolvePathEntry(entry, scopeBase, base.paths.homeDir);
-      if (path === undefined) warnings.push(unresolvedPath("packages", entry, harness.source));
+      if (path === undefined) warnings.push(unresolvedPath("packages", entry, profile.source));
       else paths.add(path);
     }
     return { paths, warnings };
@@ -842,7 +842,7 @@ const planPackages = (
   return {
     entries: [...selected.map((item) => packageEntryOf(item, base.paths)), ...pathEntries],
     items: [
-      ...items.map((item): HarnessResolvedItem => {
+      ...items.map((item): EnvironmentItem => {
         const isExcluded = excluded.has(item) || (mode === "none" && !included.has(item));
         return {
           name: item.name,
@@ -852,7 +852,7 @@ const planPackages = (
           location: "settings",
         };
       }),
-      ...pathEntries.map((path): HarnessResolvedItem => ({
+      ...pathEntries.map((path): EnvironmentItem => ({
         name: lastSegment(path),
         path,
         state: "included",
@@ -869,8 +869,8 @@ const planPackages = (
   };
 };
 
-const planMcp = (harness: ResolvedHarness, base: HarnessBase): SectionPlan => {
-  const section = harness.fields.mcp;
+const planMcp = (profile: ResolvedHarnessProfile, base: EnvironmentBase): SectionPlan => {
+  const section = profile.fields.mcp;
   const mode = effectiveMode(section);
   const items = base.catalogs.mcp;
   const included = new Set(items.filter((item) => section.include.includes(item)));
@@ -912,42 +912,42 @@ const mcpServersOf = (mcp: Readonly<Record<string, unknown>>): Readonly<Record<s
     : {};
 };
 
-export type PlanHarnessEnvironmentInput = {
-  readonly harness: ResolvedHarness;
+export type PlanEnvironmentInput = {
+  readonly harnessProfile: ResolvedHarnessProfile;
   readonly dir: string;
   /** The file's scope root for relative `include`/`exclude` paths. */
   readonly scopeBase?: string;
-  readonly base: HarnessBase;
+  readonly base: EnvironmentBase;
 };
 
 /** Plan the generated agent directory and its resolved view. Pure: the same inputs always answer
  * the same settings, files and view, which is what keeps the page and the launch in agreement. */
 /** Resource lists copied from the base settings (`prompts`, `themes`) keep their meaning: their
  * relative paths resolved from the base agent directory, not from the generated one. */
-const absoluteResourceList = (value: unknown, base: HarnessBasePaths): unknown =>
+const absoluteResourceList = (value: unknown, base: EnvironmentBasePaths): unknown =>
   Array.isArray(value)
     ? value.map((entry) => (typeof entry === "string" ? absoluteResourcePath(entry, base) : entry))
     : value;
 
-export const planHarnessEnvironment = (input: PlanHarnessEnvironmentInput): HarnessGenerationPlan => {
-  const { harness, base, dir } = input;
-  const extensions = planExtensions(harness, base, input.scopeBase);
-  const skills = planSkills(harness, base, input.scopeBase);
-  const packages = planPackages(harness, base, input.scopeBase);
-  const mcp = planMcp(harness, base);
+export const planEnvironment = (input: PlanEnvironmentInput): EnvironmentGenerationPlan => {
+  const { harnessProfile: profile, base, dir } = input;
+  const extensions = planExtensions(profile, base, input.scopeBase);
+  const skills = planSkills(profile, base, input.scopeBase);
+  const packages = planPackages(profile, base, input.scopeBase);
+  const mcp = planMcp(profile, base);
 
   const settings: Record<string, unknown> = { ...base.settings };
   for (const key of ["prompts", "themes"] as const) {
     if (settings[key] !== undefined) settings[key] = absoluteResourceList(settings[key], base.paths);
   }
-  const model = harness.fields.model === undefined ? undefined : splitModel(harness.fields.model);
+  const model = profile.fields.model === undefined ? undefined : splitModel(profile.fields.model);
   if (model !== undefined) {
     if (model.provider !== undefined) settings["defaultProvider"] = model.provider;
     settings["defaultModel"] = model.id;
   }
-  if (harness.fields.effort !== undefined) settings["defaultThinkingLevel"] = harness.fields.effort;
-  if (harness.fields.enabledModels !== undefined) {
-    settings["enabledModels"] = [...harness.fields.enabledModels];
+  if (profile.fields.effort !== undefined) settings["defaultThinkingLevel"] = profile.fields.effort;
+  if (profile.fields.enabledModels !== undefined) {
+    settings["enabledModels"] = [...profile.fields.enabledModels];
   }
   settings["extensions"] = [...extensions.entries];
   settings["skills"] = [...skills.entries];
@@ -958,14 +958,14 @@ export const planHarnessEnvironment = (input: PlanHarnessEnvironmentInput): Harn
   const mcpJson = { ...base.mcp, mcpServers: selectedServers };
 
   const instructions =
-    harness.fields.instructions !== undefined
-      ? { origin: "harness" as const, text: harness.fields.instructions }
+    profile.fields.instructions !== undefined
+      ? { origin: "profile" as const, text: profile.fields.instructions }
       : base.agentsMd !== undefined
         ? { origin: "base" as const, text: base.agentsMd }
         : { origin: "none" as const };
 
   const warnings = dedupeWarnings([
-    ...harness.warnings,
+    ...profile.warnings,
     ...extensions.warnings,
     ...skills.warnings,
     ...packages.warnings,
@@ -983,8 +983,8 @@ export const planHarnessEnvironment = (input: PlanHarnessEnvironmentInput): Harn
         kind,
         target: normalizePath(joinPath(base.paths.agentDir, name)),
       })),
-      // The base's override applies only when the harness leaves instructions to the base.
-      ...(instructions.origin === "harness" || base.agentsOverride !== true
+      // The base's override applies only when the profile leaves instructions to the base.
+      ...(instructions.origin === "profile" || base.agentsOverride !== true
         ? []
         : [
             {
@@ -995,23 +995,23 @@ export const planHarnessEnvironment = (input: PlanHarnessEnvironmentInput): Harn
           ]),
     ],
     view: {
-      key: harness.key,
-      id: harness.id,
-      label: harness.label,
-      source: harness.source,
-      ...(harness.sourceLabel === undefined ? {} : { sourceLabel: harness.sourceLabel }),
-      agent: harness.agent,
-      chain: harness.chain,
+      key: profile.key,
+      id: profile.id,
+      label: profile.label,
+      source: profile.source,
+      ...(profile.sourceLabel === undefined ? {} : { sourceLabel: profile.sourceLabel }),
+      harness: profile.harness,
+      chain: profile.chain,
       generatedDir: dir,
       ...(model === undefined ? {} : { model }),
-      ...(harness.fields.effort === undefined ? {} : { effort: harness.fields.effort }),
-      ...(harness.fields.enabledModels === undefined ? {} : { enabledModels: harness.fields.enabledModels }),
+      ...(profile.fields.effort === undefined ? {} : { effort: profile.fields.effort }),
+      ...(profile.fields.enabledModels === undefined ? {} : { enabledModels: profile.fields.enabledModels }),
       instructions,
       sections: {
-        extensions: { mode: effectiveMode(harness.fields.extensions), items: extensions.items },
-        skills: { mode: effectiveMode(harness.fields.skills), items: skills.items },
-        packages: { mode: effectiveMode(harness.fields.packages), items: packages.items },
-        mcp: { mode: effectiveMode(harness.fields.mcp), items: mcp.items },
+        extensions: { mode: effectiveMode(profile.fields.extensions), items: extensions.items },
+        skills: { mode: effectiveMode(profile.fields.skills), items: skills.items },
+        packages: { mode: effectiveMode(profile.fields.packages), items: packages.items },
+        mcp: { mode: effectiveMode(profile.fields.mcp), items: mcp.items },
       },
       warnings,
     },
@@ -1019,12 +1019,12 @@ export const planHarnessEnvironment = (input: PlanHarnessEnvironmentInput): Harn
 };
 
 /** Resolve a subagent profile's relative include/exclude paths against the profile file's scope,
- * leaving names alone. The merged harness keeps its own paths relative to the harness file. */
+ * leaving names alone. The merged profile keeps its own paths relative to the profile file. */
 export const resolveOverlayPaths = (
-  fields: HarnessFields,
+  fields: HarnessProfileFields,
   scopeBase: string | undefined,
   homeDir: string,
-): HarnessFields => {
+): HarnessProfileFields => {
   const section = (value: HarnessSection, pathLike: (entry: string) => boolean): HarnessSection => ({
     ...(value.mode === undefined ? {} : { mode: value.mode }),
     include: value.include.map((entry) =>

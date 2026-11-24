@@ -5,11 +5,11 @@
 import { rm } from "node:fs/promises";
 import { Effect } from "effect";
 
-import { harnessStateDir } from "@corvi/agents/harness-generation";
+import { environmentStateDir } from "@corvi/agents/environment-generation";
 import { stateDir } from "@corvi/configuration/node";
 
-export const removeHarnessState = (changeId: string): Effect.Effect<void> => {
-  const path = harnessStateDir(stateDir(), changeId);
+export const removeEnvironmentState = (changeId: string): Effect.Effect<void> => {
+  const path = environmentStateDir(stateDir(), changeId);
   return Effect.tryPromise(() => rm(path, { recursive: true, force: true })).pipe(
     Effect.catch((error) =>
       Effect.sync(() => console.error(`could not remove generated harnesses at ${path}:`, error)),

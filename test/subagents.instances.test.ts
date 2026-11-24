@@ -124,7 +124,11 @@ test("create writes the record and the initial message, closed by a fake launche
     createSubagent(change, { profile: "builtin:reviewer", prompt: "Review it" }, fakeLauncher),
   );
   expect(created.profile).toBe("builtin:reviewer");
-  expect(created.harnessKey).toBe("builtin:pi");
+  // The built-in reviewer names no base and nothing else is configured, so the default answers and
+  // is not pinned: a later settings change reaches this subagent on its next start.
+  expect(created.harnessProfileKey).toBeUndefined();
+  expect(created.harnessProfileFrom).toBeUndefined();
+  expect(created.harness).toBe("pi");
   expect(created.label).toBe("Reviewer");
   expect(created.presence).toBe("detached"); // no live window with the private socket
   expect(created.messages.map((message) => message.role)).toEqual(["orchestrator"]);
@@ -141,16 +145,36 @@ test("create pins the harness key and the model its harness resolves to", async 
   await mkdir(join(base, "subagents"), { recursive: true });
   await writeFile(
     join(base, "harnesses", "oc-env.md"),
-    "---\nlabel: Open environment\nharness: opencode\nmodel: zai/glm-5.3\n---\n",
+    "---\nlabel: Open environment\nbasedOnHarnessProfile: opencode\nmodel: zai/glm-5.3\n---\n",
   );
   await writeFile(
     join(base, "subagents", "oc-profile.md"),
-    "---\nlabel: Open profile\nharness: oc-env\n---\nDo it.\n",
+    "---\nlabel: Open profile\nbasedOnHarnessProfile: oc-env\n---\nDo it.\n",
   );
   const created = await run(createSubagent(change, { profile: "global:oc-profile" }, fakeLauncher));
-  expect(created.harnessKey).toBe("global:oc-env");
+  expect(created.harnessProfileKey).toBe("global:oc-env");
+  expect(created.harnessProfileFrom).toBe("profile");
   expect(created.harness).toBe("opencode");
   expect(created.model).toBe("zai/glm-5.3");
+});
+
+test("create pins the harness profile the change selects, and records where it came from", async () => {
+  const selected = { ...change, subagentHarnessProfile: "builtin:pi-bare" } as Change;
+  const created = await run(createSubagent(selected, { profile: "builtin:reviewer" }, fakeLauncher));
+  expect(created.harnessProfileKey).toBe("builtin:pi-bare");
+  expect(created.harnessProfileFrom).toBe("change");
+  expect(created.harness).toBe("pi");
+});
+
+test("create refuses a profile that is not offered in the change's phase", async () => {
+  await mkdir(join(dirname(configPath()), "subagents"), { recursive: true });
+  await writeFile(
+    join(dirname(configPath()), "subagents", "phase-only.md"),
+    "---\nlabel: Phase only\nharness: pi\nphases: [Verification]\n---\nDo it.\n",
+  );
+  await expect(run(createSubagent(change, { profile: "global:phase-only" }, fakeLauncher))).rejects.toThrow(
+    /not offered in Implementation/,
+  );
 });
 
 test("create refuses an unknown profile", async () => {

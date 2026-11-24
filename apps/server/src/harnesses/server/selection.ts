@@ -1,105 +1,243 @@
-/** Which harness a change's panes use: discovery, the settings-chain defaults, and the change's
- * own selectors.
+/** Which harness profile a change's panes use: discovery, the settings-chain defaults, and the
+ * change's own selectors.
  *
- * Precedence, from the plan: a change's `userHarness` (or a subagent's profile) wins, then the
- * change's `subagentHarness` for new subagents, then the workspace default, then the global
- * default, then the built-in `pi`. The stored values are discovery keys; a subagent profile names
- * a harness id, which resolves through the same discovery.
+ * Precedence, from the plan:
+ *
+ * - user panes: the change's `userHarnessProfile` → its workspace default → the global default →
+ *   the built-in `pi`;
+ * - subagents: the record's pin → the profile's `basedOnHarnessProfile` → the change's
+ *   `subagentHarnessProfile` → the settings default → the built-in for the profile's `harness`.
+ *
+ * A profile's `harness:` names the program, never a profile. When the ambient default runs a
+ * different program than the profile asks for, the built-in profile for that program answers
+ * instead of failing: a template that says `harness: opencode` wants opencode, not an error about
+ * the person's default.
+ *
+ * Stored values are discovery keys. A `basedOnHarnessProfile` may be an id or a key.
  */
 import { Effect, Result } from "effect";
 
 import {
-  describeHarnessError,
-  resolveHarness,
-  resolveHarnessByKey,
-  type HarnessDiscovery,
-  type HarnessResolutionError,
-  type ResolvedHarness,
-} from "@corvi/agents/harness-discovery";
-import { harnessScopeRoot, type HarnessScopeRoots } from "@corvi/agents/harness-generation";
-import { discoverHarnesses } from "@corvi/agents/node";
-import type { HarnessSelectionDto } from "@corvi/contracts/harnesses";
+  describeHarnessProfileError,
+  resolveHarnessProfile,
+  resolveHarnessProfileByKey,
+  type HarnessProfileDiscovery,
+  type HarnessProfileResolutionError,
+  type ResolvedHarnessProfile,
+} from "@corvi/agents/harness-profile-discovery";
+import { harnessProfileScopeRoot, type HarnessProfileScopeRoots } from "@corvi/agents/environment-generation";
+import { discoverHarnessProfiles } from "@corvi/agents/node";
+import { harnessProfileFieldsOf, type SubagentProfile } from "@corvi/agents/subagent-profile";
+import type { Harness, HarnessProfileSelectionDto } from "@corvi/contracts/harness-profiles";
+import type { SubagentRecord } from "@corvi/agents/instance";
 import type { Change } from "@corvi/changes/record";
 import { fileRootsFor, type FileRoots } from "../../capabilities/fileRoots.ts";
 import { settingsOf, workspaceOf } from "../../workspace/server/index.ts";
 
-/** The harness a change's user panes start when nothing else says. */
-export const DEFAULT_HARNESS_KEY = "builtin:pi";
+/** The harness profile a change's panes start when nothing else says. */
+export const DEFAULT_HARNESS_PROFILE_KEY = "builtin:pi";
 
-export type HarnessKind = "user" | "subagents";
+export type HarnessProfileKind = "user" | "subagents";
 
-export const harnessRootsFor = (change: Change): Effect.Effect<FileRoots> =>
+/** Where the chosen harness profile came from: the profile's own base, the change's selector, or
+ * the settings chain. The card and the CLI show it, so a pane never has to be guessed at. */
+export type HarnessProfileSource = "profile" | "change" | "default";
+
+export const harnessProfileRootsFor = (change: Change): Effect.Effect<FileRoots> =>
   fileRootsFor(change, "harnesses");
 
-export const harnessDiscoveryFor = (change: Change): Effect.Effect<HarnessDiscovery> =>
-  Effect.flatMap(harnessRootsFor(change), discoverHarnesses);
+export const harnessProfileDiscoveryFor = (change: Change): Effect.Effect<HarnessProfileDiscovery> =>
+  Effect.flatMap(harnessProfileRootsFor(change), discoverHarnessProfiles);
 
 /** The roots relative include/exclude paths resolve against, for this change. */
-export const harnessScopeRootsFor = (change: Change): Effect.Effect<HarnessScopeRoots> =>
-  Effect.map(harnessRootsFor(change), (roots) => roots.bases);
+export const harnessProfileScopeRootsFor = (change: Change): Effect.Effect<HarnessProfileScopeRoots> =>
+  Effect.map(harnessProfileRootsFor(change), (roots) => roots.bases);
 
-export const harnessScopeBaseFor = (
+export const harnessProfileScopeBaseFor = (
   change: Change,
-  harness: Pick<ResolvedHarness, "source" | "origin">,
+  profile: Pick<ResolvedHarnessProfile, "source" | "origin">,
 ): Effect.Effect<string | undefined> =>
-  Effect.map(harnessScopeRootsFor(change), (roots) => harnessScopeRoot(harness, roots));
+  Effect.map(harnessProfileScopeRootsFor(change), (roots) => harnessProfileScopeRoot(profile, roots));
 
-/** The settings-chain defaults: the workspace's `harnessDefaults`, then the global one. */
-export const harnessDefaultsFor = (change: Change): { readonly user: string; readonly subagents: string } => {
-  const defaults = settingsOf(workspaceOf(change)).harnessDefaults ?? {};
+/** The defaults exactly as the settings chain stores them: absent means "not configured". */
+export const configuredHarnessProfileDefaults = (
+  change: Change,
+): {
+  readonly user?: string;
+  readonly subagents?: string;
+} => {
+  const defaults = settingsOf(workspaceOf(change)).harnessProfileDefaults ?? {};
   return {
-    user: defaults.user ?? DEFAULT_HARNESS_KEY,
-    subagents: defaults.subagents ?? DEFAULT_HARNESS_KEY,
+    ...(defaults.user === undefined ? {} : { user: defaults.user }),
+    ...(defaults.subagents === undefined ? {} : { subagents: defaults.subagents }),
   };
 };
 
-export const harnessSelectionFor = (change: Change): HarnessSelectionDto => {
-  const defaults = harnessDefaultsFor(change);
+/** The defaults in effect: the configured values, or the built-in `pi` profile. */
+export const harnessProfileDefaultsFor = (
+  change: Change,
+): {
+  readonly user: string;
+  readonly subagents: string;
+} => {
+  const defaults = configuredHarnessProfileDefaults(change);
   return {
-    ...(change.userHarness === undefined ? {} : { userHarness: change.userHarness }),
-    ...(change.subagentHarness === undefined ? {} : { subagentHarness: change.subagentHarness }),
+    user: defaults.user ?? DEFAULT_HARNESS_PROFILE_KEY,
+    subagents: defaults.subagents ?? DEFAULT_HARNESS_PROFILE_KEY,
+  };
+};
+
+export const harnessProfileSelectionFor = (change: Change): HarnessProfileSelectionDto => {
+  const defaults = harnessProfileDefaultsFor(change);
+  return {
+    ...(change.userHarnessProfile === undefined ? {} : { userHarnessProfile: change.userHarnessProfile }),
+    ...(change.subagentHarnessProfile === undefined
+      ? {}
+      : { subagentHarnessProfile: change.subagentHarnessProfile }),
     userDefault: defaults.user,
     subagentDefault: defaults.subagents,
   };
 };
 
 /** The key a pane of this kind starts: the change's selector, else the default. */
-export const selectedHarnessKey = (change: Change, kind: HarnessKind): string => {
-  const defaults = harnessDefaultsFor(change);
+export const selectedHarnessProfileKey = (change: Change, kind: HarnessProfileKind): string => {
+  const defaults = harnessProfileDefaultsFor(change);
   return kind === "user"
-    ? (change.userHarness ?? defaults.user)
-    : (change.subagentHarness ?? defaults.subagents);
+    ? (change.userHarnessProfile ?? defaults.user)
+    : (change.subagentHarnessProfile ?? defaults.subagents);
 };
 
 export const resolveSelection = (
   change: Change,
-  discovery: HarnessDiscovery,
-  kind: HarnessKind,
-): Result.Result<ResolvedHarness, HarnessResolutionError> =>
-  resolveHarnessByKey(discovery, selectedHarnessKey(change, kind));
+  discovery: HarnessProfileDiscovery,
+  kind: HarnessProfileKind,
+): Result.Result<ResolvedHarnessProfile, HarnessProfileResolutionError> =>
+  resolveHarnessProfileByKey(discovery, selectedHarnessProfileKey(change, kind));
 
-/** Resolve a subagent's harness: its pinned key when it has one, otherwise the profile's id (or,
- * for a record from before either existed, its stored agent's built-in id). The profile's harness
- * fields overlay the named harness. */
-export const resolveSubagentHarness = (
-  discovery: HarnessDiscovery,
-  input: {
-    readonly pinnedKey?: string;
-    readonly profileHarness?: string;
-    /** The change's `subagentHarness`, when the profile names none. */
-    readonly changeKey?: string;
-    /** The workspace/global subagent default key. */
-    readonly defaultKey?: string;
-    readonly agent?: string;
-    readonly overlay?: Parameters<typeof resolveHarness>[2];
-  },
-): Result.Result<ResolvedHarness, HarnessResolutionError> => {
-  if (input.pinnedKey !== undefined) return resolveHarnessByKey(discovery, input.pinnedKey, input.overlay);
-  if (input.profileHarness !== undefined)
-    return resolveHarness(discovery, input.profileHarness, input.overlay);
-  if (input.changeKey !== undefined) return resolveHarnessByKey(discovery, input.changeKey, input.overlay);
-  if (input.defaultKey !== undefined) return resolveHarnessByKey(discovery, input.defaultKey, input.overlay);
-  return resolveHarness(discovery, input.agent ?? "pi", input.overlay);
+/** A subagent's harness profile, and why it is that one. */
+export type SubagentHarnessProfileDecision = {
+  readonly resolved: ResolvedHarnessProfile;
+  readonly source: HarnessProfileSource;
+  /** Why the program's built-in profile answered instead of the ambient default, when it did. */
+  readonly note?: string;
 };
 
-export const harnessErrorText = (error: HarnessResolutionError): string => describeHarnessError(error);
+const builtinKeyFor = (harness: Harness): string => `builtin:${harness}`;
+
+/** The built-in profile of the program a profile names, or the failure that sent us there. */
+const builtinFallback = (
+  discovery: HarnessProfileDiscovery,
+  harness: Harness,
+  overlay: ReturnType<typeof harnessProfileFieldsOf> | undefined,
+  original: HarnessProfileResolutionError,
+): Result.Result<ResolvedHarnessProfile, HarnessProfileResolutionError> => {
+  const fallback = resolveHarnessProfileByKey(discovery, builtinKeyFor(harness), overlay);
+  return Result.isFailure(fallback) ? Result.fail(original) : fallback;
+};
+
+/**
+ * Resolve the harness profile a subagent runs in, from what is known at creation and at reopen.
+ *
+ * - the record's pin wins, and its provenance is reported as stored;
+ * - otherwise the profile's own base, then the change's selector, then the settings default;
+ * - a default that runs a different program than the profile asks for is replaced by that
+ *   program's built-in profile, with a note;
+ * - a profile whose file is gone falls back to the record's program.
+ */
+export const resolveSubagentHarnessProfile = (input: {
+  readonly change: Change;
+  readonly discovery: HarnessProfileDiscovery;
+  /** The discovered profile, when its file is still there. */
+  readonly profile?: SubagentProfile;
+  /** The record's pin (`harnessProfileKey`). */
+  readonly pin?: string;
+  /** The provenance stored with the pin, so a reopen reports the same source. */
+  readonly pinSource?: HarnessProfileSource;
+  /** The program the record was created with, used when the profile file is gone. */
+  readonly program?: Harness;
+  /** The fields the profile overlays on the chosen harness profile. */
+  readonly overlay?: ReturnType<typeof harnessProfileFieldsOf>;
+}): Result.Result<SubagentHarnessProfileDecision, HarnessProfileResolutionError> => {
+  const { change, discovery, profile, pin, pinSource, program, overlay } = input;
+  if (pin !== undefined) {
+    const resolved = resolveHarnessProfileByKey(discovery, pin, overlay);
+    return Result.isFailure(resolved)
+      ? Result.fail(resolved.failure)
+      : Result.succeed({ resolved: resolved.success, source: pinSource ?? "profile" });
+  }
+
+  if (profile?.basedOnHarnessProfile !== undefined) {
+    const resolved = resolveHarnessProfile(discovery, profile.basedOnHarnessProfile, overlay);
+    return Result.isFailure(resolved)
+      ? Result.fail(resolved.failure)
+      : Result.succeed({ resolved: resolved.success, source: "profile" });
+  }
+
+  if (change.subagentHarnessProfile !== undefined) {
+    const resolved = resolveHarnessProfileByKey(discovery, change.subagentHarnessProfile, overlay);
+    return Result.isFailure(resolved)
+      ? Result.fail(resolved.failure)
+      : Result.succeed({ resolved: resolved.success, source: "change" });
+  }
+
+  const configured = configuredHarnessProfileDefaults(change).subagents;
+  const wanted = profile?.harness ?? program;
+  if (configured !== undefined) {
+    const resolved = resolveHarnessProfileByKey(discovery, configured, overlay);
+    if (Result.isSuccess(resolved)) {
+      // A chain that cannot take the profile's program is the default's business, not the
+      // profile's: answer with the built-in for the program it asked for.
+      return Result.succeed({ resolved: resolved.success, source: "default" });
+    }
+    if (wanted !== undefined && resolved.failure.kind === "harness-switch") {
+      return Result.map(builtinFallback(discovery, wanted, overlay, resolved.failure), (fallback) => ({
+        resolved: fallback,
+        source: "default" as const,
+        note: `default harness profile "${configured}" runs a different harness; "${builtinKeyFor(
+          wanted,
+        )}" answers instead`,
+      }));
+    }
+    return Result.fail(resolved.failure);
+  }
+
+  // Nothing configured: the built-in pi profile, unless the profile names another program.
+  if (wanted !== undefined && wanted !== "pi") {
+    return Result.map(
+      builtinFallback(discovery, wanted, overlay, {
+        kind: "unknown-harness-profile",
+        id: builtinKeyFor(wanted),
+        chain: [builtinKeyFor(wanted)],
+      }),
+      (fallback) => ({
+        resolved: fallback,
+        source: "default" as const,
+        note: `no subagent default is configured; "${builtinKeyFor(wanted)}" answers instead`,
+      }),
+    );
+  }
+  const pi = resolveHarnessProfileByKey(discovery, DEFAULT_HARNESS_PROFILE_KEY, overlay);
+  return Result.map(pi, (resolved) => ({ resolved, source: "default" as const }));
+};
+
+export const harnessProfileErrorText = (error: HarnessProfileResolutionError): string =>
+  describeHarnessProfileError(error);
+
+/** The overlay a record's profile contributes, when its file is still discovered. */
+export const overlayOfProfile = (
+  profile: SubagentProfile | undefined,
+): ReturnType<typeof harnessProfileFieldsOf> | undefined =>
+  profile === undefined ? undefined : harnessProfileFieldsOf(profile);
+
+/** One subagent record's resolution inputs: its pin, its program, and its profile. */
+export const subagentRecordHarnessInput = (
+  record: Pick<SubagentRecord, "harnessProfileKey" | "harness" | "harnessProfileFrom">,
+): {
+  readonly pin?: string;
+  readonly pinSource?: HarnessProfileSource;
+  readonly program: Harness;
+} => ({
+  ...(record.harnessProfileKey === undefined ? {} : { pin: record.harnessProfileKey }),
+  ...(record.harnessProfileFrom === undefined ? {} : { pinSource: record.harnessProfileFrom }),
+  program: record.harness,
+});

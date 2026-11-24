@@ -62,14 +62,17 @@ test("a change's harness selectors are patched and cleared through the record ro
     return (await answer.json()) as Record<string, unknown>;
   };
 
-  const selected = await patch({ userHarness: "global:review-env", subagentHarness: "global:worker" });
-  expect(selected.userHarness).toBe("global:review-env");
-  expect(selected.subagentHarness).toBe("global:worker");
+  const selected = await patch({
+    userHarnessProfile: "global:review-env",
+    subagentHarnessProfile: "global:worker",
+  });
+  expect(selected.userHarnessProfile).toBe("global:review-env");
+  expect(selected.subagentHarnessProfile).toBe("global:worker");
 
   // "Default" is null: the key is stored as nothing, so later default changes still apply.
-  const cleared = await patch({ userHarness: null, subagentHarness: "" });
-  expect(cleared.userHarness).toBeUndefined();
-  expect(cleared.subagentHarness).toBeUndefined();
+  const cleared = await patch({ userHarnessProfile: null, subagentHarnessProfile: "" });
+  expect(cleared.userHarnessProfile).toBeUndefined();
+  expect(cleared.subagentHarnessProfile).toBeUndefined();
 });
 
 test("a change is created with its harness selectors in one write", async () => {
@@ -80,14 +83,14 @@ test("a change is created with its harness selectors in one write", async () => 
     body: JSON.stringify({
       id,
       state: "Ideation",
-      userHarness: "global:review-env",
-      subagentHarness: "builtin:pi-bare",
+      userHarnessProfile: "global:review-env",
+      subagentHarnessProfile: "builtin:pi-bare",
     }),
   });
   expect(created.status).toBe(201);
   const read = await fetch(`${url}/api/changes/${id}`);
   expect(read.status).toBe(200);
-  const record = (await read.json()) as { userHarness?: string; subagentHarness?: string };
-  expect(record.userHarness).toBe("global:review-env");
-  expect(record.subagentHarness).toBe("builtin:pi-bare");
+  const record = (await read.json()) as { userHarnessProfile?: string; subagentHarnessProfile?: string };
+  expect(record.userHarnessProfile).toBe("global:review-env");
+  expect(record.subagentHarnessProfile).toBe("builtin:pi-bare");
 });

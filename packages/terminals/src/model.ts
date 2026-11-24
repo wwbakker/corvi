@@ -75,7 +75,7 @@ export type NewWindowOptions = {
   readonly intent?: "activate" | "background";
   /** Where the change env is seeded from when `cwd` is a checkout: the change's own directory. */
   readonly envDir?: string;
-  /** The harness key this window's environment was generated for. */
+  /** The harness profile key this window's environment was generated for. */
   readonly harness?: string;
   /** Extra environment for the window's panes, merged over the change's own. */
   readonly env?: Record<string, string>;

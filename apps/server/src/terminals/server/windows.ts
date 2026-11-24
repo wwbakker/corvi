@@ -397,13 +397,13 @@ type HostWindowOptions = {
   readonly envDir?: string;
   readonly env?: Record<string, string>;
   readonly metadata?: Record<string, string>;
-  /** The harness key this pane was generated for. */
+  /** The harness profile key this pane was generated for. */
   readonly harness?: string;
 };
 
-/** What a pane's shell starts with: the generated environment and harness key, or the reason the
+/** What a pane's shell starts with: the generated environment and harness profile key, or the reason the
  * harness could not be resolved. */
-export type HarnessPane = {
+export type EnvironmentPane = {
   readonly env?: Record<string, string>;
   readonly harness?: string;
   readonly warning?: string;
@@ -412,7 +412,7 @@ export type HarnessPane = {
 /** Resolve a pane's harness when — and only when — a window is actually being created. The
  * provider runs under the registry lock, so the environment and the record that names it cannot
  * disagree. */
-export type HarnessPaneProvider = () => Promise<HarnessPane>;
+export type EnvironmentPaneProvider = () => Promise<EnvironmentPane>;
 
 /** Open a host window running `command` (or a shell). `intent` decides whether it takes the
  * active flag or leaves it. Caller holds the registry lock. */
@@ -487,7 +487,7 @@ const openShellWindow = async (
   changeRoot: string,
   size: { readonly cols: number; readonly rows: number },
   here?: string,
-  pane?: HarnessPaneProvider,
+  pane?: EnvironmentPaneProvider,
 ): Promise<WindowRecord> => {
   const resolved = pane === undefined ? {} : await pane();
   const id = await openHostWindow(
@@ -514,7 +514,7 @@ export const newWindowAsync = (
   changeId: string,
   dir: string,
   size: { readonly cols: number; readonly rows: number } = { cols: 80, rows: 24 },
-  pane?: HarnessPaneProvider,
+  pane?: EnvironmentPaneProvider,
   changeRoot?: string,
 ): Promise<WindowRecord> =>
   withRegistryLock(() =>
@@ -543,7 +543,7 @@ export const newWindowHereAsync = (
   changeId: string,
   fallbackDir: string,
   size: { readonly cols: number; readonly rows: number } = { cols: 80, rows: 24 },
-  pane?: HarnessPaneProvider,
+  pane?: EnvironmentPaneProvider,
 ): Promise<WindowRecord> =>
   withRegistryLock(async () =>
     openShellWindow(changeId, fallbackDir, size, await hereIn(changeId, fallbackDir), pane),
@@ -744,7 +744,7 @@ export const splitPaneAsync = (
   changeId: string,
   windowId: string,
   direction: "right" | "down",
-  pane?: HarnessPaneProvider,
+  pane?: EnvironmentPaneProvider,
 ): Promise<string> =>
   withRegistryLock(async () => {
     void direction;
@@ -876,7 +876,7 @@ export const ensureActiveHostWindowAsync = (
   changeId: string,
   dir: string,
   size: { readonly cols: number; readonly rows: number },
-  pane?: HarnessPaneProvider,
+  pane?: EnvironmentPaneProvider,
 ): Promise<string> =>
   withRegistryLock(async () => {
     const records = await listRecords(changeId);
@@ -941,7 +941,7 @@ export const allWindows = (): Effect.Effect<Record<string, PresentedWindow[]>, C
 export const newWindow = (
   changeId: string,
   dir: string,
-  pane?: HarnessPaneProvider,
+  pane?: EnvironmentPaneProvider,
   changeRoot?: string,
 ): Effect.Effect<string, CommandFailure> =>
   Effect.tryPromise({
@@ -952,7 +952,7 @@ export const newWindow = (
 export const newWindowHere = (
   changeId: string,
   dir: string,
-  pane?: HarnessPaneProvider,
+  pane?: EnvironmentPaneProvider,
 ): Effect.Effect<string, CommandFailure> =>
   Effect.tryPromise({
     try: async () => (await newWindowHereAsync(changeId, dir, undefined, pane)).activePane,
@@ -963,7 +963,7 @@ export const ensureActiveHostWindow = (
   changeId: string,
   dir: string,
   size: { readonly cols: number; readonly rows: number },
-  pane?: HarnessPaneProvider,
+  pane?: EnvironmentPaneProvider,
 ): Effect.Effect<string, CommandFailure> =>
   Effect.tryPromise({ try: () => ensureActiveHostWindowAsync(changeId, dir, size, pane), catch: asFailure });
 
@@ -984,7 +984,7 @@ export const splitPane = (
   changeId: string,
   windowId: string,
   direction: "right" | "down",
-  pane?: HarnessPaneProvider,
+  pane?: EnvironmentPaneProvider,
 ): Effect.Effect<string, CommandFailure> =>
   Effect.tryPromise({
     try: () => splitPaneAsync(changeId, windowId, direction, pane),

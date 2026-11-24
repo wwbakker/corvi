@@ -149,7 +149,7 @@ export function Sidebar({
   actions: boolean;
   /** The core's own Harnesses page: the named Pi environments. */
   onHarnesses: () => void;
-  /** Whether the Harnesses page is the one open. */
+  /** Whether the Harness profiles page is the one open. */
   harnesses: boolean;
   /** The core's own Subagents page: the profile files behind the subagent menu. */
   onSubagents: () => void;
@@ -203,7 +203,7 @@ export function Sidebar({
   const railRef = useRef<HTMLSpanElement>(null);
   const workspaceRef = useRef<HTMLButtonElement>(null);
   const actionsRef = useRef<HTMLButtonElement>(null);
-  const harnessesRef = useRef<HTMLButtonElement>(null);
+  const harnessProfilesRef = useRef<HTMLButtonElement>(null);
   const subagentsRef = useRef<HTMLButtonElement>(null);
   const pageRefs = useRef(new Map<string, HTMLButtonElement>());
   const settingsRef = useRef<HTMLButtonElement>(null);
@@ -371,7 +371,7 @@ export function Sidebar({
       },
       { kind: "target", element: workspaceRef.current, keep: true, align: "rail" },
       { kind: "target", element: actionsRef.current, align: "rail" },
-      { kind: "target", element: harnessesRef.current, align: "rail" },
+      { kind: "target", element: harnessProfilesRef.current, align: "rail" },
       { kind: "target", element: subagentsRef.current, align: "rail" },
       ...pages.map((p) => ({
         kind: "target" as const,
@@ -502,11 +502,15 @@ export function Sidebar({
         </span>
         <span className="label">Actions</span>
       </button>
-      <button ref={harnessesRef} className={`entry${harnesses ? " current" : ""}`} onClick={onHarnesses}>
+      <button
+        ref={harnessProfilesRef}
+        className={`entry${harnesses ? " current" : ""}`}
+        onClick={onHarnesses}
+      >
         <span className="ic" aria-hidden="true">
-          <HarnessIcon title="harnesses" />
+          <HarnessIcon title="harness profiles" />
         </span>
-        <span className="label">Harnesses</span>
+        <span className="label">Harness profiles</span>
       </button>
       <button ref={subagentsRef} className={`entry${subagents ? " current" : ""}`} onClick={onSubagents}>
         <span className="ic" aria-hidden="true">

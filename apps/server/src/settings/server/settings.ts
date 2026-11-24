@@ -113,15 +113,15 @@ export function problems(next: Settings): string[] {
     if (duplicates.length) at(`"${duplicates[0]}" is named twice`);
 
     // Hand-edited defaults: each kind is a discovery key (`global:review-env`), or absent.
-    const defaults: unknown = scope.harnessDefaults;
+    const defaults: unknown = scope.harnessProfileDefaults;
     if (defaults !== undefined) {
       if (typeof defaults !== "object" || defaults === null || Array.isArray(defaults)) {
-        at("harnessDefaults must be an object with user and subagents keys");
+        at("harnessProfileDefaults must be an object with user and subagents keys");
       } else {
         for (const kind of ["user", "subagents"] as const) {
           const value = (defaults as { readonly [key: string]: unknown })[kind];
           if (value !== undefined && (typeof value !== "string" || value.trim() === "")) {
-            at(`harnessDefaults.${kind} must be a harness key`);
+            at(`harnessProfileDefaults.${kind} must be a harness profile key`);
           }
         }
       }

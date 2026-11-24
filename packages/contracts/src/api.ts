@@ -94,12 +94,14 @@ export const ChangeWireSchema = Schema.Struct({
   /** How many times the record has been written; absent on records written before revisioning,
    * which count as 0. Used for the lifecycle's optimistic concurrency check. */
   revision: Schema.optional(Schema.Number),
-  /** The harness this change's user panes start, as a discovery key (`global:review-env`).
-   * Absent means the workspace default, then the global default, then the built-in `pi`. */
-  userHarness: Schema.optional(Schema.String),
-  /** The harness a new subagent starts when its profile does not name one, as a discovery key.
-   * Absent means the workspace default, then the global default, then the built-in `pi`. */
-  subagentHarness: Schema.optional(Schema.String),
+  /** The harness profile this change's user panes start, as a discovery key
+   * (`global:review-env`). Absent means the workspace default, then the global default, then the
+   * built-in `pi`. */
+  userHarnessProfile: Schema.optional(Schema.String),
+  /** The harness profile a new subagent starts when its own profile does not name one, as a
+   * discovery key. Absent means the workspace default, then the global default, then the built-in
+   * `pi`. */
+  subagentHarnessProfile: Schema.optional(Schema.String),
   /** The record format's version. A record without it is read as the current shape; a record
    * from a newer Corvi is read best-effort and never written. */
   formatVersion: Schema.optional(Schema.Number),
@@ -341,7 +343,7 @@ export const TerminalWindowSchema = Schema.Struct({
   panes: Schema.Array(Schema.String),
   /** The focused pane's session id. */
   activePane: Schema.String,
-  /** The harness key this window's environment belongs to, when it has one. */
+  /** The harness profile key this window's environment belongs to, when it has one. */
   harness: Schema.optional(Schema.String),
   /** The full directory the active pane's shell is in now. */
   cwd: Schema.optional(Schema.String),
@@ -472,9 +474,10 @@ export const CreateChangeBodySchema = Schema.Struct({
   workspace: Schema.optional(Schema.String),
   state: Schema.optional(ChangeStateSchema),
   extensions: Schema.optional(Schema.Record(Schema.String, Schema.mutableKey(Schema.Unknown))),
-  /** The harness this change's shell panes start, and the one new subagents fall back to. */
-  userHarness: Schema.optional(Schema.String),
-  subagentHarness: Schema.optional(Schema.String),
+  /** The harness profile this change's shell panes start, and the one new subagents fall back
+   * to. */
+  userHarnessProfile: Schema.optional(Schema.String),
+  subagentHarnessProfile: Schema.optional(Schema.String),
   plan: Schema.optional(Schema.String),
 });
 export type CreateChangeBodyDto = typeof CreateChangeBodySchema.Type;

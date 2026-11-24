@@ -12,7 +12,7 @@ export type FileRoots = {
   readonly global: string;
   readonly workspaces: readonly { readonly id: string; readonly label: string; readonly dir: string }[];
   readonly repositories: readonly { readonly name: string; readonly dir: string }[];
-  /** The scope roots a relative `include`/`exclude` path resolves against, as a harness file
+  /** The scope roots a relative `include`/`exclude` path resolves against, as a harness profile file
    * means it: the config directory, a workspace's config directory, a checkout root. */
   readonly bases: {
     readonly global: string;

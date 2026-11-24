@@ -25,7 +25,7 @@ const globalConfig: Config = {
   contextMenu: true,
   ideationPrompt: "global prompt",
   planTemplate: "global template",
-  harnessDefaults: { user: "global:review", subagents: "global:worker" },
+  harnessProfileDefaults: { user: "global:review", subagents: "global:worker" },
   worktreeCopy: [".global"],
   extensions: ["jira"],
   extensionSettings: { jira: { project: "GLOBAL" } },
@@ -111,15 +111,15 @@ test("an environment variable wins at every scope, and locks the field everywher
 test("harness defaults merge per kind: a workspace naming one keeps the other's global value", () => {
   const applied = settingsFor(
     globalConfig,
-    workspaceOf({ harnessDefaults: { user: "workspace:review" } }),
+    workspaceOf({ harnessProfileDefaults: { user: "workspace:review" } }),
     ENV_OVERRIDES,
   );
-  expect(applied.harnessDefaults).toEqual({
+  expect(applied.harnessProfileDefaults).toEqual({
     user: "workspace:review",
     subagents: "global:worker",
   });
-  expect(settingsFor(globalConfig, workspaceOf({}), ENV_OVERRIDES).harnessDefaults).toEqual(
-    globalConfig.harnessDefaults,
+  expect(settingsFor(globalConfig, workspaceOf({}), ENV_OVERRIDES).harnessProfileDefaults).toEqual(
+    globalConfig.harnessProfileDefaults,
   );
 });
 

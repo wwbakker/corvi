@@ -1,12 +1,12 @@
-/** One harness file being edited: the Markdown source, its field documentation, and the resolved
+/** One harness profile file being edited: the Markdown source, its field documentation, and the resolved
  * environment for a change beside it. */
 import { type JSX } from "react";
-import type { HarnessFileDto } from "@corvi/contracts/harnesses";
+import type { HarnessProfileFileDto } from "@corvi/contracts/harness-profiles";
 
 import { FileEditor } from "../app-root/FileEditor.tsx";
-import { HarnessDocs } from "./HarnessDocs.tsx";
+import { HarnessProfileDocs } from "./HarnessProfileDocs.tsx";
 
-export function HarnessEditor({
+export function HarnessProfileEditor({
   file,
   draft,
   notice,
@@ -15,7 +15,7 @@ export function HarnessEditor({
   onCancel,
   onDelete,
 }: {
-  file: HarnessFileDto;
+  file: HarnessProfileFileDto;
   draft: string;
   notice: string | null;
   onDraft: (text: string) => void;
@@ -33,9 +33,9 @@ export function HarnessEditor({
       onCancel={onCancel}
       onDelete={onDelete}
       documentName="harness"
-      placeholder="YAML frontmatter for the environment (label, harness, agent, model, effort, instructions, sections), the body for notes."
+      placeholder="YAML frontmatter for the environment (label, harness, basedOnHarnessProfile, model, effort, instructions, sections), the body for notes."
       docsKey="corvi:harnesses-docs"
-      Docs={HarnessDocs}
+      Docs={HarnessProfileDocs}
     />
   );
 }

@@ -1,35 +1,39 @@
-/** The harness server's public face: the change's selection and resolved views, the pane
+/** The harness-profile server's public face: the change's selection and resolved views, the pane
  * environments, the file operations and the cleanup. */
 export {
-  DEFAULT_HARNESS_KEY,
-  harnessDefaultsFor,
-  harnessDiscoveryFor,
-  harnessRootsFor,
-  harnessScopeBaseFor,
-  harnessSelectionFor,
-  harnessScopeRootsFor,
+  DEFAULT_HARNESS_PROFILE_KEY,
+  configuredHarnessProfileDefaults,
+  harnessProfileDefaultsFor,
+  harnessProfileDiscoveryFor,
+  harnessProfileRootsFor,
+  harnessProfileScopeBaseFor,
+  harnessProfileSelectionFor,
+  harnessProfileScopeRootsFor,
   resolveSelection,
-  resolveSubagentHarness,
-  selectedHarnessKey,
-  type HarnessKind,
+  resolveSubagentHarnessProfile,
+  selectedHarnessProfileKey,
+  subagentRecordHarnessInput,
+  type HarnessProfileKind,
+  type HarnessProfileSource,
+  type SubagentHarnessProfileDecision,
 } from "./selection.ts";
-export { harnessListFor } from "./views.ts";
+export { harnessProfilesFor } from "./views.ts";
 export {
-  harnessLaunchByKey,
+  harnessProfileLaunchByKey,
   harnessWindowCommand,
   openHarnessWindow,
-  subagentHarnessLaunch,
-  userHarnessLaunch,
+  subagentHarnessProfileLaunch,
+  userHarnessProfileLaunch,
   warningsLineOf,
   withWarningsLine,
-  type HarnessLaunch,
+  type EnvironmentLaunch,
 } from "./env.ts";
 export {
-  deleteHarnessFile,
-  deleteRepositoryHarnessFile,
-  harnessFiles,
-  repositoryHarnessFiles,
-  writeHarnessFile,
-  writeRepositoryHarnessFile,
+  deleteHarnessProfileFile,
+  deleteRepositoryHarnessProfileFile,
+  harnessProfileFiles,
+  repositoryHarnessProfileFiles,
+  writeHarnessProfileFile,
+  writeRepositoryHarnessProfileFile,
 } from "./files.ts";
-export { removeHarnessState } from "./cleanup.ts";
+export { removeEnvironmentState } from "./cleanup.ts";

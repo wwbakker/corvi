@@ -68,7 +68,7 @@ export function NewTerminalDialog({
     // list knows it, and a stored "Change default" (empty key) is a real remembered choice.
     Promise.all([
       client.changes.checkouts(changeId).catch(() => []),
-      client.harnesses.summaries(changeId).catch((error: Error) => {
+      client.harnessProfiles.summaries(changeId).catch((error: Error) => {
         setError(error.message);
         return null;
       }),
@@ -76,13 +76,13 @@ export function NewTerminalDialog({
       setDirectories(repos.map((repo) => ({ path: repo.checkoutLocation, label: repo.checkoutLocation })));
       if (listed === null) return;
       setHarnesses(
-        listed.harnesses.map((one) => ({
+        listed.harnessProfiles.map((one) => ({
           key: one.key,
-          label: `${one.label} (${one.agent ?? "?"})`,
+          label: `${one.label} (${one.harness ?? "?"})`,
           ...(one.problem === undefined ? {} : { problem: one.problem }),
         })),
       );
-      setUserDefault(listed.selection.userHarness ?? listed.selection.userDefault);
+      setUserDefault(listed.selection.userHarnessProfile ?? listed.selection.userDefault);
       const storedDirectory = getPref(LAST_DIR);
       if (
         storedDirectory !== undefined &&
@@ -93,10 +93,10 @@ export function NewTerminalDialog({
         setDirectory("current");
       }
       const storedHarness = getPref(LAST_HARNESS);
-      const fallback = listed.selection.userHarness ?? listed.selection.userDefault;
+      const fallback = listed.selection.userHarnessProfile ?? listed.selection.userDefault;
       if (
         storedHarness === undefined ||
-        (storedHarness !== "" && !listed.harnesses.some((one) => one.key === storedHarness))
+        (storedHarness !== "" && !listed.harnessProfiles.some((one) => one.key === storedHarness))
       ) {
         setHarness(fallback);
       }
@@ -123,8 +123,8 @@ export function NewTerminalDialog({
               directory: target,
             })
           : (
-              await client.harnesses.openWindow(ChangeId.make(change.id), {
-                harness: harness === "" ? userDefault : harness,
+              await client.harnessProfiles.openWindow(ChangeId.make(change.id), {
+                harnessProfile: harness === "" ? userDefault : harness,
                 directory: target,
               })
             ).windows;
@@ -190,7 +190,7 @@ export function NewTerminalDialog({
         >
           {keysShown && <kbd>1</kbd>}
           <strong>Shell</strong>
-          <span className="hint">a shell with the change&apos;s user harness</span>
+          <span className="hint">a shell with the change&apos;s user harness profile</span>
         </button>
         <button
           type="button"
@@ -201,8 +201,10 @@ export function NewTerminalDialog({
           onDoubleClick={() => void start("harness")}
         >
           {keysShown && <kbd>2</kbd>}
-          <strong>Harness</strong>
-          <span className="hint">start Pi with a harness, in a new window named after it</span>
+          <strong>Harness profile</strong>
+          <span className="hint">
+            start the program with a harness profile, in a new window named after it
+          </span>
         </button>
       </div>
       <div className="form">
@@ -225,9 +227,9 @@ export function NewTerminalDialog({
           </select>
         </label>
         <label>
-          <span>Harness</span>
+          <span>Harness profile</span>
           <select
-            aria-label="terminal harness"
+            aria-label="terminal harness profile"
             value={harness}
             disabled={kind !== "harness"}
             onChange={(event) => setHarness(event.target.value)}

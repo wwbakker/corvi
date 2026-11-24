@@ -93,8 +93,8 @@ const PatchBody = Schema.Struct({
   state: Schema.optional(ChangeStateSchema),
   title: Schema.optional(Schema.String),
   // The harness selectors: absent leaves the choice alone, null is "Default" (store nothing).
-  userHarness: Schema.optional(Schema.NullOr(Schema.String)),
-  subagentHarness: Schema.optional(Schema.NullOr(Schema.String)),
+  userHarnessProfile: Schema.optional(Schema.NullOr(Schema.String)),
+  subagentHarnessProfile: Schema.optional(Schema.NullOr(Schema.String)),
 });
 
 export const changeRoutes = guard({
@@ -319,23 +319,26 @@ export const patchChange = (
   body: {
     state?: string;
     title?: string;
-    userHarness?: string | null;
-    subagentHarness?: string | null;
+    userHarnessProfile?: string | null;
+    subagentHarnessProfile?: string | null;
   },
 ): Effect.Effect<Change, CorviError> =>
   Effect.gen(function* () {
     // Naming the phase the change is already in is a no-op, and so is an empty body: either would
     // otherwise bump the revision and let the stamp below run for nothing.
     const stateChanges = body.state !== undefined && body.state !== (observed.state ?? "Implementation");
-    const harnessChanges = body.userHarness !== undefined || body.subagentHarness !== undefined;
-    if (!stateChanges && body.title === undefined && !harnessChanges) return observed;
+    const harnessProfileChanges =
+      body.userHarnessProfile !== undefined || body.subagentHarnessProfile !== undefined;
+    if (!stateChanges && body.title === undefined && !harnessProfileChanges) return observed;
     const updated = yield* Effect.try({
       try: () =>
         applyPatch(observed, {
           ...(stateChanges ? { state: body.state } : {}),
           ...(body.title === undefined ? {} : { title: body.title }),
-          ...(body.userHarness === undefined ? {} : { userHarness: body.userHarness }),
-          ...(body.subagentHarness === undefined ? {} : { subagentHarness: body.subagentHarness }),
+          ...(body.userHarnessProfile === undefined ? {} : { userHarnessProfile: body.userHarnessProfile }),
+          ...(body.subagentHarnessProfile === undefined
+            ? {}
+            : { subagentHarnessProfile: body.subagentHarnessProfile }),
         }),
       catch: changeError,
     });

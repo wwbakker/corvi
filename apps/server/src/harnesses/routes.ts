@@ -1,34 +1,34 @@
-/** The Harnesses page's routes: the files the page edits, the resolved views beside them, and the
- * new-terminal dialog's harness window. */
+/** The Harness profiles page's routes: the files the page edits, the resolved views beside
+ * them, and the new-terminal dialog's harness window. */
 import { isAbsolute } from "node:path";
 import { Effect } from "effect";
 
 import {
-  HarnessFileRefSchema,
-  HarnessFileWriteSchema,
-  HarnessRepositoryFileRefSchema,
-  HarnessRepositoryFileWriteSchema,
+  HarnessProfileFileRefSchema,
+  HarnessProfileFileWriteSchema,
+  HarnessProfileRepositoryFileRefSchema,
+  HarnessProfileRepositoryFileWriteSchema,
   OpenHarnessWindowSchema,
-} from "@corvi/contracts/harnesses";
+} from "@corvi/contracts/harness-profiles";
 import { BadRequestError } from "@corvi/contracts/errors";
 import { bodyAs, guard, json, queryAs, withChange } from "../capabilities/web.ts";
 import { runtimeConfig } from "../workspace/server/index.ts";
 import { runRoute } from "../capabilities/effect/run.ts";
 import {
-  deleteHarnessFile,
-  deleteRepositoryHarnessFile,
-  harnessFiles,
-  repositoryHarnessFiles,
-  writeHarnessFile,
-  writeRepositoryHarnessFile,
+  deleteHarnessProfileFile,
+  deleteRepositoryHarnessProfileFile,
+  harnessProfileFiles,
+  repositoryHarnessProfileFiles,
+  writeHarnessProfileFile,
+  writeRepositoryHarnessProfileFile,
 } from "./server/files.ts";
-import { harnessListFor } from "./server/views.ts";
+import { harnessProfilesFor } from "./server/views.ts";
 import { openHarnessWindow } from "./server/env.ts";
 import { listWindows } from "../terminals/server/index.ts";
-import { harnessChoices } from "./server/choices.ts";
+import { harnessProfileChoices } from "./server/choices.ts";
 
-export const harnessRoutes = guard({
-  "/api/harnesses": {
+export const harnessProfileRoutes = guard({
+  "/api/harness-profiles": {
     GET: (req) => {
       const params = new URL(req.url).searchParams;
       const workspace = params.get("workspace") ?? undefined;
@@ -47,7 +47,7 @@ export const harnessRoutes = guard({
       }
       return runRoute(
         Effect.map(
-          harnessChoices({
+          harnessProfileChoices({
             ...(workspace === undefined ? {} : { workspace }),
             repositories,
             trackedRepositories,
@@ -58,46 +58,51 @@ export const harnessRoutes = guard({
     },
   },
 
-  "/api/harness-files": {
-    GET: () => runRoute(Effect.map(harnessFiles(), json)),
+  "/api/harness-profile-files": {
+    GET: () => runRoute(Effect.map(harnessProfileFiles(), json)),
     PUT: (req) =>
       runRoute(
         Effect.gen(function* () {
-          return json(yield* writeHarnessFile(yield* bodyAs(req, HarnessFileWriteSchema)));
+          return json(yield* writeHarnessProfileFile(yield* bodyAs(req, HarnessProfileFileWriteSchema)));
         }),
       ),
     DELETE: (req) =>
       runRoute(
         Effect.gen(function* () {
-          const ref = yield* queryAs(req, HarnessFileRefSchema, "scope and id are required");
-          return json(yield* deleteHarnessFile(ref));
+          const ref = yield* queryAs(req, HarnessProfileFileRefSchema, "scope and id are required");
+          return json(yield* deleteHarnessProfileFile(ref));
         }),
       ),
   },
 
-  "/api/changes/:id/harness-files": {
-    GET: (req) => withChange(req.params.id, (change) => Effect.map(repositoryHarnessFiles(change), json)),
+  "/api/changes/:id/harness-profile-files": {
+    GET: (req) =>
+      withChange(req.params.id, (change) => Effect.map(repositoryHarnessProfileFiles(change), json)),
     PUT: (req) =>
       withChange(req.params.id, (change) =>
         Effect.gen(function* () {
-          const body = yield* bodyAs(req, HarnessRepositoryFileWriteSchema);
-          return json(yield* writeRepositoryHarnessFile(change, body));
+          const body = yield* bodyAs(req, HarnessProfileRepositoryFileWriteSchema);
+          return json(yield* writeRepositoryHarnessProfileFile(change, body));
         }),
       ),
     DELETE: (req) =>
       withChange(req.params.id, (change) =>
         Effect.gen(function* () {
-          const ref = yield* queryAs(req, HarnessRepositoryFileRefSchema, "repository and id are required");
-          return json(yield* deleteRepositoryHarnessFile(change, ref));
+          const ref = yield* queryAs(
+            req,
+            HarnessProfileRepositoryFileRefSchema,
+            "repository and id are required",
+          );
+          return json(yield* deleteRepositoryHarnessProfileFile(change, ref));
         }),
       ),
   },
 
-  "/api/changes/:id/harnesses": {
+  "/api/changes/:id/harness-profiles": {
     GET: (req) =>
       withChange(req.params.id, (change) =>
         Effect.map(
-          harnessListFor(change, {
+          harnessProfilesFor(change, {
             views: new URL(req.url).searchParams.get("views") !== "0",
           }),
           json,

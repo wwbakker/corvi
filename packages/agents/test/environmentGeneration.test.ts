@@ -1,17 +1,17 @@
 import { expect, test } from "bun:test";
 
-import type { HarnessSection } from "../src/harnessFields.ts";
+import type { HarnessSection } from "../src/harnessProfileFields.ts";
 import {
   CORVI_EXTENSION_NAME,
-  generatedHarnessDir,
-  harnessScopeRoot,
+  generatedEnvironmentDir,
+  harnessProfileScopeRoot,
   packageNameOf,
-  planHarnessEnvironment,
+  planEnvironment,
   resolveOverlayPaths,
-  type HarnessBase,
-  type HarnessGenerationPlan,
-} from "../src/harnessGeneration.ts";
-import type { ResolvedHarness } from "../src/harnessDiscovery.ts";
+  type EnvironmentBase,
+  type EnvironmentGenerationPlan,
+} from "../src/environmentGeneration.ts";
+import type { ResolvedHarnessProfile } from "../src/harnessProfileDiscovery.ts";
 
 const section = (partial: Partial<HarnessSection> = {}): HarnessSection => ({
   include: [],
@@ -19,14 +19,14 @@ const section = (partial: Partial<HarnessSection> = {}): HarnessSection => ({
   ...partial,
 });
 
-const harnessOf = (overrides: {
+const harnessProfileOf = (overrides: {
   readonly key?: string;
   readonly id?: string;
-  readonly source?: ResolvedHarness["source"];
+  readonly source?: ResolvedHarnessProfile["source"];
   readonly origin?: string;
-  readonly agent?: ResolvedHarness["agent"];
-  readonly fields?: Partial<ResolvedHarness["fields"]>;
-}): ResolvedHarness => {
+  readonly harness?: ResolvedHarnessProfile["harness"];
+  readonly fields?: Partial<ResolvedHarnessProfile["fields"]>;
+}): ResolvedHarnessProfile => {
   const id = overrides.id ?? "review";
   const source = overrides.source ?? "global";
   const key = overrides.key ?? `${source}:${id}`;
@@ -36,7 +36,7 @@ const harnessOf = (overrides: {
     label: "Review",
     source,
     ...(overrides.origin === undefined ? {} : { origin: overrides.origin }),
-    agent: overrides.agent ?? "pi",
+    harness: overrides.harness ?? "pi",
     fields: {
       extensions: section(),
       skills: section(),
@@ -49,7 +49,7 @@ const harnessOf = (overrides: {
   };
 };
 
-const BASE: HarnessBase = {
+const BASE: EnvironmentBase = {
   paths: {
     agentDir: "/home/u/.pi/agent",
     extensionsDir: "/home/u/.pi/agent/extensions",
@@ -89,21 +89,21 @@ const BASE: HarnessBase = {
 };
 
 const plan = (
-  harness: ResolvedHarness,
-  overrides: { readonly base?: HarnessBase; readonly scopeBase?: string } = {},
-): HarnessGenerationPlan =>
-  planHarnessEnvironment({
-    harness,
+  harness: ResolvedHarnessProfile,
+  overrides: { readonly base?: EnvironmentBase; readonly scopeBase?: string } = {},
+): EnvironmentGenerationPlan =>
+  planEnvironment({
+    harnessProfile: harness,
     dir: "/state/harnesses/change/global/review",
     base: overrides.base ?? BASE,
     ...(overrides.scopeBase === undefined ? {} : { scopeBase: overrides.scopeBase }),
   });
 
-const settingsOf = (planned: HarnessGenerationPlan): Record<string, unknown> =>
+const settingsOf = (planned: EnvironmentGenerationPlan): Record<string, unknown> =>
   JSON.parse(planned.settingsJson) as Record<string, unknown>;
 
 test("mode all inherits the base directories, packages and MCP servers, and adds Corvi", () => {
-  const planned = plan(harnessOf({}));
+  const planned = plan(harnessProfileOf({}));
   const settings = settingsOf(planned);
   expect(settings["theme"]).toBe("dark");
   expect(settings["prompts"]).toEqual([
@@ -139,7 +139,7 @@ test("mode all inherits the base directories, packages and MCP servers, and adds
 });
 
 test("base settings resource entries are inherited, and builtin entries survive mode none", () => {
-  const base: HarnessBase = {
+  const base: EnvironmentBase = {
     ...BASE,
     settings: {
       ...BASE.settings,
@@ -147,7 +147,7 @@ test("base settings resource entries are inherited, and builtin entries survive 
       skills: ["./shared-skill"],
     },
   };
-  const all = plan(harnessOf({}), { base });
+  const all = plan(harnessProfileOf({}), { base });
   expect(settingsOf(all)["extensions"]).toEqual([
     "/home/u/.pi/agent/extra.ts",
     "-builtin:mcp",
@@ -161,7 +161,7 @@ test("base settings resource entries are inherited, and builtin entries survive 
   });
 
   const none = plan(
-    harnessOf({
+    harnessProfileOf({
       fields: { extensions: section({ mode: "none" }), skills: section({ mode: "none" }) },
     }),
     { base },
@@ -173,7 +173,7 @@ test("base settings resource entries are inherited, and builtin entries survive 
 
 test("mode none lists only what is included, plus Corvi and the included home skill", () => {
   const planned = plan(
-    harnessOf({
+    harnessProfileOf({
       fields: {
         extensions: section({ mode: "none" }),
         skills: section({ mode: "none", include: ["spiega"] }),
@@ -192,7 +192,7 @@ test("mode none lists only what is included, plus Corvi and the included home sk
 
 test("excluding a discovered item is shown, and removes it in mode all", () => {
   const planned = plan(
-    harnessOf({
+    harnessProfileOf({
       fields: {
         extensions: section({ exclude: ["noisy"] }),
         skills: section({ exclude: ["spiega", "mine"] }),
@@ -223,7 +223,7 @@ test("excluding a discovered item is shown, and removes it in mode all", () => {
 
 test("built-in extensions pass through as builtin: names, and an exclusion always applies", () => {
   const planned = plan(
-    harnessOf({
+    harnessProfileOf({
       fields: {
         extensions: section({
           mode: "none",
@@ -250,7 +250,7 @@ test("built-in extensions pass through as builtin: names, and an exclusion alway
 });
 
 test("a harness can exclude Corvi's extension, and the view says it did", () => {
-  const planned = plan(harnessOf({ fields: { extensions: section({ exclude: ["corvi"] }) } }));
+  const planned = plan(harnessProfileOf({ fields: { extensions: section({ exclude: ["corvi"] }) } }));
   expect(settingsOf(planned)["extensions"]).toEqual(["/home/u/.pi/agent/extensions"]);
   const corvi = planned.view.sections.extensions.items.find((item) => item.byCorvi === true);
   expect(corvi?.state).toBe("excluded");
@@ -259,7 +259,7 @@ test("a harness can exclude Corvi's extension, and the view says it did", () => 
 
 test("an exclusion wins over an include in the same section", () => {
   const planned = plan(
-    harnessOf({
+    harnessProfileOf({
       fields: {
         extensions: section({ mode: "none", include: ["footer"], exclude: ["footer"] }),
         skills: section({ mode: "none", include: ["spiega"], exclude: ["spiega"] }),
@@ -274,7 +274,7 @@ test("an exclusion wins over an include in the same section", () => {
 
 test("model, effort, enabledModels and instructions go into the generated files", () => {
   const planned = plan(
-    harnessOf({
+    harnessProfileOf({
       fields: {
         model: "mistral/deepseek-v4-1-flash-1017",
         effort: "low",
@@ -289,20 +289,20 @@ test("model, effort, enabledModels and instructions go into the generated files"
   expect(settings["defaultThinkingLevel"]).toBe("low");
   expect(settings["enabledModels"]).toEqual(["deepseek/flash", "zai/glm-5.3-flash"]);
   expect(planned.agentsMd).toBe("harness rules\n");
-  expect(planned.view.instructions).toEqual({ origin: "harness", text: "harness rules\n" });
+  expect(planned.view.instructions).toEqual({ origin: "profile", text: "harness rules\n" });
   expect(planned.view.model).toEqual({ provider: "mistral", id: "deepseek-v4-1-flash-1017" });
 });
 
 test("instructions: absent inherits the base, empty replaces it with nothing", () => {
-  const inherited = plan(harnessOf({ fields: { instructions: undefined } }));
+  const inherited = plan(harnessProfileOf({ fields: { instructions: undefined } }));
   expect(inherited.view.instructions.origin).toBe("base");
   expect(inherited.agentsMd).toBe("base rules");
 
-  const empty = plan(harnessOf({ fields: { instructions: "" } }));
-  expect(empty.view.instructions).toEqual({ origin: "harness", text: "" });
+  const empty = plan(harnessProfileOf({ fields: { instructions: "" } }));
+  expect(empty.view.instructions).toEqual({ origin: "profile", text: "" });
   expect(empty.agentsMd).toBe("");
 
-  const none = plan(harnessOf({ fields: {} }), {
+  const none = plan(harnessProfileOf({ fields: {} }), {
     base: { ...BASE, agentsMd: undefined },
   });
   expect(none.view.instructions.origin).toBe("none");
@@ -311,7 +311,7 @@ test("instructions: absent inherits the base, empty replaces it with nothing", (
 
 test("packages and MCP: mode none selects by name, unknown names warn", () => {
   const planned = plan(
-    harnessOf({
+    harnessProfileOf({
       fields: {
         packages: section({ mode: "none", include: ["@scope/thing"] }),
         mcp: section({ mode: "none", include: ["docs"], exclude: ["gone"] }),
@@ -327,7 +327,7 @@ test("packages and MCP: mode none selects by name, unknown names warn", () => {
 
 test("unknown include names warn once per section, and paths resolve against the scope root", () => {
   const planned = plan(
-    harnessOf({
+    harnessProfileOf({
       source: "repository",
       origin: "orders",
       key: "repository:orders:review",
@@ -352,7 +352,7 @@ test("unknown include names warn once per section, and paths resolve against the
 
 test("an unknown name from another section says where it belongs", () => {
   const planned = plan(
-    harnessOf({
+    harnessProfileOf({
       fields: {
         extensions: section({ mode: "none", include: ["spiega"] }),
         skills: section({ mode: "none", include: ["ghost"] }),
@@ -367,7 +367,9 @@ test("an unknown name from another section says where it belongs", () => {
 });
 
 test("skills include works for a name under ~/.agents/skills in mode none", () => {
-  const planned = plan(harnessOf({ fields: { skills: section({ mode: "none", include: ["spiega"] }) } }));
+  const planned = plan(
+    harnessProfileOf({ fields: { skills: section({ mode: "none", include: ["spiega"] }) } }),
+  );
   // The auto-discovered home skills are disabled with the glob, then the included one is re-added.
   expect(settingsOf(planned)["skills"]).toEqual([
     "!/home/u/.agents/skills/*",
@@ -378,7 +380,7 @@ test("skills include works for a name under ~/.agents/skills in mode none", () =
 
 test("a relative path with no scope root is a warning, not a guess", () => {
   const planned = plan(
-    harnessOf({
+    harnessProfileOf({
       source: "builtin",
       key: "builtin:pi",
       fields: { extensions: section({ mode: "none", include: ["./x"] }) },
@@ -389,7 +391,7 @@ test("a relative path with no scope root is a warning, not a guess", () => {
 });
 
 test("the generated directory has no colons and cannot escape the state tree", () => {
-  const dir = generatedHarnessDir("/state/", "change:1", {
+  const dir = generatedEnvironmentDir("/state/", "change:1", {
     source: "repository",
     origin: "orders/api",
     id: "../review",
@@ -397,12 +399,12 @@ test("the generated directory has no colons and cannot escape the state tree", (
   expect(dir).toBe("/state/harnesses/change-x3a1/repository/orders-x2fapi/-x2e.-x2freview");
   expect(dir).not.toContain(":");
   expect(dir.startsWith("/state/harnesses/")).toBe(true);
-  expect(generatedHarnessDir("/state", "c", { source: "builtin", id: "pi" })).toBe(
+  expect(generatedEnvironmentDir("/state", "c", { source: "builtin", id: "pi" })).toBe(
     "/state/harnesses/c/builtin/pi",
   );
   // Two ids that differ only by punctuation cannot clobber one another.
-  expect(generatedHarnessDir("/state", "c", { source: "global", id: "review env" })).not.toBe(
-    generatedHarnessDir("/state", "c", { source: "global", id: "review-env" }),
+  expect(generatedEnvironmentDir("/state", "c", { source: "global", id: "review env" })).not.toBe(
+    generatedEnvironmentDir("/state", "c", { source: "global", id: "review-env" }),
   );
 });
 
@@ -412,17 +414,17 @@ test("the scope root follows the harness's own scope", () => {
     workspaces: [{ id: "personal", dir: "/config/workspaces/personal" }],
     repositories: [{ name: "orders", dir: "/work/orders" }],
   };
-  expect(harnessScopeRoot({ source: "global", origin: undefined }, roots)).toBe("/config");
-  expect(harnessScopeRoot({ source: "workspace", origin: "personal" }, roots)).toBe(
+  expect(harnessProfileScopeRoot({ source: "global", origin: undefined }, roots)).toBe("/config");
+  expect(harnessProfileScopeRoot({ source: "workspace", origin: "personal" }, roots)).toBe(
     "/config/workspaces/personal",
   );
-  expect(harnessScopeRoot({ source: "repository", origin: "orders" }, roots)).toBe("/work/orders");
-  expect(harnessScopeRoot({ source: "builtin", origin: undefined }, roots)).toBeUndefined();
+  expect(harnessProfileScopeRoot({ source: "repository", origin: "orders" }, roots)).toBe("/work/orders");
+  expect(harnessProfileScopeRoot({ source: "builtin", origin: undefined }, roots)).toBeUndefined();
 });
 
 test("package path entries resolve relative to the file and are added", () => {
   const planned = plan(
-    harnessOf({
+    harnessProfileOf({
       source: "repository",
       origin: "orders",
       key: "repository:orders:review",
@@ -437,11 +439,13 @@ test("package path entries resolve relative to the file and are added", () => {
 });
 
 test("a package path that cannot resolve warns, and an exclusion wins over an include", () => {
-  const unresolved = plan(harnessOf({ fields: { packages: section({ mode: "none", include: ["./pkg"] }) } }));
+  const unresolved = plan(
+    harnessProfileOf({ fields: { packages: section({ mode: "none", include: ["./pkg"] }) } }),
+  );
   expect(unresolved.view.warnings.map((warning) => warning.kind)).toEqual(["unresolved-path"]);
 
   const excluded = plan(
-    harnessOf({
+    harnessProfileOf({
       source: "repository",
       origin: "orders",
       key: "repository:orders:review",

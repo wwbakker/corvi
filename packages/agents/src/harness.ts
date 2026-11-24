@@ -5,7 +5,7 @@
  * `--thinking`; `opencode` uses `--session` and `--model`, and has no thinking-level flag, so
  * `effort` is ignored there. The window's working directory is the subagent's directory, which is
  * what keys a harness's own session storage. */
-import type { SubagentHarness } from "@corvi/contracts/subagents";
+import type { Harness } from "@corvi/contracts/subagents";
 
 export type HarnessLaunch = {
   readonly command: string;
@@ -13,7 +13,7 @@ export type HarnessLaunch = {
 };
 
 export type HarnessInput = {
-  readonly harness: SubagentHarness;
+  readonly harness: Harness;
   readonly sessionId: string;
   readonly label: string;
   readonly model?: string;
