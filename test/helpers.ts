@@ -629,30 +629,33 @@ export const browserAvailable = async (): Promise<boolean> => {
   }
 };
 
+/** Whether a run shows the browser window, read from the environment it is given. `CORVI_HEADED`
+ * set to anything opens it — `bun run test:e2e:headed`, and `scripts/shot.ts`, which reads the same
+ * name the same way. Headless otherwise, because CI has no display and that is the run the suite is
+ * judged in. Pure and exported so a unit test can pin the switch without starting a browser. */
+export const headlessFor = (environ: Readonly<Record<string, string | undefined>>): boolean =>
+  !environ[env("HEADED")];
+
 /** The browser a page test drives: Chromium, because the app's window is Electron and Electron is
- * Chromium. It is headless unless `CORVI_HEADED=1` asks to watch it, as `bun run test:e2e:headed`
- * does — CI has no display, so headless is what the suite is judged in. The flags keep a window that
- * other windows cover compositing, so a watched run shows the page the test reads rather than a
- * frame from whenever it last painted. */
+ * Chromium. The flags keep a window that other windows cover compositing, so a watched run shows
+ * the page the test reads rather than a frame from whenever it last painted. */
 export const launchBrowser = (): Promise<Browser> =>
   chromium.launch({
-    headless: !process.env[env("HEADED")],
+    headless: headlessFor(process.env),
     args: ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding"],
   });
 
-/** Fill the caller's `let browser: Browser` with the engine a page test drives. A bundle older than
- * the web sources is refused before the browser starts — a page test must not read yesterday's UI.
- * Tests guard on `usable` before using the browser; a browser that cannot launch is a skip. */
+/** Fill the caller's `let browser: Browser` with the browser a page test drives, and say whether
+ * there was one to fill it with. A browser that is not installed is a skip: the rest of Corvi works
+ * without one, so a red suite would only report the machine. One that is installed and cannot start
+ * is a failure — that is a broken install or a headed run with no display, and it must say so rather
+ * than skip. A bundle older than the web sources is refused before the browser starts: a page test
+ * must not read yesterday's UI. Tests guard on `usable` before using the browser. */
 export const openBrowser = async (assign: (browser: Browser) => void): Promise<boolean> => {
   if (!(await browserAvailable())) return false;
-  // A stale bundle is a failure, not a skip: the browser is there and the page would be old.
   requireFreshWebBundle();
-  try {
-    assign(await launchBrowser());
-    return true;
-  } catch {
-    return false;
-  }
+  assign(await launchBrowser());
+  return true;
 };
 
 /** Run `body` on a fresh page at the shared viewport, closing it whatever happens. A page that is

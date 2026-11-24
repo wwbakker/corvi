@@ -68,6 +68,10 @@ and a watched run shows the page the test reads. Watching is for seeing a page t
 does and for finding where a flake stalls; it is not verification, since frame timing and focus
 differ from the headless run.
 
+A browser that is not installed is a skip — the rest of Corvi works without one. A browser that is
+installed and cannot start is a failure, because that is a broken install or a headed run on a box
+with no display, and neither is something a green suite should hide.
+
 ## CI and flakes
 
 CI installs Bun 1.4.5 and Node 26.13.1 — the versions the suite is verified in. Keep the
