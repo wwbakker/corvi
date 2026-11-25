@@ -8,6 +8,7 @@ const KEYS: [string, string][] = [
   ["wheel / scrollbar", "scroll back through the history"],
   ["right-click", "copy, paste, select all, clear, find, open a link"],
   ["middle-click", "paste the system clipboard"],
+  ["drop files", "upload them and paste their paths; dropped text is pasted as text"],
 ];
 
 /** The app's own keys, the same on every platform: leader mode lays a keycap on each control and
@@ -25,7 +26,7 @@ const CHORDS_MAC: [string, string][] = [
   ["⌥-drag", "select text while a mouse-aware program (pi) is running"],
   ["⌘-click", "open a link"],
   ["⌘C", "copy the selection"],
-  ["⌘V", "paste"],
+  ["⌘V", "paste; an image on the clipboard is uploaded and its path pasted"],
   ["ctrl+shift+c / ctrl+shift+v", "copy / paste, the cross-platform chords"],
 ];
 
@@ -35,7 +36,8 @@ const CHORDS_LINUX: [string, string][] = [
   ["shift-drag", "select text while a mouse-aware program (pi) is running"],
   ["ctrl-click", "open a link"],
   ["ctrl+shift+c", "copy the selection"],
-  ["ctrl+shift+v", "paste (ctrl+v also pastes)"],
+  ["ctrl+shift+v", "paste; an image on the clipboard is uploaded and its path pasted"],
+  ["ctrl+v", "sent to the program as ^V (pi then reads the clipboard where it runs)"],
   ["ctrl+insert / shift+insert", "copy / paste (the terminal convention)"],
   ["super+c / super+v", "copy / paste"],
 ];

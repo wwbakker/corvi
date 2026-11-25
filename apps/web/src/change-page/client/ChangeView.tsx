@@ -693,6 +693,9 @@ export function ChangeView({
             visible={active.kind === "terminals"}
             focusRequest={focusRequest}
             platform={platform}
+            attach={async (upload) =>
+              (await client.terminals.attach(ChangeId.make(id), upload.name, upload.blob)).path
+            }
           />
         </div>
       )}

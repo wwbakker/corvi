@@ -235,6 +235,22 @@ test("a POST forwards its body and method", async () => {
   expect(body.body).toBe('{"title":"remote change"}');
 });
 
+test("an upload's raw body reaches the remote whole", async () => {
+  // A file dropped into a remote workspace's terminal: megabytes of octets, not a JSON document.
+  const upload = "x".repeat(3 * 1024 * 1024);
+  const response = await fetch(
+    localUrl("remote/remote-client/api/changes/C1/terminal/attachments?name=a.bin"),
+    {
+      method: "POST",
+      headers: { "content-type": "application/octet-stream" },
+      body: new Blob([upload]),
+    },
+  );
+  const body = (await response.json()) as { method: string; url: string; body: string };
+  expect(body.url).toBe("/api/changes/C1/terminal/attachments?name=a.bin");
+  expect(body.body.length).toBe(upload.length);
+});
+
 test("the upstream's status and body come back, and Set-Cookie is dropped", async () => {
   const boom = await fetch(localUrl("remote/remote-client/api/boom"));
   expect(boom.status).toBe(418);

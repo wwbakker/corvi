@@ -2986,6 +2986,78 @@ dialog.window-rename {
   font-size: 13px;
 }
 
+/* What a drop does, while something droppable is over the pane. It never takes the pointer: the
+   drop has to reach the pane under it. */
+.terminal-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--well) 70%, transparent);
+  color: var(--text);
+  font-size: 14px;
+  pointer-events: none;
+}
+
+/* Uploads in flight, and what became of the ones that did not end in a paste. They float at the
+   bottom like the connection chip floats in the middle: a row they took would change the grid
+   under the shell. */
+.terminal-transfers {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  z-index: 26;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 32px);
+  pointer-events: none;
+}
+
+.terminal-transfer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  margin: 0;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow: 0 1px 4px color-mix(in srgb, black 20%, transparent);
+  color: var(--text);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.terminal-transfer.failed {
+  border-color: var(--error);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--error-wash) 92%, var(--surface));
+  pointer-events: auto;
+}
+
+.terminal-transfer button {
+  flex: none;
+  padding: 2px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  cursor: default;
+}
+
+.terminal-transfer button:hover {
+  background: var(--hover);
+}
+
 /* The shells are gone but the frame is not: said plainly, so a broken terminal is not mistaken
    for a slow one. The banner takes the line it needs and the frame keeps the rest. */
 .terminal-gone {
@@ -5333,4 +5405,9 @@ a:focus-visible {
 .harness-example h3 {
   margin: 0;
   font-size: 14px;
+}
+
+/* A large drop's question: one sentence and two answers, not the width of a commit dialog. */
+dialog.large-upload {
+  width: min(440px, 90vw);
 }

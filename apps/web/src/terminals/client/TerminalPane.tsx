@@ -4,6 +4,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type DragEvent as ReactDragEvent,
   type JSX,
   type MouseEvent as ReactMouseEvent,
 } from "react";
@@ -13,6 +14,7 @@ import {
   ClipboardAddon,
   type ClipboardSelectionType,
 } from "@xterm/addon-clipboard";
+import { ImageAddon } from "@xterm/addon-image";
 import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -21,14 +23,25 @@ import type { RemoteAvailabilityReasonDto } from "@corvi/contracts/availability"
 import { shouldKeepSocket } from "./socketTarget.ts";
 import { monoFontStack, loadSymbolsFont } from "../../app-root/monoFont.ts";
 import { getPref, setPref } from "../../app-root/prefs.ts";
+import {
+  clipboardPayload,
+  droppedPayload,
+  largeUpload,
+  pastedPaths,
+  type LargeUpload,
+  type TerminalPayload,
+  type TerminalUpload,
+} from "./payload.ts";
+import { LargeUploadDialog } from "./LargeUploadDialog.tsx";
 
 /** How much scrollback the page keeps: as much as the server serializes, so a resume is whole. */
 const SCROLLBACK = 5000;
 
-/** Copy the terminal's selection to the system clipboard, or paste the clipboard back. The page
- * owns these chords because a terminal cannot: Ctrl+C is the interrupt, so copying keeps the
- * Shift (Ctrl+Shift+C/V) or uses the platform's command key (Cmd on macOS, Super on Linux), and
- * a browser fires no paste shortcut for Ctrl+Shift+V. Failures — a denied permission, a clipboard
+/** Copy the terminal's selection to the system clipboard; the paste back is the pane's own
+ * (`pasteClipboard`), since an image on the clipboard is uploaded first. The page owns these
+ * chords because a terminal cannot: Ctrl+C is the interrupt, so copying keeps the Shift
+ * (Ctrl+Shift+C/V) or uses the platform's command key (Cmd on macOS, Super on Linux), and a
+ * browser fires no paste shortcut for Ctrl+Shift+V. Failures — a denied permission, a clipboard
  * that will not answer — are silent: the selection is still on screen. */
 const copySelection = async (term: Terminal): Promise<void> => {
   const selection = term.getSelection();
@@ -36,9 +49,19 @@ const copySelection = async (term: Terminal): Promise<void> => {
   await navigator.clipboard.writeText(selection).catch(() => undefined);
 };
 
-const pasteClipboard = async (term: Terminal): Promise<void> => {
-  const text = await navigator.clipboard.readText().catch(() => "");
-  if (text) term.paste(text);
+/** What became of an upload that did not end in a paste — it failed, or the pane shows another
+ * terminal (or a closed one) by the time it finished. Each stays until it is dismissed, so a later
+ * upload never hides an earlier one's path. */
+type UploadOutcome =
+  | { readonly kind: "failed"; readonly message: string }
+  | { readonly kind: "unpasted"; readonly text: string; readonly count: number };
+type UploadNotice = UploadOutcome & { readonly id: number };
+
+/** A large upload waiting for its answer: the files, and the terminal they were dropped on. */
+type PendingUpload = {
+  readonly files: readonly TerminalUpload[];
+  readonly target: string;
+  readonly upload: LargeUpload;
 };
 
 /** The end (exclusive) of a selection clamped to its last non-empty cell, or undefined when the
@@ -177,6 +200,7 @@ export function TerminalPane({
   visible,
   focusRequest,
   platform,
+  attach,
 }: {
   changeId: string;
   url: string | null;
@@ -195,6 +219,8 @@ export function TerminalPane({
   focusRequest?: number;
   /** The server's platform: the option-drag selection and the click hints follow it. */
   platform: Platform;
+  /** Store a dropped or pasted file where the change's ptys run, answering its path there. */
+  attach: (upload: TerminalUpload) => Promise<string>;
 }): JSX.Element {
   const host = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
@@ -246,6 +272,25 @@ export function TerminalPane({
   /** The link under the pointer: the URL and the point its tooltip is anchored at. */
   const [linkTooltip, setLinkTooltip] = useState<{ url: string; x: number; y: number } | null>(null);
   const linkTooltipRef = useRef<HTMLDivElement>(null);
+  /** Whether something droppable is being dragged over the pane: the overlay says what a drop does. */
+  const [dragging, setDragging] = useState(false);
+  /** How many dropped or pasted files are uploading now, across overlapping drops. */
+  const [uploading, setUploading] = useState(0);
+  const [notices, setNotices] = useState<readonly UploadNotice[]>([]);
+  const noticeId = useRef(0);
+  const [pending, setPending] = useState<PendingUpload | null>(null);
+  /** The terminal the pane shows now, as the socket names it. A drop or a paste is for the
+   * terminal it was made on: text or a path that arrives after a switch is not typed into another. */
+  const shownTarget = `${url ?? ""}#${sessionId ?? ""}`;
+  const shownTargetRef = useRef(shownTarget);
+  shownTargetRef.current = shownTarget;
+  /** Whether the pane has a live terminal to paste into: what a drop and a paste both require. */
+  const receiving = url !== null && !unavailable && !ended && !detached;
+  const receivingRef = useRef(receiving);
+  receivingRef.current = receiving;
+  /** The latest `attach`: the paste handlers are installed once and read it when they run. */
+  const attachRef = useRef(attach);
+  attachRef.current = attach;
 
   // The xterm instance, once: it owns the screen for as long as the pane is mounted. The session
   // behind it is the socket's (below), so hiding the pane keeps the shells running.
@@ -288,6 +333,10 @@ export function TerminalPane({
     term.loadAddon(new ClipboardAddon(undefined, new QuietClipboardProvider()));
     const search = new SearchAddon();
     term.loadAddon(search);
+    // Programs that print images — SIXEL, and iTerm2's inline images (pi, with the
+    // `PI_IMAGE_PROTOCOL` the terminal host seeds) — draw them here. The server's screen keeps no
+    // images, so a reattach replays the text without them.
+    term.loadAddon(new ImageAddon());
     // Cmd/Ctrl+click opens a detected URL; a plain click is left for selection. A hover shows a
     // tooltip — the URL and the chord — so the link's click affordance is discoverable.
     term.loadAddon(
@@ -409,6 +458,84 @@ export function TerminalPane({
     reconnectAttempt.current = 0;
     setReconnect((n) => n + 1);
   }, []);
+
+  const notify = useCallback((outcome: UploadOutcome): void => {
+    noticeId.current += 1;
+    const notice: UploadNotice = { ...outcome, id: noticeId.current };
+    setNotices((shown) => [...shown, notice]);
+  }, []);
+  const dismiss = useCallback((id: number): void => {
+    setNotices((shown) => shown.filter((notice) => notice.id !== id));
+    terminal.current?.focus();
+  }, []);
+
+  /** Whether text for `target` may be typed now: that terminal is still the one shown, and its
+   * socket is open to carry it. */
+  const pastesInto = useCallback(
+    (target: string): boolean =>
+      shownTargetRef.current === target &&
+      receivingRef.current &&
+      socket.current?.readyState === WebSocket.OPEN,
+    [],
+  );
+
+  /** Upload files dropped or pasted on `target` and paste their stored paths there. Nothing is
+   * pasted unless every file arrived, so a failed upload never leaves half a command line; paths
+   * whose terminal is no longer the one shown are offered instead of typed into another. */
+  const upload = useCallback(
+    async (files: readonly TerminalUpload[], target: string): Promise<void> => {
+      setUploading((count) => count + files.length);
+      try {
+        const paths: string[] = [];
+        for (const file of files) paths.push(await attachRef.current(file));
+        if (pastesInto(target)) terminal.current?.paste(pastedPaths(paths));
+        else notify({ kind: "unpasted", text: pastedPaths(paths).trimEnd(), count: paths.length });
+      } catch (error) {
+        notify({
+          kind: "failed",
+          message: `Could not upload: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      } finally {
+        setUploading((count) => count - files.length);
+      }
+      terminal.current?.focus();
+    },
+    [notify, pastesInto],
+  );
+
+  /** Put a drop's or the clipboard's payload into the terminal it was made on: text as it is, files
+   * uploaded — after asking, when they are large. */
+  const deliver = useCallback(
+    (payload: TerminalPayload, target: string): void => {
+      if (payload.kind === "empty") return;
+      if (payload.kind === "text") {
+        if (pastesInto(target)) terminal.current?.paste(payload.text);
+        return;
+      }
+      if (payload.kind === "folder") {
+        notify({
+          kind: "failed",
+          message: `${payload.name} is a folder: only files can be dropped into the terminal.`,
+        });
+        return;
+      }
+      const large = largeUpload(payload.files);
+      if (large === undefined) void upload(payload.files, target);
+      else setPending({ files: payload.files, target, upload: large });
+    },
+    [notify, pastesInto, upload],
+  );
+
+  // The question belongs to the terminal the drop was made on: another one in front closes it.
+  useEffect(() => setPending(null), [shownTarget]);
+
+  /** Paste the system clipboard into the terminal shown when the paste was asked for: its text,
+   * or the image on it, uploaded. */
+  const pasteClipboard = useCallback(async (): Promise<void> => {
+    if (!receivingRef.current) return;
+    const target = shownTargetRef.current;
+    deliver(await clipboardPayload(navigator.clipboard, () => new Date()), target);
+  }, [deliver]);
 
   // The font size can change without rebuilding the terminal, which would lose the screen.
   useEffect(() => {
@@ -602,11 +729,11 @@ export function TerminalPane({
       const term = terminal.current;
       if (!term) return;
       term.focus();
-      void pasteClipboard(term);
+      void pasteClipboard();
     };
     element.addEventListener("mousedown", onDown, true);
     return () => element.removeEventListener("mousedown", onDown, true);
-  }, []);
+  }, [pasteClipboard]);
 
   // The keys xterm cannot encode are sent by the page itself, and the clipboard, find and
   // font-size chords are the page's too. Capture phase, ahead of xterm's own textarea handler,
@@ -635,7 +762,7 @@ export function TerminalPane({
         e.preventDefault();
         e.stopImmediatePropagation();
         if (copy) void copySelection(term);
-        else void pasteClipboard(term);
+        else void pasteClipboard();
         return;
       }
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.code === "KeyF") {
@@ -664,7 +791,7 @@ export function TerminalPane({
     };
     element.addEventListener("keydown", onKey, true);
     return () => element.removeEventListener("keydown", onKey, true);
-  }, []);
+  }, [pasteClipboard]);
 
   // Opening it should be enough to start typing — and so should closing anything that took the
   // keyboard away, which is what `focusRequest` counts.
@@ -710,6 +837,32 @@ export function TerminalPane({
     setMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
+  // A drop pastes into the terminal: text as it is, files by their uploaded paths. Only a pane
+  // with a live terminal takes one; elsewhere the page's own guard keeps the window from opening
+  // the file (apps/web/src/app-root/dropGuard.ts).
+  const droppable = (data: DataTransfer): boolean =>
+    receiving && (data.types.includes("Files") || data.types.includes("text/plain"));
+  const onDragOver = (e: ReactDragEvent): void => {
+    if (!droppable(e.dataTransfer)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    setDragging(true);
+  };
+  const onDragLeave = (e: ReactDragEvent): void => {
+    // Moving between the pane's own layers is not leaving it.
+    if (e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return;
+    setDragging(false);
+  };
+  const onDrop = (e: ReactDragEvent): void => {
+    setDragging(false);
+    if (!droppable(e.dataTransfer)) return;
+    e.preventDefault();
+    // Read now: a drop's data is gone once its event returns.
+    const payload = droppedPayload(e.dataTransfer);
+    terminal.current?.focus();
+    deliver(payload, shownTargetRef.current);
+  };
+
   // Anywhere else dismisses the menu. The menu stops propagation on its own pointerdown, so a
   // click on an item runs before this sees it.
   useEffect(() => {
@@ -745,7 +898,54 @@ export function TerminalPane({
   const selectionIsUrl = /^https?:\/\/\S+$/i.test(selection);
 
   return (
-    <div className="terminal">
+    <div className="terminal" onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
+      {dragging && (
+        <div className="terminal-drop" aria-hidden="true">
+          Drop to paste into the terminal
+        </div>
+      )}
+      {(uploading > 0 || notices.length > 0) && (
+        <div className="terminal-transfers">
+          {notices.map((notice) => (
+            <div key={notice.id} className="terminal-transfer failed" role="alert">
+              <span>
+                {notice.kind === "failed"
+                  ? notice.message
+                  : "The terminal changed before the upload finished, so nothing was pasted."}
+              </span>
+              {notice.kind === "unpasted" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(notice.text).catch(() => undefined);
+                    dismiss(notice.id);
+                  }}
+                >
+                  Copy {notice.count === 1 ? "path" : "paths"}
+                </button>
+              )}
+              <button type="button" onClick={() => dismiss(notice.id)}>
+                Dismiss
+              </button>
+            </div>
+          ))}
+          {uploading > 0 && (
+            <p className="terminal-transfer" role="status">
+              uploading {uploading === 1 ? "1 file" : `${uploading} files`}…
+            </p>
+          )}
+        </div>
+      )}
+      {pending !== null && (
+        <LargeUploadDialog
+          upload={pending.upload}
+          onAnswer={(proceed) => {
+            setPending(null);
+            if (proceed) void upload(pending.files, pending.target);
+            terminal.current?.focus();
+          }}
+        />
+      )}
       {ended && (
         <div className="terminal-gone">
           The shell in this terminal has ended. Other terminals in this change are unaffected.
@@ -840,7 +1040,7 @@ export function TerminalPane({
           <button role="menuitem" onClick={() => runFromMenu(() => void copySelection(terminal.current!))}>
             Copy
           </button>
-          <button role="menuitem" onClick={() => runFromMenu(() => void pasteClipboard(terminal.current!))}>
+          <button role="menuitem" onClick={() => runFromMenu(() => void pasteClipboard())}>
             Paste
           </button>
           <button role="menuitem" onClick={() => runFromMenu(() => terminal.current?.selectAll())}>

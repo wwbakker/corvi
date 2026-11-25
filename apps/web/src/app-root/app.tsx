@@ -36,6 +36,7 @@ import { hostMismatchTitle, useHostRestart } from "../terminals/client/hostResta
 import { hostOf } from "./host.ts";
 import { MenuIcon } from "./icons.tsx";
 import { useContextMenu } from "./contextMenu.ts";
+import { guardFileDrops } from "./dropGuard.ts";
 import { SessionGate } from "./SessionGate.tsx";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../domain/chrome.ts";
 import { coloursOf, CORVI_COLOURS } from "../domain/theme.ts";
@@ -247,6 +248,9 @@ function App(): JSX.Element {
   useEffect(() => {
     setDrawerOpen(false);
   }, [view, chosen]);
+
+  // A file dropped beside the terminal is refused rather than opened by another program.
+  useEffect(() => guardFileDrops(document), []);
 
   // Widening past the breakpoint puts the column back in the flow, so the drawer has nothing to
   // cover.

@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import { TerminalStatusSchema, type HostStatusDto } from "@corvi/contracts/api";
 import { WINDOW_TITLE_MAX } from "@corvi/contracts/terminal";
-import { changeDir, readChange } from "../change/server/index.ts";
+import { changeDir, currentDirOf, readChange } from "../change/server/index.ts";
 import type { Change } from "@corvi/changes/record";
 import type { EnvironmentPaneProvider } from "./server/windows.ts";
 import { inertWarningLine, NoTerminalWindowError, writeToPane } from "./server/windows.ts";
@@ -21,6 +21,7 @@ import {
   renameWindow,
   selectWindowById,
   splitPane,
+  storeAttachment,
   terminalSocketPath,
 } from "./server/index.ts";
 import {
@@ -198,6 +199,32 @@ export const terminalsRoutes = guard({
           const unavailable = terminalUnavailable();
           if (unavailable) return json({ error: unavailable }, 500);
           return json({ url: terminalSocketPath(c.id) });
+        }),
+      ),
+  },
+
+  // A file dropped or pasted into the change's terminal: the raw bytes, named by `?name=`, stored
+  // on this machine — the one the ptys run on, which for a remote workspace is not the page's —
+  // and answered with the path the page then pastes. A completed change has no terminal to paste
+  // into, so it takes no attachments either.
+  "/api/changes/:id/terminal/attachments": {
+    POST: (req) =>
+      withChange(req.params.id, (c) =>
+        Effect.gen(function* () {
+          if (c.completedAt) {
+            return yield* new BadRequestError({
+              message: "this change is completed: its terminal is gone",
+            });
+          }
+          // Where the change is now, not where a new one would be created: a change that predates
+          // a root override stays where it was made, and its files must travel with it.
+          const directory = yield* currentDirOf(c.id);
+          if (directory === null) {
+            return yield* new BadRequestError({ message: "this change's directory is gone" });
+          }
+          const name = new URL(req.url).searchParams.get("name") ?? "";
+          const path = yield* storeAttachment(directory, name, req.body);
+          return json({ path });
         }),
       ),
   },

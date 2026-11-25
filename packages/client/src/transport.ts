@@ -32,12 +32,17 @@ export interface ClientOptions {
   readonly fetch?: FetchLike;
 }
 
+/** What a request carries: a `body` sent as JSON, or `bytes` sent as they are (a file upload) —
+ * never both. */
+export type SendContent =
+  { readonly body?: unknown; readonly bytes?: never } | { readonly bytes: Blob; readonly body?: never };
+
 /** What a namespace factory composes over: one method call out, the payload back undecoded.
  * Headers ride along when an operation names one — an idempotency key on a retried write. */
 export type Send = (
   method: string,
   path: string,
-  options?: { body?: unknown; signal?: AbortSignal; headers?: Record<string, string> },
+  options?: SendContent & { readonly signal?: AbortSignal; readonly headers?: Record<string, string> },
 ) => Promise<unknown>;
 
 /** Decodes a payload with the operation's own schema: what arrives is never trusted as is. */
@@ -60,8 +65,7 @@ export const request = async <S extends Schema.ConstraintDecoder<unknown>>(
   method: string,
   path: string,
   schema: S,
-  options?: {
-    readonly body?: unknown;
+  options?: SendContent & {
     readonly signal?: AbortSignal;
     readonly headers?: Record<string, string>;
   },
@@ -99,15 +103,18 @@ export const transport = (options: ClientOptions): { send: Send } => {
   const send: Send = async (method, path, sendOptions = {}) => {
     const headers = {
       ...(sendOptions.body === undefined ? {} : { "content-type": "application/json" }),
+      ...(sendOptions.bytes === undefined ? {} : { "content-type": "application/octet-stream" }),
       ...(sendOptions.headers ?? {}),
     };
+    const body: BodyInit | undefined =
+      sendOptions.bytes ?? (sendOptions.body === undefined ? undefined : JSON.stringify(sendOptions.body));
     let response: Response;
     try {
       response = await request(`${baseUrl}/api${path}`, {
         method,
         ...(sendOptions.signal ? { signal: sendOptions.signal } : {}),
         ...(Object.keys(headers).length === 0 ? {} : { headers }),
-        ...(sendOptions.body === undefined ? {} : { body: JSON.stringify(sendOptions.body) }),
+        ...(body === undefined ? {} : { body }),
       });
     } catch (cause) {
       throw new ClientError({ message: "the server could not be reached", cause });
