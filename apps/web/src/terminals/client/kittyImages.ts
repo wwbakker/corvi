@@ -3,8 +3,9 @@
  *
  * A program that draws kitty graphics uploads an image once under an id and then places it by
  * that id (`a=p`) whenever it redraws — pi's fullscreen mode does. The page resets its xterm on
- * every attach to replay the server's screen, which has no images, and the image addon's reset
- * forgets the uploads with it: the program's next `a=p` would find nothing. So the uploads are
+ * every attach to replay the server's screen, which has no images, and resets the image addon with
+ * it — one xterm shows every session, so its store must hold only the shown session's uploads —
+ * and that forgets the uploads: the program's next `a=p` would find nothing. So the uploads are
  * taken off the addon before the reset, kept per session, and given back when that session's
  * screen is shown again. They are the page's: a reload or another window starts without them.
  *

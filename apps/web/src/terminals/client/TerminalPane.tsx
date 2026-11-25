@@ -668,6 +668,10 @@ export function TerminalPane({
           if (images !== null && screenSession.current !== null)
             shelfRef.current.keep(screenSession.current, images);
           term.reset();
+          // `term.reset()` leaves the image addon alone (only an in-band RIS resets it), so its
+          // store would still hold the previous session's uploads: empty it, so each session is
+          // given back only its own.
+          images?.reset();
           const sessionId = typeof value.sessionId === "string" ? value.sessionId : null;
           screenSession.current = sessionId;
           const restored =

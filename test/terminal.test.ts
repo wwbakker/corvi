@@ -2477,14 +2477,32 @@ test.skipIf(!usable)(
     await awaitAttached(page);
     expect(await until(() => redPainted(page), false, budget(10_000))).toBe(false);
 
-    await page.locator(`.window-tab[data-window-id="${first}"]`).click();
-    await until(
-      async () => (await page.locator(".terminal-screen").getAttribute("data-session")) === first,
-      true,
-      budget(20_000),
+    // The second window counts the resizes it is sent: it has no images, so coming back to it must
+    // not nudge it the way the first is nudged.
+    const second = await page.locator(".window-tab.current").getAttribute("data-window-id");
+    const winches = join(dir, "second-winches.txt");
+    await typeUntilText(
+      page,
+      `sh -c 'trap "echo W >> ${winches}" WINCH; echo COUNTING; while :; do sleep 0.1; done'`,
+      "COUNTING",
     );
-    await awaitAttached(page);
+
+    const show = async (window: string | null): Promise<void> => {
+      await page.locator(`.window-tab[data-window-id="${window}"]`).click();
+      await until(
+        async () => (await page.locator(".terminal-screen").getAttribute("data-session")) === window,
+        true,
+        budget(20_000),
+      );
+      await awaitAttached(page);
+    };
+    await show(first);
     expect(await until(() => redPainted(page), true, budget(15_000))).toBe(true);
+    await show(second);
+    await Bun.sleep(1000);
+    expect(await fileText(winches)).toBe("");
+    await page.keyboard.press("Control+C");
+    await show(first);
     await page.keyboard.press("Control+C");
     await page.close();
   },
