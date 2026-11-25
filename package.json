@@ -106,5 +106,8 @@
   },
   "peerDependencies": {
     "typescript": "^6.0.3"
+  },
+  "patchedDependencies": {
+    "@xterm/addon-image@0.10.0-beta.334": "patches/@xterm%2Faddon-image@0.10.0-beta.334.patch"
   }
 }

@@ -2365,6 +2365,22 @@ test.skipIf(!usable)(
   budget(60_000),
 );
 
+/** Whether the image layers hold a red pixel: the test images are solid red. */
+const redPainted = (page: Page): Promise<boolean> =>
+  page.evaluate(() => {
+    for (const layer of document.querySelectorAll<HTMLCanvasElement>(
+      ".terminal-screen canvas[class*='image']",
+    )) {
+      const context = layer.getContext("2d");
+      if (!context || layer.width === 0 || layer.height === 0) continue;
+      const pixels = context.getImageData(0, 0, layer.width, layer.height).data;
+      for (let at = 0; at < pixels.length; at += 4) {
+        if (pixels[at]! > 200 && pixels[at + 1]! < 50 && pixels[at + 3]! > 200) return true;
+      }
+    }
+    return false;
+  });
+
 test.skipIf(!usable)(
   "an inline image a program prints is drawn",
   async () => {
@@ -2377,25 +2393,47 @@ test.skipIf(!usable)(
       `printf '\\033]1337;File=inline=1;size=75;width=4;height=2;preserveAspectRatio=0:${png}\\a'; echo IMAGE-DRAWN`,
       "IMAGE-DRAWN",
     );
-    const painted = await until(
-      () =>
-        page.evaluate(() => {
-          const layer = document.querySelector<HTMLCanvasElement>(".terminal-screen .xterm-image-layer");
-          const context = layer?.getContext("2d");
-          if (!layer || !context || layer.width === 0 || layer.height === 0) return false;
-          const pixels = context.getImageData(0, 0, layer.width, layer.height).data;
-          for (let at = 0; at < pixels.length; at += 4) {
-            if (pixels[at]! > 200 && pixels[at + 1]! < 50 && pixels[at + 3]! > 200) return true;
-          }
-          return false;
-        }),
-      true,
-      budget(15_000),
-    );
+    const painted = await until(() => redPainted(page), true, budget(15_000));
     expect(painted).toBe(true);
     await page.close();
   },
   budget(60_000),
+);
+
+test.skipIf(!usable)(
+  "kitty graphics: an image is uploaded once, re-placed by id after its placements are deleted, and deleted",
+  async () => {
+    const { page } = await openTerminal(id);
+    // The sequences pi's fullscreen mode sends: transmit-and-display under an id without moving the
+    // cursor, delete every placement while keeping the data (`d=a`), place again by id (`a=p`), and
+    // finally delete the image with its data (`d=I`).
+    const png =
+      "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAEklEQVR4nGP4z8DwHxkzkC4AADxAH+HggXe0AAAAAElFTkSuQmCC";
+    const kitty = (controls: string, payload = ""): string =>
+      // C=1 leaves the cursor at the image's corner: the newlines step past the image without
+      // writing over its cells, which would erase them.
+      `printf '\\033_G${controls}${payload === "" ? "" : `;${payload}`}\\033\\\\\\n\\n\\n'`;
+    await typeUntilText(
+      page,
+      `clear; ${kitty("a=T,f=100,q=2,C=1,c=4,r=2,i=7", png)}; echo KITTY-SENT`,
+      "KITTY-SENT",
+    );
+    expect(await until(() => redPainted(page), true, budget(15_000))).toBe(true);
+
+    await typeUntilText(page, `${kitty("a=d,d=a,q=2")}; echo KITTY-CLEARED`, "KITTY-CLEARED");
+    expect(await until(() => redPainted(page), false, budget(15_000))).toBe(false);
+
+    await typeUntilText(page, `${kitty("a=p,q=2,i=7,c=4,r=2,C=1")}; echo KITTY-PLACED`, "KITTY-PLACED");
+    expect(await until(() => redPainted(page), true, budget(15_000))).toBe(true);
+
+    await typeUntilText(page, `${kitty("a=d,d=I,i=7,q=2")}; echo KITTY-DELETED`, "KITTY-DELETED");
+    expect(await until(() => redPainted(page), false, budget(15_000))).toBe(false);
+    await typeUntilText(page, `${kitty("a=p,q=2,i=7,c=4,r=2,C=1")}; echo KITTY-GONE`, "KITTY-GONE");
+    await Bun.sleep(500);
+    expect(await redPainted(page)).toBe(false);
+    await page.close();
+  },
+  budget(90_000),
 );
 
 test.skipIf(!usable)(
