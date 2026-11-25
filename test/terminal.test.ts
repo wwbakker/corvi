@@ -386,6 +386,8 @@ const dialogOnly = "PROJ-DIALOG";
 const createOnly = "PROJ-CREATE";
 /** Its own change, so the window the upload-switch test opens does not shift another's tabs. */
 const dropSwitch = "PROJ-DROP-SWITCH";
+/** Its own change, so the kitty test's second window does not shift another's tabs. */
+const kittyReturn = "PROJ-KITTY";
 
 const startServer = async (port = 0): Promise<void> => {
   ({ server, url } = await startTestServer(tmp, {
@@ -435,6 +437,7 @@ beforeAll(async () => {
     [dialogOnly, "repo8"],
     [createOnly, "repo9"],
     [dropSwitch, "repo10"],
+    [kittyReturn, "repo11"],
   ] as const) {
     const at = join(tmp, repo);
     await runSh(["git", "init", "-b", "main", at]);
@@ -2431,6 +2434,58 @@ test.skipIf(!usable)(
     await typeUntilText(page, `${kitty("a=p,q=2,i=7,c=4,r=2,C=1")}; echo KITTY-GONE`, "KITTY-GONE");
     await Bun.sleep(500);
     expect(await redPainted(page)).toBe(false);
+    await page.close();
+  },
+  budget(90_000),
+);
+
+test.skipIf(!usable)(
+  "kitty images come back when the window is shown again, for a program that redraws",
+  async () => {
+    const { page, dir } = await openTerminal(kittyReturn);
+    // A stand-in for pi's fullscreen mode: it uploads an image once and, on every resize, deletes
+    // its placements and places the image again by id — never uploading it a second time.
+    const png =
+      "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAEklEQVR4nGP4z8DwHxkzkC4AADxAH+HggXe0AAAAAElFTkSuQmCC";
+    const script = join(dir, "kitty-redraw.sh");
+    await Bun.write(
+      script,
+      [
+        "place() { printf '\\033_Ga=d,d=a,q=2\\033\\\\'; printf '\\033[H\\033_Ga=p,i=9,c=4,r=2,C=1,q=2\\033\\\\'; }",
+        "trap place WINCH",
+        `printf '\\033[2J\\033[H\\033_Ga=T,f=100,q=2,C=1,c=4,r=2,i=9;${png}\\033\\\\'`,
+        "printf '\\n\\n\\nKITTY-READY\\n'",
+        "while :; do sleep 0.1; done",
+        "",
+      ].join("\n"),
+    );
+    await typeUntilText(page, `sh ${script}`, "KITTY-READY");
+    expect(await until(() => redPainted(page), true, budget(15_000))).toBe(true);
+
+    // Another window takes the pane, and the first comes back: its screen is replayed without the
+    // image, and the program places it again from the upload the page kept.
+    const first = await page.locator(".window-tab.current").getAttribute("data-window-id");
+    await page.locator(".change-tabs button.window-tab.new").click();
+    await page.waitForSelector(".new-terminal-dialog[open]");
+    await page.keyboard.press("1");
+    await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
+    await until(
+      async () => (await page.locator(".window-tab.current").getAttribute("data-window-id")) !== first,
+      true,
+      budget(20_000),
+    );
+    await awaitAttached(page);
+    expect(await until(() => redPainted(page), false, budget(10_000))).toBe(false);
+
+    await page.locator(`.window-tab[data-window-id="${first}"]`).click();
+    await until(
+      async () => (await page.locator(".terminal-screen").getAttribute("data-session")) === first,
+      true,
+      budget(20_000),
+    );
+    await awaitAttached(page);
+    expect(await until(() => redPainted(page), true, budget(15_000))).toBe(true);
+    await page.keyboard.press("Control+C");
     await page.close();
   },
   budget(90_000),

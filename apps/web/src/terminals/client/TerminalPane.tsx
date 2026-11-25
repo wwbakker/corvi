@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -33,6 +34,7 @@ import {
   type TerminalUpload,
 } from "./payload.ts";
 import { LargeUploadDialog } from "./LargeUploadDialog.tsx";
+import { KittyImageShelf, KittyImageShelfContext } from "./kittyImages.ts";
 
 /** How much scrollback the page keeps: as much as the server serializes, so a resume is whole. */
 const SCROLLBACK = 5000;
@@ -106,6 +108,20 @@ const terminalTheme = (): ITheme => ({
 /** Show the cursor after an empty reset: `term.reset()` does not clear DECTCEM, so a cursor a
  * full-screen program hid would otherwise stick. The server's snapshots carry it themselves. */
 const SHOW_CURSOR = "\x1b[?25h";
+
+/** Ask the program in the pane to redraw everything: a one-column resize and back, which a
+ * full-screen program answers with a full repaint. pi's fullscreen mode then places its kitty
+ * images again, by the ids the page kept for it. */
+const nudgeRedraw = (ws: WebSocket, term: Terminal): void => {
+  if (ws.readyState !== WebSocket.OPEN || term.cols < 3) return;
+  ws.send(JSON.stringify({ type: "resize", cols: term.cols - 1, rows: term.rows }));
+  setTimeout(() => {
+    if (ws.readyState === WebSocket.OPEN)
+      ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+  }, REDRAW_NUDGE_MS);
+};
+/** Long enough for the program to see two resizes rather than one coalesced into nothing. */
+const REDRAW_NUDGE_MS = 150;
 
 /** The renderer's cell size and its `clear`, from the same private core the bundled FitAddon
  * reads. There is no public API; the narrow cast follows `screen.ts`'s `activeEncoding` precedent. */
@@ -225,6 +241,15 @@ export function TerminalPane({
   const host = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
   const searchAddon = useRef<SearchAddon | null>(null);
+  const imageAddon = useRef<ImageAddon | null>(null);
+  /** The kitty uploads of the sessions this page has shown; the app's, or the pane's own. */
+  const appShelf = useContext(KittyImageShelfContext);
+  const ownShelf = useRef<KittyImageShelf | null>(null);
+  const shelf = appShelf ?? (ownShelf.current ??= new KittyImageShelf());
+  const shelfRef = useRef(shelf);
+  shelfRef.current = shelf;
+  /** The session whose screen the xterm shows: its kitty uploads are kept when it is reset. */
+  const screenSession = useRef<string | null>(null);
   const socket = useRef<WebSocket | null>(null);
   /** The change and window the open socket belongs to: a different change or tab needs a
    * different pty. */
@@ -336,7 +361,9 @@ export function TerminalPane({
     // Programs that print images — SIXEL, and iTerm2's inline images (pi, with the
     // `PI_IMAGE_PROTOCOL` the terminal host seeds) — draw them here. The server's screen keeps no
     // images, so a reattach replays the text without them.
-    term.loadAddon(new ImageAddon());
+    const images = new ImageAddon();
+    term.loadAddon(images);
+    imageAddon.current = images;
     // Cmd/Ctrl+click opens a detected URL; a plain click is left for selection. A hover shows a
     // tooltip — the URL and the chord — so the link's click affordance is discoverable.
     term.loadAddon(
@@ -431,6 +458,9 @@ export function TerminalPane({
       delete (element as HTMLElement & { corviTerminal?: Terminal }).corviTerminal;
       socketSession.current = null;
       openedUnnamed.current = false;
+      if (screenSession.current !== null) shelfRef.current.keep(screenSession.current, images);
+      screenSession.current = null;
+      imageAddon.current = null;
       term.dispose();
       terminal.current = null;
       searchAddon.current = null;
@@ -630,14 +660,21 @@ export function TerminalPane({
           socketSession.current = value.sessionId;
           setAttached(value.sessionId);
         }
-        if (value.type === "reset") {
-          // No screen yet: a fresh terminal, then the live bytes.
+        if (value.type === "reset" || (value.type === "snapshot" && typeof value.data === "string")) {
+          // A fresh terminal — empty, or the server's screen replayed into it — then the live bytes.
+          // The reset forgets the kitty uploads the program drew, so the session's are kept first
+          // and the new session's given back; a program that had placed images is asked to redraw.
+          const images = imageAddon.current;
+          if (images !== null && screenSession.current !== null)
+            shelfRef.current.keep(screenSession.current, images);
           term.reset();
-          term.write(SHOW_CURSOR);
-        } else if (value.type === "snapshot" && typeof value.data === "string") {
-          // The server's screen, replayed into a fresh terminal, then the live bytes after it.
-          term.reset();
-          term.write(value.data);
+          const sessionId = typeof value.sessionId === "string" ? value.sessionId : null;
+          screenSession.current = sessionId;
+          const restored =
+            images !== null && sessionId !== null ? shelfRef.current.restore(sessionId, images) : 0;
+          term.write(value.type === "snapshot" ? (value.data as string) : SHOW_CURSOR, () => {
+            if (restored > 0) nudgeRedraw(ws, term);
+          });
         } else if (value.type === "detached") {
           // Another window took the one live client: the close that follows is deliberate, not the
           // session ending, so show the take-over affordance and do not reconnect.
