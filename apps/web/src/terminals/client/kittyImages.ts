@@ -28,6 +28,8 @@ type KittyUpload = {
 type KittyStore = {
   readonly images: ReadonlyMap<number, KittyUpload>;
   readonly storeImage: (id: number, image: Omit<KittyUpload, "id">) => number;
+  /** The id the store gives the next upload that names none. */
+  _nextImageId: number;
 };
 
 const kittyStoreOf = (addon: ImageAddon): KittyStore | undefined =>
@@ -40,30 +42,35 @@ const kittyStoreOf = (addon: ImageAddon): KittyStore | undefined =>
 /** How many sessions' uploads are kept: the panes most recently left. */
 const KEPT_SESSIONS = 16;
 
-/** The uploads of the sessions the page has shown, by host session id. Owned by the app root, so
- * a terminal pane that unmounts (another change's page) and mounts again keeps them. */
+/** The uploads of the screens the page has shown, by the pane's screen key (the socket's URL, the
+ * session and its incarnation). Owned by the app root, so a terminal pane that unmounts (another
+ * change's page) and mounts again keeps them. */
 export class KittyImageShelf {
   readonly #kept: Map<string, readonly KittyUpload[]> = new Map();
 
-  /** Take a session's uploads off the addon before its screen is reset. */
-  keep(sessionId: string, addon: ImageAddon): void {
+  /** Take a screen's uploads off the addon before it is reset. */
+  keep(screen: string, addon: ImageAddon): void {
     const store = kittyStoreOf(addon);
-    const uploads = store === undefined ? [] : [...store.images.values()];
-    this.#kept.delete(sessionId);
+    // An addon whose store cannot be read says nothing about the session: what was kept stays.
+    if (store === undefined) return;
+    const uploads = [...store.images.values()];
+    this.#kept.delete(screen);
     if (uploads.length === 0) return;
-    this.#kept.set(sessionId, uploads);
+    this.#kept.set(screen, uploads);
     for (const oldest of this.#kept.keys()) {
       if (this.#kept.size <= KEPT_SESSIONS) break;
       this.#kept.delete(oldest);
     }
   }
 
-  /** Give a session's uploads back to the addon after its screen was reset; answers how many. */
-  restore(sessionId: string, addon: ImageAddon): number {
+  /** Give a screen's uploads back to the addon after it was reset; answers how many. */
+  restore(screen: string, addon: ImageAddon): number {
     const store = kittyStoreOf(addon);
-    const uploads = this.#kept.get(sessionId) ?? [];
+    const uploads = this.#kept.get(screen) ?? [];
     if (store === undefined) return 0;
     for (const { id, ...image } of uploads) store.storeImage(id, image);
+    // An upload that names no id is given the next free one, which must not be a restored one.
+    for (const { id } of uploads) store._nextImageId = Math.max(store._nextImageId, id + 1);
     return uploads.length;
   }
 }

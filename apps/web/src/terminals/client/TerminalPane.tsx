@@ -105,18 +105,8 @@ const terminalTheme = (): ITheme => ({
  * full-screen program hid would otherwise stick. The server's snapshots carry it themselves. */
 const SHOW_CURSOR = "\x1b[?25h";
 
-/** Ask the program in the pane to redraw everything: a one-column resize and back, which a
- * full-screen program answers with a full repaint. pi's fullscreen mode then places its kitty
- * images again, by the ids the page kept for it. */
-const nudgeRedraw = (ws: WebSocket, term: Terminal): void => {
-  if (ws.readyState !== WebSocket.OPEN || term.cols < 3) return;
-  ws.send(JSON.stringify({ type: "resize", cols: term.cols - 1, rows: term.rows }));
-  setTimeout(() => {
-    if (ws.readyState === WebSocket.OPEN)
-      ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
-  }, REDRAW_NUDGE_MS);
-};
-/** Long enough for the program to see two resizes rather than one coalesced into nothing. */
+/** How long a redraw nudge keeps the pty one column narrower: long enough for the program to see
+ * two resizes rather than one coalesced into nothing. */
 const REDRAW_NUDGE_MS = 150;
 
 /** The renderer's cell size and its `clear`, from the same private core the bundled FitAddon
@@ -244,8 +234,12 @@ export function TerminalPane({
   const shelf = appShelf ?? (ownShelf.current ??= new KittyImageShelf());
   const shelfRef = useRef(shelf);
   shelfRef.current = shelf;
-  /** The session whose screen the xterm shows: its kitty uploads are kept when it is reset. */
+  /** The session whose screen the xterm shows, as `url#session#incarnation` — the same id on
+   * another workspace, or reused by a new incarnation, is another screen. Its kitty uploads are
+   * kept under it when the xterm is reset. */
   const screenSession = useRef<string | null>(null);
+  /** The second half of a redraw nudge, pending: cancelled when the socket or the pane goes. */
+  const nudgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const socket = useRef<WebSocket | null>(null);
   /** The change and window the open socket belongs to: a different change or tab needs a
    * different pty. */
@@ -295,6 +289,23 @@ export function TerminalPane({
   const linkTooltipRef = useRef<HTMLDivElement>(null);
   /** Whether something droppable is being dragged over the pane: the overlay says what a drop does. */
   const [dragging, setDragging] = useState(false);
+  /** Ask the program in the pane to redraw everything: a one-column resize and back, which a
+   * full-screen program answers with a full repaint. pi's fullscreen mode then places its kitty
+   * images again, by the ids the page kept for it. The way back is sent as long as the socket is
+   * this pane's; a socket that goes first leaves the size to the next attach, which sends its own. */
+  const nudgeRedraw = useCallback((ws: WebSocket): void => {
+    const term = terminal.current;
+    if (!term || ws.readyState !== WebSocket.OPEN || term.cols < 3) return;
+    if (nudgeTimer.current !== null) clearTimeout(nudgeTimer.current);
+    ws.send(JSON.stringify({ type: "resize", cols: term.cols - 1, rows: term.rows }));
+    nudgeTimer.current = setTimeout(() => {
+      nudgeTimer.current = null;
+      const now = terminal.current;
+      if (now && socket.current === ws && ws.readyState === WebSocket.OPEN)
+        ws.send(JSON.stringify({ type: "resize", cols: now.cols, rows: now.rows }));
+    }, REDRAW_NUDGE_MS);
+  }, []);
+
   /** How many dropped or pasted files are uploading now, across overlapping drops. */
   const [uploading, setUploading] = useState(0);
   const [notices, setNotices] = useState<readonly UploadNotice[]>([]);
@@ -320,6 +331,7 @@ export function TerminalPane({
     return () => {
       mounted.current = false;
       if (reconnectTimer.current !== null) clearTimeout(reconnectTimer.current);
+      if (nudgeTimer.current !== null) clearTimeout(nudgeTimer.current);
     };
   }, []);
 
@@ -354,10 +366,12 @@ export function TerminalPane({
     term.loadAddon(new ClipboardAddon(undefined, new QuietClipboardProvider()));
     const search = new SearchAddon();
     term.loadAddon(search);
-    // Programs that print images — SIXEL, and iTerm2's inline images (pi, with the
-    // `PI_IMAGE_PROTOCOL` the terminal host seeds) — draw them here. The server's screen keeps no
-    // images, so a reattach replays the text without them.
-    const images = new ImageAddon();
+    // Programs that print images — kitty graphics (pi's fullscreen mode, with the
+    // `PI_IMAGE_PROTOCOL` the terminal host seeds), SIXEL and iTerm2's inline images — draw them
+    // here. The server's screen keeps no images: a reattach gives each session back its kitty
+    // uploads (`kittyImages.ts`) and asks the program to place them again. No placeholder pattern:
+    // a placement the program deleted must leave its cells empty, not boxed.
+    const images = new ImageAddon({ showPlaceholder: false });
     term.loadAddon(images);
     imageAddon.current = images;
     // Cmd/Ctrl+click opens a detected URL; a plain click is left for selection. A hover shows a
@@ -646,7 +660,7 @@ export function TerminalPane({
     ws.onmessage = (event: MessageEvent) => {
       if (socket.current !== ws) return; // a superseded socket: its screen is not this pane's
       if (typeof event.data === "string") {
-        let value: { type?: unknown; data?: unknown; sessionId?: unknown };
+        let value: { type?: unknown; data?: unknown; sessionId?: unknown; incarnation?: unknown };
         try {
           value = JSON.parse(event.data) as typeof value;
         } catch {
@@ -668,12 +682,23 @@ export function TerminalPane({
           // store would still hold the previous session's uploads: empty it, so each session is
           // given back only its own.
           images?.reset();
-          const sessionId = typeof value.sessionId === "string" ? value.sessionId : null;
-          screenSession.current = sessionId;
-          const restored =
-            images !== null && sessionId !== null ? shelfRef.current.restore(sessionId, images) : 0;
+          const screen =
+            typeof value.sessionId === "string"
+              ? `${url}#${value.sessionId}#${typeof value.incarnation === "number" ? value.incarnation : ""}`
+              : null;
+          screenSession.current = screen;
           term.write(value.type === "snapshot" ? (value.data as string) : SHOW_CURSOR, () => {
-            if (restored > 0) nudgeRedraw(ws, term);
+            // The uploads go back once the replayed screen is parsed, so nothing in it can reset
+            // them away, and the program is asked to place them again only on the socket that is
+            // still this pane's.
+            if (
+              socket.current !== ws ||
+              screenSession.current !== screen ||
+              images === null ||
+              screen === null
+            )
+              return;
+            if (shelfRef.current.restore(screen, images) > 0) nudgeRedraw(ws);
           });
         } else if (value.type === "detached") {
           // Another window took the one live client: the close that follows is deliberate, not the

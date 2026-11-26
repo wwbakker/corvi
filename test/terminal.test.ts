@@ -2480,7 +2480,7 @@ test.skipIf(!usable)(
 
     // The second window counts the resizes it is sent: it has no images, so coming back to it must
     // not nudge it the way the first is nudged.
-    const second = await page.locator(".window-tab.current").getAttribute("data-window-id");
+    const counting = await page.locator(".window-tab.current").getAttribute("data-window-id");
     const winches = join(dir, "second-winches.txt");
     await typeUntilText(
       page,
@@ -2499,11 +2499,36 @@ test.skipIf(!usable)(
     };
     await show(first);
     expect(await until(() => redPainted(page), true, budget(15_000))).toBe(true);
-    await show(second);
+    await show(counting);
     await Bun.sleep(1000);
     expect(await fileText(winches)).toBe("");
     await page.keyboard.press("Control+C");
+
+    // Another change's page takes the place of this one — the pane is unmounted with it — and the
+    // window is opened again from the navigation column: the app keeps the uploads, not the pane.
     await show(first);
+    expect(await until(() => redPainted(page), true, budget(15_000))).toBe(true);
+    await page.evaluate(() => {
+      (document.querySelector(".terminal-screen") as HTMLElement & { leftBehind?: boolean }).leftBehind =
+        true;
+    });
+    await page.locator(".sidebar .entry.change", { hasText: second }).first().click();
+    await until(async () => new URL(page.url()).pathname.includes(kittyReturn), false, budget(20_000));
+    await page.locator(`.sidebar .entry.window[data-window-id="${first}"]`).click();
+    await until(
+      async () => (await page.locator(".terminal-screen").getAttribute("data-session")) === first,
+      true,
+      budget(20_000),
+    );
+    await awaitAttached(page);
+    expect(
+      await page.evaluate(
+        () =>
+          (document.querySelector(".terminal-screen") as (HTMLElement & { leftBehind?: boolean }) | null)
+            ?.leftBehind === true,
+      ),
+    ).toBe(false);
+    expect(await until(() => redPainted(page), true, budget(15_000))).toBe(true);
     await page.keyboard.press("Control+C");
     await page.close();
   },
