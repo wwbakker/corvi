@@ -27,8 +27,8 @@ are decision records of their own: [architecture](decisions/architecture.md), [t
 and host sessions](decisions/terminal-host.md), [the agent-status
 channel](decisions/agent-status-channel.md), [server-owned screen
 state](decisions/server-owned-screen.md), [the Electron
-version](decisions/electron-version.md), and [leaving a page with unsaved
-edits](decisions/unsaved-changes.md).
+version](decisions/electron-version.md), [the xterm.js beta](decisions/xterm-beta.md), and
+[leaving a page with unsaved edits](decisions/unsaved-changes.md).
 
 ## Repository and change contracts
 

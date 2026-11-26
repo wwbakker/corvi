@@ -200,11 +200,14 @@ extensions fall back to stderr. The agent's own output is never touched.
   workspace, so the path works for the program that reads it. A name that is taken gets a number
   (`shot-1.png`); a clipboard image is named `paste-<date>-<time>.png`. Nothing is pruned while
   the change is open; the files travel with the change into the archive.
-- Programs can show images: the terminal draws SIXEL and iTerm2's inline images (not the kitty
-  graphics protocol). Every pane is started with `PI_IMAGE_PROTOCOL=iterm2` so pi uses the one the
-  terminal draws, unless a harness profile or your environment already sets it. Images are drawn
-  by the page that saw them arrive: a reload, a window switch or taking a terminal over replays the
-  screen's text without them, until the program draws them again.
+- Programs can show images: the terminal draws kitty graphics, SIXEL and iTerm2's inline images.
+  Every pane is started with `PI_IMAGE_PROTOCOL=kitty`, the one pi's fullscreen mode draws, unless
+  a harness profile or your environment already sets it (pi turns iTerm2 images off in
+  fullscreen). Images are drawn by the page that saw them arrive, and the screen a reattach
+  replays has none. Coming back to a window in the same page keeps its kitty images: the program
+  that drew them is resized by one column and back, and pi answers by placing them again — the
+  brief wiggle you may see. A reload or taking a terminal over starts without them, as do other
+  image kinds, until the program draws them again.
 - Cmd/Ctrl-F finds in the terminal, Cmd/Ctrl +/-/0 changes the font size, and Cmd/Ctrl-click opens
   a link. The font itself, and the Nerd Fonts icons programs print, are described under
   [Monospace font](interface.md#monospace-font).

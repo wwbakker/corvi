@@ -181,7 +181,7 @@ const terminalLayout = (page: Page): Promise<TerminalLayout | null> =>
     const hostRect = host.getBoundingClientRect();
     const gridRect = grid.getBoundingClientRect();
     const bar = document.querySelector(
-      ".terminal-screen .xterm-scrollable-element > .scrollbar.vertical",
+      ".terminal-screen .xterm-scrollable-element > .xterm-scrollbar.xterm-vertical",
     ) as HTMLElement | null;
     const barStyle = bar ? getComputedStyle(bar) : null;
     const barRect = bar?.getBoundingClientRect();
@@ -386,6 +386,8 @@ const dialogOnly = "PROJ-DIALOG";
 const createOnly = "PROJ-CREATE";
 /** Its own change, so the window the upload-switch test opens does not shift another's tabs. */
 const dropSwitch = "PROJ-DROP-SWITCH";
+/** Its own change, so the kitty test's second window does not shift another's tabs. */
+const kittyReturn = "PROJ-KITTY";
 
 const startServer = async (port = 0): Promise<void> => {
   ({ server, url } = await startTestServer(tmp, {
@@ -435,6 +437,7 @@ beforeAll(async () => {
     [dialogOnly, "repo8"],
     [createOnly, "repo9"],
     [dropSwitch, "repo10"],
+    [kittyReturn, "repo11"],
   ] as const) {
     const at = join(tmp, repo);
     await runSh(["git", "init", "-b", "main", at]);
@@ -1401,7 +1404,7 @@ test.skipIf(!usable)(
     expect(layout!.scrollbar!.right).toBeLessThanOrEqual(layout!.hostRight + 1);
     expect(layout!.scrollbar!.left).toBeLessThan(layout!.gridRight);
     // Nothing to scroll yet: the overlay is hidden and takes no pointer events.
-    expect(layout!.scrollbar!.classes).toContain("invisible");
+    expect(layout!.scrollbar!.classes.split(/\s+/)).toContain("xterm-invisible");
     expect(layout!.scrollbar!.pointerEvents).toBe("none");
 
     // Add scrollback, then scroll: the overlay fades in over the grid.
@@ -1410,11 +1413,12 @@ test.skipIf(!usable)(
     if (box === null) throw new Error("the terminal has no box");
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.wheel(0, -120);
-    // `"invisible".includes("visible")` is true, so match the class token, not a substring, and fail
-    // (not just wait out the budget) if the overlay never appears.
+    // `"xterm-invisible".includes("visible")` is true, so match the class token, not a substring, and
+    // fail (not just wait out the budget) if the overlay never appears.
     await waitFor(
       "the scrollbar to fade in",
-      async () => (await terminalLayout(page))?.scrollbar?.classes.split(/\s+/).includes("visible") === true,
+      async () =>
+        (await terminalLayout(page))?.scrollbar?.classes.split(/\s+/).includes("xterm-visible") === true,
       budget(10_000),
     );
 
@@ -2365,6 +2369,22 @@ test.skipIf(!usable)(
   budget(60_000),
 );
 
+/** Whether the image layers hold a red pixel: the test images are solid red. */
+const redPainted = (page: Page): Promise<boolean> =>
+  page.evaluate(() => {
+    for (const layer of document.querySelectorAll<HTMLCanvasElement>(
+      ".terminal-screen canvas[class*='image']",
+    )) {
+      const context = layer.getContext("2d");
+      if (!context || layer.width === 0 || layer.height === 0) continue;
+      const pixels = context.getImageData(0, 0, layer.width, layer.height).data;
+      for (let at = 0; at < pixels.length; at += 4) {
+        if (pixels[at]! > 200 && pixels[at + 1]! < 50 && pixels[at + 3]! > 200) return true;
+      }
+    }
+    return false;
+  });
+
 test.skipIf(!usable)(
   "an inline image a program prints is drawn",
   async () => {
@@ -2377,25 +2397,142 @@ test.skipIf(!usable)(
       `printf '\\033]1337;File=inline=1;size=75;width=4;height=2;preserveAspectRatio=0:${png}\\a'; echo IMAGE-DRAWN`,
       "IMAGE-DRAWN",
     );
-    const painted = await until(
-      () =>
-        page.evaluate(() => {
-          const layer = document.querySelector<HTMLCanvasElement>(".terminal-screen .xterm-image-layer");
-          const context = layer?.getContext("2d");
-          if (!layer || !context || layer.width === 0 || layer.height === 0) return false;
-          const pixels = context.getImageData(0, 0, layer.width, layer.height).data;
-          for (let at = 0; at < pixels.length; at += 4) {
-            if (pixels[at]! > 200 && pixels[at + 1]! < 50 && pixels[at + 3]! > 200) return true;
-          }
-          return false;
-        }),
-      true,
-      budget(15_000),
-    );
+    const painted = await until(() => redPainted(page), true, budget(15_000));
     expect(painted).toBe(true);
     await page.close();
   },
   budget(60_000),
+);
+
+test.skipIf(!usable)(
+  "kitty graphics: an image is uploaded once, re-placed by id after its placements are deleted, and deleted",
+  async () => {
+    const { page } = await openTerminal(id);
+    // The sequences pi's fullscreen mode sends: transmit-and-display under an id without moving the
+    // cursor, delete every placement while keeping the data (`d=a`), place again by id (`a=p`), and
+    // finally delete the image with its data (`d=I`).
+    const png =
+      "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAEklEQVR4nGP4z8DwHxkzkC4AADxAH+HggXe0AAAAAElFTkSuQmCC";
+    const kitty = (controls: string, payload = ""): string =>
+      // C=1 leaves the cursor at the image's corner: the newlines step past the image without
+      // writing over its cells, which would erase them.
+      `printf '\\033_G${controls}${payload === "" ? "" : `;${payload}`}\\033\\\\\\n\\n\\n'`;
+    await typeUntilText(
+      page,
+      `clear; ${kitty("a=T,f=100,q=2,C=1,c=4,r=2,i=7", png)}; echo KITTY-SENT`,
+      "KITTY-SENT",
+    );
+    expect(await until(() => redPainted(page), true, budget(15_000))).toBe(true);
+
+    await typeUntilText(page, `${kitty("a=d,d=a,q=2")}; echo KITTY-CLEARED`, "KITTY-CLEARED");
+    expect(await until(() => redPainted(page), false, budget(15_000))).toBe(false);
+
+    await typeUntilText(page, `${kitty("a=p,q=2,i=7,c=4,r=2,C=1")}; echo KITTY-PLACED`, "KITTY-PLACED");
+    expect(await until(() => redPainted(page), true, budget(15_000))).toBe(true);
+
+    await typeUntilText(page, `${kitty("a=d,d=I,i=7,q=2")}; echo KITTY-DELETED`, "KITTY-DELETED");
+    expect(await until(() => redPainted(page), false, budget(15_000))).toBe(false);
+    await typeUntilText(page, `${kitty("a=p,q=2,i=7,c=4,r=2,C=1")}; echo KITTY-GONE`, "KITTY-GONE");
+    await Bun.sleep(500);
+    expect(await redPainted(page)).toBe(false);
+    await page.close();
+  },
+  budget(90_000),
+);
+
+test.skipIf(!usable)(
+  "kitty images come back when the window is shown again, for a program that redraws",
+  async () => {
+    const { page, dir } = await openTerminal(kittyReturn);
+    // A stand-in for pi's fullscreen mode: it uploads an image once and, on every resize, deletes
+    // its placements and places the image again by id — never uploading it a second time.
+    const png =
+      "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAEklEQVR4nGP4z8DwHxkzkC4AADxAH+HggXe0AAAAAElFTkSuQmCC";
+    const script = join(dir, "kitty-redraw.sh");
+    await Bun.write(
+      script,
+      [
+        "place() { printf '\\033_Ga=d,d=a,q=2\\033\\\\'; printf '\\033[H\\033_Ga=p,i=9,c=4,r=2,C=1,q=2\\033\\\\'; }",
+        "trap place WINCH",
+        `printf '\\033[2J\\033[H\\033_Ga=T,f=100,q=2,C=1,c=4,r=2,i=9;${png}\\033\\\\'`,
+        "printf '\\n\\n\\nKITTY-READY\\n'",
+        "while :; do sleep 0.1; done",
+        "",
+      ].join("\n"),
+    );
+    await typeUntilText(page, `sh ${script}`, "KITTY-READY");
+    expect(await until(() => redPainted(page), true, budget(15_000))).toBe(true);
+
+    // Another window takes the pane, and the first comes back: its screen is replayed without the
+    // image, and the program places it again from the upload the page kept.
+    const first = await page.locator(".window-tab.current").getAttribute("data-window-id");
+    await page.locator(".change-tabs button.window-tab.new").click();
+    await page.waitForSelector(".new-terminal-dialog[open]");
+    await page.keyboard.press("1");
+    await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
+    await until(
+      async () => (await page.locator(".window-tab.current").getAttribute("data-window-id")) !== first,
+      true,
+      budget(20_000),
+    );
+    await awaitAttached(page);
+    expect(await until(() => redPainted(page), false, budget(10_000))).toBe(false);
+
+    // The second window counts the resizes it is sent: it has no images, so coming back to it must
+    // not nudge it the way the first is nudged.
+    const counting = await page.locator(".window-tab.current").getAttribute("data-window-id");
+    const winches = join(dir, "second-winches.txt");
+    await typeUntilText(
+      page,
+      `sh -c 'trap "echo W >> ${winches}" WINCH; echo COUNTING; while :; do sleep 0.1; done'`,
+      "COUNTING",
+    );
+
+    const show = async (window: string | null): Promise<void> => {
+      await page.locator(`.window-tab[data-window-id="${window}"]`).click();
+      await until(
+        async () => (await page.locator(".terminal-screen").getAttribute("data-session")) === window,
+        true,
+        budget(20_000),
+      );
+      await awaitAttached(page);
+    };
+    await show(first);
+    expect(await until(() => redPainted(page), true, budget(15_000))).toBe(true);
+    await show(counting);
+    await Bun.sleep(1000);
+    expect(await fileText(winches)).toBe("");
+    await page.keyboard.press("Control+C");
+
+    // Another change's page takes the place of this one — the pane is unmounted with it — and the
+    // window is opened again from the navigation column: the app keeps the uploads, not the pane.
+    await show(first);
+    expect(await until(() => redPainted(page), true, budget(15_000))).toBe(true);
+    await page.evaluate(() => {
+      (document.querySelector(".terminal-screen") as HTMLElement & { leftBehind?: boolean }).leftBehind =
+        true;
+    });
+    await page.locator(".sidebar .entry.change", { hasText: second }).first().click();
+    await until(async () => new URL(page.url()).pathname.includes(kittyReturn), false, budget(20_000));
+    await page.locator(`.sidebar .entry.window[data-window-id="${first}"]`).click();
+    await until(
+      async () => (await page.locator(".terminal-screen").getAttribute("data-session")) === first,
+      true,
+      budget(20_000),
+    );
+    await awaitAttached(page);
+    expect(
+      await page.evaluate(
+        () =>
+          (document.querySelector(".terminal-screen") as (HTMLElement & { leftBehind?: boolean }) | null)
+            ?.leftBehind === true,
+      ),
+    ).toBe(false);
+    expect(await until(() => redPainted(page), true, budget(15_000))).toBe(true);
+    await page.keyboard.press("Control+C");
+    await page.close();
+  },
+  budget(90_000),
 );
 
 test.skipIf(!usable)(

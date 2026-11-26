@@ -554,7 +554,7 @@ describe.skipIf(!usable)("terminal host under Node", () => {
     }
   }, 30_000);
 
-  test("tells pi the pane draws iTerm2 images, unless the caller chose a protocol", async () => {
+  test("tells pi the pane draws kitty graphics, unless the caller chose a protocol", async () => {
     const fixture = await openHost();
     try {
       const print = 'printf "PROTOCOL=%s\\n" "$PI_IMAGE_PROTOCOL"; sleep 3';
@@ -566,7 +566,7 @@ describe.skipIf(!usable)("terminal host under Node", () => {
         env: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
       });
       await fixture.client.attach("seeded");
-      await waitFor("the seeded protocol", async () => seeded.join("").includes("PROTOCOL=iterm2"));
+      await waitFor("the seeded protocol", async () => seeded.join("").includes("PROTOCOL=kitty"));
 
       const chosen: string[] = [];
       fixture.client.onData("chosen", (data) => chosen.push(data.toString("utf8")));
