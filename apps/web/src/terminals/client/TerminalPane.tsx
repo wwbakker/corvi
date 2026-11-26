@@ -10,11 +10,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { Terminal, type ITheme } from "@xterm/xterm";
-import {
-  BrowserClipboardProvider,
-  ClipboardAddon,
-  type ClipboardSelectionType,
-} from "@xterm/addon-clipboard";
+import { BrowserClipboardProvider, ClipboardAddon } from "@xterm/addon-clipboard";
 import { ImageAddon } from "@xterm/addon-image";
 import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -172,10 +168,10 @@ const fitTerminal = (term: Terminal): void => {
  * swallows its own: the selection is still on screen, and the addon's promise goes back into
  * xterm's parser, so the input pipeline must not break. */
 class QuietClipboardProvider extends BrowserClipboardProvider {
-  override writeText(selection: ClipboardSelectionType, text: string): Promise<void> {
+  override writeText(selection: string, text: string): Promise<void> {
     // Only the system clipboard exists here; an empty selection and `c` both mean it. (`p`, the
     // primary selection, has no web API and is left alone.)
-    if ((selection as string) !== "" && (selection as string) !== "c") return Promise.resolve();
+    if (selection !== "" && selection !== "c") return Promise.resolve();
     return navigator.clipboard.writeText(text).catch(() => undefined);
   }
 }

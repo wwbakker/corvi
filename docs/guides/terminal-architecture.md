@@ -205,11 +205,14 @@ running the action command, the prompt is a bracketed write, submit is Enter, an
   startup emitted **0 host bytes** on the exact jiggle with unchanged screens; an earlier ad-hoc
   pi-history run once saw 29 B but did not reproduce. The active-turn case is unmeasured (no
   isolated credentials). The gap path is therefore best-effort, not a repair guarantee.
-- Inline images (SIXEL, iTerm2's OSC 1337 `File=`) are drawn by the page's xterm only
-  (`@xterm/addon-image`). The server's headless screen parses them as sequences it ignores, so a
-  snapshot carries no image and no rows the image advanced the page's cursor by; a reattach shows
+- Inline images (kitty graphics, SIXEL, iTerm2's OSC 1337 `File=`) are drawn by the page's xterm
+  only (`@xterm/addon-image`). The server's headless screen parses them as sequences it ignores, so
+  a snapshot carries no image and no rows the image advanced the page's cursor by; a reattach shows
   the text without them until the program repaints. Keeping image bytes per session to replay
-  would put a store of megabytes behind every snapshot, well beyond its 1 MiB cap.
+  would put a store of megabytes behind every snapshot, well beyond its 1 MiB cap. The one
+  exception lives in the page: kitty uploads are kept per session across its own reattaches, and a
+  program that drew some is resized by a column and back so it places them again by id
+  ([the xterm.js beta](../decisions/xterm-beta.md)).
 - "Exact" resume is screen-content exact: the serializer restores the text and the modes it knows,
   not every parser state, and the stored offset can fall mid-escape.
 

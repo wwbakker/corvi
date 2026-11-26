@@ -181,7 +181,7 @@ const terminalLayout = (page: Page): Promise<TerminalLayout | null> =>
     const hostRect = host.getBoundingClientRect();
     const gridRect = grid.getBoundingClientRect();
     const bar = document.querySelector(
-      ".terminal-screen .xterm-scrollable-element > .scrollbar.vertical",
+      ".terminal-screen .xterm-scrollable-element > .xterm-scrollbar.xterm-vertical",
     ) as HTMLElement | null;
     const barStyle = bar ? getComputedStyle(bar) : null;
     const barRect = bar?.getBoundingClientRect();
