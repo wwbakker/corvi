@@ -1404,7 +1404,7 @@ test.skipIf(!usable)(
     expect(layout!.scrollbar!.right).toBeLessThanOrEqual(layout!.hostRight + 1);
     expect(layout!.scrollbar!.left).toBeLessThan(layout!.gridRight);
     // Nothing to scroll yet: the overlay is hidden and takes no pointer events.
-    expect(layout!.scrollbar!.classes).toContain("invisible");
+    expect(layout!.scrollbar!.classes.split(/\s+/)).toContain("xterm-invisible");
     expect(layout!.scrollbar!.pointerEvents).toBe("none");
 
     // Add scrollback, then scroll: the overlay fades in over the grid.
@@ -1413,11 +1413,12 @@ test.skipIf(!usable)(
     if (box === null) throw new Error("the terminal has no box");
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.wheel(0, -120);
-    // `"invisible".includes("visible")` is true, so match the class token, not a substring, and fail
-    // (not just wait out the budget) if the overlay never appears.
+    // `"xterm-invisible".includes("visible")` is true, so match the class token, not a substring, and
+    // fail (not just wait out the budget) if the overlay never appears.
     await waitFor(
       "the scrollbar to fade in",
-      async () => (await terminalLayout(page))?.scrollbar?.classes.split(/\s+/).includes("visible") === true,
+      async () =>
+        (await terminalLayout(page))?.scrollbar?.classes.split(/\s+/).includes("xterm-visible") === true,
       budget(10_000),
     );
 
