@@ -363,6 +363,11 @@ export type TerminalsResponseDto = typeof TerminalsResponseSchema.Type;
 export const UrlSchema = Schema.Struct({ url: Schema.String });
 export type UrlDto = typeof UrlSchema.Type;
 
+/** A file dropped or pasted into a terminal, as the server stored it: the absolute path on the
+ * machine the change's ptys run on, which is what the page pastes into the terminal. */
+export const TerminalAttachmentSchema = Schema.Struct({ path: Schema.String });
+export type TerminalAttachmentDto = typeof TerminalAttachmentSchema.Type;
+
 /** The identity a terminal host records when it starts, and what this server asks for: provenance
  * (checkout, build) and the one compatibility fact (protocol). */
 export const HostIdentitySchema = Schema.Struct({

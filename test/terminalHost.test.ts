@@ -193,6 +193,29 @@ describe("terminal host OSC", () => {
     expect(result.statuses.map((status) => status.status)).toEqual(["waiting"]);
   });
 
+  test("an inline image of many megabytes passes through byte for byte, holding almost nothing", () => {
+    // iTerm2's inline image: OSC 1337 like the reporter's, but `File=`, and far beyond any status.
+    const image = Buffer.concat([
+      Buffer.from("before\x1b]1337;File=name=c2hvdC5wbmc=;size=3000000;inline=1:", "ascii"),
+      Buffer.from("A".repeat(4_000_000), "ascii"),
+      BEL,
+      Buffer.from("after\n", "ascii"),
+    ]);
+    const out: Buffer[] = [];
+    let carry: Buffer = empty;
+    let widest = 0;
+    for (let at = 0; at < image.length; at += 65_536) {
+      const result = parseOsc(image.subarray(at, at + 65_536), carry);
+      expect(result.statuses.length).toBe(0);
+      out.push(result.clean);
+      carry = result.carry;
+      widest = Math.max(widest, carry.length);
+    }
+    out.push(carry);
+    expect(Buffer.concat(out).equals(image)).toBe(true);
+    expect(widest).toBeLessThan(OSC_INTRO.length);
+  });
+
   test("validation caps strings and rejects unknown statuses", () => {
     expect(sanitizeStatus({ status: "exploded" })).toBeUndefined();
     expect(sanitizeStatus(null)).toBeUndefined();
@@ -285,6 +308,21 @@ describe("terminal host OSC titles and cwd", () => {
       osc("7501", "state=done:app=pi"),
     ]);
     expect(scanTerminal(chunk, none).title).toBeUndefined();
+  });
+
+  test("an inline image of many megabytes is not a title and is not held", () => {
+    let carry: Buffer = none;
+    const chunks = [
+      Buffer.from("\x1b]1337;File=inline=1:", "ascii"),
+      ...Array.from({ length: 60 }, () => Buffer.from("A".repeat(65_536), "ascii")),
+      Buffer.from("\x07", "ascii"),
+    ];
+    for (const chunk of chunks) {
+      const result = scanTerminal(chunk, carry);
+      expect(result.title).toBeUndefined();
+      carry = result.carry;
+      expect(carry.length).toBeLessThanOrEqual(MAX_TITLE_CARRY);
+    }
   });
 
   test("a title is one line, and capped", () => {
@@ -511,6 +549,34 @@ describe.skipIf(!usable)("terminal host under Node", () => {
       });
       await fixture.client.attach("s2");
       await waitFor("the identity to print", async () => identity.join("").includes("ID=s2 INC=1"));
+    } finally {
+      await closeHost(fixture);
+    }
+  }, 30_000);
+
+  test("tells pi the pane draws iTerm2 images, unless the caller chose a protocol", async () => {
+    const fixture = await openHost();
+    try {
+      const print = 'printf "PROTOCOL=%s\\n" "$PI_IMAGE_PROTOCOL"; sleep 3';
+      const seeded: string[] = [];
+      fixture.client.onData("seeded", (data) => seeded.push(data.toString("utf8")));
+      await fixture.client.open("seeded", {
+        cwd: fixture.dir,
+        command: ["/bin/sh", "-c", print],
+        env: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
+      });
+      await fixture.client.attach("seeded");
+      await waitFor("the seeded protocol", async () => seeded.join("").includes("PROTOCOL=iterm2"));
+
+      const chosen: string[] = [];
+      fixture.client.onData("chosen", (data) => chosen.push(data.toString("utf8")));
+      await fixture.client.open("chosen", {
+        cwd: fixture.dir,
+        command: ["/bin/sh", "-c", print],
+        env: { PATH: process.env.PATH ?? "/usr/bin:/bin", PI_IMAGE_PROTOCOL: "none" },
+      });
+      await fixture.client.attach("chosen");
+      await waitFor("the chosen protocol", async () => chosen.join("").includes("PROTOCOL=none"));
     } finally {
       await closeHost(fixture);
     }

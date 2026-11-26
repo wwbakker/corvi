@@ -4,9 +4,11 @@ import {
   TerminalWindowSchema,
   TerminalStatusResponseSchema,
   HostStatusSchema,
+  TerminalAttachmentSchema,
   UrlSchema,
   WindowActionBodySchema,
   type HostStatusDto,
+  type TerminalAttachmentDto,
   type TerminalWindowDto,
   type TerminalStatusDto,
   type TerminalStatusResponseDto,
@@ -22,6 +24,14 @@ export interface TerminalsApi {
   readonly list: (options?: RequestOptions) => Promise<TerminalsResponseDto>;
   readonly url: (changeId: ChangeId, options?: RequestOptions) => Promise<UrlDto>;
   readonly windowAction: (changeId: ChangeId, action: WindowActionBodyDto) => Promise<TerminalWindowDto[]>;
+  /** Store a file dropped or pasted into the change's terminal on the server that runs its ptys,
+   * under `name` (a clash is renamed, not overwritten). The answer is where it was stored. */
+  readonly attach: (
+    changeId: ChangeId,
+    name: string,
+    file: Blob,
+    options?: RequestOptions,
+  ) => Promise<TerminalAttachmentDto>;
   /** Report an agent status for one host session (the CLI reporter transport). */
   readonly setStatus: (body: TerminalStatusDto) => Promise<TerminalStatusResponseDto>;
   /** The terminal host this server is talking to, and whether it is the one it would have started. */
@@ -41,6 +51,14 @@ export const makeTerminalsApi = (send: Send): TerminalsApi => {
       request(send, "POST", `${change(changeId)}/terminal/windows`, mutableArray(TerminalWindowSchema), {
         body: action,
       }),
+    attach: async (changeId, name, file, options) =>
+      request(
+        send,
+        "POST",
+        `${change(changeId)}/terminal/attachments?name=${encodeURIComponent(name)}`,
+        TerminalAttachmentSchema,
+        { bytes: file, ...(options?.signal ? { signal: options.signal } : {}) },
+      ),
     setStatus: async (body) =>
       request(send, "POST", "/terminals/status", TerminalStatusResponseSchema, { body }),
     hostStatus: async (options) => request(send, "GET", "/terminals/host", HostStatusSchema, options),

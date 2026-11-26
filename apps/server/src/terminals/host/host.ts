@@ -273,6 +273,9 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
       // scrubs the launcher's variables before sending, and merging the host's own env back in
       // would reinstate exactly the keys the scrub removed.
       env: {
+        // The pane draws iTerm2 inline images (and SIXEL), not kitty graphics, and pi cannot tell
+        // which by itself; a value the caller already chose (a harness profile, the user) stands.
+        PI_IMAGE_PROTOCOL: "iterm2",
         ...(env ?? baseEnv()),
         TERM: "xterm-256color",
         CORVI_SESSION_ID: id,

@@ -1,5 +1,5 @@
 import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, readdir, rm } from "node:fs/promises";
 import { connect } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -384,6 +384,8 @@ const empty = "PROJ-EMPTY";
 const dialogOnly = "PROJ-DIALOG";
 /** A change whose first window is opened while the window-list read is slow. */
 const createOnly = "PROJ-CREATE";
+/** Its own change, so the window the upload-switch test opens does not shift another's tabs. */
+const dropSwitch = "PROJ-DROP-SWITCH";
 
 const startServer = async (port = 0): Promise<void> => {
   ({ server, url } = await startTestServer(tmp, {
@@ -432,6 +434,7 @@ beforeAll(async () => {
     [empty, "repo7"],
     [dialogOnly, "repo8"],
     [createOnly, "repo9"],
+    [dropSwitch, "repo10"],
   ] as const) {
     const at = join(tmp, repo);
     await runSh(["git", "init", "-b", "main", at]);
@@ -2070,6 +2073,326 @@ test.skipIf(!usable)(
     expect(box).not.toBeNull();
     await page.mouse.click(box!.x + 40, box!.y + 40, { button: "middle" });
     await until(async () => (await terminalText(page)).includes("MIDDLE_PASTE"), true, budget(10_000));
+    await page.close();
+  },
+  budget(60_000),
+);
+
+/** Drop onto the terminal what a drag from a file manager (files) or another app (text) carries,
+ * through the same events a person's drop fires. */
+const dropOnTerminal = (
+  page: Page,
+  drop: {
+    readonly files?: readonly { name: string; text?: string; bytes?: number }[];
+    readonly text?: string;
+  },
+): Promise<void> =>
+  page.evaluate((spec) => {
+    const data = new DataTransfer();
+    for (const file of spec.files ?? []) {
+      const body = file.bytes === undefined ? [file.text ?? ""] : [new ArrayBuffer(file.bytes)];
+      data.items.add(new File(body, file.name));
+    }
+    if (spec.text !== undefined) data.setData("text/plain", spec.text);
+    const target = document.querySelector(".terminal-screen")!;
+    for (const type of ["dragenter", "dragover", "drop"]) {
+      target.dispatchEvent(new DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true }));
+    }
+  }, drop);
+
+const attachmentsOf = async (dir: string): Promise<string[]> =>
+  (await readdir(join(dir, ".attachments")).catch(() => [] as string[])).sort();
+
+test.skipIf(!usable)(
+  "a dropped file is stored with the change and its path pasted",
+  async () => {
+    const { page, dir } = await openTerminal(id);
+    await typeUntilText(page, "echo DROP-READY", "DROP-READY");
+    await awaitBracketedPaste(page);
+    await page.keyboard.type("cat ");
+    await dropOnTerminal(page, { files: [{ name: "drop me.txt", text: "DROPPED-CONTENT" }] });
+    // The stored copy's path, quoted for the shell, lands on the command line.
+    expect(
+      await until(async () => (await terminalText(page)).includes("drop me.txt'"), true, budget(15_000)),
+    ).toBe(true);
+    expect(await attachmentsOf(dir)).toContain("drop me.txt");
+    const out = join(dir, "drop-out.txt");
+    await page.keyboard.type("> drop-out.txt\n");
+    expect(await until(() => fileText(out), "DROPPED-CONTENT", budget(10_000))).toBe("DROPPED-CONTENT");
+    await page.close();
+  },
+  budget(60_000),
+);
+
+test.skipIf(!usable)(
+  "dropped text is pasted as text",
+  async () => {
+    const { page } = await openTerminal(id);
+    await typeUntilText(page, "echo DROP-TEXT-READY", "DROP-TEXT-READY");
+    await awaitBracketedPaste(page);
+    await dropOnTerminal(page, { text: "DROPPED_TEXT_MARKER" });
+    expect(
+      await until(
+        async () => (await terminalText(page)).includes("DROPPED_TEXT_MARKER"),
+        true,
+        budget(10_000),
+      ),
+    ).toBe(true);
+    await page.keyboard.press("Control+U");
+    await page.close();
+  },
+  budget(60_000),
+);
+
+test.skipIf(!usable)(
+  "a large drop asks before uploading: declining uploads nothing, accepting pastes its path",
+  async () => {
+    const { page, dir } = await openTerminal(id);
+    await typeUntilText(page, "echo LARGE-READY", "LARGE-READY");
+    await awaitBracketedPaste(page);
+    const large = { files: [{ name: "huge.bin", bytes: 201 * 1024 * 1024 }] };
+    const question = page.locator("dialog.large-upload[open]");
+
+    await dropOnTerminal(page, large);
+    await question.waitFor({ timeout: budget(10_000) });
+    expect(await question.innerText()).toContain("huge.bin");
+    expect(await question.innerText()).toContain("201 MB");
+    await question.getByRole("button", { name: "Don't upload" }).click();
+    await question.waitFor({ state: "detached", timeout: budget(10_000) });
+    await Bun.sleep(500);
+    expect(await attachmentsOf(dir)).not.toContain("huge.bin");
+    expect(await page.locator(".terminal-transfer").count()).toBe(0);
+
+    // Accepting sends it — for real: intercepting the request would make the browser hand its 201 MB
+    // body to the test runner, which brings the browser down.
+    await dropOnTerminal(page, large);
+    await question.waitFor({ timeout: budget(10_000) });
+    await question.getByRole("button", { name: "Upload", exact: true }).click();
+    expect(
+      await until(async () => (await terminalText(page)).includes("huge.bin"), true, budget(30_000)),
+    ).toBe(true);
+    expect(await attachmentsOf(dir)).toContain("huge.bin");
+    await page.keyboard.press("Control+U");
+    await page.close();
+  },
+  budget(90_000),
+);
+
+test.skipIf(!usable)(
+  "a dropped folder is refused and says so",
+  async () => {
+    const { page, dir } = await openTerminal(id);
+    await typeUntilText(page, "echo FOLDER-READY", "FOLDER-READY");
+    const before = await attachmentsOf(dir);
+    // A synthetic drop cannot carry a real directory: the entry API is what says one was dropped.
+    await page.evaluate(() => {
+      DataTransferItem.prototype.webkitGetAsEntry = function (this: DataTransferItem) {
+        return { isDirectory: true, name: this.getAsFile()?.name ?? "" } as FileSystemEntry;
+      };
+    });
+    await dropOnTerminal(page, { files: [{ name: "a-folder", text: "" }] });
+    const refusal = page.locator(".terminal-transfer.failed");
+    await refusal.waitFor({ timeout: budget(10_000) });
+    expect(await refusal.innerText()).toContain("a-folder is a folder");
+    expect(await attachmentsOf(dir)).toEqual(before);
+    expect(await terminalText(page)).not.toContain("a-folder'");
+    await page.close();
+  },
+  budget(60_000),
+);
+
+test.skipIf(!usable)(
+  "a file dropped beside the terminal is refused, and a text drag is left to the page",
+  async () => {
+    const { page } = await openTerminal(id);
+    // `dispatchEvent` answers false when the event was cancelled: a cancelled file drop is one the
+    // window does not navigate to (and the app does not hand to another program).
+    const outcome = await page.evaluate(() => {
+      const send = (type: string, data: DataTransfer): { cancelled: boolean; effect: string } => {
+        const event = new DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true });
+        const cancelled = !document.querySelector(".sidebar")!.dispatchEvent(event);
+        return { cancelled, effect: data.dropEffect };
+      };
+      const files = new DataTransfer();
+      files.items.add(new File(["x"], "stray.txt"));
+      const text = new DataTransfer();
+      text.setData("text/plain", "words");
+      return {
+        fileOver: send("dragover", files),
+        fileDrop: send("drop", files),
+        textOver: send("dragover", text),
+      };
+    });
+    expect(outcome.fileOver).toEqual({ cancelled: true, effect: "none" });
+    expect(outcome.fileDrop.cancelled).toBe(true);
+    expect(outcome.textOver.cancelled).toBe(false);
+    await page.close();
+  },
+  budget(60_000),
+);
+
+test.skipIf(!usable)(
+  "a drop or paste that completes after a window switch types nothing into the new window",
+  async () => {
+    const { page, dir } = await openTerminal(dropSwitch);
+    await typeUntilText(page, "echo SWITCH-READY", "SWITCH-READY");
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route("**/terminal/attachments**", async (route) => {
+      await held;
+      await route.continue();
+    });
+    // A clipboard that answers only when told: the paste is asked for in the first window and its
+    // text arrives after the switch.
+    await page.evaluate(() => {
+      const clip = { copied: "", answer: (): void => undefined };
+      (window as unknown as { __clip: typeof clip }).__clip = clip;
+      const text = new Promise<string>((resolve) => {
+        clip.answer = () => resolve("LATE_CLIPBOARD_TEXT");
+      });
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async (value: string) => {
+            clip.copied = value;
+          },
+          readText: () => text,
+        },
+      });
+    });
+    await page.keyboard.press("Control+Shift+V");
+    // Two uploads on their way, each its own drop.
+    await dropOnTerminal(page, { files: [{ name: "late-one.txt", text: "ONE" }] });
+    await dropOnTerminal(page, { files: [{ name: "late-two.txt", text: "TWO" }] });
+    await page.locator(".terminal-transfer[role=status]").waitFor({ timeout: budget(10_000) });
+    // A second window takes the pane while all three are still pending.
+    const first = await page.locator(".terminal-screen").getAttribute("data-session");
+    await page.locator(".change-tabs button.window-tab.new").click();
+    await page.waitForSelector(".new-terminal-dialog[open]");
+    await page.keyboard.press("1");
+    await page.waitForSelector(".new-terminal-dialog[open]", { state: "detached" });
+    await until(
+      async () => (await page.locator(".terminal-screen").getAttribute("data-session")) !== first,
+      true,
+      budget(20_000),
+    );
+    await awaitAttached(page);
+    await page.evaluate(() => (window as unknown as { __clip: { answer: () => void } }).__clip.answer());
+    release();
+    // Each upload keeps its own offer: the second does not replace the first.
+    const offers = page.locator(".terminal-transfer.failed");
+    await until(async () => await offers.count(), 2, budget(15_000));
+    expect(await offers.count()).toBe(2);
+    expect(await offers.first().innerText()).toContain("nothing was pasted");
+    expect(await attachmentsOf(dir)).toEqual(expect.arrayContaining(["late-one.txt", "late-two.txt"]));
+    await Bun.sleep(300);
+    const screen = await terminalText(page);
+    expect(screen).not.toContain("late-");
+    expect(screen).not.toContain("LATE_CLIPBOARD_TEXT");
+    await offers.first().getByRole("button", { name: "Copy path" }).click();
+    const copied = await until(
+      async () =>
+        await page.evaluate(() => (window as unknown as { __clip: { copied: string } }).__clip.copied),
+      join(dir, ".attachments", "late-one.txt"),
+      budget(5_000),
+    );
+    // Either upload may finish first; the first offer is whichever did.
+    expect([join(dir, ".attachments", "late-one.txt"), join(dir, ".attachments", "late-two.txt")]).toContain(
+      copied,
+    );
+    expect(await offers.count()).toBe(1);
+    await page.close();
+  },
+  budget(90_000),
+);
+
+test.skipIf(!usable)(
+  "a failed upload says why and pastes nothing",
+  async () => {
+    const { page } = await openTerminal(id);
+    await typeUntilText(page, "echo FAIL-UPLOAD-READY", "FAIL-UPLOAD-READY");
+    await page.route("**/terminal/attachments**", (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "disk full" }),
+      }),
+    );
+    await dropOnTerminal(page, { files: [{ name: "doomed.txt", text: "x" }] });
+    const failure = page.locator(".terminal-transfer.failed");
+    await failure.waitFor({ timeout: budget(10_000) });
+    expect(await failure.innerText()).toContain("disk full");
+    expect(await terminalText(page)).not.toContain("doomed.txt");
+    await failure.getByRole("button", { name: "Dismiss" }).click();
+    expect(await page.locator(".terminal-transfer").count()).toBe(0);
+    await page.close();
+  },
+  budget(60_000),
+);
+
+test.skipIf(!usable)(
+  "a pasted image is stored with the change and its path pasted",
+  async () => {
+    const { page, dir } = await openTerminal(id);
+    await typeUntilText(page, "echo IMAGE-PASTE-READY", "IMAGE-PASTE-READY");
+    await awaitBracketedPaste(page);
+    const before = await attachmentsOf(dir);
+    await page.evaluate(() => {
+      const png = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" });
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async () => undefined,
+          readText: async () => "",
+          read: async () => [{ types: ["image/png"], getType: async () => png }],
+        },
+      });
+    });
+    await page.keyboard.press("Control+Shift+V");
+    const added = async (): Promise<string | undefined> =>
+      (await attachmentsOf(dir)).find((name) => !before.includes(name) && name.endsWith(".png"));
+    await waitFor("the pasted image to be stored", async () => (await added()) !== undefined, budget(15_000));
+    const stored = await added();
+    expect(stored).toMatch(/^paste-\d{8}-\d{6}(-\d+)?\.png$/);
+    expect(await until(async () => (await terminalText(page)).includes(stored!), true, budget(10_000))).toBe(
+      true,
+    );
+    await page.keyboard.press("Control+U");
+    await page.close();
+  },
+  budget(60_000),
+);
+
+test.skipIf(!usable)(
+  "an inline image a program prints is drawn",
+  async () => {
+    const { page } = await openTerminal(id);
+    // A 4x4 red PNG in iTerm2's inline image protocol, stretched over 4x2 cells.
+    const png =
+      "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAEklEQVR4nGP4z8DwHxkzkC4AADxAH+HggXe0AAAAAElFTkSuQmCC";
+    await typeUntilText(
+      page,
+      `printf '\\033]1337;File=inline=1;size=75;width=4;height=2;preserveAspectRatio=0:${png}\\a'; echo IMAGE-DRAWN`,
+      "IMAGE-DRAWN",
+    );
+    const painted = await until(
+      () =>
+        page.evaluate(() => {
+          const layer = document.querySelector<HTMLCanvasElement>(".terminal-screen .xterm-image-layer");
+          const context = layer?.getContext("2d");
+          if (!layer || !context || layer.width === 0 || layer.height === 0) return false;
+          const pixels = context.getImageData(0, 0, layer.width, layer.height).data;
+          for (let at = 0; at < pixels.length; at += 4) {
+            if (pixels[at]! > 200 && pixels[at + 1]! < 50 && pixels[at + 3]! > 200) return true;
+          }
+          return false;
+        }),
+      true,
+      budget(15_000),
+    );
+    expect(painted).toBe(true);
     await page.close();
   },
   budget(60_000),

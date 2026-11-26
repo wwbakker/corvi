@@ -7,6 +7,8 @@
  * The files that speak the socket directly (`terminals/routes.ts`, `server.ts`) import
  * `./session.ts` as a leaf instead.
  *
+ * `attachments.ts` stores the files a page drops or pastes into a terminal.
+ *
  * The module knows sessions, not changes: every entry point takes the change's id and, where a
  * path is involved, the directory its caller computed.
  */
@@ -31,3 +33,4 @@ export {
   type LiveSubagent,
 } from "./windows.ts";
 export { presentWindow, type PresentedWindow } from "./presenter.ts";
+export { storeAttachment } from "./attachments.ts";

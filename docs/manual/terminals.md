@@ -90,8 +90,9 @@ notification, or a subagent entry — selects it. Keyboard focus stays with the 
 switching windows.
 
 The terminal owns the screen: drag to select, the wheel or the scrollbar scrolls back, and the
-right-click menu holds Copy, Paste, Select all, Clear, Find and Open link. A dot indicates output
-that arrived while you were looking elsewhere.
+right-click menu holds Copy, Paste, Select all, Clear, Find and Open link. Files and images can
+be dropped or pasted in (see [Keyboard and clipboard](#keyboard-and-clipboard)). A dot indicates
+output that arrived while you were looking elsewhere.
 
 A window's name can be changed from its tab: right-click the tab and pick **Rename**. The name
 replaces the default label everywhere the label is shown — the tab row, the navigation column and
@@ -178,6 +179,32 @@ extensions fall back to stderr. The agent's own output is never touched.
 - Copy with Ctrl-Shift-C or the platform's command key (Cmd-C on macOS, Super-C on Linux), or the
   terminal convention Ctrl-Insert; paste with Ctrl-Shift-V or Cmd-V / Super-V, or Shift-Insert.
   Ctrl-C remains the shell's interrupt shortcut.
+- Pasting puts the clipboard's text into the terminal. When the clipboard holds an image (a
+  screenshot) and no text, the paste uploads it and pastes its path instead; text wins when both
+  are there. A file copied in a file manager is not handed to the page by the browser, so drop it
+  instead. Plain Ctrl-V is not a paste: it reaches the program as `^V`, which is how pi reads the
+  clipboard of the machine it runs on by itself.
+- A drop or a paste belongs to the terminal it was made on. Switching to another terminal while the
+  clipboard is being read, while the size question is open, or before an upload finishes does not
+  type anything into the one you switched to: the question closes, and an upload's path is offered
+  to copy instead. A terminal that has ended, is open in another window or cannot be reached takes
+  no drop or paste.
+- Dropping files onto the terminal uploads them and pastes their paths, quoted for the shell and
+  followed by a space — what a native terminal pastes for a drop, and what pi and other agents
+  read as an attachment. Dropped text is pasted as text. A folder cannot be dropped. Above 200 MB
+  in one drop or paste, Corvi asks before uploading. A failed upload says why and pastes nothing;
+  each such message stays until you dismiss it. A file dropped anywhere else in the window is
+  refused rather than opened by another program.
+- Uploads are stored in the change's directory, in `.attachments/` beside its checkouts and never
+  inside a repository, on the machine the terminal runs on — the remote one for a remote
+  workspace, so the path works for the program that reads it. A name that is taken gets a number
+  (`shot-1.png`); a clipboard image is named `paste-<date>-<time>.png`. Nothing is pruned while
+  the change is open; the files travel with the change into the archive.
+- Programs can show images: the terminal draws SIXEL and iTerm2's inline images (not the kitty
+  graphics protocol). Every pane is started with `PI_IMAGE_PROTOCOL=iterm2` so pi uses the one the
+  terminal draws, unless a harness profile or your environment already sets it. Images are drawn
+  by the page that saw them arrive: a reload, a window switch or taking a terminal over replays the
+  screen's text without them, until the program draws them again.
 - Cmd/Ctrl-F finds in the terminal, Cmd/Ctrl +/-/0 changes the font size, and Cmd/Ctrl-click opens
   a link. The font itself, and the Nerd Fonts icons programs print, are described under
   [Monospace font](interface.md#monospace-font).

@@ -35,6 +35,7 @@ import { join } from "node:path";
 import { TRAFFIC_LIGHTS } from "@corvi/web/chrome";
 import type { HostNotice } from "@corvi/web/host";
 import { ID, PRODUCT, env, stateDir } from "@corvi/configuration/node";
+import { isOursUrl, opensExternally } from "./links.ts";
 
 /** The page's own background, so the window, its frame and the gap before the first paint are
  * all one colour instead of a white flash. It is Dusk's `--bg`
@@ -125,19 +126,6 @@ const pickFreePort = (): Promise<number> =>
 
 /** One shell-quoted word, for the `cd` in the login-shell command below. */
 const shq = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`;
-
-/** Whether a URL is the app's own page. Everything else is a link to somewhere else. */
-const isOursUrl = (url: string): boolean => {
-  try {
-    const { hostname, protocol } = new URL(url);
-    return (
-      (protocol === "http:" || protocol === "https:") &&
-      (hostname === "127.0.0.1" || hostname === "localhost")
-    );
-  } catch {
-    return false;
-  }
-};
 
 /** `which`, without a dependency: the first executable of that name on PATH. */
 const which = (command: string): string | null => {
@@ -499,13 +487,14 @@ const createWindow = (): BrowserWindow => {
   // Links to Jira, GitHub and Azure DevOps belong in the browser, not in this window; the page
   // and its same-origin iframes (the terminal) are the only things that stay.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (!isOursUrl(url)) void shell.openExternal(url);
+    if (!isOursUrl(url) && opensExternally(url)) void shell.openExternal(url);
     return { action: "deny" };
   });
   win.webContents.on("will-navigate", (event, url) => {
     if (isOursUrl(url)) return; // the page talking to itself
     event.preventDefault();
-    void shell.openExternal(url);
+    // A dropped file navigates to its `file:` URL: it is refused, never opened by another program.
+    if (opensExternally(url)) void shell.openExternal(url);
   });
 
   if (process.env[env("WINDOW_DEBUG")]) {

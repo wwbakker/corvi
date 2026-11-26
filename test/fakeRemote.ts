@@ -8,6 +8,8 @@ export type FakeRemote = {
   readonly port: number;
   readonly server: Server;
   readonly received: string[];
+  /** The files the terminal uploaded, by the name the page gave and the bytes that arrived. */
+  readonly uploads: { readonly name: string; readonly body: string }[];
   readonly paths: () => string[];
   readonly connections: () => number;
   readonly close: () => void;
@@ -32,6 +34,7 @@ export type FakeRemoteOptions = {
 
 export const startFakeRemote = async (port: number, options: FakeRemoteOptions): Promise<FakeRemote> => {
   const received: string[] = [];
+  const uploads: { name: string; body: string }[] = [];
   const paths: string[] = [];
   let connections = 0;
   const record = (): Record<string, string> => ({
@@ -54,6 +57,20 @@ export const startFakeRemote = async (port: number, options: FakeRemoteOptions):
       res.write(": open\n\n");
       const beat = setInterval(() => res.write(": ping\n\n"), 250);
       res.on("close", () => clearInterval(beat));
+      return;
+    }
+    // An upload into the terminal is stored "on the remote": its answer is the remote's own path.
+    if (
+      options.terminal === true &&
+      path.startsWith(`/api/changes/${options.changeId}/terminal/attachments`)
+    ) {
+      const name = new URL(path, "http://remote").searchParams.get("name") ?? "";
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk: Buffer) => chunks.push(chunk));
+      req.on("end", () => {
+        uploads.push({ name, body: Buffer.concat(chunks).toString("utf8") });
+        json({ path: `/srv/remote/${options.changeId}/.attachments/${name}` });
+      });
       return;
     }
     if (
@@ -141,6 +158,7 @@ export const startFakeRemote = async (port: number, options: FakeRemoteOptions):
     port,
     server,
     received,
+    uploads,
     paths: () => paths,
     connections: () => connections,
     close: () => {
