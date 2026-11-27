@@ -39,7 +39,12 @@ interface NodeShellOptions {
 interface NodeShellShape {
   readonly run: (
     cmd: readonly string[],
-    opts?: { readonly cwd?: string; readonly env?: Readonly<Record<string, string>> },
+    opts?: {
+      readonly cwd?: string;
+      readonly env?: Readonly<Record<string, string>>;
+      /** The call's own bound, overriding `timeoutSeconds` for this one call. */
+      readonly timeoutSeconds?: number;
+    },
   ) => Effect.Effect<ShellResult, CliError>;
 }
 
@@ -86,6 +91,7 @@ export const makeNodeShell = (options: NodeShellOptions): NodeShellShape => {
     cmd: readonly string[],
     cwd: string | undefined,
     variables: Readonly<Record<string, string>>,
+    timeoutSeconds: number | undefined,
   ): Effect.Effect<ShellResult, CliError> =>
     Effect.gen(function* () {
       const started = options.trace ? Number(process.hrtime.bigint()) : 0;
@@ -133,7 +139,7 @@ export const makeNodeShell = (options: NodeShellOptions): NodeShellShape => {
       // read — a deadline or a shutdown — kills the child first. The hook sits on the read
       // itself, the effect the interruption actually lands on (not on the CliError failure
       // the timeout is turned into afterwards).
-      const seconds = options.timeoutSeconds();
+      const seconds = timeoutSeconds ?? options.timeoutSeconds();
       const killHook = Effect.onInterrupt(() => Effect.sync(() => proc.kill()));
       const guarded =
         seconds > 0
@@ -165,6 +171,6 @@ export const makeNodeShell = (options: NodeShellOptions): NodeShellShape => {
     });
 
   return {
-    run: (cmd, opts) => gate.withPermits(1)(spawn(cmd, opts?.cwd, opts?.env ?? {})),
+    run: (cmd, opts) => gate.withPermits(1)(spawn(cmd, opts?.cwd, opts?.env ?? {}, opts?.timeoutSeconds)),
   };
 };

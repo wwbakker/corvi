@@ -44,7 +44,8 @@ import type { Workspace as WorkspaceShape } from "@corvi/configuration/config";
 export const ShellLive = Layer.effect(
   Shell,
   Effect.succeed({
-    run: (cmd, opts) => Effect.flatMap(Workspace, (workspace) => shWithEnv(cmd, opts?.cwd, envOf(workspace))),
+    run: (cmd, opts) =>
+      Effect.flatMap(Workspace, (workspace) => shWithEnv(cmd, opts?.cwd, envOf(workspace), opts)),
   }),
 );
 

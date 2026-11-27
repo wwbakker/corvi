@@ -81,9 +81,13 @@ loadSnapshots();
 // The app update: only the installed app updates itself (its window marks this run), and only
 // from its own checkout. The interrupted-run sweep closes a journal the last server left open,
 // before any page can read it as a run that is still going.
+const appBundle = process.env[env("APP_BUNDLE")]?.trim();
 const appUpdate: AppUpdateOptions = {
   root: resolve("."),
   app: process.env[env("APP_KIND")] === "app",
+  // The window says where the app it serves is installed, so the update can replace that bundle
+  // in place rather than quit the app it is running in (apps/server/src/app-update/update.ts).
+  ...(appBundle ? { bundle: appBundle } : {}),
 };
 await Effect.runPromise(closeInterruptedUpdate()).catch((error) =>
   console.error("could not close the update journal:", error),

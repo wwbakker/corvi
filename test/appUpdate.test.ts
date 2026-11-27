@@ -233,6 +233,27 @@ test("update now: the three steps, in the journal and through the shell", async 
   expect(status.restartPending).toBe(true);
 });
 
+test("an app that named its bundle reinstalls that bundle in place, and leaves itself running", async () => {
+  await clearJournal();
+  const f = await fixture("in-place");
+  await advance(f, "second");
+  const shell = fakeShell();
+  const bundle = "/tmp/Corvi Sandbox.app";
+  const start = await run(shell, startUpdate({ ...options(f), bundle }));
+  expect(start._tag).toBe("Started");
+  const record = await settled();
+  expect(record.steps.map((s) => s.state)).toEqual(["done", "done", "done"]);
+  // The installer is asked to replace the bundle that asked, rather than the installed app: it is
+  // the app this step runs in, and quitting it would kill the step (apps/desktop/src/mac.ts).
+  expect(shell.calls.map((c) => c.cmd)).toEqual([
+    ["bun", "install"],
+    ["bun", "apps/desktop/src/install.ts", "install", "--in-place", bundle],
+  ]);
+  // A rebuild names its own bound: the shared CLI timeout would kill a slow packager while the
+  // work it started continues, and the journal would say a step failed that went on to finish.
+  expect(shell.calls.map((c) => c.timeoutSeconds)).toEqual([600, 600]);
+});
+
 test("already up to date: nothing runs and no journal is written", async () => {
   await clearJournal();
   const f = await fixture("fresh");
