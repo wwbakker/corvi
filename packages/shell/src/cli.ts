@@ -5,7 +5,7 @@
 import { Effect, Option, Schema } from "effect";
 
 import { CliError } from "@corvi/contracts/errors";
-import { Shell, type ShellResult } from "@corvi/contracts/capabilities";
+import { Shell, type ShellCallOptions, type ShellResult } from "@corvi/contracts/capabilities";
 import { DEFAULT_WORKSPACE, type WorkspaceDto } from "@corvi/contracts/config";
 import { Workspace } from "@corvi/contracts/workspace";
 
@@ -36,8 +36,16 @@ export const soft = <R>(
 ): Effect.Effect<ShellResult, never, R> =>
   Effect.catch(work, (e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr || e.message }));
 
+/** A per-call bound: `run`'s options without the directory, which a `ShellRun` takes
+ * positionally. */
+export type ShellLimits = Omit<ShellCallOptions, "cwd">;
+
 /** One CLI call, as every caller writes it. */
-export type ShellRun = (cmd: readonly string[], cwd?: string) => Effect.Effect<ShellResult, CliError>;
+export type ShellRun = (
+  cmd: readonly string[],
+  cwd?: string,
+  limits?: ShellLimits,
+) => Effect.Effect<ShellResult, CliError>;
 
 const noShell = (cmd: readonly string[]): CliError =>
   new CliError({
@@ -60,20 +68,21 @@ export const withShell = (
     cmd: readonly string[],
     cwd: string | undefined,
     workspace: WorkspaceDto | undefined,
+    limits: ShellLimits | undefined,
   ) => Effect.Effect<ShellResult, CliError>,
 ): ShellRun => {
-  return (cmd, cwd) =>
+  return (cmd, cwd, limits) =>
     Effect.gen(function* () {
       const shell = yield* Effect.serviceOption(Shell);
       const workspace = yield* Effect.serviceOption(Workspace);
       if (Option.isSome(shell)) {
         return yield* shell.value
-          .run(cmd, { cwd })
+          .run(cmd, { cwd, ...limits })
           .pipe(
             Effect.provideService(Workspace, Option.isSome(workspace) ? workspace.value : DEFAULT_WORKSPACE),
           );
       }
-      return yield* fallback(cmd, cwd, Option.isSome(workspace) ? workspace.value : undefined);
+      return yield* fallback(cmd, cwd, Option.isSome(workspace) ? workspace.value : undefined, limits);
     });
 };
 
@@ -86,8 +95,9 @@ export const shOrThrowWith = (
   run: ShellRun,
   cmd: readonly string[],
   cwd?: string,
+  limits?: ShellLimits,
 ): Effect.Effect<string, CliError> =>
-  Effect.flatMap(run(cmd, cwd), (r) => {
+  Effect.flatMap(run(cmd, cwd, limits), (r) => {
     if (r.code === 0) return Effect.succeed(r.stdout);
     const stderr = r.stderr || r.stdout;
     return Effect.fail(
@@ -101,12 +111,19 @@ export const shOrThrowWith = (
     );
   });
 
-export const shOrThrow = (cmd: readonly string[], cwd?: string): Effect.Effect<string, CliError> =>
-  shOrThrowWith(sh, cmd, cwd);
+export const shOrThrow = (
+  cmd: readonly string[],
+  cwd?: string,
+  limits?: ShellLimits,
+): Effect.Effect<string, CliError> => shOrThrowWith(sh, cmd, cwd, limits);
 
 /** `soft(run(...))` for a runner other than the package's own. */
-export const shSoftWith = (run: ShellRun, cmd: readonly string[], cwd?: string): Effect.Effect<ShellResult> =>
-  soft(run(cmd, cwd));
+export const shSoftWith = (
+  run: ShellRun,
+  cmd: readonly string[],
+  cwd?: string,
+  limits?: ShellLimits,
+): Effect.Effect<ShellResult> => soft(run(cmd, cwd, limits));
 
 export const shSoft = (cmd: readonly string[], cwd?: string): Effect.Effect<ShellResult> =>
   shSoftWith(sh, cmd, cwd);

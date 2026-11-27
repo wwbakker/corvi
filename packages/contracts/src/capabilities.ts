@@ -23,14 +23,19 @@ export type ShellResult = {
   readonly stderr: string;
 };
 
+/** Where a call runs, and how long it may. */
+export type ShellCallOptions = {
+  readonly cwd?: string;
+  /** A bound for this call alone, overriding the host's CLI timeout policy. Zero disables it.
+   * Only for a call whose duration the host cannot promise — a rebuild, not a `git status`. */
+  readonly timeoutSeconds?: number;
+};
+
 /** Run a subprocess with the request workspace's environment already applied
  * (`GH_CONFIG_DIR`, `AZURE_CONFIG_DIR`, `JIRA_API_TOKEN`, …), through the shared semaphore
  * and the CLI timeout. */
 export interface ShellShape {
-  run(
-    cmd: readonly string[],
-    opts?: { readonly cwd?: string },
-  ): Effect.Effect<ShellResult, CliError, Workspace>;
+  run(cmd: readonly string[], opts?: ShellCallOptions): Effect.Effect<ShellResult, CliError, Workspace>;
 }
 
 export class Shell extends Context.Service<Shell, ShellShape>()("corvi/Shell") {}

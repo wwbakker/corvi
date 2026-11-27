@@ -691,7 +691,7 @@ export class TestError extends Schema.TaggedError<TestError>()("TestError", {
 export { forgetRateLimit } from "@corvi/github/rate-limit";
 
 /** A command a fake Shell was asked to run, in the order it was asked. */
-export type ShellCall = { cmd: readonly string[]; cwd?: string };
+export type ShellCall = { cmd: readonly string[]; cwd?: string; timeoutSeconds?: number };
 
 /** A scripted Shell. `responses` maps a command line (`cmd.join(" ")`) to what it answers: a
  * string is stdout with exit 0, and an object may set `code`, `stdout` and `stderr`. The function
@@ -702,7 +702,7 @@ export type FakeShell = {
   calls: ShellCall[];
   run: (
     cmd: readonly string[],
-    opts?: { cwd?: string },
+    opts?: { cwd?: string; timeoutSeconds?: number },
   ) => Effect.Effect<ShellResult, CliError, WorkspaceTag>;
 };
 
@@ -741,7 +741,12 @@ export const fakeShell = (
   return {
     calls,
     run: (cmd, opts) => {
-      calls.push({ cmd: [...cmd], cwd: opts?.cwd });
+      calls.push({
+        cmd: [...cmd],
+        cwd: opts?.cwd,
+        // Kept out of the record unless the caller named one, so a call's shape stays comparable.
+        ...(opts?.timeoutSeconds === undefined ? {} : { timeoutSeconds: opts.timeoutSeconds }),
+      });
       return Effect.succeed(answer(cmd));
     },
   };

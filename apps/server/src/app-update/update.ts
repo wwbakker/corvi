@@ -36,11 +36,16 @@ import { announce } from "../capabilities/bus.ts";
 import { layer as repositoriesLayer } from "@corvi/repositories/node";
 import { readJournal, writeJournal, type UpdateJournalError } from "./journal.ts";
 
-/** Where the running app's checkout is, and whether this run is the installed app's own. Read
- * once at the composition root (apps/server/src/server.ts), never from inside an operation. */
+/** Where the running app's checkout is, whether this run is the installed app's own, and — where
+ * the platform installs the app as one bundle — which bundle that is. Read once at the
+ * composition root (apps/server/src/server.ts), never from inside an operation. */
 export type AppUpdateOptions = {
   readonly root: string;
   readonly app: boolean;
+  /** The installed bundle this run is the app of, when its window named one
+   * (`CORVI_APP_BUNDLE`, macOS). Its presence is what makes the reinstall replace that bundle
+   * in place instead of quitting the app it runs in. */
+  readonly bundle?: string;
 };
 
 /** The update is refused right now; `reason` is what the dialog shows in place of the button. */
@@ -114,17 +119,35 @@ const STEP_PLAN: readonly { readonly id: string; readonly label: string }[] = [
   { id: "reinstall", label: "rebuild and reinstall the app" },
 ];
 
+/** How long the two Bun steps may take. The shared CLI bound is for a `git status`; a rebuild
+ * downloads Electron after an upgrade and packs a 200 MB bundle, so it names its own. Ten
+ * minutes rather than none, so a packager that hangs still ends the run with a message. */
+const STEP_LIMITS = { timeoutSeconds: 10 * 60 } as const;
+
+/** The reinstall's command. When the window said which bundle the app is (macOS), the installer
+ * replaces that bundle in place and leaves this server — and the window it serves — running:
+ * quitting the app here would signal the process group this step runs in, killing the step and
+ * the journal write that follows it. Its own **Restart now** relaunches into the new bundle. A
+ * run without a bundle (Linux, a dev checkout) has nothing to quit either way and keeps
+ * `app:install`. */
+// Pure and synchronous: nothing for an Effect to wrap.
+const reinstallCommand = (bundle: string | undefined): readonly string[] =>
+  bundle === undefined
+    ? ["bun", "run", "app:install"]
+    : ["bun", "apps/desktop/src/install.ts", "install", "--in-place", bundle];
+
 /** One step's work: the fast-forward through the repositories capability, and the two Bun
- * commands through the app's shell. `bun run app:install` internally re-runs the install and the
- * page build — accepted duplication, for three honest visible steps. */
+ * commands through the app's shell. The installer internally re-runs the install and the page
+ * build — accepted duplication, for three honest visible steps. */
 const runStep = (
+  options: AppUpdateOptions,
   root: AbsolutePath,
   id: string,
 ): Effect.Effect<unknown, CliError | CheckoutError | NotARepository, Repositories> => {
   if (id === "pull")
     return Effect.flatMap(Repositories, (repositories) => repositories.pullFastForward(root));
-  if (id === "install") return shOrThrow(["bun", "install"], root);
-  return shOrThrow(["bun", "run", "app:install"], root);
+  if (id === "install") return shOrThrow(["bun", "install"], root, STEP_LIMITS);
+  return shOrThrow(reinstallCommand(options.bundle), root, STEP_LIMITS);
 };
 
 /** The journal with one step's state; the plan is written whole before anything runs, so a step
@@ -402,7 +425,7 @@ const runSteps = (
       if (progress.steps.find((existing) => existing.id === step.id)?.state === "done") continue;
       progress = withStep(progress, { ...step, state: "running" });
       yield* writeJournal(progress);
-      const outcome = yield* Effect.result(runStep(root, step.id));
+      const outcome = yield* Effect.result(runStep(options, root, step.id));
       if (outcome._tag === "Failure") {
         const message = errorDetail(outcome.failure, "the update failed");
         progress = {

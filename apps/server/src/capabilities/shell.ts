@@ -15,7 +15,7 @@ import type { Effect } from "effect";
 import { CliError } from "@corvi/contracts/errors";
 import type { Workspace as WorkspaceConfig } from "@corvi/configuration/config";
 import { type ShellResult } from "@corvi/shell";
-import { shOrThrowWith, withShell } from "@corvi/shell/cli";
+import { shOrThrowWith, withShell, type ShellLimits } from "@corvi/shell/cli";
 import { makeNodeShell, type TraceEntry } from "@corvi/shell/node";
 import { childEnv } from "./env.ts";
 import { settingsOf } from "../workspace/server/workspaces.ts";
@@ -56,12 +56,13 @@ export const envOf = (workspace: WorkspaceConfig | undefined): Record<string, st
 
 /** One CLI call with the environment given explicitly, instead of read from the request
  * scope. This is what the Shell capability's live layer runs, so integration code depends on
- * the service and the `Workspace` tag. */
+ * the service and the `Workspace` tag. `limits` is the caller's own bound, when it named one. */
 export const shWithEnv = (
   cmd: readonly string[],
   cwd: string | undefined,
   variables: Record<string, string>,
-): Effect.Effect<ShellResult, CliError> => nodeShell.run(cmd, { cwd, env: variables });
+  limits: ShellLimits | undefined,
+): Effect.Effect<ShellResult, CliError> => nodeShell.run(cmd, { cwd, env: variables, ...limits });
 
 /** One CLI call, bounded by the shared semaphore: non-zero exit codes are a successful
  * `ShellResult` — callers branch on `code`; the `CliError` channel is only for a timeout.
@@ -73,9 +74,14 @@ export const shWithEnv = (
  * With no Shell in context the call runs the node shell directly, exactly as before, so
  * startup and cache code keep working with none. The tag is read, not required, so this stays
  * runnable where no workspace exists. */
-export const sh = withShell((cmd, cwd, workspace) => nodeShell.run(cmd, { cwd, env: envOf(workspace) }));
+export const sh = withShell((cmd, cwd, workspace, limits) =>
+  nodeShell.run(cmd, { cwd, env: envOf(workspace), ...limits }),
+);
 
 /** Run and throw on failure, for actions where the user should see what broke: the `CliError`
  * carries the command's stderr. */
-export const shOrThrow = (cmd: readonly string[], cwd?: string): Effect.Effect<string, CliError> =>
-  shOrThrowWith(sh, cmd, cwd);
+export const shOrThrow = (
+  cmd: readonly string[],
+  cwd?: string,
+  limits?: ShellLimits,
+): Effect.Effect<string, CliError> => shOrThrowWith(sh, cmd, cwd, limits);

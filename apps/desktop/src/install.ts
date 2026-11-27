@@ -6,6 +6,9 @@
  *   bun run app:run        — the same window straight from the checkout, nothing installed
  *   bun run electron:install — only the Electron binary the tests and the app run on
  *
+ * The update runs `install --in-place <bundle>` instead: the app is calling, so it replaces that
+ * bundle without quitting it (see `--in-place` below).
+ *
  * The window is one Electron main process (apps/desktop/src/electron/main.ts) on both platforms. The
  * install builds it into a bundle: a macOS `.app` (apps/desktop/src/mac.ts) or, on Linux, a desktop
  * entry, an icon and a launcher (apps/desktop/src/linux.ts). Either way, clicking it starts the app's
@@ -95,9 +98,27 @@ async function verify(): Promise<void> {
   }
 }
 
+/** `--in-place <bundle>`: the app itself is asking, and that bundle is the one it runs from. The
+ * installer replaces it and leaves the app running — quitting it here would signal the group the
+ * update step runs in, killing the step before it can journal its own outcome; the app's
+ * **Restart now** relaunches into the new build. Without the flag this is a terminal run: quit the
+ * installed app, replace it, and open it again on the new build. */
+const inPlace = (): string | undefined => {
+  const at = process.argv.indexOf("--in-place");
+  if (at === -1) return undefined;
+  const given = process.argv[at + 1];
+  if (given === undefined || given.startsWith("-")) {
+    console.error("--in-place needs the bundle to replace");
+    process.exit(1);
+  }
+  return resolve(given);
+};
+
 const command = process.argv[2];
 const usage = (): void => {
-  console.error("usage: bun apps/desktop/src/install.ts install|uninstall|run|electron");
+  console.error(
+    "usage: bun apps/desktop/src/install.ts install [--in-place <bundle>]|uninstall|run|electron",
+  );
   process.exit(1);
 };
 
@@ -106,9 +127,19 @@ if (command === "install") {
     console.error("unsupported platform: the app is built for macOS and Linux");
     process.exit(1);
   }
+  const into = inPlace();
+  if (into !== undefined && !isMac) {
+    console.error("--in-place is macOS's: Linux installs a desktop entry and a launcher, not a bundle");
+    process.exit(1);
+  }
   await verify();
-  if (isMac) await (await import("./mac.ts")).install(root);
-  else await (await import("./linux.ts")).install();
+  if (isMac) {
+    const mac = await import("./mac.ts");
+    await mac.install(root, {
+      bundle: into ?? mac.installedBundle(),
+      relaunch: into === undefined,
+    });
+  } else await (await import("./linux.ts")).install();
 } else if (command === "uninstall") {
   if (isMac) await (await import("./mac.ts")).uninstall();
   else if (isLinux) await (await import("./linux.ts")).uninstall();

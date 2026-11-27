@@ -31,7 +31,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { createServer } from "node:net";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { TRAFFIC_LIGHTS } from "@corvi/web/chrome";
 import type { HostNotice } from "@corvi/web/host";
 import { ID, PRODUCT, env, stateDir } from "@corvi/configuration/node";
@@ -235,11 +235,17 @@ const startServer = (port: number, checkout: string): void => {
   // the spawn, not from a `cd` in the command: with nothing before it, `exec` is the shell's
   // whole command, so the pid below is the server's own.
   const loginShell = process.env.SHELL || (isMac ? "/bin/zsh" : "/bin/bash");
+  // The bundle this window is running from, where the platform has one: the update replaces it in
+  // place rather than quitting the app it runs in, so this is the one place that knows its path
+  // (apps/server/src/app-update/update.ts). `Contents/MacOS/<executable>` is three directories
+  // down from the bundle, which is the only shape a packaged app takes.
+  const bundle = isMac && app.isPackaged ? resolve(process.execPath, "../../..") : undefined;
   const run =
     `exec env ${env("PORT")}='${port}' NODE_ENV=production ELECTRON_RUN_AS_NODE=1 ` +
     // The mark of an app run: the server's auto-update feature is for the installed app alone
     // (apps/server/src/app-update/update.ts), and this is where that is unambiguous.
     `${env("APP_KIND")}='app' ` +
+    (bundle === undefined ? "" : `${env("APP_BUNDLE")}=${shq(bundle)} `) +
     `${shq(process.execPath)} apps/server/src/server.ts`;
   const child = spawn(loginShell, ["-ilc", run], {
     cwd: checkout,

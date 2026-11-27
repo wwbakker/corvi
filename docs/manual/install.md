@@ -49,6 +49,10 @@ not open, quitting and replacing a running installed app first — so do not use
 It quits the app and the server it started, and leaves the terminal host running, so the shells in
 its windows survive the reinstall.
 
+The update's own last step adds `--in-place <bundle>`: it replaces that bundle and leaves the app
+running, because the app asking for its own reinstall is the app the terminal form would quit. The
+new build is loaded by **Restart now**, or by the next launch.
+
 The application starts through an interactive login shell so tools and exported credentials can
 be found. If an integration works in a terminal but not the app, check the environment provided by
 that shell. Do not put credentials into logs when diagnosing it.
@@ -187,8 +191,9 @@ navigation column turns yellow and a **New version available** notice appears: c
 the update dialog, or click it away — the same version never asks twice.
 
 The dialog lists the commits since the current version, each linking to its page on GitHub, and
-**Update now** runs the update — `git pull --ff-only`, `bun install`, and `bun run app:install` —
-with a step plan while it runs. Uncommitted changes or unpushed commits in the checkout refuse
+**Update now** runs the update — `git pull --ff-only`, `bun install`, and the reinstall, which
+rebuilds the page and replaces the installed app bundle with the app still running — with a step
+plan while it runs. Uncommitted changes or unpushed commits in the checkout refuse
 the update with the reason in place of the button: Corvi never merges or rebases its own
 checkout. A run that stops half way says where it stopped, and **Try again** picks up what is
 left. When the steps are done, **Restart now** restarts the app to use the new version — the
